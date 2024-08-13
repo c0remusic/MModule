@@ -2,12 +2,11 @@
 
 #include <cassert>
 
-#include "mc68k/port.h"
 #include "mc68k/logging.h"
 
 #define LOG MCLOG
 
-namespace wLib
+namespace hwLib
 {
 	LCD::LCD() = default;
 

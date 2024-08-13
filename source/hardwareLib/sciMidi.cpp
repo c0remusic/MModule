@@ -1,20 +1,22 @@
-#include "wMidi.h"
+#include "sciMidi.h"
 
 #include <deque>
 
 #include "mc68k/qsm.h"
 
-namespace wLib
+#include "synthLib/midiBufferParser.h"
+
+namespace hwLib
 {
 	// pause 0.1 seconds for a sysex size of 500, delay is calculated for other sysex sizes accordingly
 	static constexpr float g_sysexSendDelaySeconds = 0.1f;
 	static constexpr uint32_t g_sysexSendDelaySize = 500;
 
-	Midi::Midi(mc68k::Qsm& _qsm) : m_qsm(_qsm)
+	SciMidi::SciMidi(mc68k::Qsm& _qsm, const float _samplerate) : m_qsm(_qsm), m_samplerate(_samplerate), m_sysexDelaySeconds(g_sysexSendDelaySeconds), m_sysexDelaySize(g_sysexSendDelaySize)
 	{
 	}
 
-	void Midi::process(const uint32_t _numSamples)
+	void SciMidi::process(const uint32_t _numSamples)
 	{
 		std::unique_lock lock(m_mutex);
 
@@ -41,13 +43,13 @@ namespace wLib
 			for (const auto b : msg)
 				m_qsm.writeSciRX(b);
 
-			m_remainingSysexDelay = static_cast<uint32_t>(static_cast<float>(msg.size()) * 44100.0f * g_sysexSendDelaySeconds / static_cast<float>(g_sysexSendDelaySize));
+			m_remainingSysexDelay = static_cast<uint32_t>(static_cast<float>(msg.size()) * m_samplerate * m_sysexDelaySeconds / static_cast<float>(m_sysexDelaySize));
 
 			m_pendingSysexBuffers.pop_front();
 		}
 	}
 
-	void Midi::writeMidi(const uint8_t _byte)
+	void SciMidi::write(const uint8_t _byte)
 	{
 		std::unique_lock lock(m_mutex);
 
@@ -76,7 +78,24 @@ namespace wLib
 		}
 	}
 
-	void Midi::readTransmitBuffer(std::vector<uint8_t>& _result)
+	void SciMidi::write(const synthLib::SMidiEvent& _e)
+	{
+		if(!_e.sysex.empty())
+		{
+			write(_e.sysex);
+		}
+		else
+		{
+			write(_e.a);
+			const auto len = synthLib::MidiBufferParser::lengthFromStatusByte(_e.a);
+			if (len > 1)
+				write(_e.b);
+			if (len > 2)
+				write(_e.c);
+		}
+	}
+
+	void SciMidi::read(std::vector<uint8_t>& _result)
 	{
 		std::deque<uint16_t> midiData;
 		m_qsm.readSciTX(midiData);
@@ -97,5 +116,11 @@ namespace wLib
 
 			_result.push_back(d);
 		}
+	}
+
+	void SciMidi::setSysexDelay(const float _seconds, const uint32_t _size)
+	{
+		m_sysexDelaySeconds = _seconds;
+		m_sysexDelaySize = _size;
 	}
 }
