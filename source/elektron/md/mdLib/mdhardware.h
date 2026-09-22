@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "mddsp.h"
@@ -19,6 +20,7 @@
 #include "mdstate.h"
 #include "mdsysextransfer.h"
 #include "mdtimedlinkring.h"
+#include "mdtransportsignal.h"
 #include "mdturbomidi.h"
 #include "mdtransportdiagnostics.h"
 #include "mdtypes.h"
@@ -206,11 +208,27 @@ namespace md
 		// DSP's state at the UC's current machine time observable before a
 		// host access. Serial adapter = run it inline (schedCatchUpDsp); the
 		// threaded adapter waits on the worker's published position instead.
-		void waitForDspTime(const uint32_t _dspIndex) { schedCatchUpDsp(_dspIndex); }
+		void waitForDspTime(uint32_t _dspIndex);
 		TransportMode transportMode() const { return m_transportMode; }
-		// The HI08 bridge may run a DSP inline (in the caller's context) only
-		// under the serial adapter.
-		bool dspInlineRunAllowed() const { return m_transportMode == TransportMode::Serial; }
+		// Pre-handoff (and always under the serial adapter) the HI08 bridge
+		// may run a DSP inline in the caller's context. Once a DSP is owned by
+		// a worker thread, every access waits on its published position.
+		bool dspInlineRunAllowed(const uint32_t _dspIndex) const
+		{
+			return !m_dspThreaded[_dspIndex & 1].load(std::memory_order_acquire);
+		}
+		// Prepared (deferred-state) machines boot under the serial adapter and
+		// never own threads; the committed machine re-enables the configured
+		// mode (parallel-transport spec §7).
+		void setTransportMode(const TransportMode _mode) { m_transportMode = _mode; }
+		void enableParallelTransport();
+		// Quiesce (spec §7): block until the producer worker has parked at the
+		// current target, so its memory can be touched from this context.
+		void waitProducerParked();
+		// Dated UC->DSP stream support: the DSP cycle at which a host word or
+		// command issued at _ucCycle becomes applicable.
+		uint64_t hostToDspDeadline(uint32_t _dspIndex, uint64_t _ucCycle) const;
+		TransportSignal& transportSignal() { return m_signal; }
 		// Mirrored DMA channel enable bits, one per DSP and channel, kept by
 		// the owning DSP's context through the Dma DE observer. The other
 		// DSP's transport gates read these instead of the peer's registers.
@@ -254,13 +272,10 @@ namespace md
 		// reports empty and the ESSI takes its hardware skip-on-empty path.
 		// A word destroyed on an uncollected RX register (ROE) consumes this
 		// wire tick: report no data so the RX exec early-returns, exactly
-		// like the old push-side drop.
-		bool linkRxAvailable(const uint32_t _consumer)
-		{
-			if(linkDisposeAtConsumer(_consumer, true))
-				return false;
-			return linkHeadDue(_consumer);
-		}
+		// like the old push-side drop. With a threaded producer, an empty
+		// ring is only reported empty once the producer's published position
+		// proves it (pop rule step (c)); otherwise the mixer waits (step (d)).
+		bool linkRxAvailable(uint32_t _consumer);
 
 		bool sendMidi(const synthLib::SMidiEvent& _ev);
 		// Audio-owner entry point: _ev.offset is relative to the next native block.
@@ -429,7 +444,16 @@ namespace md
 		// advance() in mdhardware.cpp for the loop and timing constants.
 		// ---------------------------------------------------------------------------------------
 		bool     schedStep();					// one advance() event-loop iteration; false once all caught up
+		void     schedRunDspSlice(uint32_t _dspIndex, double _subTarget);	// one bounded DSP slice (serial adapter)
+		void     schedTryHandoffProducer();		// start the DSP2 worker once the boot-era protocol is armed
 		double   schedDspFramePos(uint32_t _dspIndex);	// a runnable DSP's machine-frame position
+		uint64_t schedFrameToDspCycles(uint32_t _dspIndex, double _frames) const;
+		// DSP2 worker (parallel-transport spec §3): free-runs in one-frame
+		// chunks toward the published block target, gated by the published
+		// UC and mixer positions plus L_lead, and parks when gated.
+		void     producerWorkerLoop();
+		uint64_t producerTargetCycles() const;
+		void     stopProducerWorker();
 		void     schedDrainCodecOutput();		// pop the mixer ESSI1 output ring so its TX never blocks
 		void     schedCatchUpDspToDsp(uint32_t _consumer, uint32_t _producer);
 		// Compact, preallocated host-facing storage keeps codec draining bounded.
@@ -440,10 +464,26 @@ namespace md
 		bool     m_schedHostAudioActive = false;	// retain drained frames for a host callback
 		bool     m_schedBoundedJit = true;		// cycle-bounded DSP background slices
 		TransportMode m_transportMode = TransportMode::Serial;
+		// Threaded-transport state. m_dspThreaded flips once at handoff and
+		// never back; the worker exists only for the producer in this step.
+		std::array<std::atomic<bool>, 2> m_dspThreaded{};
+		std::atomic<bool> m_producerParked{false};
+		std::atomic<bool> m_workerExit{false};
+		std::atomic<uint64_t> m_schedTargetFrames{0};	// published block target (whole frames)
+		std::atomic<uint64_t> m_transportWaitClamps{0};	// bounded waits that expired (telemetry)
+		TransportSignal m_signal;
+		std::thread m_producerWorker;
 		std::array<RealtimeHostAudioInputTimeline, 2> m_hostAudioInput;
 		std::array<int64_t, 2> m_hostAudioInputClockOrigin{};
 		std::array<uint64_t, 2> m_hostAudioInputNextRxIndex{};
-		std::array<bool, 2> m_hostAudioInputClockInitialized{};
+		// Receiver-context clock bookkeeping re-originates whenever the audio
+		// thread republishes the input latency (generation bump), so the
+		// audio thread never writes receiver-owned state.
+		std::array<uint64_t, 2> m_hostAudioInputClockGeneration{};
+		std::atomic<uint64_t> m_hostAudioInputGeneration{1};
+		std::atomic<bool> m_hostAudioInputHasSource{false};
+		static constexpr uint32_t g_hostAudioInputLatencyUnset = 0xffffffffu;
+		std::atomic<uint32_t> m_hostAudioInputLatencyPublished{g_hostAudioInputLatencyUnset};
 		// Counts are receiver-frame events; aggregate accessors sum both DSPs.
 		std::array<std::atomic<uint64_t>, 2> m_hostAudioInputUnderflow{};
 		std::array<std::atomic<uint64_t>, 2> m_hostAudioInputOverflow{};

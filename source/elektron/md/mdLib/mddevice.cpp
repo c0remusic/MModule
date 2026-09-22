@@ -369,6 +369,8 @@ namespace md
 			_validated.m_context->m_model, _validated.m_hardware->copyPatchRam(),
 			std::shared_ptr<FrontPanelPublisher>{},
 			_validated.m_hardware->copyFlashData(), cache);
+		// Prepared machines boot on the serial adapter and never own threads.
+		replacement->setTransportMode(TransportMode::Serial);
 		if(!replacement->isValid())
 			return {};
 		return std::unique_ptr<PreparedState>(new PreparedState(
@@ -458,7 +460,9 @@ namespace md
 				_context->m_romData, _context->m_romName, _context->m_model, patchRam,
 				std::shared_ptr<FrontPanelPublisher>{},
 				initialFlash, factory.cache, pending);
-			if(!replacement->isValid())
+			// Prepared machines boot on the serial adapter and never own threads.
+		replacement->setTransportMode(TransportMode::Serial);
+		if(!replacement->isValid())
 				return fail("The replacement Machinedrum machine rejected the restored firmware or memory image.");
 			return std::unique_ptr<PreparedState>(
 				new PreparedState(std::move(_context), std::move(replacement),
@@ -469,6 +473,8 @@ namespace md
 			_context->m_romData, _context->m_romName, _context->m_model, patchRam,
 			std::shared_ptr<FrontPanelPublisher>{}, std::vector<uint8_t>{},
 			std::vector<uint8_t>{}, FlashSectorOverlay{}, initialFlash);
+		// Prepared machines boot on the serial adapter and never own threads.
+		replacement->setTransportMode(TransportMode::Serial);
 		if(!replacement->isValid())
 			return fail("The replacement Monomachine rejected the restored firmware or memory image.");
 		return std::unique_ptr<PreparedState>(
@@ -501,6 +507,9 @@ namespace md
 		m_hardware.swap(_prepared.m_hardware);
 		++m_hardwareEpoch;
 		_prepared.m_committed = true;
+		// The promoted machine may now take the configured transport; its
+		// worker starts at the next handoff barrier (parallel-transport §7).
+		m_hardware->enableParallelTransport();
 		return true;
 	}
 

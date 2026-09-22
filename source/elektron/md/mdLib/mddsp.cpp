@@ -6,6 +6,7 @@
 #include "mc68k/hdi08.h"
 #include "synthLib/realtimeInstrumentation.h"
 
+#include <chrono>
 #include <cstdlib>
 #include <limits>
 
@@ -274,6 +275,51 @@ namespace md
 		return true;
 	}
 
+	void Dsp::pushHostToDsp(const HostToDspItem::Kind _kind, const uint32_t _value)
+	{
+		// The UC never drops a host word: on a full stream it waits (bounded)
+		// for the worker to apply older items.
+		while(m_hostToDsp.full())
+		{
+			if(!m_hardware.transportSignal().waitFor(std::chrono::milliseconds(20),
+				[&] { return !m_hostToDsp.full(); }))
+				break;
+		}
+		if(m_hostToDsp.full())
+			return;
+		m_hostToDsp.push_back(HostToDspItem{_kind, _value, m_hardware.hostCurrentCycle()});
+		m_hardware.transportSignal().notify();
+	}
+
+	void Dsp::applyHostToDspStream()
+	{
+		const uint64_t now = m_dsp.getCycles();
+		while(!m_hostToDsp.empty())
+		{
+			const auto& item = m_hostToDsp.front();
+			if(m_hardware.hostToDspDeadline(m_index, item.ucCycle) > now)
+				return;
+			if(item.kind == HostToDspItem::Kind::Data)
+			{
+				// One-word HRX: the next word lands only after the DSP drained
+				// the previous one, as the serial path modeled with its
+				// inline drain wait.
+				if(hdi08().hasRXData())
+					return;
+				const TWord word = item.value;
+				hdi08().writeRX(&word, 1);
+			}
+			else
+			{
+				if(hdi08().hostCommandBusy())
+					return;
+				dispatchHostCommandInterrupt(static_cast<uint8_t>(item.value));
+			}
+			m_hostToDsp.pop_front();
+		}
+		m_hardware.transportSignal().notify();
+	}
+
 	uint64_t Dsp::nextDeferredHostRxCycle() const
 	{
 		if(!m_hostTxStaging.empty())
@@ -347,7 +393,7 @@ namespace md
 			// A produced reply is either still in the HOTX latch or already
 			// staged (dated) for the UC. Serial adapter only: the threaded
 			// transport waits on the worker's position instead (spec §5.6).
-			if(m_hardware.dspInlineRunAllowed())
+			if(m_hardware.dspInlineRunAllowed(m_index))
 				while(!hdi08().hasTX() && !hasDeferredHostRx()
 					&& (!m_hardware.isMonomachine() || m_hdiUC.canReceiveData())
 					&& (hdi08().hostCommandBusy() || dsp().hasPendingInterrupts())
@@ -369,6 +415,13 @@ namespace md
 
 	void Dsp::hdiTransferUCtoDSP(const uint32_t _word)
 	{
+		// Threaded adapter: the word is dated with the UC's cycle and the
+		// worker lands it in HRX once its own time reaches that stamp.
+		if(!m_hardware.dspInlineRunAllowed(m_index))
+		{
+			pushHostToDsp(HostToDspItem::Kind::Data, _word);
+			return;
+		}
 		// Catch the DSP up to the UC's current machine time before the word
 		// lands, so it consumes everything up to "now" first.
 		m_hardware.waitForDspTime(m_index);
@@ -387,7 +440,7 @@ namespace md
 		const uint64_t startCycle = m_dsp.getCycles();
 		const uint64_t clampStop = startCycle
 			+ schedInlineClamp(m_hardware.getModel());
-		if(m_hardware.dspInlineRunAllowed())
+		if(m_hardware.dspInlineRunAllowed(m_index))
 			while(hdi08().hasRXData() && m_dsp.getCycles() < clampStop)
 				m_dsp.exec();
 #if MD_TRANSPORT_DIAGNOSTICS
@@ -408,7 +461,7 @@ namespace md
 		const uint64_t startCycle = m_dsp.getCycles();
 		const uint64_t clampStop = startCycle
 			+ schedInlineClamp(m_hardware.getModel());
-		if(m_hardware.dspInlineRunAllowed())
+		if(m_hardware.dspInlineRunAllowed(m_index))
 			while(hdi08().hostCommandBusy() && m_dsp.getCycles() < clampStop)
 				m_dsp.exec();
 #if MD_TRANSPORT_DIAGNOSTICS
@@ -431,6 +484,14 @@ namespace md
 
 	void Dsp::hdiSendIrqToDSP(const uint8_t _irq)
 	{
+		// Threaded adapter: the command joins the dated stream behind any
+		// data word issued before it, and the worker dispatches it once no
+		// other host command is in flight.
+		if(booted() && !m_hardware.dspInlineRunAllowed(m_index))
+		{
+			pushHostToDsp(HostToDspItem::Kind::Command, _irq);
+			return;
+		}
 		// Catch the DSP up to the UC's current machine time before the CVR is
 		// dispatched, so HCP is raised at a defined point in DSP time.
 		if(booted())
@@ -445,7 +506,7 @@ namespace md
 			const uint64_t startCycle = m_dsp.getCycles();
 			const uint64_t clampStop = startCycle
 				+ schedInlineClamp(m_hardware.getModel()) * 4;
-			if(m_hardware.dspInlineRunAllowed())
+			if(m_hardware.dspInlineRunAllowed(m_index))
 				while(!hdi08().rxData().empty() && m_dsp.getCycles() < clampStop)
 					m_dsp.exec();
 #if MD_TRANSPORT_DIAGNOSTICS

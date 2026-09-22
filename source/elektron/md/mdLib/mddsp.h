@@ -79,6 +79,10 @@ namespace md
 		// while there is room. A full queue leaves the latch occupied, so HTDE
 		// stays clear and the firmware paces itself, as on silicon.
 		void stageHostTx();
+		// DSP context only (worker): apply the dated UC->DSP stream up to the
+		// DSP's current cycle - data words into HRX when it is free, host
+		// commands when none is in flight (parallel-transport spec §5.4).
+		void applyHostToDspStream();
 
 	private:
 		void    onUCRxEmpty(bool _needMoreData);
@@ -105,6 +109,19 @@ namespace md
 		};
 		dsp56k::RingBuffer<StagedHostWord, 16, false, true> m_hostTxStaging;
 		uint64_t m_lastHostTxCycle = 0;		// DSP context: cycle of the latest HOTX write
+
+		// Dated UC->DSP stream (threaded adapter): the UC context pushes
+		// words and host commands stamped with its cycle, the worker applies
+		// them in order once its own time has reached the stamp.
+		struct HostToDspItem
+		{
+			enum class Kind : uint8_t { Data, Command };
+			Kind kind = Kind::Data;
+			uint32_t value = 0;
+			uint64_t ucCycle = 0;
+		};
+		void pushHostToDsp(HostToDspItem::Kind _kind, uint32_t _value);
+		dsp56k::RingBuffer<HostToDspItem, 64, false, true> m_hostToDsp;
 
 		Hardware&        m_hardware;
 		mc68k::Hdi08&    m_hdiUC;			// ColdFire-facing HI08 register file (owned by the Microcontroller)
