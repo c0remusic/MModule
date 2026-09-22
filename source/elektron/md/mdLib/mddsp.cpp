@@ -6,6 +6,8 @@
 #include "mc68k/hdi08.h"
 #include "synthLib/realtimeInstrumentation.h"
 
+#include <cstdlib>
+
 namespace md
 {
 	using dsp56k::TWord;
@@ -114,12 +116,28 @@ namespace md
 		// EssiClock ticks at most once per peripherals exec.
 		config.maxInstructionsPerBlock = 32;
 		// Likewise return from hardware DO loops regularly to service peripherals.
-		config.maxDoIterations = 4;
-#if defined(__APPLE__) && defined(__aarch64__)
-		// JIT blocks are first compiled synchronously by the audio thread. On Apple
-		// silicon, the optimizer's cold cost exceeds its measured steady-state gain.
+		// 64 keeps the ESSI cycle clock serviced well within a 2304-cycle codec
+		// frame while cutting dispatcher exits inside long firmware fill loops;
+		// measured ~10% lower idle host CPU vs. 4, with the audio firmware soaks
+		// and the timing suites unchanged. MD_MAX_DO_ITERATIONS overrides for
+		// experiments (power of two required by the JIT).
+		config.maxDoIterations = 64;
+		if(const char* const doIterations = std::getenv("MD_MAX_DO_ITERATIONS"))
+		{
+			const auto v = static_cast<uint32_t>(std::atoi(doIterations));
+			if(v && (v & (v - 1)) == 0)
+				config.maxDoIterations = v;
+		}
+		// JIT blocks are first compiled synchronously by the audio thread; a
+		// pattern/kit switch can queue hundreds of cold compilations into one
+		// callback (measured: 183 compilations, 29ms in a 2.9ms budget). The
+		// optimizer's cold cost exceeds its measured steady-state gain on Apple
+		// silicon (upstream) and on Windows x64 (Ryzen 3700X: <2%, within noise),
+		// so keep it off everywhere to shorten those storms.
+		// MD_JIT_OPTIMIZER=1 forces it back on, =0 forces it off.
 		config.enableOptimizer = false;
-#endif
+		if(const char* const optimizer = std::getenv("MD_JIT_OPTIMIZER"))
+			config.enableOptimizer = optimizer[0] != '0';
 		config.getBlockConfig = [](const TWord)
 			-> std::optional<dsp56k::JitConfig>
 		{
