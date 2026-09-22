@@ -19,12 +19,18 @@ namespace md
 		size_t hostTransmitBackpressureThresholdWords;
 		uint64_t hostTransmitBackpressureReleaseUcCycles;
 		bool exactEssiCycleDeadlines;
+		// Content offset of the producer->mixer link direction, in codec
+		// frames (parallel-transport spec §2: the ratified 1-2 frame internal
+		// latency budget). The mixer->producer back-channel stays causal.
+		// 0 disables dating entirely (the documented fallback).
+		// MD_LINK_PIPELINE_DEPTH overrides for experiments.
+		double linkPipelineDepthFrames;
 	};
 
 	constexpr TransportPolicy transportPolicy(const MachineModel _model)
 	{
 		return _model == MachineModel::Monomachine
-			? TransportPolicy{30.0, 100'000, 1, 16, 4, 200'000, true}
-			: TransportPolicy{125.0, 100'000, 3, 16, 4, 200'000, false};
+			? TransportPolicy{30.0, 100'000, 1, 16, 4, 200'000, true, 1.0}
+			: TransportPolicy{125.0, 100'000, 3, 16, 4, 200'000, false, 1.0};
 	}
 }

@@ -124,6 +124,9 @@ namespace md
 		// established path as a field fallback and exact A/B control.
 		const auto* const boundedJit = std::getenv("GEARMULATOR_MDMM_BOUNDED_JIT");
 		m_schedBoundedJit = boundedJit == nullptr || std::strcmp(boundedJit, "0") != 0;
+		m_linkPipelineDepthFrames = transportPolicy(m_model).linkPipelineDepthFrames;
+		if(const char* const depth = std::getenv("MD_LINK_PIPELINE_DEPTH"))
+			m_linkPipelineDepthFrames = std::max(0.0, std::atof(depth));
 
 		if(!m_rom.isValid())
 			return;
@@ -183,6 +186,11 @@ namespace md
 				entry.producerCycles = producerDsp.dsp().getCycles();
 				entry.fresh = producerDsp.getPeriph().getEssi0()
 					.getLastTxWrittenMask() != 0;
+				// Content offset applies to the producer->mixer direction only;
+				// the back-channel is causal. Boot traffic (origin not latched
+				// yet) stays undated.
+				entry.dueFrames = (_selfDsp == 1 && m_schedDspOriginLatched[1])
+					? schedDspFramePos(1) + m_linkPipelineDepthFrames : 0.0;
 				auto& ring = m_linkRing[1u - _selfDsp];
 				const bool mdProducerToMixer = _selfDsp == 1 && !isMonomachine();
 				const bool rendezvousActiveBefore = mdProducerToMixer
@@ -294,6 +302,7 @@ namespace md
 				// an RX-tick ROE site: the availability probe owns that.
 				linkDisposeAtConsumer(_selfDsp, false);
 				auto& ring = m_linkRing[_selfDsp];
+				const double now = linkConsumerNow(_selfDsp);
 					// Stall recovery: under scheduler link catch-up the consumer is
 					// advanced to the producer's time before every enqueue, so this ring can only be
 					// DEEP if the consumer's RX stopped clocking for a while as the wire kept running
@@ -319,23 +328,36 @@ namespace md
 						const uint64_t esaiNow =
 							m_esaiFrameIndex.load(std::memory_order_acquire);
 						auto& lastShallow = m_linkLastShallow[_selfDsp];
-						if(ring.size() <= 16)
+						// Depth as the wire sees it: words already due. The
+						// in-flight (future-dated) lead is invisible to stall
+						// recovery - a stall residue is made of PAST words.
+						size_t dueDepth = 0;
+						while(dueDepth < ring.size() && dueDepth <= 16
+							&& ring[dueDepth].dueFrames <= now)
+							++dueDepth;
+						if(dueDepth <= 16)
 							lastShallow = esaiNow;
 						else if(!preserveRendezvousFutureEdges
 							&& (s_immediate || esaiNow - lastShallow > 1024))
 						{
-							MD_TRANSPORT_RECORD(m_transportScorecard.link[1u - _selfDsp]
-								.stallPurgedFrames += ring.size();
-								m_transportScorecard.link[1u - _selfDsp].currentRingDepth = 0;);
-							while(!ring.empty())
+							size_t purged = 0;
+							while(!ring.empty() && ring.front().dueFrames <= now)
+							{
 								ring.pop_front();
-							lastShallow = esaiNow;	// ring is now empty (shallow)
+								++purged;
+							}
+							MD_TRANSPORT_RECORD(m_transportScorecard.link[1u - _selfDsp]
+								.stallPurgedFrames += purged;
+								m_transportScorecard.link[1u - _selfDsp].currentRingDepth = ring.size(););
+							(void)purged;
+							lastShallow = esaiNow;	// due backlog gone (shallow)
 						}
 					}
 					// Non-blocking on the single scheduler thread: silence on empty rather than park.
 					// Hardware-true skip-on-empty link receive replaces this with matched consumption
-					// and production once the frame has landed.
-					if(ring.empty())
+					// and production once the frame has landed. A head that is
+					// not due yet counts as empty: nothing has arrived.
+					if(ring.empty() || ring.front().dueFrames > now)
 					{
 						_frame.clear();
 						MD_TRANSPORT_RECORD(++m_transportScorecard.link[1u - _selfDsp].emptyReads;);
@@ -874,6 +896,7 @@ namespace md
 				m_mdLink.rendezvousActive.load(std::memory_order_acquire);
 			const auto flushEpoch =
 				m_mdLink.flushEpoch.load(std::memory_order_acquire);
+			const double now = linkConsumerNow(_consumer);
 			for(;;)
 			{
 				if(ring.empty())
@@ -886,6 +909,10 @@ namespace md
 						.mdWindowOpenedDuringCatchUpDrops;);
 					continue;
 				}
+				// Nothing arrives on the wire before the head's due time:
+				// the receiver takes its skip-on-empty path meanwhile.
+				if(head.dueFrames > now)
+					return false;
 				// Between a receive-window flush and DSP2's first DMA-fed TX
 				// slot, idle retransmits of the retained register die with the
 				// flush; the first DMA-fed word disarms this path. Judged by
@@ -946,6 +973,20 @@ namespace md
 				.mmStrobeChangedDuringCatchUpDrops;);
 		}
 		return false;
+	}
+
+	double Hardware::linkConsumerNow(const uint32_t _consumer)
+	{
+		if(!m_schedDspOriginLatched[_consumer])
+			return std::numeric_limits<double>::infinity();
+		return schedDspFramePos(_consumer);
+	}
+
+	bool Hardware::linkHeadDue(const uint32_t _consumer)
+	{
+		const auto& ring = m_linkRing[_consumer];
+		return !ring.empty()
+			&& ring.front().dueFrames <= linkConsumerNow(_consumer);
 	}
 
 	void Hardware::mdLinkWindowFlushed()

@@ -221,7 +221,7 @@ namespace md
 		{
 			if(linkDisposeAtConsumer(_consumer, true))
 				return false;
-			return !m_linkRing[_consumer].empty();
+			return linkHeadDue(_consumer);
 		}
 
 		bool sendMidi(const synthLib::SMidiEvent& _ev);
@@ -324,6 +324,10 @@ namespace md
 		// availability probe, the only site where the ROE arrival semantics
 		// may destroy a word; returns true when it did.
 		bool linkDisposeAtConsumer(uint32_t _consumer, bool _rxTick);
+		// The consumer's machine-frame position for due-time checks;
+		// +infinity before its origin is latched (undated boot traffic).
+		double linkConsumerNow(uint32_t _consumer);
+		bool linkHeadDue(uint32_t _consumer);
 		void onEssiCallbackMixer();		// master clock: advance the ESSI frame counter
 		void pumpMidiIngress();
 
@@ -358,6 +362,9 @@ namespace md
 		AudioOutputs m_audioOutputs;
 		// Link word store, indexed by consumer DSP; see linkRing().
 		std::array<TimedLinkRing, 2> m_linkRing;
+		// Producer->mixer content offset in codec frames (TransportPolicy,
+		// MD_LINK_PIPELINE_DEPTH override).
+		double m_linkPipelineDepthFrames = 0.0;
 		// Per-machine age of the last shallow link ring. This participates in the
 		// MM stall-purge decision, so it must never be shared by concurrently
 		// running Hardware instances (as it was when this lived as a static local).

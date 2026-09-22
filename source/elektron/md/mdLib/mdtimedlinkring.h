@@ -22,6 +22,10 @@ namespace md
 		std::array<dsp56k::TWord, MaxSlots> words{};
 		uint64_t producerCycles = 0;	// producer DSP getCycles() at TX
 		uint64_t epoch = 0;				// flush (MD) / strobe (MM) epoch at TX
+		// Machine-frame position at which the consumer may see this word:
+		// producer position at TX plus the direction's pipeline depth. 0 =
+		// due immediately (undated boot traffic, causal back-channel).
+		double dueFrames = 0.0;
 		uint8_t slotCount = 0;
 		bool fresh = false;				// producer TX wrote this slot
 
