@@ -127,6 +127,9 @@ namespace md
 		m_linkPipelineDepthFrames = transportPolicy(m_model).linkPipelineDepthFrames;
 		if(const char* const depth = std::getenv("MD_LINK_PIPELINE_DEPTH"))
 			m_linkPipelineDepthFrames = std::max(0.0, std::atof(depth));
+		if(const char* const mode = std::getenv("MDMM_TRANSPORT"))
+			m_transportMode = std::strcmp(mode, "parallel") == 0
+				? TransportMode::Parallel : TransportMode::Serial;
 
 		if(!m_rom.isValid())
 			return;
@@ -1498,11 +1501,13 @@ namespace md
 			// skip stays transparent.
 			const bool dspTxClear = !m_dspMixer.hdi08().hasTX()
 				&& !m_dspProducer.hdi08().hasTX();
+			// A deferred (dated) host word no longer forbids the skip: the jump
+			// below is bounded by its ready cycle, so the pump delivers it at
+			// exactly the host cycle a non-skipping UC would have reached.
 			if(((probeCount++ & 15u) == 0) && (isMonomachine() || dspTxClear)
 				&& m_schedUcCyclesDone < clampStop
 					&& !m_pendingFlashRestoreActive.load(std::memory_order_acquire)
 					&& !m_schedulerHostPumpDirty.load(std::memory_order_acquire)
-					&& !m_dspMixer.hasDeferredHostRx() && !m_dspProducer.hasDeferredHostRx()
 					&& !m_midiSysexTransfer.ownsMidiWire() && m_midiInByteCursor == 0)
 				{
 					const double remaining = (subTarget
@@ -1518,6 +1523,16 @@ namespace md
 								: static_cast<uint32_t>(std::min<uint64_t>(maxCycles,
 									deadline - m_schedUcCyclesDone));
 						}
+						// A staged host word becomes visible at its ready cycle;
+						// never jump past it, or its HREQ->IRQ4 edge would slip by
+						// the whole skip (spec §5.7).
+						const auto nextHostRx = std::min(
+							m_dspMixer.nextDeferredHostRxCycle(),
+							m_dspProducer.nextDeferredHostRxCycle());
+						if(nextHostRx != std::numeric_limits<uint64_t>::max())
+							maxCycles = nextHostRx <= m_schedUcCyclesDone ? 0
+								: static_cast<uint32_t>(std::min<uint64_t>(maxCycles,
+									nextHostRx - m_schedUcCyclesDone));
 						const auto limit = m_uc.idleSelfBranchInstructions(maxCycles);
 						uint32_t instructions = 0;
 						// Keep external input polling at each omitted instruction
@@ -1573,6 +1588,9 @@ namespace md
 			score.maximumRequestedCycles = std::max(
 				score.maximumRequestedCycles, diagnosticRequested);
 #endif
+			// A HOTX word left in the latch while the staging queue was full
+			// gets its chance now that the UC may have drained the queue.
+			d.stageHostTx();
 			if(m_schedBoundedJit)
 				d.dsp().execUntilCycles(stopCyc);
 			else

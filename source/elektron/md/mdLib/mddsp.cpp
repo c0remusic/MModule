@@ -7,6 +7,7 @@
 #include "synthLib/realtimeInstrumentation.h"
 
 #include <cstdlib>
+#include <limits>
 
 namespace md
 {
@@ -174,6 +175,14 @@ namespace md
 				m_mmHostTxCycle = m_dsp.getCycles();
 				hdiTransferDSPtoUC();
 			});
+		else
+			// MD: the DSP context is the only reader of its HOTX latch. Each
+			// write is dated at its cycle and staged for the UC (spec §5.2).
+			hdi08().setWriteTxCallback([this]
+			{
+				m_lastHostTxCycle = m_dsp.getCycles();
+				stageHostTx();
+			});
 
 		// ---- Bridge the ColdFire-facing HI08 register file to the DSP (n2x model) ----
 
@@ -248,6 +257,31 @@ namespace md
 		m_hardware.publishUcRxDepth(m_index, m_hdiUC.rxDataSize());
 	}
 
+	void Dsp::stageHostTx()
+	{
+		if(m_hardware.isMonomachine() || m_hostTxStaging.full() || !hdi08().hasTX())
+			return;
+		m_hostTxStaging.push_back(StagedHostWord{hdi08().readTX(),
+			m_hardware.hostRxReadyCycle(m_index, m_lastHostTxCycle)});
+		m_hardware.notifyHostPumpStateChanged();
+	}
+
+	bool Dsp::takeDueHostRx(const uint64_t _now, uint32_t& _word)
+	{
+		if(m_hostTxStaging.empty() || m_hostTxStaging.front().readyCycle > _now)
+			return false;
+		_word = m_hostTxStaging.pop_front().word;
+		return true;
+	}
+
+	uint64_t Dsp::nextDeferredHostRxCycle() const
+	{
+		if(!m_hostTxStaging.empty())
+			return m_hostTxStaging.front().readyCycle;
+		return m_timedHostRx.pending() ? m_timedHostRx.readyCycle()
+			: std::numeric_limits<uint64_t>::max();
+	}
+
 	uint32_t Dsp::pumpHostRx(const size_t _maxUcWords)
 	{
 		if(m_hardware.isMonomachine())
@@ -262,10 +296,13 @@ namespace md
 		// _maxUcWords so we don't grow it unbounded when the host isn't reading. This also fixes
 		// the "HOTX is full, Discarding" overflow: DSP2's HOTX now drains promptly instead of only
 		// when the firmware happens to demand a word.
+		// The words come from the dated staging queue the DSP context fills;
+		// only those whose ready cycle the host clock has reached are visible.
 		uint32_t moved = 0;
-		while(m_hdiUC.rxDataSize() < _maxUcWords && hdi08().hasTX())
+		uint32_t w = 0;
+		while(m_hdiUC.rxDataSize() < _maxUcWords
+			&& takeDueHostRx(m_hardware.hostCurrentCycle(), w))
 		{
-			const auto w = hdi08().readTX();
 			m_hdiUC.writeRx(w);
 			++moved;
 		}
@@ -307,15 +344,18 @@ namespace md
 			const uint64_t startCycle = m_dsp.getCycles();
 			const uint64_t clampStop = startCycle
 				+ schedInlineClamp(m_hardware.getModel());
-			while(!hdi08().hasTX()
-				&& (!m_hardware.isMonomachine() || (!m_timedHostRx.pending() && m_hdiUC.canReceiveData()))
-				&& (hdi08().hostCommandBusy() || dsp().hasPendingInterrupts())
-				&& m_dsp.getCycles() < clampStop)
-				m_dsp.exec();
+			// A produced reply is either still in the HOTX latch or already
+			// staged (dated) for the UC. Serial adapter only: the threaded
+			// transport waits on the worker's position instead (spec §5.6).
+			if(m_hardware.dspInlineRunAllowed())
+				while(!hdi08().hasTX() && !hasDeferredHostRx()
+					&& (!m_hardware.isMonomachine() || m_hdiUC.canReceiveData())
+					&& (hdi08().hostCommandBusy() || dsp().hasPendingInterrupts())
+					&& m_dsp.getCycles() < clampStop)
+					m_dsp.exec();
 #if MD_TRANSPORT_DIAGNOSTICS
-			const bool workComplete = hdi08().hasTX()
-				|| (m_hardware.isMonomachine()
-					&& (m_timedHostRx.pending() || !m_hdiUC.canReceiveData()))
+			const bool workComplete = hdi08().hasTX() || hasDeferredHostRx()
+				|| (m_hardware.isMonomachine() && !m_hdiUC.canReceiveData())
 				|| (!hdi08().hostCommandBusy() && !dsp().hasPendingInterrupts());
 			m_hardware.recordInlineHdi08Run(m_index, startCycle, clampStop,
 				workComplete);
@@ -347,8 +387,9 @@ namespace md
 		const uint64_t startCycle = m_dsp.getCycles();
 		const uint64_t clampStop = startCycle
 			+ schedInlineClamp(m_hardware.getModel());
-		while(hdi08().hasRXData() && m_dsp.getCycles() < clampStop)
-			m_dsp.exec();
+		if(m_hardware.dspInlineRunAllowed())
+			while(hdi08().hasRXData() && m_dsp.getCycles() < clampStop)
+				m_dsp.exec();
 #if MD_TRANSPORT_DIAGNOSTICS
 		m_hardware.recordInlineHdi08Run(m_index, startCycle, clampStop,
 			!hdi08().hasRXData());
@@ -367,8 +408,9 @@ namespace md
 		const uint64_t startCycle = m_dsp.getCycles();
 		const uint64_t clampStop = startCycle
 			+ schedInlineClamp(m_hardware.getModel());
-		while(hdi08().hostCommandBusy() && m_dsp.getCycles() < clampStop)
-			m_dsp.exec();
+		if(m_hardware.dspInlineRunAllowed())
+			while(hdi08().hostCommandBusy() && m_dsp.getCycles() < clampStop)
+				m_dsp.exec();
 #if MD_TRANSPORT_DIAGNOSTICS
 		m_hardware.recordInlineHdi08Run(m_index, startCycle, clampStop,
 			!hdi08().hostCommandBusy());
@@ -403,8 +445,9 @@ namespace md
 			const uint64_t startCycle = m_dsp.getCycles();
 			const uint64_t clampStop = startCycle
 				+ schedInlineClamp(m_hardware.getModel()) * 4;
-			while(!hdi08().rxData().empty() && m_dsp.getCycles() < clampStop)
-				m_dsp.exec();
+			if(m_hardware.dspInlineRunAllowed())
+				while(!hdi08().rxData().empty() && m_dsp.getCycles() < clampStop)
+					m_dsp.exec();
 #if MD_TRANSPORT_DIAGNOSTICS
 			m_hardware.recordInlineHdi08Run(m_index, startCycle, clampStop,
 				hdi08().rxData().empty());
@@ -484,10 +527,10 @@ namespace md
 			return true;
 		}
 
-		const bool hasTx = hdi08().hasTX();
-		if(m_hdiUC.canReceiveData() && hasTx)
+		uint32_t echo = 0;
+		if(m_hdiUC.canReceiveData()
+			&& takeDueHostRx(m_hardware.hostCurrentCycle(), echo))
 		{
-			const auto echo = hdi08().readTX();
 			m_hdiUC.writeRx(echo);
 			publishUcRxDepth();
 			m_hardware.notifyHostPumpStateChanged();

@@ -7,6 +7,7 @@
 
 #include "mdtimedhostrx.h"
 
+#include "dsp56kBase/ringbuffer.h"
 #include "dsp56kEmu/dsp.h"
 #include "dsp56kEmu/memory.h"
 #include "dsp56kEmu/peripherals.h"
@@ -65,7 +66,19 @@ namespace md
 		// HI08 HREQ line that drives the ColdFire external IRQ4 (see mdhardware.cpp).
 		uint32_t pumpHostRx(size_t _maxUcWords);
 		void setHostPumpWakeCallback(const std::function<void()>& _callback);
-		bool hasDeferredHostRx() const { return m_timedHostRx.pending(); }
+		// Words produced for the UC that are staged but not yet visible: the
+		// MM's one-latch TimedHostRx or the MD's dated staging queue.
+		bool hasDeferredHostRx() const
+		{
+			return m_timedHostRx.pending() || !m_hostTxStaging.empty();
+		}
+		// Host cycle at which the oldest deferred word becomes visible; the UC
+		// idle skip must not jump past it (parallel-transport spec §5.7).
+		uint64_t nextDeferredHostRxCycle() const;
+		// DSP context only: move the HOTX latch into the dated staging queue
+		// while there is room. A full queue leaves the latch occupied, so HTDE
+		// stays clear and the firmware paces itself, as on silicon.
+		void stageHostTx();
 
 	private:
 		void    onUCRxEmpty(bool _needMoreData);
@@ -77,6 +90,21 @@ namespace md
 		uint8_t hdiUcReadIsr(uint8_t _isr);
 		bool    hdiTransferDSPtoUC();
 		void    publishUcRxDepth();			// UC context: mirror m_hdiUC's receive depth for the worker
+		// UC context: pop the oldest staged MD word once the host clock has
+		// reached its ready cycle.
+		bool    takeDueHostRx(uint64_t _now, uint32_t& _word);
+
+		// MD DSP->UC dated staging (parallel-transport spec §5.2): the DSP
+		// context stages {word, readyCycle = hostRxReadyCycle(HOTX write
+		// cycle)}, the UC context takes due words. Depth = the UC-facing
+		// receive capacity (hostReceiveQueueCapacityWords).
+		struct StagedHostWord
+		{
+			uint32_t word = 0;
+			uint64_t readyCycle = 0;
+		};
+		dsp56k::RingBuffer<StagedHostWord, 16, false, true> m_hostTxStaging;
+		uint64_t m_lastHostTxCycle = 0;		// DSP context: cycle of the latest HOTX write
 
 		Hardware&        m_hardware;
 		mc68k::Hdi08&    m_hdiUC;			// ColdFire-facing HI08 register file (owned by the Microcontroller)

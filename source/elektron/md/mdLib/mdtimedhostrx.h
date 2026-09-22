@@ -11,6 +11,7 @@ namespace md
 	{
 	public:
 		bool pending() const { return m_pending; }
+		uint64_t readyCycle() const { return m_readyCycle; }
 
 		bool stage(const uint32_t _word, const uint64_t _readyCycle)
 		{

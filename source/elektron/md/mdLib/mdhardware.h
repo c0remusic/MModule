@@ -35,6 +35,17 @@ namespace md
 
 	class Device;
 
+	// Which execution adapter drives the DSPs (parallel-transport spec §9,
+	// MDMM_TRANSPORT): Serial = the deterministic interleave scheduler runs
+	// everything on the calling thread and may execute a DSP inline for a
+	// host access; Parallel = worker threads own the DSPs and every such
+	// access waits on a published position instead.
+	enum class TransportMode
+	{
+		Serial,
+		Parallel,
+	};
+
 	struct FactoryFlashSnapshot
 	{
 		std::vector<uint8_t> cache;
@@ -196,6 +207,10 @@ namespace md
 		// host access. Serial adapter = run it inline (schedCatchUpDsp); the
 		// threaded adapter waits on the worker's published position instead.
 		void waitForDspTime(const uint32_t _dspIndex) { schedCatchUpDsp(_dspIndex); }
+		TransportMode transportMode() const { return m_transportMode; }
+		// The HI08 bridge may run a DSP inline (in the caller's context) only
+		// under the serial adapter.
+		bool dspInlineRunAllowed() const { return m_transportMode == TransportMode::Serial; }
 		// Mirrored DMA channel enable bits, one per DSP and channel, kept by
 		// the owning DSP's context through the Dma DE observer. The other
 		// DSP's transport gates read these instead of the peer's registers.
@@ -424,6 +439,7 @@ namespace md
 		std::atomic<uint64_t> m_schedHostAudioOverflow{0};
 		bool     m_schedHostAudioActive = false;	// retain drained frames for a host callback
 		bool     m_schedBoundedJit = true;		// cycle-bounded DSP background slices
+		TransportMode m_transportMode = TransportMode::Serial;
 		std::array<RealtimeHostAudioInputTimeline, 2> m_hostAudioInput;
 		std::array<int64_t, 2> m_hostAudioInputClockOrigin{};
 		std::array<uint64_t, 2> m_hostAudioInputNextRxIndex{};
