@@ -116,12 +116,15 @@ namespace md
 		// EssiClock ticks at most once per peripherals exec.
 		config.maxInstructionsPerBlock = 32;
 		// Likewise return from hardware DO loops regularly to service peripherals.
-		// 64 keeps the ESSI cycle clock serviced well within a 2304-cycle codec
-		// frame while cutting dispatcher exits inside long firmware fill loops;
-		// measured ~10% lower idle host CPU vs. 4, with the audio firmware soaks
-		// and the timing suites unchanged. MD_MAX_DO_ITERATIONS overrides for
-		// experiments (power of two required by the JIT).
-		config.maxDoIterations = 64;
+		// For the Machinedrum, 64 keeps the ESSI cycle clock serviced well within a
+		// 2304-cycle codec frame while cutting dispatcher exits inside long firmware
+		// fill loops; measured ~10% lower idle host CPU vs. 4, with the audio
+		// firmware soaks and the timing suites unchanged. The Monomachine keeps 4:
+		// its transport policy uses exact ESSI cycle deadlines and a 30us background
+		// quantum, and 64 makes mmSineFirmwareTest/mmSineMidiFirmwareTest fail.
+		// MD_MAX_DO_ITERATIONS overrides for experiments (power of two required by
+		// the JIT).
+		config.maxDoIterations = m_hardware.isMonomachine() ? 4 : 64;
 		if(const char* const doIterations = std::getenv("MD_MAX_DO_ITERATIONS"))
 		{
 			const auto v = static_cast<uint32_t>(std::atoi(doIterations));
