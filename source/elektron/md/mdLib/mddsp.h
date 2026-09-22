@@ -76,6 +76,7 @@ namespace md
 		void    dispatchHostCommandInterrupt(uint8_t _vba);
 		uint8_t hdiUcReadIsr(uint8_t _isr);
 		bool    hdiTransferDSPtoUC();
+		void    publishUcRxDepth();			// UC context: mirror m_hdiUC's receive depth for the worker
 
 		Hardware&        m_hardware;
 		mc68k::Hdi08&    m_hdiUC;			// ColdFire-facing HI08 register file (owned by the Microcontroller)

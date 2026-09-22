@@ -174,10 +174,9 @@ namespace md
 		// The word store is the dated TimedLinkRing (parallel-transport spec
 		// §4); every drop gate still runs at this push site, the dating
 		// fields are captured for the later pop-side relocation.
-		const auto pushToInput = [this](dsp56k::Essi& _consumer,
-			const uint32_t _selfDsp)
+		const auto pushToInput = [this](const uint32_t _selfDsp)
 		{
-			return [this, &_consumer, _selfDsp](uint64_t& _frameIndex, const dsp56k::Audio::TxFrame& _values)
+			return [this, _selfDsp](uint64_t& _frameIndex, const dsp56k::Audio::TxFrame& _values)
 			{
 				MD_TRANSPORT_RECORD(++m_transportScorecard.link[_selfDsp].transmitFrames;);
 				auto& producerDsp = (_selfDsp == 0) ? m_dspMixer : m_dspProducer;
@@ -204,19 +203,12 @@ namespace md
 					// stays shallow because the consumer was just caught up). Gated to the post-boot
 					// audio phase so it can never perturb the loader handshake (see the floor const).
 					// The on-demand path below deliberately pre-enqueues its wire edge.
-					// A serial wire has no memory: a word
-					// clocked out while the consumer's receiver is disabled is gone on real hardware.
-					// Enqueueing those words instead lets the boot-era stream (producer clocking,
-					// consumer still in its loader with ESSI0 RE clear) peg this ring at capacity
-					// and replay stale data after the receiver starts. A serial wire has no
-					// such backlog, so discard data while receive is disabled.
-					if(!_consumer.hasEnabledReceivers())
-					{
-						MD_TRANSPORT_RECORD(++m_transportScorecard.link[_selfDsp]
-							.receiverDisabledDrops;);
-						++_frameIndex;
-						return;
-					}
+					// A serial wire has no memory: a word clocked out while the
+					// consumer's receiver is disabled is gone on real hardware.
+					// The consumer applies that rule in its own context (see
+					// linkDisposeAtConsumer: everything queued before its
+					// receiver enables dies at that edge), so the producer
+					// never reads the peer's control register here.
 					// The MD link is a synchronous on-demand wire. Once the
 					// request edge has been released for this DMA4 window, put
 					// each fresh word on the receiver wire before advancing DSP1 to the
@@ -224,13 +216,12 @@ namespace md
 					// never become a later wire edge.
 					if(rendezvousActiveBefore)
 					{
-						auto& dma4 = m_dspMixer.getPeriph().getDMA();
 						const bool releasedForWindow =
 							!m_mdPortC.pending.load(std::memory_order_acquire)
 							&& m_mdPortC.releaseEpoch.load(std::memory_order_acquire)
 								== flushEpochBefore;
-						const bool dma4Active = (dma4.getDCR(4)
-							& (1u << dsp56k::DmaChannel::De)) != 0;
+						// Mixer DMA4 window state via the mirror: producer context.
+						const bool dma4Active = dmaEnabled(0, 4);
 						if(!entry.fresh)
 							MD_TRANSPORT_RECORD(++m_transportScorecard.link[_selfDsp]
 								.mdRendezvousRetainedDrops;);
@@ -406,7 +397,7 @@ namespace md
 
 		// ESSI0 inter-DSP ring, full-duplex: DSP2 TX -> DSP1 input and vice versa.
 		{
-			auto fwd = pushToInput(m_dspMixer.getPeriph().getEssi0(), 1);
+			auto fwd = pushToInput(1);
 			m_dspProducer.getPeriph().getEssi0().setWriteTxCallback(
 				[this, fwd = std::move(fwd)](uint64_t& _frameIndex, const dsp56k::Audio::TxFrame& _values)
 				{
@@ -419,9 +410,9 @@ namespace md
 					// underrun/retransmit semantics apply again.
 					if(isMonomachine() && m_mmLinkAwaitFresh.load(std::memory_order_acquire))
 					{
-						const bool dma4Active =
-							(m_dspMixer.getPeriph().getDMA().getDCR(4) &
-								(1u << dsp56k::DmaChannel::De)) != 0;
+						// Producer context: the mixer's DMA4 state comes from the
+						// mirror, DMA1 is this DSP's own register.
+						const bool dma4Active = dmaEnabled(0, 4);
 						const bool dma1Active =
 							(m_dspProducer.getPeriph().getDMA().getDCR(1) &
 								(1u << dsp56k::DmaChannel::De)) != 0;
@@ -448,8 +439,7 @@ namespace md
 					fwd(_frameIndex, _values);
 				});
 		}
-		m_dspMixer.getPeriph().getEssi0().setWriteTxCallback(pushToInput(
-			m_dspProducer.getPeriph().getEssi0(), 0));
+		m_dspMixer.getPeriph().getEssi0().setWriteTxCallback(pushToInput(0));
 		m_dspMixer.getPeriph().getEssi0().setReadRxCallback(blockingPop(0));
 		m_dspProducer.getPeriph().getEssi0().setReadRxCallback(blockingPop(1));
 		// The Machinedrum codec ADC bus reaches both DSPs. DSP1 meters it; DSP2
@@ -508,18 +498,19 @@ namespace md
 					m_mdPortC.pending.store(true, std::memory_order_release);
 					return;
 				}
-				if(!isMonomachine())
-					m_mdPortC.visible.store(level, std::memory_order_release);
+				// Both models: the producer reads the pin through the mailbox
+				// (its Port C host-input source), never through a cross-context
+				// register write.
+				m_mdPortC.visible.store(level, std::memory_order_release);
 				const uint32_t strobeLevel = level ? 1u : 0u;
 				if(isMonomachine() && strobeLevel != m_mmLinkStrobeLevel)
 				{
 					m_mmLinkStrobeLevel = strobeLevel;
+					// Mixer context: own DMA4 register, producer DMA1 via mirror.
 					const bool dma4Idle =
 						(m_dspMixer.getPeriph().getDMA().getDCR(4) &
 							(1u << dsp56k::DmaChannel::De)) == 0;
-					const bool dma1Idle =
-						(m_dspProducer.getPeriph().getDMA().getDCR(1) &
-							(1u << dsp56k::DmaChannel::De)) == 0;
+					const bool dma1Idle = !dmaEnabled(1, 1);
 					if(dma4Idle && dma1Idle)
 					{
 						// The RX register is one word deep, not an archival FIFO.
@@ -536,7 +527,27 @@ namespace md
 						m_mmLinkStrobeEpoch.fetch_add(1, std::memory_order_acq_rel);
 					}
 				}
-				m_dspProducer.getPeriph().getPortC().hostWrite(level);
+			});
+			// The producer samples the mailbox in its own context. The MD
+			// rendezvous arming later replaces this source with the
+			// pending/release variant (mdLinkWindowFlushed).
+			m_dspProducer.getPeriph().getPortC().setHostInputSource([this]() -> dsp56k::TWord
+			{
+				return m_mdPortC.visible.load(std::memory_order_acquire);
+			});
+		}
+
+		// DMA enable mirrors: each DSP publishes its own channels' DE bit
+		// from its own context; the transport gates of the OTHER DSP read the
+		// mirror (parallel-transport spec §4, cross DCR mirrors).
+		for(uint32_t dspIndex = 0; dspIndex < 2; ++dspIndex)
+		{
+			auto& d = dspIndex == 0 ? m_dspMixer : m_dspProducer;
+			d.getPeriph().getDMA().setDeChangedCallback(
+				[this, dspIndex](const dsp56k::TWord _channel, const bool _enabled)
+			{
+				if(_channel < m_dmaEnabled[dspIndex].size())
+					m_dmaEnabled[dspIndex][_channel].store(_enabled, std::memory_order_release);
 			});
 		}
 
@@ -884,8 +895,33 @@ namespace md
 		// consuming DSP's context, so every check is local once the DSPs own
 		// worker threads; the entries carry the producer-context facts.
 		auto& ring = m_linkRing[_consumer];
+
+		// A serial wire has no memory: everything that reached this receiver
+		// while it was disabled is gone on real hardware. Detect the enable
+		// edge here, in the receiver's own context, and drop that backlog.
+		{
+			auto& essi = (_consumer == 0 ? m_dspMixer : m_dspProducer)
+				.getPeriph().getEssi0();
+			const bool enabled = essi.hasEnabledReceivers();
+			if(enabled && !m_linkRxWasEnabled[_consumer])
+			{
+				size_t purged = 0;
+				while(!ring.empty())
+				{
+					ring.pop_front();
+					++purged;
+				}
+				MD_TRANSPORT_RECORD(m_transportScorecard.link[1u - _consumer]
+					.receiverDisabledDrops += purged;);
+				(void)purged;
+			}
+			m_linkRxWasEnabled[_consumer] = enabled;
+			if(!enabled)
+				return false;
+		}
+
 		if(_consumer != 0)
-			return false;	// no consumer-side gates on the mixer->producer direction
+			return false;	// no further consumer-side gates on the mixer->producer direction
 
 		if(!isMonomachine())
 		{
@@ -1017,9 +1053,8 @@ namespace md
 				{
 					if(m_mdPortC.pending.load(std::memory_order_acquire))
 					{
-						auto& activeDma4 = m_dspMixer.getPeriph().getDMA();
-						if((activeDma4.getDCR(4)
-							& (1u << dsp56k::DmaChannel::De)) != 0)
+						// Producer context: the mixer's DMA4 window via the mirror.
+						if(dmaEnabled(0, 4))
 						{
 							m_mdPortC.visible.store(
 								m_mdPortC.pendingLevel.load(std::memory_order_acquire),

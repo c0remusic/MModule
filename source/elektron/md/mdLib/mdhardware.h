@@ -191,6 +191,29 @@ namespace md
 		// bridge so that every ColdFire read/write/CVR sees the target DSP at the same machine time,
 		// which is what makes the boot handshake (UC poll <-> DSP reply) converge deterministically.
 		void schedCatchUpDsp(uint32_t _dspIndex);
+		// Execution seam of the parallel-transport spec (§5): make the target
+		// DSP's state at the UC's current machine time observable before a
+		// host access. Serial adapter = run it inline (schedCatchUpDsp); the
+		// threaded adapter waits on the worker's published position instead.
+		void waitForDspTime(const uint32_t _dspIndex) { schedCatchUpDsp(_dspIndex); }
+		// Mirrored DMA channel enable bits, one per DSP and channel, kept by
+		// the owning DSP's context through the Dma DE observer. The other
+		// DSP's transport gates read these instead of the peer's registers.
+		bool dmaEnabled(const uint32_t _dsp, const uint32_t _channel) const
+		{
+			return m_dmaEnabled[_dsp & 1][_channel].load(std::memory_order_acquire);
+		}
+		// UC-facing HI08 receive depth published from the UC context so a DSP
+		// worker can evaluate its host-TX backlog without touching the UC's
+		// register file.
+		void publishUcRxDepth(const uint32_t _dsp, const size_t _depth)
+		{
+			m_ucRxDepth[_dsp & 1].store(_depth, std::memory_order_release);
+		}
+		size_t ucRxDepth(const uint32_t _dsp) const
+		{
+			return m_ucRxDepth[_dsp & 1].load(std::memory_order_acquire);
+		}
 		void notifyHostPumpStateChanged();
 		uint64_t hostRxReadyCycle(uint32_t _dspIndex, uint64_t _dspCycle) const;
 		uint64_t hostCurrentCycle() const { return m_schedUcCyclesDone; }
@@ -362,6 +385,12 @@ namespace md
 		AudioOutputs m_audioOutputs;
 		// Link word store, indexed by consumer DSP; see linkRing().
 		std::array<TimedLinkRing, 2> m_linkRing;
+		// Receiver-enable edge detector per consumer (consumer context): a
+		// serial wire has no memory, so everything queued while the receiver
+		// was disabled dies when it enables.
+		std::array<bool, 2> m_linkRxWasEnabled{};
+		std::array<std::array<std::atomic<bool>, 6>, 2> m_dmaEnabled{};
+		std::array<std::atomic<size_t>, 2> m_ucRxDepth{};
 		// Producer->mixer content offset in codec frames (TransportPolicy,
 		// MD_LINK_PIPELINE_DEPTH override).
 		double m_linkPipelineDepthFrames = 0.0;

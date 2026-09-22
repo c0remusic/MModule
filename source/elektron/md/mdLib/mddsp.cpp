@@ -95,7 +95,7 @@ namespace md
 		if(m_hardware.isMonomachine())
 			m_hdiUC.setReadCvrCallback([this](uint8_t value)
 			{
-				m_hardware.schedCatchUpDsp(m_index);
+				m_hardware.waitForDspTime(m_index);
 				const bool pending = hdi08().hostCommandPending();
 				const bool future = m_hardware.hostRxReadyCycle(m_index, hdi08().hostCommandAcceptedCycle())
 					> m_hardware.hostCurrentCycle();
@@ -236,8 +236,16 @@ namespace md
 
 	size_t Dsp::hostTxBacklog()
 	{
-		return hdi08().txData().size() + m_hdiUC.rxDataSize()
+		// The UC-facing receive depth comes from the mirror the UC context
+		// publishes, so a DSP worker can evaluate its backlog without reading
+		// the ColdFire's register file.
+		return hdi08().txData().size() + m_hardware.ucRxDepth(m_index)
 			+ (m_timedHostRx.pending() ? 1 : 0);
+	}
+
+	void Dsp::publishUcRxDepth()
+	{
+		m_hardware.publishUcRxDepth(m_index, m_hdiUC.rxDataSize());
 	}
 
 	uint32_t Dsp::pumpHostRx(const size_t _maxUcWords)
@@ -265,6 +273,7 @@ namespace md
 		// (and no fresh DSP word re-latched them above), latch the next now so it is delivered in
 		// FIFO order rather than read back as a spurious 0.
 		m_hdiUC.relatchRx();
+		publishUcRxDepth();
 		return moved;
 	}
 
@@ -275,7 +284,13 @@ namespace md
 		{
 			_callback();
 		});
-		m_hdiUC.setRxStateChangedCallback(_callback);
+		// Fired on the UC context whenever the receive queue latches or
+		// drains, i.e. the only other site that changes the UC-facing depth.
+		m_hdiUC.setRxStateChangedCallback([this, _callback]
+		{
+			publishUcRxDepth();
+			_callback();
+		});
 	}
 
 	void Dsp::onUCRxEmpty(const bool _needMoreData)
@@ -316,7 +331,7 @@ namespace md
 	{
 		// Catch the DSP up to the UC's current machine time before the word
 		// lands, so it consumes everything up to "now" first.
-		m_hardware.schedCatchUpDsp(m_index);
+		m_hardware.waitForDspTime(m_index);
 
 		// Route ordinary data words through the paced host receive path. Host-command
 		// arbitration keeps each argument with its in-flight command.
@@ -377,7 +392,7 @@ namespace md
 		// Catch the DSP up to the UC's current machine time before the CVR is
 		// dispatched, so HCP is raised at a defined point in DSP time.
 		if(booted())
-			m_hardware.schedCatchUpDsp(m_index);
+			m_hardware.waitForDspTime(m_index);
 		// Preserve Monomachine host-command ordering. Data words precede the next
 		// command, so drain the receive path before dispatching that command. Run the DSP
 		// inline until HORX has drained before dispatching the CVR. This is needed
@@ -417,7 +432,7 @@ namespace md
 		// Catch the DSP up to the UC's current machine time before reporting
 		// status, so a UC status-poll loop sees the DSP's progress (e.g. a reply it is waiting for)
 		// in fine lockstep instead of a frozen snapshot.
-		m_hardware.schedCatchUpDsp(m_index);
+		m_hardware.waitForDspTime(m_index);
 		hdiTransferDSPtoUC();
 		// Publication above may have changed RXDF after Hdi08 sampled _isr.
 		// Return the current latch state, including on the first data-byte read.
@@ -464,6 +479,7 @@ namespace md
 			if(!m_timedHostRx.take(m_hardware.hostCurrentCycle(), word))
 				return false;
 			m_hdiUC.writeRx(word);
+			publishUcRxDepth();
 			m_hardware.notifyHostPumpStateChanged();
 			return true;
 		}
@@ -473,6 +489,7 @@ namespace md
 		{
 			const auto echo = hdi08().readTX();
 			m_hdiUC.writeRx(echo);
+			publishUcRxDepth();
 			m_hardware.notifyHostPumpStateChanged();
 			return true;
 		}

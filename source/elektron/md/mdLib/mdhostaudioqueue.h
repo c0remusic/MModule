@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -110,42 +111,74 @@ namespace md
 
 	// ADC samples belong to machine time even while a receiver is stopped. A
 	// plain FIFO preserves the boot interval as a permanent, unreported delay.
+	//
+	// Single-producer/single-consumer by construction (parallel-transport
+	// spec, migration step 2): the audio thread appends entries that carry
+	// their absolute machine frame, the receiving DSP pops them in its own
+	// context. Neither side touches the other's cursor: the producer only
+	// appends (dropping the NEW frame when full, reported), the consumer only
+	// pops, skipping past frames it no longer needs. Machine time only moves
+	// forward, so a reset just restarts the numbering the consumer follows.
 	template<size_t Capacity>
 	class HostAudioInputTimeline
 	{
 	public:
 		using Frame = typename HostAudioQueue<2, Capacity>::Frame;
+		struct Entry
+		{
+			int64_t frame = 0;
+			Frame data{};
+		};
 		void reset(const int64_t _firstFrame)
 		{
-			m_queue.clear();
-			m_frontFrame = m_startFrame = _firstFrame;
+			m_nextFrame = _firstFrame;
+			m_startFrame.store(_firstFrame, std::memory_order_release);
 		}
 		size_t append(const synthLib::TAudioInputs& _inputs, const uint32_t _sourceFrames,
 			const uint32_t _sourceOffset, const uint32_t _frames, const int64_t _firstFrame)
 		{
-			if(m_frontFrame + static_cast<int64_t>(m_queue.size()) != _firstFrame)
+			if(m_nextFrame != _firstFrame)
 				reset(_firstFrame); // machine time advanced without host input
-			const auto dropped = appendHostAudioInput(m_queue, _inputs, _sourceFrames, _sourceOffset, _frames);
-			m_frontFrame += static_cast<int64_t>(dropped);
+			size_t dropped = 0;
+			for(uint32_t i = 0; i < _frames; ++i)
+			{
+				if(m_queue.full())
+				{
+					++dropped;
+					continue;
+				}
+				m_queue.emplace_back([&](Entry& _entry)
+				{
+					_entry.frame = m_nextFrame + static_cast<int64_t>(i);
+					const auto sourceIndex = _sourceOffset + i;
+					for(size_t channel = 0; channel < _entry.data.size(); ++channel)
+					{
+						_entry.data[channel] = (_inputs[channel] && sourceIndex < _sourceFrames)
+							? dsp56k::sample2dsp(_inputs[channel][sourceIndex]) : dsp56k::TWord{0};
+					}
+				});
+			}
+			m_nextFrame += static_cast<int64_t>(_frames);
 			return dropped;
 		}
 		bool readAt(const int64_t _frame, Frame& _result)
 		{
-			if(_frame < m_frontFrame)
+			while(!m_queue.empty() && m_queue.front().frame < _frame)
+				m_queue.pop_front();
+			if(m_queue.empty() || m_queue.front().frame != _frame)
 				return false;
-			const auto skip = static_cast<size_t>(std::min<uint64_t>(
-				static_cast<uint64_t>(_frame - m_frontFrame), m_queue.size()));
-			m_frontFrame += static_cast<int64_t>(m_queue.drop(skip));
-			if(m_frontFrame != _frame || !m_queue.pop(_result))
-				return false;
-			++m_frontFrame;
+			_result = m_queue.pop_front().data;
 			return true;
 		}
-		bool beforeStart(const int64_t _frame) const { return _frame < m_startFrame; }
+		bool beforeStart(const int64_t _frame) const
+		{
+			return _frame < m_startFrame.load(std::memory_order_acquire);
+		}
 		size_t size() const { return m_queue.size(); }
 	private:
-		HostAudioQueue<2, Capacity> m_queue;
-		int64_t m_frontFrame = 0, m_startFrame = 0;
+		dsp56k::RingBuffer<Entry, Capacity, false, false> m_queue;
+		int64_t m_nextFrame = 0;					// producer-owned
+		std::atomic<int64_t> m_startFrame{0};
 	};
 	using RealtimeHostAudioInputTimeline = HostAudioInputTimeline<RealtimeHostAudioInputQueue::capacity()>;
 
