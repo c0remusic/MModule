@@ -131,8 +131,9 @@ namespace md
 		{
 			m_midiSysexTransfer.observeTransmitByte(_byte);
 		});
-		m_mdOnDemandRendezvousArmPending = !isMonomachine()
-			&& m_firmwareFingerprint == g_mdOs163Fingerprint;
+		m_mdLink.rendezvousArmPending.store(!isMonomachine()
+			&& m_firmwareFingerprint == g_mdOs163Fingerprint,
+			std::memory_order_release);
 
 		// Wake the scheduler host pump when either DSP produces a host word or
 		// the UC-side port state changes. The pump itself runs only on a wake
@@ -181,9 +182,9 @@ namespace md
 				auto& ring = _consumer.getAudioInputs();
 				const bool mdProducerToMixer = _selfDsp == 1 && !isMonomachine();
 				const bool rendezvousActiveBefore = mdProducerToMixer
-					&& m_mdOnDemandRendezvousActive;
+					&& m_mdLink.rendezvousActive.load(std::memory_order_acquire);
 				const uint64_t flushEpochBefore = mdProducerToMixer
-					? m_mdLinkFlushEpoch : 0;
+					? m_mdLink.flushEpoch.load(std::memory_order_acquire) : 0;
 					// The legacy delivery path advances the consumer (the DSP whose input ring this
 					// is, index 1-_selfDsp) to the producer's current machine time BEFORE enqueueing, so
 					// the frame lands at the right point in the consumer's timeline (edge-preserving,
@@ -212,8 +213,10 @@ namespace md
 					if(rendezvousActiveBefore)
 					{
 						auto& dma4 = m_dspMixer.getPeriph().getDMA();
-						const bool releasedForWindow = !m_mdProducerPortCPending
-							&& m_mdProducerPortCReleaseEpoch == flushEpochBefore;
+						const bool releasedForWindow =
+							!m_mdPortC.pending.load(std::memory_order_acquire)
+							&& m_mdPortC.releaseEpoch.load(std::memory_order_acquire)
+								== flushEpochBefore;
 						const bool dma4Active = (dma4.getDCR(4)
 							& (1u << dsp56k::DmaChannel::De)) != 0;
 						const bool fresh = m_dspProducer.getPeriph().getEssi0()
@@ -260,7 +263,7 @@ namespace md
 					// already-snapshotted callback. The current word
 					// belongs to the completed interval and must not enter the new window.
 					if(mdProducerToMixer && !rendezvousActiveBefore
-						&& m_mdOnDemandRendezvousActive)
+						&& m_mdLink.rendezvousActive.load(std::memory_order_acquire))
 					{
 						MD_TRANSPORT_RECORD(++m_transportScorecard.link[_selfDsp]
 							.mdWindowOpenedDuringCatchUpDrops;);
@@ -293,12 +296,14 @@ namespace md
 					// MD only: the MM's flow-controlled burst link legitimately queues between strobes.
 					if(_selfDsp == 1 && !isMonomachine())
 					{
-						if(!m_mdLinkRoeEngaged && _consumer.isFastLinkRx() &&
+						if(!m_mdLink.roeEngaged.load(std::memory_order_acquire)
+							&& _consumer.isFastLinkRx() &&
 							(m_dspMixer.getPeriph().getDMA().getDCR(4) & (1u << dsp56k::DmaChannel::De)))
 						{
-							m_mdLinkRoeEngaged = true;
+							m_mdLink.roeEngaged.store(true, std::memory_order_release);
 						}
-						if(m_mdLinkRoeEngaged && _consumer.getSR().test(dsp56k::Essi::SSISR_RDF))
+						if(m_mdLink.roeEngaged.load(std::memory_order_acquire)
+							&& _consumer.getSR().test(dsp56k::Essi::SSISR_RDF))
 						{
 							_consumer.setReceiverOverrun();
 							MD_TRANSPORT_RECORD(++m_transportScorecard.link[_selfDsp]
@@ -315,7 +320,7 @@ namespace md
 						// in some windows.
 						// The first DMA-fed word disarms this path. This is flush disposal,
 						// not an overrun.
-						if(m_mdLinkAwaitFresh)
+						if(m_mdLink.awaitFresh.load(std::memory_order_acquire))
 						{
 							if(m_dspProducer.getPeriph().getEssi0().getLastTxWrittenMask() == 0)
 							{
@@ -324,7 +329,7 @@ namespace md
 								++_frameIndex;
 								return;
 							}
-							m_mdLinkAwaitFresh = false;
+							m_mdLink.awaitFresh.store(false, std::memory_order_release);
 						}
 					}
 					if(!ring.full())
@@ -368,9 +373,10 @@ namespace md
 						// this legacy purge; strict skip-on-empty RX supplies the hardware boundary.
 						const bool s_immediate = !isMonomachine();
 						const bool preserveRendezvousFutureEdges =
-							m_mdOnDemandRendezvousActive
+							m_mdLink.rendezvousActive.load(std::memory_order_acquire)
 							&& !isMonomachine();
-						const uint64_t esaiNow = m_esaiFrameIndex;
+						const uint64_t esaiNow =
+							m_esaiFrameIndex.load(std::memory_order_acquire);
 						auto& lastShallow = m_linkLastShallow[_selfDsp];
 						if(ring.size() <= 16)
 							lastShallow = esaiNow;
@@ -525,19 +531,24 @@ namespace md
 			m_dspMixer.getPeriph().getPortC().setCallbackDspWrite([this]
 			{
 				const dsp56k::TWord level = m_dspMixer.getPeriph().getPortC().hostRead() & (1u << 1);
-				if(!isMonomachine() && m_mdOnDemandRendezvousActive)
+				if(!isMonomachine()
+					&& m_mdLink.rendezvousActive.load(std::memory_order_acquire))
 				{
-					const auto desiredLevel = m_mdProducerPortCPending
-						? m_mdProducerPortCPendingLevel : m_mdProducerPortCVisible;
+					const auto desiredLevel =
+						m_mdPortC.pending.load(std::memory_order_acquire)
+						? m_mdPortC.pendingLevel.load(std::memory_order_acquire)
+						: m_mdPortC.visible.load(std::memory_order_acquire);
 					if(level == desiredLevel)
 						return;
-					m_mdProducerPortCPending = true;
-					m_mdProducerPortCPendingLevel = level;
-					m_mdProducerPortCPendingEpoch = m_mdLinkFlushEpoch;
+					m_mdPortC.pendingLevel.store(level, std::memory_order_release);
+					m_mdPortC.pendingEpoch.store(
+						m_mdLink.flushEpoch.load(std::memory_order_acquire),
+						std::memory_order_release);
+					m_mdPortC.pending.store(true, std::memory_order_release);
 					return;
 				}
 				if(!isMonomachine())
-					m_mdProducerPortCVisible = level;
+					m_mdPortC.visible.store(level, std::memory_order_release);
 				const uint32_t strobeLevel = level ? 1u : 0u;
 				if(isMonomachine() && strobeLevel != m_mmLinkStrobeLevel)
 				{
@@ -851,10 +862,13 @@ namespace md
 			m_dspProducer.getPeriph().getEssi0().getAudioInputs().size();
 		result.link[1].currentRingDepth =
 			m_dspMixer.getPeriph().getEssi0().getAudioInputs().size();
-		result.mdRendezvousActive = m_mdOnDemandRendezvousActive;
-		result.mdPortCEdgePending = m_mdProducerPortCPending;
-		result.mdFlushEpoch = m_mdLinkFlushEpoch;
-		result.mdPortCReleaseEpoch = m_mdProducerPortCReleaseEpoch;
+		result.mdRendezvousActive =
+			m_mdLink.rendezvousActive.load(std::memory_order_acquire);
+		result.mdPortCEdgePending =
+			m_mdPortC.pending.load(std::memory_order_acquire);
+		result.mdFlushEpoch = m_mdLink.flushEpoch.load(std::memory_order_acquire);
+		result.mdPortCReleaseEpoch =
+			m_mdPortC.releaseEpoch.load(std::memory_order_acquire);
 		result.mmAwaitingFreshResponse =
 			m_mmLinkAwaitFresh.load(std::memory_order_relaxed);
 		result.mmStrobeEpoch = m_mmLinkStrobeEpoch.load(std::memory_order_relaxed);
@@ -906,11 +920,11 @@ namespace md
 
 	void Hardware::mdLinkWindowFlushed()
 	{
-		if(!m_mdLinkRoeEngaged)
+		if(!m_mdLink.roeEngaged.load(std::memory_order_acquire))
 			return;
-		++m_mdLinkFlushEpoch;
+		m_mdLink.flushEpoch.fetch_add(1, std::memory_order_acq_rel);
 
-		if(m_mdOnDemandRendezvousArmPending)
+		if(m_mdLink.rendezvousArmPending.load(std::memory_order_acquire))
 		{
 			auto& producerEssi = m_dspProducer.getPeriph().getEssi0();
 			auto& mixerEssi = m_dspMixer.getPeriph().getEssi0();
@@ -923,26 +937,29 @@ namespace md
 				& (1u << dsp56k::DmaChannel::De)) == 0;
 			if(producerOnDemand && mixerReady && dma4Idle)
 			{
-				m_mdOnDemandRendezvousArmPending = false;
-				m_mdOnDemandRendezvousActive = true;
-				m_mdProducerPortCPending = false;
-				m_mdProducerPortCReleaseEpoch = 0;
+				m_mdLink.rendezvousArmPending.store(false, std::memory_order_release);
+				m_mdLink.rendezvousActive.store(true, std::memory_order_release);
+				m_mdPortC.pending.store(false, std::memory_order_release);
+				m_mdPortC.releaseEpoch.store(0, std::memory_order_release);
 				m_dspProducer.getPeriph().getPortC().setHostInputSource([this]()
 					-> dsp56k::TWord
 				{
-					if(m_mdProducerPortCPending)
+					if(m_mdPortC.pending.load(std::memory_order_acquire))
 					{
 						auto& activeDma4 = m_dspMixer.getPeriph().getDMA();
 						if((activeDma4.getDCR(4)
 							& (1u << dsp56k::DmaChannel::De)) != 0)
 						{
-							m_mdProducerPortCVisible = m_mdProducerPortCPendingLevel;
-							m_mdProducerPortCPending = false;
-							m_mdProducerPortCReleaseEpoch =
-								m_mdProducerPortCPendingEpoch;
+							m_mdPortC.visible.store(
+								m_mdPortC.pendingLevel.load(std::memory_order_acquire),
+								std::memory_order_release);
+							m_mdPortC.releaseEpoch.store(
+								m_mdPortC.pendingEpoch.load(std::memory_order_acquire),
+								std::memory_order_release);
+							m_mdPortC.pending.store(false, std::memory_order_release);
 						}
 					}
-					return m_mdProducerPortCVisible;
+					return m_mdPortC.visible.load(std::memory_order_acquire);
 				});
 				producerEssi.setOnDemandTxWireSemantics(true);
 				mixerEssi.setOnDemandRxWireSemantics(true);
@@ -959,20 +976,20 @@ namespace md
 				{
 					schedCatchUpDspToDsp(1, 0);
 				});
-				m_mdLinkAwaitFresh = false;
+				m_mdLink.awaitFresh.store(false, std::memory_order_release);
 			}
 		}
-		else if(m_mdOnDemandRendezvousActive)
+		else if(m_mdLink.rendezvousActive.load(std::memory_order_acquire))
 		{
 			// A request must have been observed before the next receive window.
 			// Discarding an unexpectedly unreleased pin prevents a stale edge from
 			// being promoted into the new DMA4 window.
-			m_mdProducerPortCPending = false;
+			m_mdPortC.pending.store(false, std::memory_order_release);
 		}
 
-		if(m_mdOnDemandRendezvousActive)
+		if(m_mdLink.rendezvousActive.load(std::memory_order_acquire))
 			return;
-		m_mdLinkAwaitFresh = true;
+		m_mdLink.awaitFresh.store(true, std::memory_order_release);
 	}
 
 	bool Hardware::trySendPanelEvent(const uint8_t _cmd, const uint8_t _arg)
@@ -1101,7 +1118,7 @@ namespace md
 
 	void Hardware::onEssiCallbackMixer()
 	{
-		++m_esaiFrameIndex;
+		m_esaiFrameIndex.fetch_add(1, std::memory_order_acq_rel);
 
 		// The callback runs inside the mixer on the scheduler thread. Drain the
 		// codec ring immediately so its blocking producer can never park that thread.
@@ -1273,6 +1290,16 @@ namespace md
 		const double quantumFrames= schedQuantumFrames(m_model);
 		const uint64_t clampCycles= schedClampCycles(m_model);
 		const double target       = m_schedFramesTotal;
+
+		// Publish machine positions once per slice (parallel-transport spec
+		// §2). Serial mode has no consumers yet; the stores document the
+		// publication points the workers will wait on.
+		m_schedPublished.ucCycles.store(m_schedUcCyclesDone,
+			std::memory_order_release);
+		m_schedPublished.dspCycles[0].store(m_dspMixer.dsp().getCycles(),
+			std::memory_order_release);
+		m_schedPublished.dspCycles[1].store(m_dspProducer.dsp().getCycles(),
+			std::memory_order_release);
 
 		const double ucPos = static_cast<double>(m_schedUcCyclesDone) / ucPerFrame;
 

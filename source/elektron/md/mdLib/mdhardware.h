@@ -339,8 +339,10 @@ namespace md
 		TransportScorecard m_transportScorecard;
 #endif
 
-		// Codec frames produced by the mixer.
-		uint32_t m_esaiFrameIndex = 0;			// codec frames produced
+		// Codec frames produced by the mixer. Written in mixer context, read
+		// by the purge age and the drain; atomic so those reads stay valid
+		// once the mixer owns a worker thread (spec §4).
+		std::atomic<uint32_t> m_esaiFrameIndex{0};	// codec frames produced
 
 		// ---------------------------------------------------------------------------------------
 		// Deterministic interleave scheduler state. advance() maintains a shared machine clock in codec
@@ -375,16 +377,42 @@ namespace md
 		double   m_schedFramesTotal   = 0.0;	// machine-time target, accumulated codec frames
 		uint64_t m_schedUcCyclesDone  = 0;		// UC cycles executed under the scheduler (processUC)
 		uint64_t m_mmBpSinceUcCycles[2] = {0,0};// MM backpressure: UC cycle+1 when a DSP's stall began (0 = none)
-		bool     m_mdLinkRoeEngaged = false;	// latched at the first DMA4 receive window
-		bool     m_mdLinkAwaitFresh = false;	// waits for DSP2's first word in a receive window
-		bool     m_mdOnDemandRendezvousArmPending = false;
-		bool     m_mdOnDemandRendezvousActive = false;
-		bool     m_mdProducerPortCPending = false;
-		dsp56k::TWord m_mdProducerPortCVisible = 0;
-		dsp56k::TWord m_mdProducerPortCPendingLevel = 0;
-		uint64_t m_mdLinkFlushEpoch = 0;
-		uint64_t m_mdProducerPortCPendingEpoch = 0;
-		uint64_t m_mdProducerPortCReleaseEpoch = 0;
+		// MD link-transport state grouped by owning execution context and
+		// promoted to atomics (parallel-transport spec, memory-visibility
+		// pass). The serial scheduler runs every context on one thread, so
+		// the acquire/release pairs cost nothing and change no behavior;
+		// the grouping records which worker owns each field once the
+		// transport goes parallel. The MM equivalents below were atomic
+		// already.
+		struct MdMixerLinkState				// written in mixer (DSP1) context
+		{
+			std::atomic<bool> roeEngaged{false};	// latched at the first DMA4 receive window
+			std::atomic<bool> awaitFresh{false};	// waits for DSP2's first word in a receive window
+			std::atomic<bool> rendezvousArmPending{false};
+			std::atomic<bool> rendezvousActive{false};
+			std::atomic<uint64_t> flushEpoch{0};
+		};
+		// Port C mailbox: the mixer's Port C write pends an edge, the
+		// producer's hostInputSource releases it against the DMA4 window.
+		struct MdPortCMailbox
+		{
+			std::atomic<bool> pending{false};
+			std::atomic<dsp56k::TWord> visible{0};
+			std::atomic<dsp56k::TWord> pendingLevel{0};
+			std::atomic<uint64_t> pendingEpoch{0};
+			std::atomic<uint64_t> releaseEpoch{0};
+		};
+		MdMixerLinkState m_mdLink;
+		MdPortCMailbox m_mdPortC;
+		// Published machine positions (parallel-transport spec §2): one
+		// release-store per scheduler slice. Serial mode only publishes;
+		// consumers appear with the parallel transport.
+		struct PublishedPositions
+		{
+			std::atomic<uint64_t> ucCycles{0};
+			std::array<std::atomic<uint64_t>, 2> dspCycles{};
+		};
+		PublishedPositions m_schedPublished;
 		std::atomic<bool> m_mmLinkAwaitFresh{false};	// PDRC edge awaits DSP2's DMA reply
 		std::atomic<uint64_t> m_mmLinkStrobeEpoch{0};	// cancels delivery after nested catch-up
 		uint32_t m_mmLinkStrobeLevel = 2;		// mixer-context edge detector; 2 = no level observed yet
