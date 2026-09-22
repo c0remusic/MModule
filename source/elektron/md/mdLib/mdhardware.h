@@ -211,8 +211,16 @@ namespace md
 		{
 			return m_linkRing[_consumer];
 		}
-		bool linkRxAvailable(const uint32_t _consumer) const
+		// Availability as the consuming DSP's receiver sees it: stale heads
+		// are disposed of first (spec §4 pop rule), so an all-stale ring
+		// reports empty and the ESSI takes its hardware skip-on-empty path.
+		// A word destroyed on an uncollected RX register (ROE) consumes this
+		// wire tick: report no data so the RX exec early-returns, exactly
+		// like the old push-side drop.
+		bool linkRxAvailable(const uint32_t _consumer)
 		{
+			if(linkDisposeAtConsumer(_consumer, true))
+				return false;
 			return !m_linkRing[_consumer].empty();
 		}
 
@@ -312,6 +320,10 @@ namespace md
 		void serviceRamRecordingMode();
 		void registerExternalInteraction();
 		void pumpDsp2HostRequest();		// DSP2 HI08 HREQ -> ColdFire external IRQ4 (see .cpp)
+		// Dated pop-side disposal (see .cpp). _rxTick = called from the RX
+		// availability probe, the only site where the ROE arrival semantics
+		// may destroy a word; returns true when it did.
+		bool linkDisposeAtConsumer(uint32_t _consumer, bool _rxTick);
 		void onEssiCallbackMixer();		// master clock: advance the ESSI frame counter
 		void pumpMidiIngress();
 

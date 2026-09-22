@@ -262,79 +262,11 @@ namespace md
 					// the floor controls transport fidelity versus rendezvous tightness.
 					schedCatchUpDspToDsp(1u - _selfDsp, _selfDsp);
 
-					// Consumer catch-up can open a new receive window inside this
-					// already-snapshotted callback. The current word
-					// belongs to the completed interval and must not enter the new window.
-					if(mdProducerToMixer && !rendezvousActiveBefore
-						&& m_mdLink.rendezvousActive.load(std::memory_order_acquire))
-					{
-						MD_TRANSPORT_RECORD(++m_transportScorecard.link[_selfDsp]
-							.mdWindowOpenedDuringCatchUpDrops;);
-						++_frameIndex;
-						return;
-					}
-
-					// The catch-up above executes DSP1 inline. If it crossed a new PDRC
-					// request, this callback's word belongs to the completed interval and
-					// must not be enqueued after the request cleared the receive history.
-					if(isMonomachine() && _selfDsp == 1 &&
-						m_mmLinkStrobeEpoch.load(std::memory_order_acquire) != strobeEpoch)
-					{
-						MD_TRANSPORT_RECORD(++m_transportScorecard.link[_selfDsp]
-							.mmStrobeChangedDuringCatchUpDrops;);
-						++_frameIndex;
-						return;
-					}
-
-					// Model continuous receiver-overrun semantics on the MD
-					// DSP1 link RX. Silicon holds at most ONE uncollected word (the RX register, RDF set)
-					// plus the in-flight shift word; a word arriving while RDF is still set fails the
-					// shift->RX transfer and is DESTROYED at arrival - the OLD word is kept, ROE is set
-					// (DSP56303UM Table 7-5). Without this the ring retains a standing 1-2 word residue of
-					// DSP2's idle-slot retransmits across the DMA4 window boundary. In a
-					// window RDF is set and collected within the same RX tick (triggerByRequest transfers
-					// synchronously), so RDF observed set here means genuinely uncollected: DMA4 unarmed.
-					// Engage only after DMA4 opens the steady-state receive window so
-					// bootstrap traffic retains catch-up delivery.
-					// MD only: the MM's flow-controlled burst link legitimately queues between strobes.
-					if(_selfDsp == 1 && !isMonomachine())
-					{
-						if(!m_mdLink.roeEngaged.load(std::memory_order_acquire)
-							&& _consumer.isFastLinkRx() &&
-							(m_dspMixer.getPeriph().getDMA().getDCR(4) & (1u << dsp56k::DmaChannel::De)))
-						{
-							m_mdLink.roeEngaged.store(true, std::memory_order_release);
-						}
-						if(m_mdLink.roeEngaged.load(std::memory_order_acquire)
-							&& _consumer.getSR().test(dsp56k::Essi::SSISR_RDF))
-						{
-							_consumer.setReceiverOverrun();
-							MD_TRANSPORT_RECORD(++m_transportScorecard.link[_selfDsp]
-								.mdReceiverOverrunDrops;);
-							++_frameIndex;
-							return;
-						}
-						// Between a receive-window flush and DSP2's first DMA-fed TX slot,
-						// the scheduler may create idle retransmits of DSP2's retained register.
-						// On the shared wire clock those words complete before the flush and die with
-						// it; the emulated per-DSP slot grids land them as the window's head cells
-						// instead. Apply the flush semantics using the ESSI's per-slot underrun status, never
-						// by count; the receiver-overrun handling above already disposes the in-flight word
-						// in some windows.
-						// The first DMA-fed word disarms this path. This is flush disposal,
-						// not an overrun.
-						if(m_mdLink.awaitFresh.load(std::memory_order_acquire))
-						{
-							if(m_dspProducer.getPeriph().getEssi0().getLastTxWrittenMask() == 0)
-							{
-								MD_TRANSPORT_RECORD(++m_transportScorecard.link[_selfDsp]
-									.mdPostFlushRetainedDrops;);
-								++_frameIndex;
-								return;
-							}
-							m_mdLink.awaitFresh.store(false, std::memory_order_release);
-						}
-					}
+					// Every gate that used to read CONSUMER state here (receive
+					// window epochs, receiver-overrun on RDF, post-flush
+					// retained disposal) now runs in the consumer's own
+					// context: see linkDisposeAtConsumer(). The entry carries
+					// what those gates need (stamp, epoch, fresh).
 					if(!ring.full())
 					{
 						entry.epoch = (isMonomachine() && _selfDsp == 1)
@@ -357,6 +289,10 @@ namespace md
 			{
 				MD_TRANSPORT_RECORD(++m_transportScorecard.link[1u - _selfDsp]
 					.receiveCallbacks;);
+				// The mixer path normally disposes in the availability
+				// callback; this covers consumers polled without one. Never
+				// an RX-tick ROE site: the availability probe owns that.
+				linkDisposeAtConsumer(_selfDsp, false);
 				auto& ring = m_linkRing[_selfDsp];
 					// Stall recovery: under scheduler link catch-up the consumer is
 					// advanced to the producer's time before every enqueue, so this ring can only be
@@ -917,6 +853,99 @@ namespace md
 			m_transportScorecard.link[1].currentRingDepth -= std::min(
 				m_transportScorecard.link[1].currentRingDepth, _purgedFrames););
 		(void)_purgedFrames;
+	}
+
+	bool Hardware::linkDisposeAtConsumer(const uint32_t _consumer,
+		const bool _rxTick)
+	{
+		// Pop-side dated disposal (parallel-transport spec §4). Runs in the
+		// consuming DSP's context, so every check is local once the DSPs own
+		// worker threads; the entries carry the producer-context facts.
+		auto& ring = m_linkRing[_consumer];
+		if(_consumer != 0)
+			return false;	// no consumer-side gates on the mixer->producer direction
+
+		if(!isMonomachine())
+		{
+			// Words of a completed receive window die when the next window has
+			// already opened (epoch mismatch) - the dated form of the old
+			// "window opened during catch-up" push gate.
+			const bool rendezvous =
+				m_mdLink.rendezvousActive.load(std::memory_order_acquire);
+			const auto flushEpoch =
+				m_mdLink.flushEpoch.load(std::memory_order_acquire);
+			for(;;)
+			{
+				if(ring.empty())
+					return false;
+				const auto& head = ring.front();
+				if(rendezvous && head.epoch != flushEpoch)
+				{
+					ring.pop_front();
+					MD_TRANSPORT_RECORD(++m_transportScorecard.link[1]
+						.mdWindowOpenedDuringCatchUpDrops;);
+					continue;
+				}
+				// Between a receive-window flush and DSP2's first DMA-fed TX
+				// slot, idle retransmits of the retained register die with the
+				// flush; the first DMA-fed word disarms this path. Judged by
+				// the word's own TX-time underrun status carried in the entry.
+				if(m_mdLink.awaitFresh.load(std::memory_order_acquire))
+				{
+					if(!head.fresh)
+					{
+						ring.pop_front();
+						MD_TRANSPORT_RECORD(++m_transportScorecard.link[1]
+							.mdPostFlushRetainedDrops;);
+						continue;
+					}
+					m_mdLink.awaitFresh.store(false, std::memory_order_release);
+				}
+				break;
+			}
+			// Receiver-overrun semantics on the mixer link RX: silicon holds
+			// at most ONE uncollected word (RX register, RDF set); the word
+			// arriving on the wire while RDF is still set fails the shift->RX
+			// transfer and is DESTROYED - the OLD word is kept, ROE is set
+			// (DSP56303UM Table 7-5). Arrival order on the wire is FIFO, so
+			// the destroyed word is the ring head. Engage only after DMA4
+			// opens the steady-state receive window.
+			auto& essi = m_dspMixer.getPeriph().getEssi0();
+			if(!m_mdLink.roeEngaged.load(std::memory_order_acquire)
+				&& essi.isFastLinkRx()
+				&& (m_dspMixer.getPeriph().getDMA().getDCR(4)
+					& (1u << dsp56k::DmaChannel::De)))
+			{
+				m_mdLink.roeEngaged.store(true, std::memory_order_release);
+			}
+			// Never inside the active on-demand rendezvous: that path carries
+			// future wire edges directly and its words must survive until
+			// their window (the push-side gate had the same carve-out).
+			if(_rxTick && !rendezvous && !ring.empty()
+				&& m_mdLink.roeEngaged.load(std::memory_order_acquire)
+				&& essi.getSR().test(dsp56k::Essi::SSISR_RDF))
+			{
+				ring.pop_front();
+				essi.setReceiverOverrun();
+				MD_TRANSPORT_RECORD(++m_transportScorecard.link[1]
+					.mdReceiverOverrunDrops;);
+				return true;
+			}
+			return false;
+		}
+
+		// MM: words captured under a strobe epoch that a new PDRC request has
+		// since retired belong to the completed wire interval - the dated
+		// form of the old "strobe changed during catch-up" push gate.
+		const auto strobeEpoch =
+			m_mmLinkStrobeEpoch.load(std::memory_order_acquire);
+		while(!ring.empty() && ring.front().epoch != strobeEpoch)
+		{
+			ring.pop_front();
+			MD_TRANSPORT_RECORD(++m_transportScorecard.link[1]
+				.mmStrobeChangedDuringCatchUpDrops;);
+		}
+		return false;
 	}
 
 	void Hardware::mdLinkWindowFlushed()
