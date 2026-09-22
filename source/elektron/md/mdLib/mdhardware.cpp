@@ -147,39 +147,43 @@ namespace md
 		m_uc.setFrontPanel(&m_frontPanel);
 		setFrontPanelPublisher(m_frontPanelPublisher);
 
-		// Inter-DSP ESSI0 ring. Each DSP's
-		// ESSI0 TX pushes its frame into the OTHER DSP's ESSI0 audio-INPUT ring (blocking
-		// push_back on the deep Lock=true, 32768-frame ring); each DSP's ESSI0 RX blocks popping
-		// its OWN input ring. So a consumer NEVER reads fabricated silence - it waits for the real
-		// frame, keeping consumption equal to production. The input rings are prefilled
-		// (writeEmptyAudioIn(64) in the Dsp constructor) so
-		// neither side of the FULL-DUPLEX link blocks at startup, and execTX runs before execRX
-		// each slot (esaiclock), so each DSP feeds its neighbour before it can block on its own
-		// RX - no deadlock, provided the two ESSI0 clock rates match (they do: same divider config
-		// on both DSPs). Codec ESSI1 RX is callback-fed and remains non-blocking:
+		// Inter-DSP ESSI0 link. Each DSP's ESSI0 TX pushes a dated entry into
+		// the OTHER DSP's TimedLinkRing (32768 deep, non-blocking); each
+		// DSP's ESSI0 RX pops its OWN ring via the read callback. A consumer
+		// NEVER reads fabricated silence - the hardware-true skip-on-empty
+		// link RX keeps consumption equal to production. The rings are
+		// prefilled below with 64 empty entries so neither side of the
+		// FULL-DUPLEX link starves at startup, and execTX runs before execRX
+		// each slot (esaiclock), so each DSP feeds its neighbour before it
+		// can starve on its own RX - no deadlock, provided the two ESSI0
+		// clock rates match (they do: same divider config on both DSPs).
+		// Codec ESSI1 RX is callback-fed and remains non-blocking:
 		// out-of-block reads receive silence.
-		const auto txToRx = [](const dsp56k::Audio::TxFrame& _tx, dsp56k::Audio::RxFrame& _rx)
-		{
-			_rx.resize(_tx.size());
-			for(size_t i = 0; i < _tx.size(); ++i)
-				_rx[i] = dsp56k::Audio::RxSlot{_tx[i][0]};	// the MD link carries one word per slot
-		};
-
+		for(auto& ring : m_linkRing)
+			for(uint32_t i = 0; i < 64; ++i)
+				ring.push_back({});
 		// Both DSPs run on one scheduler thread, so a blocking ring push/pop
 		// (which parks the calling thread until the peer thread drains/fills) would deadlock. Under
-		// the scheduler the inter-DSP ESSI0 ring becomes non-blocking: drop-on-full for the producer
+		// the scheduler the inter-DSP link ring is non-blocking: drop-on-full for the producer
 		// push, silence-on-empty for the consumer pop. Ordering/level correctness comes from the
 		// scheduler advancing the peer before delivery and, when it lands, the hardware-true
 		// skip-on-empty link RX.
-		const auto pushToInput = [txToRx, this](dsp56k::Essi& _consumer,
+		// The word store is the dated TimedLinkRing (parallel-transport spec
+		// §4); every drop gate still runs at this push site, the dating
+		// fields are captured for the later pop-side relocation.
+		const auto pushToInput = [this](dsp56k::Essi& _consumer,
 			const uint32_t _selfDsp)
 		{
-			return [txToRx, this, &_consumer, _selfDsp](uint64_t& _frameIndex, const dsp56k::Audio::TxFrame& _values)
+			return [this, &_consumer, _selfDsp](uint64_t& _frameIndex, const dsp56k::Audio::TxFrame& _values)
 			{
 				MD_TRANSPORT_RECORD(++m_transportScorecard.link[_selfDsp].transmitFrames;);
-				dsp56k::Audio::RxFrame rx;
-				txToRx(_values, rx);
-				auto& ring = _consumer.getAudioInputs();
+				auto& producerDsp = (_selfDsp == 0) ? m_dspMixer : m_dspProducer;
+				TimedLinkEntry entry;
+				entry.fromTx(_values);
+				entry.producerCycles = producerDsp.dsp().getCycles();
+				entry.fresh = producerDsp.getPeriph().getEssi0()
+					.getLastTxWrittenMask() != 0;
+				auto& ring = m_linkRing[1u - _selfDsp];
 				const bool mdProducerToMixer = _selfDsp == 1 && !isMonomachine();
 				const bool rendezvousActiveBefore = mdProducerToMixer
 					&& m_mdLink.rendezvousActive.load(std::memory_order_acquire);
@@ -219,9 +223,7 @@ namespace md
 								== flushEpochBefore;
 						const bool dma4Active = (dma4.getDCR(4)
 							& (1u << dsp56k::DmaChannel::De)) != 0;
-						const bool fresh = m_dspProducer.getPeriph().getEssi0()
-							.getLastTxWrittenMask() != 0;
-						if(!fresh)
+						if(!entry.fresh)
 							MD_TRANSPORT_RECORD(++m_transportScorecard.link[_selfDsp]
 								.mdRendezvousRetainedDrops;);
 						else if(!releasedForWindow)
@@ -235,7 +237,8 @@ namespace md
 								.mdRendezvousRingFullDrops;);
 						else
 						{
-							ring.push_back(std::move(rx));
+							entry.epoch = flushEpochBefore;
+							ring.push_back(entry);
 							MD_TRANSPORT_RECORD(auto& score = m_transportScorecard.link[_selfDsp];
 								++score.acceptedFrames;
 								score.currentRingDepth = ring.size();
@@ -334,7 +337,9 @@ namespace md
 					}
 					if(!ring.full())
 					{
-						ring.push_back(std::move(rx));
+						entry.epoch = (isMonomachine() && _selfDsp == 1)
+							? strobeEpoch : flushEpochBefore;
+						ring.push_back(entry);
 						MD_TRANSPORT_RECORD(auto& score = m_transportScorecard.link[_selfDsp];
 							++score.acceptedFrames;
 							score.currentRingDepth = ring.size();
@@ -346,13 +351,13 @@ namespace md
 			};
 		};
 
-		const auto blockingPop = [this](dsp56k::Essi& _self, const uint32_t _selfDsp)
+		const auto blockingPop = [this](const uint32_t _selfDsp)
 		{
-			return [this, &_self, _selfDsp](uint64_t& _frameIndex, dsp56k::Audio::RxFrame& _frame)
+			return [this, _selfDsp](uint64_t& _frameIndex, dsp56k::Audio::RxFrame& _frame)
 			{
 				MD_TRANSPORT_RECORD(++m_transportScorecard.link[1u - _selfDsp]
 					.receiveCallbacks;);
-				auto& ring = _self.getAudioInputs();
+				auto& ring = m_linkRing[_selfDsp];
 					// Stall recovery: under scheduler link catch-up the consumer is
 					// advanced to the producer's time before every enqueue, so this ring can only be
 					// DEEP if the consumer's RX stopped clocking for a while as the wire kept running
@@ -401,7 +406,7 @@ namespace md
 					}
 					else
 					{
-						_frame = ring.pop_front();
+						ring.pop_front().toRx(_frame);
 						MD_TRANSPORT_RECORD(auto& score = m_transportScorecard.link[1u - _selfDsp];
 							++score.poppedFrames;
 							score.currentRingDepth = ring.size(););
@@ -487,10 +492,8 @@ namespace md
 		}
 		m_dspMixer.getPeriph().getEssi0().setWriteTxCallback(pushToInput(
 			m_dspProducer.getPeriph().getEssi0(), 0));
-		m_dspMixer.getPeriph().getEssi0().setReadRxCallback(blockingPop(
-			m_dspMixer.getPeriph().getEssi0(), 0));
-		m_dspProducer.getPeriph().getEssi0().setReadRxCallback(blockingPop(
-			m_dspProducer.getPeriph().getEssi0(), 1));
+		m_dspMixer.getPeriph().getEssi0().setReadRxCallback(blockingPop(0));
+		m_dspProducer.getPeriph().getEssi0().setReadRxCallback(blockingPop(1));
 		// The Machinedrum codec ADC bus reaches both DSPs. DSP1 meters it; DSP2
 		// consumes it directly for UW RAM recording. Each receiver gets an
 		// independent copy so scheduler order cannot steal the peer's frame.
@@ -565,7 +568,7 @@ namespace md
 						// Anything queued before this new request belongs to the
 						// completed/idle wire interval and cannot precede DSP2's
 						// response in the new DMA4 window.
-						auto& ring = m_dspMixer.getPeriph().getEssi0().getAudioInputs();
+						auto& ring = m_linkRing[0];
 						MD_TRANSPORT_RECORD(m_transportScorecard.link[1]
 							.mmStrobePurgedFrames += ring.size();
 							m_transportScorecard.link[1].currentRingDepth = 0;);
@@ -580,9 +583,9 @@ namespace md
 		}
 
 		MD_TRANSPORT_RECORD(m_transportScorecard.link[0].currentRingDepth =
-			m_dspProducer.getPeriph().getEssi0().getAudioInputs().size();
+			m_linkRing[1].size();
 		m_transportScorecard.link[1].currentRingDepth =
-			m_dspMixer.getPeriph().getEssi0().getAudioInputs().size();
+			m_linkRing[0].size();
 		for(auto& score : m_transportScorecard.link)
 		{
 			score.initialRingDepth = score.currentRingDepth;
@@ -858,10 +861,8 @@ namespace md
 		auto result = m_transportScorecard;
 		// Sample the actual queues, independently of the recording counters, so
 		// queue-conservation checks can detect an unaccounted mutation.
-		result.link[0].currentRingDepth =
-			m_dspProducer.getPeriph().getEssi0().getAudioInputs().size();
-		result.link[1].currentRingDepth =
-			m_dspMixer.getPeriph().getEssi0().getAudioInputs().size();
+		result.link[0].currentRingDepth = m_linkRing[1].size();
+		result.link[1].currentRingDepth = m_linkRing[0].size();
 		result.mdRendezvousActive =
 			m_mdLink.rendezvousActive.load(std::memory_order_acquire);
 		result.mdPortCEdgePending =

@@ -59,7 +59,7 @@ namespace md
 		{
 			m_periphX.getEssi0().setRxDataAvailableCallback([this]
 			{
-				return !m_periphX.getEssi0().getAudioInputs().empty();
+				return m_hardware.linkRxAvailable(m_index);
 			});
 
 			// An RX0 read with DMA4 disabled flushes staged link data. DMA reads
@@ -71,7 +71,7 @@ namespace md
 				{
 					if(m_periphX.getDMA().getDCR(4) & (1u << dsp56k::DmaChannel::De))
 						return;
-					auto& ring = m_periphX.getEssi0().getAudioInputs();
+					auto& ring = m_hardware.linkRing(m_index);
 #if MD_TRANSPORT_DIAGNOSTICS
 					const auto purgedFrames = ring.size();
 #endif
@@ -158,8 +158,8 @@ namespace md
 			m_dsp.getJit().notifyProgramMemWrite(i);
 		}
 
-		// Keep the DSP from blocking on empty serial input during boot.
-		m_periphX.getEssi0().writeEmptyAudioIn(64);
+		// Keep the DSP from blocking on empty serial input during boot. The
+		// ESSI0 link prefill lives in the Hardware-owned TimedLinkRing now.
 		m_periphX.getEssi1().writeEmptyAudioIn(64);
 
 		hdi08().setRXRateLimit(0);

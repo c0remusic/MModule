@@ -34,6 +34,7 @@ set(SOURCES
 	mdturbomidi.cpp mdturbomidi.h mdturbomidiprotocol.h mdturbomidisenderpolicy.h
 	mdtypes.h
 	mdtimedhostrx.h
+	mdtimedlinkring.h
 	mdtransportdiagnostics.h
 	mdtransportpolicy.h
 )

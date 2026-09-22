@@ -18,6 +18,7 @@
 #include "mdscheduledmidi.h"
 #include "mdstate.h"
 #include "mdsysextransfer.h"
+#include "mdtimedlinkring.h"
 #include "mdturbomidi.h"
 #include "mdtransportdiagnostics.h"
 #include "mdtypes.h"
@@ -203,6 +204,18 @@ namespace md
 		// Mark the start of a Machinedrum DMA receive window. No-op for MM.
 		void mdLinkWindowFlushed();
 
+		// Dated inter-DSP link rings, indexed by the CONSUMING DSP (0 = mixer
+		// input, 1 = producer input). They replace the ESSI0 audio-input
+		// rings as the link's word store (parallel-transport spec §4).
+		TimedLinkRing& linkRing(const uint32_t _consumer)
+		{
+			return m_linkRing[_consumer];
+		}
+		bool linkRxAvailable(const uint32_t _consumer) const
+		{
+			return !m_linkRing[_consumer].empty();
+		}
+
 		bool sendMidi(const synthLib::SMidiEvent& _ev);
 		// Audio-owner entry point: _ev.offset is relative to the next native block.
 		// Host pad mapping and UART admission happen only at the resulting deadline.
@@ -331,6 +344,8 @@ namespace md
 		bool m_ramRecordingModePending = false;
 
 		AudioOutputs m_audioOutputs;
+		// Link word store, indexed by consumer DSP; see linkRing().
+		std::array<TimedLinkRing, 2> m_linkRing;
 		// Per-machine age of the last shallow link ring. This participates in the
 		// MM stall-purge decision, so it must never be shared by concurrently
 		// running Hardware instances (as it was when this lived as a static local).
