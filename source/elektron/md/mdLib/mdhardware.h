@@ -231,6 +231,8 @@ namespace md
 		// command issued at _ucCycle becomes applicable.
 		uint64_t hostToDspDeadline(uint32_t _dspIndex, uint64_t _ucCycle) const;
 		TransportSignal& transportSignal() { return m_signal; }
+		// UC context, after queuing a host word or command for the producer.
+		void grantProducerHostAllowance();
 
 		// Audio-thread wait on a worker condition. The audio thread owns the
 		// UC and the mixer, and the producer's gates depend on the mixer's
@@ -502,6 +504,12 @@ namespace md
 		std::atomic<bool> m_producerParked{false};
 		std::atomic<bool> m_workerExit{false};
 		std::atomic<uint64_t> m_schedTargetFrames{0};	// published block target (whole frames)
+		// Producer cycle up to which pending host writes entitle it to run
+		// regardless of its gates: every UC write grants the inline clamp
+		// from the producer's position at that moment, cumulatively, exactly
+		// as the serial bridge ran the DSP for each writeWordToDsp. This is
+		// what lets a firmware sitting in a link wait reach its own timeout.
+		std::atomic<uint64_t> m_producerHostAllowance{0};
 		std::array<std::atomic<uint64_t>, 5> m_transportWaitClamps{};	// expired bounded waits per site
 		bool m_transportTrace = false;			// MDMM_TRANSPORT_TRACE: stderr progress from both sides
 		uint64_t m_schedStepCount = 0;

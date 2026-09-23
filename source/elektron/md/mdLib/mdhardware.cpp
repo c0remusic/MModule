@@ -1817,12 +1817,27 @@ namespace md
 		const uint64_t ucLimit = hostToDspDeadline(1,
 			m_schedPublished.ucCycles.load(std::memory_order_acquire));
 		uint64_t cycles = std::min(schedFrameToDspCycles(1, limit), ucLimit);
-		// A pending host item entitles the DSP to run up to its deadline plus
-		// the inline clamp, as the serial bridge did for every write (the
-		// firmware may sit in a wait the item itself resolves). Bounded by
-		// the oldest item, so it can never run away.
-		cycles = std::max(cycles, m_dspProducer.hostToDspHeadAllowance());
+		// Pending host writes entitle the producer to run past its gates up
+		// to the cumulative allowance those writes granted (see
+		// grantProducerHostAllowance); once the stream is drained the gates
+		// rule again.
+		if(m_dspProducer.hasPendingHostToDsp())
+			cycles = std::max(cycles, m_producerHostAllowance.load(std::memory_order_acquire));
 		return cycles;
+	}
+
+	void Hardware::grantProducerHostAllowance()
+	{
+		if(!m_dspThreaded[1].load(std::memory_order_acquire))
+			return;
+		const uint64_t grant = m_schedPublished.dspCycles[1].load(std::memory_order_acquire)
+			+ transportPolicy(m_model).catchUpMaxDspCycles;
+		uint64_t current = m_producerHostAllowance.load(std::memory_order_acquire);
+		while(current < grant && !m_producerHostAllowance.compare_exchange_weak(current, grant,
+			std::memory_order_acq_rel, std::memory_order_acquire))
+		{
+		}
+		m_signal.notify();
 	}
 
 	void Hardware::producerWorkerLoop()

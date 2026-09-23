@@ -292,6 +292,7 @@ namespace md
 					m_index + 1);
 		}
 		m_hostToDsp.push_back(HostToDspItem{_kind, _value, m_hardware.hostCurrentCycle()});
+		m_hardware.grantProducerHostAllowance();
 		m_hardware.transportSignal().notify();
 	}
 
