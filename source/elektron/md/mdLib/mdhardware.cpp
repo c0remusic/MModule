@@ -21,6 +21,7 @@
 #include "mdtypes.h"
 
 #include "dsp56kEmu/jitblockinfo.h"
+#include "dsp56kBase/threadtools.h"
 
 #if MD_TRANSPORT_DIAGNOSTICS
 #define MD_TRANSPORT_RECORD(...) do { __VA_ARGS__; } while(false)
@@ -1985,6 +1986,23 @@ namespace md
 
 	void Hardware::producerWorkerLoop()
 	{
+		// The audio thread waits on this worker many times per block, so the
+		// worker must share the scheduling band of the host's audio threads:
+		// otherwise the host's other engine threads (MMCSS "Pro Audio" in
+		// Ableton Live) preempt it on a loaded machine and every block stalls.
+		// MDMM_WORKER_PRIORITY=normal|high overrides it for A/B measurements
+		// (high = THREAD_PRIORITY_TIME_CRITICAL without MMCSS).
+		struct ProAudioTask
+		{
+			void* task = nullptr;
+			~ProAudioTask() { dsp56k::ThreadTools::leaveProAudioTask(task); }
+		} proAudio;
+		const char* const priority = std::getenv("MDMM_WORKER_PRIORITY");
+		if(priority && std::strcmp(priority, "high") == 0)
+			dsp56k::ThreadTools::setCurrentThreadPriority(dsp56k::ThreadPriority::Highest);
+		else if(!priority || std::strcmp(priority, "normal") != 0)
+			proAudio.task = dsp56k::ThreadTools::joinProAudioTask();
+		dsp56k::ThreadTools::setCurrentThreadName("MD DSP2");
 		auto& d = m_dspProducer;
 		const bool trace = std::getenv("MDMM_TRANSPORT_TRACE") != nullptr;
 		uint64_t chunks = 0, parks = 0;
