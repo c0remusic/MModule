@@ -35,8 +35,14 @@ Règles de gates actuelles (`Hardware::producerTargetCycles`) :
   `writeWordToDsp` série. Hors blocage, aucune avance sur l'UC ;
 - pose des mots hôte : au bord de lecture HRX (`setReadRxCallback` →
   `landHostToDspWordOnRead`) et chunk worker borné à l'échéance de tête ;
-- mixer ≤ UC + D sur le thread audio (`schedStep`, `waitTransportImpl`) ;
-  aucune gate producteur↔mixer (cycle sinon).
+- mixer ≤ UC + D sur le thread audio (`schedStep`, `waitTransportImpl`),
+  **strictement** (plus de `max(cap, pos + 1)`) ; aucune gate
+  producteur↔mixer (cycle sinon) ;
+- position UC publiée **pendant** la tranche UC (toutes les 32 instructions,
+  publié ≤ réel) : le producteur court en même temps que l'UC au lieu de
+  démarrer chaque tranche après elle ;
+- attente lien du mixer (`linkRxAvailable`) bornée à la gate exacte du
+  producteur (`hostToDspDeadline(1, UC)`) : toujours satisfaisable.
 
 Reproducteur : `mdParallelTransportFirmwareTest` (vrai Processor+Controller,
 40 s série puis 40 s parallel, garde 15 s/bloc, assertions ADC). ~2 min.
@@ -61,14 +67,50 @@ Défauts 1-3 (ADC) : une seule cause racine, fermée.
   (calls/hits/behind/ahead, profondeur, overflow/underflow) et ligne
   `[worker]   stream` (profondeur, pushed/landed read/chunk/overdue).
 
-Défaut restant :
-4. Perf : test processor 102 % mur/audio en parallèle vs 93 % en série
-   (mesure non tracée, 2026-09-23) — le mode parallèle est encore PLUS LENT
-   que la série. Churn de parks et notify par chunk suspects ; pluginTester
-   pas remesuré depuis le correctif.
+Défaut 4 (perf) : parallèle désormais plus rapide que série, cible pas
+atteinte. Indicateur : ratio mur parallèle/série **dans le même run** (le
+bruit machine fait varier la série de 93 à 139 % d'un run à l'autre).
+HEAD `5fc0a764` ~1,08-1,10 → 0,87-0,94 non épinglé, 0,75 threads sur un
+même CCX. Cible spec étape 2 ≈ 0,62. Causes trouvées et corrigées :
+- **Attente lien cachée** dans les tranches mixer (`m_signal.waitFor` direct,
+  hors `waitTransportImpl`, comptée comme temps mixer) : le producteur ne
+  pouvait avancer qu'après la publication UC de fin de tranche, le mixer
+  (plafonné UC + D) attendait qu'il traverse toute la tranche. Fix :
+  publication UC en cours de tranche.
+- **Quasi-deadlock lien** : `max(mixerCap, dsp1Pos + 1.0)` laissait le mixer
+  dépasser UC + D ; il réclamait un producteur au-delà de l'UC, que l'UC (même
+  thread, bloqué) ne pouvait jamais ouvrir → timeout 5 ms, 76-570 fois par
+  run (jusqu'à ~2,9 s de mur). Fix : plafond strict + besoin borné à la gate.
+- **Faux partage à ~1 M/s** : grappe d'état lien après `m_linkRing`
+  (`m_linkRxWasEnabled[2]` stocké inconditionnellement à chaque tick RX
+  96 cycles par les deux threads, `m_linkLastShallow`, `m_dmaEnabled`,
+  `m_ucRxDepth`) + compteurs lecture/écriture de `RingBuffer` sur une même
+  ligne + entrées `TimedLinkEntry` 64 o à cheval sur deux lignes. Preuve :
+  même build, seul l'épinglage change → même CCX 87 %, SMT 102 %, CCX
+  différents 114 % ; mixer 4,6 → 7,5 ns/cycle. Après fix : cross-CCX mixer
+  ~4,4-5,5, worker 3,1.
+- `TransportSignal` : réveil perdu possible (StoreLoad) → fence seq_cst ;
+  spin borné 50 µs avant park.
+Reste : thread audio saturé (~95 %) par UC + mixer ; mixer 5,0 ns/cycle non
+épinglé vs 3,6 même CCX. Piste suivante mesurée : placement (worker dans le
+domaine L3 du thread audio → ratio 0,75), décision produit à prendre. Churn
+de gate worker élevé (300k-1M/2 s, surtout du spin) — hors chemin critique.
+Relâchement de timing accepté (verdict adversarial) : pendant une tranche
+UC le producteur peut devancer le mixer figé jusqu'à un quantum (enveloppe
+L_lead de la spec) ; mots DSP2→UC visibles en milieu de tranche. Validé :
+suites série + `mdAudioFirmwareTest`/`mdMidiTimingFirmwareTest`/
+`mdUwFirmwareTest` en `MDMM_TRANSPORT=parallel`.
+Défaut trouvé en passant (non corrigé) : la purge sur front d'activation RX
+(`linkDisposeAtConsumer`) ne peut plus se déclencher après le premier tick
+(appelants seulement avec RE=1).
 
 Diagnostics : `MDMM_TRANSPORT_TRACE=1` → watchdog 2 s (phase thread audio,
-chunks, positions, clamps par site), sonde de flux hôte, traces d'attente.
+chunks, positions, clamps par site), sonde de flux hôte, traces d'attente ;
+ligne `wall%` (parts de temps mur : tranches UC — attentes et tranches mixer
+imbriquées incluses —, tranches mixer, bloqué par site dont lien, exec/park
+worker) et ligne `ns/cycle` (coût par cycle émulé et taille des tranches).
+Pour isoler un effet de placement : `SetThreadAffinityMask` sur le thread
+audio (au handoff) et le worker (Ryzen 3700X : CPU logiques 0-7 = CCX0).
 
 ## Leçons dures
 

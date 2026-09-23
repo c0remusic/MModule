@@ -274,18 +274,20 @@ namespace md
 		// DSP's transport gates read these instead of the peer's registers.
 		bool dmaEnabled(const uint32_t _dsp, const uint32_t _channel) const
 		{
-			return m_dmaEnabled[_dsp & 1][_channel].load(std::memory_order_acquire);
+			return m_dmaEnabled[_dsp & 1].value[_channel].load(std::memory_order_acquire);
 		}
 		// UC-facing HI08 receive depth published from the UC context so a DSP
 		// worker can evaluate its host-TX backlog without touching the UC's
-		// register file.
+		// register file. Stored only on change: every host pump publishes.
 		void publishUcRxDepth(const uint32_t _dsp, const size_t _depth)
 		{
-			m_ucRxDepth[_dsp & 1].store(_depth, std::memory_order_release);
+			auto& depth = m_ucRxDepth[_dsp & 1].value;
+			if(depth.load(std::memory_order_relaxed) != _depth)
+				depth.store(_depth, std::memory_order_release);
 		}
 		size_t ucRxDepth(const uint32_t _dsp) const
 		{
-			return m_ucRxDepth[_dsp & 1].load(std::memory_order_acquire);
+			return m_ucRxDepth[_dsp & 1].value.load(std::memory_order_acquire);
 		}
 		void notifyHostPumpStateChanged();
 		uint64_t hostRxReadyCycle(uint32_t _dspIndex, uint64_t _dspCycle) const;
@@ -448,26 +450,31 @@ namespace md
 		std::shared_ptr<FrontPanelPublisher> m_frontPanelPublisher;
 		TurboMidiTransfer m_midiSysexTransfer;
 		Dsp m_dspMixer;		// index 0 = DSP1 (0x500000), receives the ring, drives the DAC
-		Dsp m_dspProducer;	// index 1 = DSP2 (0x600000), produces voices into the ring
+		alignas(64) Dsp m_dspProducer;	// index 1 = DSP2 (0x600000), produces voices into the ring
 		RamRecordingMode m_ramRecordingMode = RamRecordingMode::Original;
 		bool m_ramRecordingModePending = false;
 
 		AudioOutputs m_audioOutputs;
 		// Link word store, indexed by consumer DSP; see linkRing().
 		std::array<TimedLinkRing, 2> m_linkRing;
+		// Per-DSP state below lives one element per cache line: the mixer and
+		// the producer each touch their own element at link-slot rate (about
+		// 1 M/s on the MD), and two threads storing into one line bounce it
+		// between their cores on every slot.
+		template<typename T> struct alignas(64) PerDsp { T value{}; };
 		// Receiver-enable edge detector per consumer (consumer context): a
 		// serial wire has no memory, so everything queued while the receiver
 		// was disabled dies when it enables.
-		std::array<bool, 2> m_linkRxWasEnabled{};
-		std::array<std::array<std::atomic<bool>, 6>, 2> m_dmaEnabled{};
-		std::array<std::atomic<size_t>, 2> m_ucRxDepth{};
+		std::array<PerDsp<bool>, 2> m_linkRxWasEnabled{};
+		std::array<PerDsp<std::array<std::atomic<bool>, 6>>, 2> m_dmaEnabled{};
+		std::array<PerDsp<std::atomic<size_t>>, 2> m_ucRxDepth{};
 		// Producer->mixer content offset in codec frames (TransportPolicy,
 		// MD_LINK_PIPELINE_DEPTH override).
 		double m_linkPipelineDepthFrames = 0.0;
 		// Per-machine age of the last shallow link ring. This participates in the
 		// MM stall-purge decision, so it must never be shared by concurrently
 		// running Hardware instances (as it was when this lived as a static local).
-		std::array<uint64_t, 2> m_linkLastShallow{};
+		std::array<PerDsp<uint64_t>, 2> m_linkLastShallow{};
 #if MD_TRANSPORT_DIAGNOSTICS
 		TransportScorecard m_transportScorecard;
 #endif
@@ -475,7 +482,7 @@ namespace md
 		// Codec frames produced by the mixer. Written in mixer context, read
 		// by the purge age and the drain; atomic so those reads stay valid
 		// once the mixer owns a worker thread (spec §4).
-		std::atomic<uint32_t> m_esaiFrameIndex{0};	// codec frames produced
+		alignas(64) std::atomic<uint32_t> m_esaiFrameIndex{0};	// codec frames produced
 
 		// ---------------------------------------------------------------------------------------
 		// Deterministic interleave scheduler state. advance() maintains a shared machine clock in codec
@@ -507,9 +514,9 @@ namespace md
 		// Threaded-transport state. m_dspThreaded flips once at handoff and
 		// never back; the worker exists only for the producer in this step.
 		std::array<std::atomic<bool>, 2> m_dspThreaded{};
-		std::atomic<bool> m_producerParked{false};
-		std::atomic<bool> m_workerExit{false};
-		std::atomic<uint64_t> m_schedTargetFrames{0};	// published block target (whole frames)
+		alignas(64) std::atomic<bool> m_producerParked{false};
+		alignas(64) std::atomic<bool> m_workerExit{false};
+		alignas(64) std::atomic<uint64_t> m_schedTargetFrames{0};	// published block target (whole frames)
 		std::array<std::atomic<bool>, 2> m_hostWriteBlocked{};	// see setHostWriteBlocked
 		std::array<std::atomic<uint64_t>, 5> m_transportWaitClamps{};	// expired bounded waits per site
 		bool m_transportTrace = false;			// MDMM_TRANSPORT_TRACE: stderr progress from both sides
@@ -517,15 +524,37 @@ namespace md
 		// Trace-only watchdog: where the audio thread is (phase/site) and
 		// what the worker does, printed every 2 s from a helper thread so a
 		// stall is visible without a debugger.
-		std::atomic<int32_t> m_audioPhase{0};	// 0 idle, 1 UC slice, 2 mixer slice, 10+site while waiting
-		std::atomic<uint64_t> m_workerChunks{0};
+		alignas(64) std::atomic<int32_t> m_audioPhase{0};	// 0 idle, 1 UC slice, 2 mixer slice, 10+site while waiting
+		alignas(64) std::atomic<uint64_t> m_workerChunks{0};
+		// Trace-only wall-time accounting (nanoseconds), printed as per-interval
+		// shares by the watchdog: where each thread's wall time goes.
+		struct TransportTimeTrace
+		{
+			std::atomic<uint64_t> ucSliceNs{0};		// UC slices, including waits issued inside them
+			std::atomic<uint64_t> mixerSliceNs{0};	// mixer slices, wherever they run
+			std::array<std::atomic<uint64_t>, 5> blockedNs{};	// audio thread parked on the signal, per site
+			std::array<std::atomic<uint64_t>, 5> waits{};		// waitTransport calls that had to wait
+			std::array<std::atomic<uint64_t>, 5> timedOutRounds{};	// signal waits that ran to their timeout
+			alignas(64) std::atomic<uint64_t> workerExecNs{0};
+			std::atomic<uint64_t> workerParkNs{0};
+			std::atomic<uint64_t> workerParks{0};
+			std::atomic<uint64_t> workerParkTimeouts{0};	// park rounds that ran to their timeout
+			std::atomic<uint64_t> ucSliceCycles{0};		// UC cycles advanced by UC slices
+			std::atomic<uint64_t> mixerSlices{0};
+			std::atomic<uint64_t> mixerSliceCycles{0};
+			std::atomic<uint64_t> producerSliceNs{0};	// serial-mode producer slices
+			std::atomic<uint64_t> producerSliceCycles{0};
+			alignas(64) std::atomic<uint64_t> workerExecCycles{0};
+			std::atomic<uint64_t> ucSlices{0};
+		};
+		alignas(64) TransportTimeTrace m_timeTrace;
 		std::atomic<bool> m_watchdogExit{false};
 		std::thread m_watchdog;
 		void startWatchdog();
 		// Published producer position in machine frames (threaded producer);
 		// the mixer's slices are capped at this + L_lead (spec §3, gate 2).
 		double producerPublishedFrames() const;
-		TransportSignal m_signal;
+		alignas(64) TransportSignal m_signal;
 		std::thread m_producerWorker;
 		std::array<RealtimeHostAudioInputTimeline, 2> m_hostAudioInput;
 		std::array<int64_t, 2> m_hostAudioInputClockOrigin{};
@@ -543,7 +572,7 @@ namespace md
 		std::array<std::atomic<uint64_t>, 2> m_hostAudioInputOverflow{};
 		// Trace-only receiver bookkeeping (MDMM_TRANSPORT_TRACE), printed by the
 		// watchdog: how each receiver's reads resolve against its timeline.
-		struct HostAudioInputTrace
+		struct alignas(64) HostAudioInputTrace
 		{
 			std::atomic<uint64_t> calls{0};		// codec receive callbacks
 			std::atomic<uint64_t> gated{0};		// no source, latency unset or origin not latched
@@ -563,7 +592,7 @@ namespace md
 		bool m_hostAudioInputLatencyInitialized = false;
 		bool     m_schedInLinkDelivery = false;	// reentrancy guard for cross-DSP catch-up
 		double   m_schedFramesTotal   = 0.0;	// machine-time target, accumulated codec frames
-		uint64_t m_schedUcCyclesDone  = 0;		// UC cycles executed under the scheduler (processUC)
+		alignas(64) uint64_t m_schedUcCyclesDone  = 0;		// UC cycles executed under the scheduler (processUC)
 		uint64_t m_mmBpSinceUcCycles[2] = {0,0};// MM backpressure: UC cycle+1 when a DSP's stall began (0 = none)
 		// MD link-transport state grouped by owning execution context and
 		// promoted to atomics (parallel-transport spec, memory-visibility
@@ -590,15 +619,19 @@ namespace md
 			std::atomic<uint64_t> pendingEpoch{0};
 			std::atomic<uint64_t> releaseEpoch{0};
 		};
-		MdMixerLinkState m_mdLink;
-		MdPortCMailbox m_mdPortC;
+		alignas(64) MdMixerLinkState m_mdLink;
+		alignas(64) MdPortCMailbox m_mdPortC;
 		// Published machine positions (parallel-transport spec §2): one
 		// release-store per scheduler slice. Serial mode only publishes;
 		// consumers appear with the parallel transport.
+		struct alignas(64) PaddedPosition : std::atomic<uint64_t>
+		{
+			PaddedPosition() : std::atomic<uint64_t>(0) {}
+		};
 		struct PublishedPositions
 		{
-			std::atomic<uint64_t> ucCycles{0};
-			std::array<std::atomic<uint64_t>, 2> dspCycles{};
+			PaddedPosition ucCycles;
+			std::array<PaddedPosition, 2> dspCycles{};
 		};
 		PublishedPositions m_schedPublished;
 		std::atomic<bool> m_mmLinkAwaitFresh{false};	// PDRC edge awaits DSP2's DMA reply
@@ -608,7 +641,8 @@ namespace md
 		double   m_schedDspOriginFrame [2]  = { 0.0, 0.0 };		// machine-frame at runnable transition
 		uint64_t m_schedDspOriginCycles[2]  = { 0, 0 };			// getCycles() at that transition
 		uint64_t m_schedDspOriginUcCycles[2] = { 0, 0 };		// exact host clock at that transition
-		std::atomic<bool> m_schedulerHostPumpDirty{true};
+		alignas(64) std::atomic<bool> m_schedulerHostPumpDirty{true};
+		alignas(64) uint8_t m_padAfterPumpDirty = 0;
 		// MIDI
 		void pumpScheduledMidi();
 		std::atomic<uint64_t> m_midiOutputNativeOrigin{0};

@@ -15,7 +15,7 @@ namespace md
 	// stamp/epoch/fresh are captured in the producer's context at TX so the
 	// dating pop of the next migration step can evaluate its gates without
 	// re-reading peer state. Until then they ride along inert.
-	struct TimedLinkEntry
+	struct alignas(64) TimedLinkEntry
 	{
 		static constexpr uint32_t MaxSlots = 8;
 

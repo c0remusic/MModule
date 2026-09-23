@@ -131,7 +131,7 @@ namespace md
 			m_transportMode = std::strcmp(mode, "parallel") == 0
 				? TransportMode::Parallel : TransportMode::Serial;
 		m_transportTrace = std::getenv("MDMM_TRANSPORT_TRACE") != nullptr;
-		if(m_transportTrace && m_transportMode == TransportMode::Parallel)
+		if(m_transportTrace)
 			startWatchdog();
 
 		if(!m_rom.isValid())
@@ -328,7 +328,7 @@ namespace md
 							&& !isMonomachine();
 						const uint64_t esaiNow =
 							m_esaiFrameIndex.load(std::memory_order_acquire);
-						auto& lastShallow = m_linkLastShallow[_selfDsp];
+						auto& lastShallow = m_linkLastShallow[_selfDsp].value;
 						// Depth as the wire sees it: words already due. The
 						// in-flight (future-dated) lead is invisible to stall
 						// recovery - a stall residue is made of PAST words.
@@ -583,8 +583,8 @@ namespace md
 			d.getPeriph().getDMA().setDeChangedCallback(
 				[this, dspIndex](const dsp56k::TWord _channel, const bool _enabled)
 			{
-				if(_channel < m_dmaEnabled[dspIndex].size())
-					m_dmaEnabled[dspIndex][_channel].store(_enabled, std::memory_order_release);
+				if(_channel < m_dmaEnabled[dspIndex].value.size())
+					m_dmaEnabled[dspIndex].value[_channel].store(_enabled, std::memory_order_release);
 			});
 		}
 
@@ -637,10 +637,71 @@ namespace md
 		m_watchdog = std::thread([this]
 		{
 			uint64_t lastChunks = 0, lastSteps = 0;
+			// Previous totals of the wall-time accounting, for per-interval shares.
+			constexpr size_t timeSlots = 21;
+			std::array<uint64_t, timeSlots> lastTime{};
+			std::array<uint64_t, 10> lastCost{};
+			auto lastWall = std::chrono::steady_clock::now();
 			while(!m_watchdogExit.load(std::memory_order_acquire))
 			{
 				for(int i = 0; i < 20 && !m_watchdogExit.load(std::memory_order_acquire); ++i)
 					std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				{
+					const auto& t = m_timeTrace;
+					const std::array<uint64_t, timeSlots> now{
+						t.ucSliceNs.load(), t.mixerSliceNs.load(),
+						t.blockedNs[0].load(), t.blockedNs[1].load(), t.blockedNs[2].load(),
+						t.blockedNs[3].load(), t.blockedNs[4].load(),
+						t.waits[0].load(), t.waits[1].load(), t.waits[2].load(), t.waits[3].load(), t.waits[4].load(),
+						t.timedOutRounds[0].load(), t.timedOutRounds[1].load(), t.timedOutRounds[2].load(),
+						t.timedOutRounds[3].load(), t.timedOutRounds[4].load(),
+						t.workerExecNs.load(), t.workerParkNs.load(), t.workerParks.load(), t.workerParkTimeouts.load()};
+					const auto wallNow = std::chrono::steady_clock::now();
+					const double wallNs = static_cast<double>(
+						std::chrono::duration_cast<std::chrono::nanoseconds>(wallNow - lastWall).count());
+					const auto pct = [&](const size_t _slot)
+					{
+						return 100.0 * static_cast<double>(now[_slot] - lastTime[_slot]) / wallNs;
+					};
+					const auto delta = [&](const size_t _slot)
+					{
+						return static_cast<unsigned long long>(now[_slot] - lastTime[_slot]);
+					};
+					std::fprintf(stderr, "[watchdog]   wall%% uc=%.1f mixer=%.1f blocked dsp=%.1f link=%.1f room=%.1f "
+						"parked=%.1f mixerGate=%.1f | waits dsp=%llu/%llu link=%llu/%llu room=%llu/%llu "
+						"parked=%llu/%llu (timeouts) | worker exec=%.1f park=%.1f parks=%llu parkTimeouts=%llu\n",
+						pct(0), pct(1), pct(2), pct(3), pct(4), pct(5), pct(6),
+						delta(7), delta(12), delta(8), delta(13), delta(9), delta(14), delta(10), delta(15),
+						pct(17), pct(18), delta(19), delta(20));
+					lastTime = now;
+					lastWall = wallNow;
+
+					// Cost per executed cycle, per component, over the same interval.
+					const std::array<uint64_t, 10> cost{
+						t.ucSliceNs.load(), t.ucSliceCycles.load(), t.mixerSliceNs.load(), t.mixerSliceCycles.load(),
+						t.producerSliceNs.load(), t.producerSliceCycles.load(), t.workerExecNs.load(),
+						t.workerExecCycles.load(), t.mixerSlices.load(), t.ucSlices.load()};
+					const auto perCycle = [&](const size_t _ns, const size_t _cycles)
+					{
+						const auto c = cost[_cycles] - lastCost[_cycles];
+						return c ? static_cast<double>(cost[_ns] - lastCost[_ns]) / static_cast<double>(c) : 0.0;
+					};
+					const auto perSlice = [&](const size_t _cycles, const size_t _count)
+					{
+						const auto n = cost[_count] - lastCost[_count];
+						return n ? static_cast<double>(cost[_cycles] - lastCost[_cycles]) / static_cast<double>(n) : 0.0;
+					};
+					std::fprintf(stderr, "[watchdog]   ns/cycle uc=%.2f mixer=%.2f producerSlices=%.2f worker=%.2f | "
+						"slices uc=%llu (%.0f cyc) mixer=%llu (%.0f cyc) | cycles uc=%llu mixer=%llu producer=%llu worker=%llu\n",
+						perCycle(0, 1), perCycle(2, 3), perCycle(4, 5), perCycle(6, 7),
+						static_cast<unsigned long long>(cost[9] - lastCost[9]), perSlice(1, 9),
+						static_cast<unsigned long long>(cost[8] - lastCost[8]), perSlice(3, 8),
+						static_cast<unsigned long long>(cost[1] - lastCost[1]),
+						static_cast<unsigned long long>(cost[3] - lastCost[3]),
+						static_cast<unsigned long long>(cost[5] - lastCost[5]),
+						static_cast<unsigned long long>(cost[7] - lastCost[7]));
+					lastCost = cost;
+				}
 				const auto chunks = m_workerChunks.load(std::memory_order_relaxed);
 				const auto steps = m_schedStepCount;
 				std::fprintf(stderr, "[watchdog] audioPhase=%d steps=%llu(+%llu) chunks=%llu(+%llu) "
@@ -1001,7 +1062,8 @@ namespace md
 			auto& essi = (_consumer == 0 ? m_dspMixer : m_dspProducer)
 				.getPeriph().getEssi0();
 			const bool enabled = essi.hasEnabledReceivers();
-			if(enabled && !m_linkRxWasEnabled[_consumer])
+			auto& wasEnabled = m_linkRxWasEnabled[_consumer].value;
+			if(enabled && !wasEnabled)
 			{
 				size_t purged = 0;
 				while(!ring.empty())
@@ -1013,7 +1075,9 @@ namespace md
 					.receiverDisabledDrops += purged;);
 				(void)purged;
 			}
-			m_linkRxWasEnabled[_consumer] = enabled;
+			// Store on change only: this runs on every link RX slot.
+			if(wasEnabled != enabled)
+				wasEnabled = enabled;
 			if(!enabled)
 				return false;
 		}
@@ -1588,7 +1652,10 @@ namespace md
 				subTarget = std::min(ucPos + quantumFrames, target);
 			}
 			else
-				subTarget = std::min(subTarget, std::max(mixerCap, dsp1Pos + 1.0));
+				// Strictly at the cap: a mixer past UC + D reads link slots the
+				// UC-gated producer cannot have produced, and the UC cannot
+				// advance while this thread waits inside the mixer for them.
+				subTarget = std::min(subTarget, mixerCap);
 		}
 
 		if(m_transportTrace && (++m_schedStepCount % 20000) == 0)
@@ -1619,12 +1686,28 @@ namespace md
 			// Advance the UC toward subTarget; each processUC() runs one m_uc.exec() (and its HI08
 			// callbacks, which catch the target DSP up inline). Guaranteed at least one step; clamped.
 			m_audioPhase.store(1);
+			const auto ucSliceStart = m_transportTrace ? std::chrono::steady_clock::now()
+				: std::chrono::steady_clock::time_point{};
+			const auto ucSliceStartCycles = m_schedUcCyclesDone;
 			const uint64_t clampStop = m_schedUcCyclesDone + clampCycles;
 
 			uint32_t probeCount = 0;
+			// Threaded producer: publish the UC position while the slice runs.
+			// The producer is gated at the published UC position with zero lead,
+			// so a slice-end publication alone makes it start each stretch of
+			// machine time only once the UC has finished it - the mixer then
+			// waits for the producer to cover the whole slice. Published <= real,
+			// so no host word can ever be stamped behind the producer.
+			const bool publishInSlice = m_dspThreaded[1].load(std::memory_order_acquire);
+			uint32_t publishCount = 0;
 			do
 			{
 			processUC();
+			if(publishInSlice && (++publishCount & 31) == 0)
+			{
+				m_schedPublished.ucCycles.store(m_schedUcCyclesDone, std::memory_order_release);
+				m_signal.notify();
+			}
 			// Probe periodically within the existing UC slice. A
 			// pending host word/wake, restore or MIDI transfer disables skipping.
 			// The Monomachine path skips its ColdFire idle loop (BRA.B -2) in
@@ -1693,6 +1776,13 @@ namespace md
 			}
 			while(static_cast<double>(m_schedUcCyclesDone) / ucPerFrame < subTarget
 				&& m_schedUcCyclesDone < clampStop);
+			if(m_transportTrace)
+			{
+				m_timeTrace.ucSliceNs.fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+					std::chrono::steady_clock::now() - ucSliceStart).count()), std::memory_order_relaxed);
+				m_timeTrace.ucSliceCycles.fetch_add(m_schedUcCyclesDone - ucSliceStartCycles, std::memory_order_relaxed);
+				m_timeTrace.ucSlices.fetch_add(1, std::memory_order_relaxed);
+			}
 #if MD_TRANSPORT_DIAGNOSTICS
 			const auto diagnosticExecuted = m_schedUcCyclesDone - diagnosticStart;
 			score.executedCycles += diagnosticExecuted;
@@ -1724,6 +1814,28 @@ namespace md
 		auto& d = (_dspIndex == 0) ? m_dspMixer : m_dspProducer;
 		const uint32_t idx = _dspIndex;
 		const uint64_t startCyc  = d.dsp().getCycles();
+		struct SliceTimer
+		{
+			std::atomic<uint64_t>* ns;
+			std::atomic<uint64_t>* cycles;
+			std::atomic<uint64_t>* count;
+			dsp56k::DSP& dsp;
+			uint64_t startCycles;
+			std::chrono::steady_clock::time_point start;
+			~SliceTimer()
+			{
+				if(!ns)
+					return;
+				ns->fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+					std::chrono::steady_clock::now() - start).count()), std::memory_order_relaxed);
+				cycles->fetch_add(dsp.getCycles() - startCycles, std::memory_order_relaxed);
+				if(count)
+					count->fetch_add(1, std::memory_order_relaxed);
+			}
+		} sliceTimer{m_transportTrace ? (idx == 0 ? &m_timeTrace.mixerSliceNs : &m_timeTrace.producerSliceNs) : nullptr,
+			idx == 0 ? &m_timeTrace.mixerSliceCycles : &m_timeTrace.producerSliceCycles,
+			idx == 0 ? &m_timeTrace.mixerSlices : nullptr, d.dsp(), startCyc,
+			m_transportTrace ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{}};
 		uint64_t targetCyc = m_schedDspOriginCycles[idx]
 			+ static_cast<uint64_t>((_subTarget - m_schedDspOriginFrame[idx]) * static_cast<double>(g_dsp1CyclesPerEsaiFrame));
 		if(targetCyc <= startCyc)
@@ -1923,6 +2035,8 @@ namespace md
 						|| producerTargetCycles() > d.dsp().getCycles();
 				}))
 				{
+					if(trace)
+						m_timeTrace.workerParkTimeouts.fetch_add(1, std::memory_order_relaxed);
 					if(trace && (++parkRounds % 200) == 0)
 						std::fprintf(stderr, "[worker] parked %lld ms: now=%llu target=%llu "
 							"blockTarget=%llu uc=%llu mixer=%llu\n",
@@ -1933,6 +2047,13 @@ namespace md
 							static_cast<unsigned long long>(m_schedTargetFrames.load()),
 							static_cast<unsigned long long>(m_schedPublished.ucCycles.load()),
 							static_cast<unsigned long long>(m_schedPublished.dspCycles[0].load()));
+				}
+				if(trace)
+				{
+					m_timeTrace.workerParks.fetch_add(1, std::memory_order_relaxed);
+					m_timeTrace.workerParkNs.fetch_add(static_cast<uint64_t>(
+						std::chrono::duration_cast<std::chrono::nanoseconds>(
+							std::chrono::steady_clock::now() - parkStart).count()), std::memory_order_relaxed);
 				}
 				m_producerParked.store(false, std::memory_order_release);
 				continue;
@@ -1955,8 +2076,11 @@ namespace md
 			m_workerChunks.store(chunks, std::memory_order_relaxed);
 			if(trace)
 			{
-				const auto chunkMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+				const auto chunkNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
 					std::chrono::steady_clock::now() - chunkStart).count();
+				m_timeTrace.workerExecNs.fetch_add(static_cast<uint64_t>(chunkNs), std::memory_order_relaxed);
+				m_timeTrace.workerExecCycles.fetch_add(d.dsp().getCycles() - now, std::memory_order_relaxed);
+				const auto chunkMs = chunkNs / 1000000;
 				if(chunkMs > 50)
 					std::fprintf(stderr, "[worker] slow chunk %lld ms: cycles %llu -> %llu (stop %llu) pc=%06x\n",
 						static_cast<long long>(chunkMs), static_cast<unsigned long long>(now),
@@ -1977,6 +2101,9 @@ namespace md
 	{
 		if(_ready())
 			return true;
+		const auto siteIndex = static_cast<size_t>(_site);
+		if(m_transportTrace)
+			m_timeTrace.waits[siteIndex].fetch_add(1, std::memory_order_relaxed);
 		const auto phaseBefore = m_audioPhase.exchange(10 + static_cast<int32_t>(_site));
 		struct PhaseRestore
 		{
@@ -2004,7 +2131,18 @@ namespace md
 					return true;
 				continue;
 			}
-			if(m_signal.waitFor(std::chrono::microseconds(200), _ready))
+			const auto blockStart = m_transportTrace ? std::chrono::steady_clock::now()
+				: std::chrono::steady_clock::time_point{};
+			const bool woke = m_signal.waitFor(std::chrono::microseconds(200), _ready);
+			if(m_transportTrace)
+			{
+				m_timeTrace.blockedNs[siteIndex].fetch_add(static_cast<uint64_t>(
+					std::chrono::duration_cast<std::chrono::nanoseconds>(
+						std::chrono::steady_clock::now() - blockStart).count()), std::memory_order_relaxed);
+				if(!woke)
+					m_timeTrace.timedOutRounds[siteIndex].fetch_add(1, std::memory_order_relaxed);
+			}
+			if(woke)
 				return true;
 			const auto waited = std::chrono::steady_clock::now() - start;
 			if(m_transportTrace && waited > std::chrono::seconds(1))
@@ -2099,7 +2237,13 @@ namespace md
 			|| !m_schedDspOriginLatched[1])
 			return false;
 		const double needed = linkConsumerNow(0) - m_linkPipelineDepthFrames;
-		const uint64_t neededCyc = schedFrameToDspCycles(1, needed);
+		// Never wait for more than the producer's own UC gate can grant (the
+		// exact rational conversion it uses): the UC runs on this thread and
+		// cannot advance while the mixer waits here, so a need past it could
+		// only expire. Floating-point rounding or a JIT block overshoot past
+		// the mixer's cap would otherwise ask for a few cycles beyond the UC.
+		const uint64_t neededCyc = std::min(schedFrameToDspCycles(1, needed),
+			hostToDspDeadline(1, m_schedUcCyclesDone));
 		const auto proven = [&]
 		{
 			return linkHeadDue(0)
@@ -2115,7 +2259,19 @@ namespace md
 		m_schedPublished.ucCycles.store(m_schedUcCyclesDone, std::memory_order_release);
 		m_signal.notify();
 		const auto phaseBefore = m_audioPhase.exchange(11);
+		const auto linkWaitStart = m_transportTrace ? std::chrono::steady_clock::now()
+			: std::chrono::steady_clock::time_point{};
 		const bool provenNow = m_signal.waitFor(std::chrono::milliseconds(5), proven);
+		if(m_transportTrace)
+		{
+			constexpr auto site = static_cast<size_t>(TransportWaitSite::LinkProducer);
+			m_timeTrace.waits[site].fetch_add(1, std::memory_order_relaxed);
+			m_timeTrace.blockedNs[site].fetch_add(static_cast<uint64_t>(
+				std::chrono::duration_cast<std::chrono::nanoseconds>(
+					std::chrono::steady_clock::now() - linkWaitStart).count()), std::memory_order_relaxed);
+			if(!provenNow)
+				m_timeTrace.timedOutRounds[site].fetch_add(1, std::memory_order_relaxed);
+		}
 		m_audioPhase.store(phaseBefore);
 		if(!provenNow)
 		{
