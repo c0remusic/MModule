@@ -83,6 +83,15 @@ namespace md
 		// DSP's current cycle - data words into HRX when it is free, host
 		// commands when none is in flight (parallel-transport spec §5.4).
 		void applyHostToDspStream();
+		// Diagnostics only (racy cross-thread reads): the state a stalled
+		// host-to-DSP stream depends on.
+		void traceHostStream(const char* _tag) const;
+		// Host words or commands waiting to be applied by the worker.
+		bool hasPendingHostToDsp() const { return !m_hostToDsp.empty(); }
+		// The DSP cycle up to which the oldest pending host item entitles the
+		// DSP to run (its deadline plus the serial inline clamp), or 0 when
+		// nothing is pending. Mirrors writeWordToDsp's drain run.
+		uint64_t hostToDspHeadAllowance() const;
 
 	private:
 		void    onUCRxEmpty(bool _needMoreData);
@@ -121,9 +130,10 @@ namespace md
 			uint64_t ucCycle = 0;
 		};
 		void pushHostToDsp(HostToDspItem::Kind _kind, uint32_t _value);
-		// Deep enough for a kit/sample upload burst; the UC never drops a
-		// host word, it waits for the worker to apply older items instead.
-		dsp56k::RingBuffer<HostToDspItem, 1024, false, false> m_hostToDsp;
+		// As deep as the DSP-side HDI08 receive ring that absorbed host bursts
+		// under the serial adapter, so the UC only waits where the serial
+		// path would have stalled too. The UC never drops a host word.
+		dsp56k::RingBuffer<HostToDspItem, 8192, false, false> m_hostToDsp;
 
 		Hardware&        m_hardware;
 		mc68k::Hdi08&    m_hdiUC;			// ColdFire-facing HI08 register file (owned by the Microcontroller)

@@ -7,6 +7,7 @@
 #include "synthLib/realtimeInstrumentation.h"
 
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <limits>
 
@@ -281,11 +282,15 @@ namespace md
 		// behind on applying items; wait for room while the mixer keeps
 		// advancing (the worker's mixer gate must be able to open), and only
 		// give up on a dead worker.
-		if(m_hostToDsp.full())
-			m_hardware.waitTransport(Hardware::TransportWaitSite::HostToDspRoom,
-				std::chrono::seconds(2), [&] { return !m_hostToDsp.full(); });
-		if(m_hostToDsp.full())
-			return;
+		// Never drop: an expired wait is logged and retried, a dropped host
+		// word corrupts the firmware's control flow.
+		while(m_hostToDsp.full())
+		{
+			if(!m_hardware.waitTransport(Hardware::TransportWaitSite::HostToDspRoom,
+				std::chrono::seconds(5), [&] { return !m_hostToDsp.full(); }))
+				std::fprintf(stderr, "[MD] host-to-DSP stream of DSP%u full for 5 s, still waiting\n",
+					m_index + 1);
+		}
 		m_hostToDsp.push_back(HostToDspItem{_kind, _value, m_hardware.hostCurrentCycle()});
 		m_hardware.transportSignal().notify();
 	}
@@ -311,6 +316,10 @@ namespace md
 			{
 				if(hdi08().hasRXData() && !overdue)
 					return;
+				// The receive ring push blocks when full (Lock=true): never
+				// let the worker park there, the item simply waits.
+				if(hdi08().dataRXFull())
+					return;
 				const TWord word = item.value;
 				hdi08().writeRX(&word, 1);
 			}
@@ -323,6 +332,35 @@ namespace md
 			m_hostToDsp.pop_front();
 		}
 		m_hardware.transportSignal().notify();
+	}
+
+	uint64_t Dsp::hostToDspHeadAllowance() const
+	{
+		if(m_hostToDsp.empty())
+			return 0;
+		return m_hardware.hostToDspDeadline(m_index, m_hostToDsp.front().ucCycle)
+			+ schedInlineClamp(m_hardware.getModel());
+	}
+
+	void Dsp::traceHostStream(const char* _tag) const
+	{
+		const auto& hdi = const_cast<Dsp*>(this)->hdi08();
+		const auto now = m_dsp.getCycles();
+		if(m_hostToDsp.empty())
+		{
+			std::fprintf(stderr, "%s stream empty now=%llu hrx=%d hcBusy=%d pc=%06x\n", _tag,
+				static_cast<unsigned long long>(now), hdi.hasRXData() ? 1 : 0,
+				hdi.hostCommandBusy() ? 1 : 0, m_dsp.getPC().toWord());
+			return;
+		}
+		const auto& head = m_hostToDsp.front();
+		std::fprintf(stderr, "%s stream=%zu head=%s value=%06x uc=%llu deadline=%llu now=%llu "
+			"hrx=%d hcBusy=%d pc=%06x\n", _tag, m_hostToDsp.size(),
+			head.kind == HostToDspItem::Kind::Data ? "data" : "cmd", head.value,
+			static_cast<unsigned long long>(head.ucCycle),
+			static_cast<unsigned long long>(m_hardware.hostToDspDeadline(m_index, head.ucCycle)),
+			static_cast<unsigned long long>(now), hdi.hasRXData() ? 1 : 0,
+			hdi.hostCommandBusy() ? 1 : 0, m_dsp.getPC().toWord());
 	}
 
 	uint64_t Dsp::nextDeferredHostRxCycle() const

@@ -130,6 +130,9 @@ namespace md
 		if(const char* const mode = std::getenv("MDMM_TRANSPORT"))
 			m_transportMode = std::strcmp(mode, "parallel") == 0
 				? TransportMode::Parallel : TransportMode::Serial;
+		m_transportTrace = std::getenv("MDMM_TRANSPORT_TRACE") != nullptr;
+		if(m_transportTrace && m_transportMode == TransportMode::Parallel)
+			startWatchdog();
 
 		if(!m_rom.isValid())
 			return;
@@ -598,7 +601,49 @@ namespace md
 	Hardware::~Hardware()
 	{
 		stopProducerWorker();
+		if(m_watchdog.joinable())
+		{
+			m_watchdogExit.store(true, std::memory_order_release);
+			m_watchdog.join();
+		}
 		m_uc.setMidiTransmitTap({});
+	}
+
+	void Hardware::startWatchdog()
+	{
+		m_watchdog = std::thread([this]
+		{
+			uint64_t lastChunks = 0, lastSteps = 0;
+			while(!m_watchdogExit.load(std::memory_order_acquire))
+			{
+				for(int i = 0; i < 20 && !m_watchdogExit.load(std::memory_order_acquire); ++i)
+					std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				const auto chunks = m_workerChunks.load(std::memory_order_relaxed);
+				const auto steps = m_schedStepCount;
+				std::fprintf(stderr, "[watchdog] audioPhase=%d steps=%llu(+%llu) chunks=%llu(+%llu) "
+					"threaded=%d parked=%d uc=%.1f mixer=%.1f producer=%.1f target=%llu "
+					"clamps dsp=%llu link=%llu room=%llu parked=%llu mixerGate=%llu\n",
+					m_audioPhase.load(), static_cast<unsigned long long>(steps),
+					static_cast<unsigned long long>(steps - lastSteps),
+					static_cast<unsigned long long>(chunks),
+					static_cast<unsigned long long>(chunks - lastChunks),
+					m_dspThreaded[1].load() ? 1 : 0, m_producerParked.load() ? 1 : 0,
+					static_cast<double>(m_schedUcCyclesDone)
+						/ (static_cast<double>(g_ucClockHz) / static_cast<double>(g_samplerate)),
+					m_schedDspOriginLatched[0] ? schedDspFramePos(0) : -1.0,
+					producerPublishedFrames(),
+					static_cast<unsigned long long>(m_schedTargetFrames.load()),
+					static_cast<unsigned long long>(m_transportWaitClamps[0].load()),
+					static_cast<unsigned long long>(m_transportWaitClamps[1].load()),
+					static_cast<unsigned long long>(m_transportWaitClamps[2].load()),
+					static_cast<unsigned long long>(m_transportWaitClamps[3].load()),
+					static_cast<unsigned long long>(m_transportWaitClamps[4].load()));
+				if(m_dspThreaded[1].load())
+					m_dspProducer.traceHostStream("[watchdog]   producer");
+				lastChunks = chunks;
+				lastSteps = steps;
+			}
+		});
 	}
 
 	bool Hardware::isValid() const
@@ -1487,7 +1532,36 @@ namespace md
 		if(minPos >= target)
 			return false;							// everything has reached the shared clock
 
-		const double subTarget = std::min(minPos + quantumFrames, target);
+		double subTarget = std::min(minPos + quantumFrames, target);
+
+		// Threaded producer: the producer trails the UC (its only external
+		// gate), and the mixer's link wait needs the producer at mixer - D,
+		// so the mixer may not lead the UC by more than D. Both run on this
+		// thread: a mixer at its cap simply yields the slice to the UC (the
+		// cap is never below the block target once the UC has reached it).
+		if(m_dspThreaded[1].load(std::memory_order_acquire) && who == 1)
+		{
+			const double mixerCap = ucPos + m_linkPipelineDepthFrames;
+			if(dsp1Pos >= mixerCap && ucPos < target)
+			{
+				who = 0;
+				minPos = ucPos;
+				subTarget = std::min(ucPos + quantumFrames, target);
+			}
+			else
+				subTarget = std::min(subTarget, std::max(mixerCap, dsp1Pos + 1.0));
+		}
+
+		if(m_transportTrace && (++m_schedStepCount % 20000) == 0)
+			std::fprintf(stderr, "[audio] steps=%llu uc=%.1f mixer=%.1f producer=%.1f target=%.1f "
+				"clamps dsp=%llu link=%llu room=%llu parked=%llu mixerGate=%llu\n",
+				static_cast<unsigned long long>(m_schedStepCount), ucPos, dsp1Pos,
+				producerPublishedFrames(), target,
+				static_cast<unsigned long long>(m_transportWaitClamps[0].load()),
+				static_cast<unsigned long long>(m_transportWaitClamps[1].load()),
+				static_cast<unsigned long long>(m_transportWaitClamps[2].load()),
+				static_cast<unsigned long long>(m_transportWaitClamps[3].load()),
+				static_cast<unsigned long long>(m_transportWaitClamps[4].load()));
 
 		if(who == 0)
 		{
@@ -1505,6 +1579,7 @@ namespace md
 #endif
 			// Advance the UC toward subTarget; each processUC() runs one m_uc.exec() (and its HI08
 			// callbacks, which catch the target DSP up inline). Guaranteed at least one step; clamped.
+			m_audioPhase.store(1);
 			const uint64_t clampStop = m_schedUcCyclesDone + clampCycles;
 
 			uint32_t probeCount = 0;
@@ -1600,6 +1675,12 @@ namespace md
 
 	void Hardware::schedRunDspSlice(const uint32_t _dspIndex, const double _subTarget)
 	{
+		const auto phaseBefore = m_audioPhase.exchange(2);
+		struct PhaseRestore
+		{
+			std::atomic<int32_t>& phase; int32_t value;
+			~PhaseRestore() { phase.store(value); }
+		} restore{m_audioPhase, phaseBefore};
 		const uint64_t clampCycles = schedClampCycles(m_model);
 		auto& d = (_dspIndex == 0) ? m_dspMixer : m_dspProducer;
 		const uint32_t idx = _dspIndex;
@@ -1645,6 +1726,16 @@ namespace md
 		m_schedPublished.dspCycles[idx].store(d.dsp().getCycles(),
 			std::memory_order_release);
 		m_signal.notify();
+	}
+
+	double Hardware::producerPublishedFrames() const
+	{
+		if(!m_schedDspOriginLatched[1])
+			return std::numeric_limits<double>::infinity();
+		const auto cycles = m_schedPublished.dspCycles[1].load(std::memory_order_acquire);
+		return m_schedDspOriginFrame[1]
+			+ static_cast<double>(cycles - std::min(cycles, m_schedDspOriginCycles[1]))
+				/ static_cast<double>(g_dsp1CyclesPerEsaiFrame);
 	}
 
 	uint64_t Hardware::schedFrameToDspCycles(const uint32_t _dspIndex, const double _frames) const
@@ -1700,19 +1791,38 @@ namespace md
 		// UC + L_lead, all in machine frames; L_lead = the serial quantum.
 		const double quantum = schedQuantumFrames(m_model);
 		const double ucPerFrame = schedUcCyclesPerFrame();
-		double limit = static_cast<double>(m_schedTargetFrames.load(std::memory_order_acquire));
-		const double ucFrames = static_cast<double>(
-			m_schedPublished.ucCycles.load(std::memory_order_acquire)) / ucPerFrame;
-		limit = std::min(limit, ucFrames + quantum);
-		if(m_schedDspOriginLatched[0])
-		{
-			const auto mixerCycles = m_schedPublished.dspCycles[0].load(std::memory_order_acquire);
-			const double mixerFrames = m_schedDspOriginFrame[0]
-				+ static_cast<double>(mixerCycles - std::min(mixerCycles, m_schedDspOriginCycles[0]))
-					/ static_cast<double>(g_dsp1CyclesPerEsaiFrame);
-			limit = std::min(limit, mixerFrames + quantum);
-		}
-		return schedFrameToDspCycles(1, limit);
+		// The UC ends its last slice a few cycles past the block target and
+		// its host accesses then need the producer at that exact time, so the
+		// block gate carries one quantum of slack (well inside the 64-frame
+		// host-input safety margin the receiver reads are covered by).
+		double limit = static_cast<double>(m_schedTargetFrames.load(std::memory_order_acquire))
+			+ quantum;
+		// No lead over the UC at all: a host word or command is dated with
+		// the UC cycle that issued it and lands when the producer reaches
+		// that time. Had the producer already run past it, the word would
+		// land late in DSP time - the serial bridge caught the DSP up to the
+		// UC before every write, never the other way round, and the firmware
+		// relies on that ordering (a word arriving inside a masked sync wait
+		// is never acknowledged). The producer therefore follows the UC's
+		// published position and may only trail it.
+		(void)ucPerFrame;
+		// No mixer gate: the mixer is held within D of the UC on the audio
+		// thread, so bounding the producer by the UC bounds it against the
+		// mixer too, and the producer never waits on the mixer (no cycle).
+		// The UC gate uses the exact rational conversion the HI08 bridge uses
+		// for its own deadline (waitForDspTime), so the producer can always
+		// reach precisely what the UC waits for - a floating-point frame
+		// bound could fall a few cycles short and turn every host access into
+		// an expired wait.
+		const uint64_t ucLimit = hostToDspDeadline(1,
+			m_schedPublished.ucCycles.load(std::memory_order_acquire));
+		uint64_t cycles = std::min(schedFrameToDspCycles(1, limit), ucLimit);
+		// A pending host item entitles the DSP to run up to its deadline plus
+		// the inline clamp, as the serial bridge did for every write (the
+		// firmware may sit in a wait the item itself resolves). Bounded by
+		// the oldest item, so it can never run away.
+		cycles = std::max(cycles, m_dspProducer.hostToDspHeadAllowance());
+		return cycles;
 	}
 
 	void Hardware::producerWorkerLoop()
@@ -1745,11 +1855,25 @@ namespace md
 				// bounded so a lost wake can only cost a few microseconds.
 				m_producerParked.store(true, std::memory_order_release);
 				m_signal.notify();
-				m_signal.waitFor(std::chrono::microseconds(500), [&]
+				const auto parkStart = std::chrono::steady_clock::now();
+				uint32_t parkRounds = 0;
+				while(!m_signal.waitFor(std::chrono::microseconds(500), [&]
 				{
 					return m_workerExit.load(std::memory_order_acquire)
 						|| producerTargetCycles() > d.dsp().getCycles();
-				});
+				}))
+				{
+					if(trace && (++parkRounds % 200) == 0)
+						std::fprintf(stderr, "[worker] parked %lld ms: now=%llu target=%llu "
+							"blockTarget=%llu uc=%llu mixer=%llu\n",
+							static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+								std::chrono::steady_clock::now() - parkStart).count()),
+							static_cast<unsigned long long>(d.dsp().getCycles()),
+							static_cast<unsigned long long>(producerTargetCycles()),
+							static_cast<unsigned long long>(m_schedTargetFrames.load()),
+							static_cast<unsigned long long>(m_schedPublished.ucCycles.load()),
+							static_cast<unsigned long long>(m_schedPublished.dspCycles[0].load()));
+				}
 				m_producerParked.store(false, std::memory_order_release);
 				continue;
 			}
@@ -1758,8 +1882,21 @@ namespace md
 			const uint64_t stopCyc = std::min(targetCyc, now + g_dsp1CyclesPerEsaiFrame);
 			d.applyHostToDspStream();
 			d.stageHostTx();
+			const auto chunkStart = trace ? std::chrono::steady_clock::now()
+				: std::chrono::steady_clock::time_point{};
 			d.dsp().execUntilCycles(stopCyc);
 			++chunks;
+			m_workerChunks.store(chunks, std::memory_order_relaxed);
+			if(trace)
+			{
+				const auto chunkMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+					std::chrono::steady_clock::now() - chunkStart).count();
+				if(chunkMs > 50)
+					std::fprintf(stderr, "[worker] slow chunk %lld ms: cycles %llu -> %llu (stop %llu) pc=%06x\n",
+						static_cast<long long>(chunkMs), static_cast<unsigned long long>(now),
+						static_cast<unsigned long long>(d.dsp().getCycles()),
+						static_cast<unsigned long long>(stopCyc), d.dsp().getPC().toWord());
+			}
 			if(trace && d.dsp().getCycles() == now)
 				std::fprintf(stderr, "[worker] no progress at %llu (stop %llu)\n",
 					static_cast<unsigned long long>(now), static_cast<unsigned long long>(stopCyc));
@@ -1774,6 +1911,12 @@ namespace md
 	{
 		if(_ready())
 			return true;
+		const auto phaseBefore = m_audioPhase.exchange(10 + static_cast<int32_t>(_site));
+		struct PhaseRestore
+		{
+			std::atomic<int32_t>& phase; int32_t value;
+			~PhaseRestore() { phase.store(value); }
+		} restore{m_audioPhase, phaseBefore};
 		const auto start = std::chrono::steady_clock::now();
 		for(;;)
 		{
@@ -1784,7 +1927,9 @@ namespace md
 			m_schedPublished.ucCycles.store(m_schedUcCyclesDone, std::memory_order_release);
 			const double quantum = schedQuantumFrames(m_model);
 			const double ucFrames = static_cast<double>(m_schedUcCyclesDone) / schedUcCyclesPerFrame();
-			const double bound = std::min(m_schedFramesTotal, ucFrames + quantum);
+			double bound = std::min(m_schedFramesTotal, ucFrames + quantum);
+			if(m_dspThreaded[1].load(std::memory_order_acquire))
+				bound = std::min(bound, ucFrames + m_linkPipelineDepthFrames);
 			if(m_schedDspOriginLatched[0] && !m_dspThreaded[0].load(std::memory_order_acquire)
 				&& schedDspFramePos(0) < bound)
 			{
@@ -1795,7 +1940,19 @@ namespace md
 			}
 			if(m_signal.waitFor(std::chrono::microseconds(200), _ready))
 				return true;
-			if(std::chrono::steady_clock::now() - start > _timeout)
+			const auto waited = std::chrono::steady_clock::now() - start;
+			if(m_transportTrace && waited > std::chrono::seconds(1))
+			{
+				std::fprintf(stderr, "[audio] waiting site=%u for %lld ms: uc=%.1f mixer=%.1f producer=%.1f bound=%.1f target=%.1f parked=%d producerTarget=%llu lease=%.1f\n",
+					static_cast<unsigned>(_site),
+					static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(waited).count()),
+					ucFrames, m_schedDspOriginLatched[0] ? schedDspFramePos(0) : -1.0,
+					producerPublishedFrames(), bound, m_schedFramesTotal,
+					m_producerParked.load() ? 1 : 0,
+					static_cast<unsigned long long>(producerTargetCycles()), 0.0);
+				m_dspProducer.traceHostStream("[audio]   producer");
+			}
+			if(waited > _timeout)
 			{
 				m_transportWaitClamps[static_cast<size_t>(_site)].fetch_add(1,
 					std::memory_order_relaxed);
@@ -1845,10 +2002,22 @@ namespace md
 		const uint64_t targetCyc = hostToDspDeadline(i, m_schedUcCyclesDone);
 		m_schedPublished.ucCycles.store(m_schedUcCyclesDone, std::memory_order_release);
 		m_signal.notify();
-		waitTransport(TransportWaitSite::DspTime, std::chrono::milliseconds(50), [&]
+		const bool reached = waitTransport(TransportWaitSite::DspTime, std::chrono::milliseconds(50), [&]
 		{
 			return m_schedPublished.dspCycles[i].load(std::memory_order_acquire) >= targetCyc;
 		});
+		if(!reached && m_transportTrace)
+		{
+			static std::atomic<uint32_t> s_reports{0};
+			if((s_reports.fetch_add(1) % 50) == 0)
+				std::fprintf(stderr, "[audio] DspTime expired: target=%llu published=%llu producerTarget=%llu parked=%d ucNow=%llu ucPublished=%llu\n",
+					static_cast<unsigned long long>(targetCyc),
+					static_cast<unsigned long long>(m_schedPublished.dspCycles[i].load()),
+					static_cast<unsigned long long>(producerTargetCycles()),
+					m_producerParked.load() ? 1 : 0,
+					static_cast<unsigned long long>(m_schedUcCyclesDone),
+					static_cast<unsigned long long>(m_schedPublished.ucCycles.load()));
+		}
 	}
 
 	bool Hardware::linkRxAvailable(const uint32_t _consumer)
@@ -1879,9 +2048,18 @@ namespace md
 			std::memory_order_release);
 		m_schedPublished.ucCycles.store(m_schedUcCyclesDone, std::memory_order_release);
 		m_signal.notify();
-		if(!m_signal.waitFor(std::chrono::milliseconds(5), proven))
-			m_transportWaitClamps[static_cast<size_t>(TransportWaitSite::LinkProducer)]
+		const auto phaseBefore = m_audioPhase.exchange(11);
+		const bool provenNow = m_signal.waitFor(std::chrono::milliseconds(5), proven);
+		m_audioPhase.store(phaseBefore);
+		if(!provenNow)
+		{
+			const auto clamps = m_transportWaitClamps[static_cast<size_t>(TransportWaitSite::LinkProducer)]
 				.fetch_add(1, std::memory_order_relaxed);
+			if(m_transportTrace && (clamps % 100) == 0)
+				std::fprintf(stderr, "[audio] link wait expired (#%llu): mixer=%.1f needed producer>=%.1f published=%.1f ring=%zu\n",
+					static_cast<unsigned long long>(clamps + 1), linkConsumerNow(0), needed,
+					producerPublishedFrames(), m_linkRing[0].size());
+		}
 		return linkHeadDue(0);
 	}
 

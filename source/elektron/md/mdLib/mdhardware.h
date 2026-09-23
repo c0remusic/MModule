@@ -245,6 +245,7 @@ namespace md
 			LinkProducer,
 			HostToDspRoom,
 			ProducerParked,
+			MixerGate,
 			Count,
 		};
 		template<typename Predicate>
@@ -501,7 +502,20 @@ namespace md
 		std::atomic<bool> m_producerParked{false};
 		std::atomic<bool> m_workerExit{false};
 		std::atomic<uint64_t> m_schedTargetFrames{0};	// published block target (whole frames)
-		std::array<std::atomic<uint64_t>, 4> m_transportWaitClamps{};	// expired bounded waits per site
+		std::array<std::atomic<uint64_t>, 5> m_transportWaitClamps{};	// expired bounded waits per site
+		bool m_transportTrace = false;			// MDMM_TRANSPORT_TRACE: stderr progress from both sides
+		uint64_t m_schedStepCount = 0;
+		// Trace-only watchdog: where the audio thread is (phase/site) and
+		// what the worker does, printed every 2 s from a helper thread so a
+		// stall is visible without a debugger.
+		std::atomic<int32_t> m_audioPhase{0};	// 0 idle, 1 UC slice, 2 mixer slice, 10+site while waiting
+		std::atomic<uint64_t> m_workerChunks{0};
+		std::atomic<bool> m_watchdogExit{false};
+		std::thread m_watchdog;
+		void startWatchdog();
+		// Published producer position in machine frames (threaded producer);
+		// the mixer's slices are capped at this + L_lead (spec §3, gate 2).
+		double producerPublishedFrames() const;
 		TransportSignal m_signal;
 		std::thread m_producerWorker;
 		std::array<RealtimeHostAudioInputTimeline, 2> m_hostAudioInput;
