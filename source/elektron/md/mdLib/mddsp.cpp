@@ -277,14 +277,13 @@ namespace md
 
 	void Dsp::pushHostToDsp(const HostToDspItem::Kind _kind, const uint32_t _value)
 	{
-		// The UC never drops a host word: on a full stream it waits (bounded)
-		// for the worker to apply older items.
-		while(m_hostToDsp.full())
-		{
-			if(!m_hardware.transportSignal().waitFor(std::chrono::milliseconds(20),
-				[&] { return !m_hostToDsp.full(); }))
-				break;
-		}
+		// The UC never drops a host word. A full stream means the worker is
+		// behind on applying items; wait for room while the mixer keeps
+		// advancing (the worker's mixer gate must be able to open), and only
+		// give up on a dead worker.
+		if(m_hostToDsp.full())
+			m_hardware.waitTransport(Hardware::TransportWaitSite::HostToDspRoom,
+				std::chrono::seconds(2), [&] { return !m_hostToDsp.full(); });
 		if(m_hostToDsp.full())
 			return;
 		m_hostToDsp.push_back(HostToDspItem{_kind, _value, m_hardware.hostCurrentCycle()});
@@ -294,24 +293,30 @@ namespace md
 	void Dsp::applyHostToDspStream()
 	{
 		const uint64_t now = m_dsp.getCycles();
+		const uint64_t clamp = schedInlineClamp(m_hardware.getModel());
 		while(!m_hostToDsp.empty())
 		{
 			const auto& item = m_hostToDsp.front();
-			if(m_hardware.hostToDspDeadline(m_index, item.ucCycle) > now)
+			const uint64_t deadline = m_hardware.hostToDspDeadline(m_index, item.ucCycle);
+			if(deadline > now)
 				return;
+			// The serial path paced a word on HRX being drained and a command
+			// on host-command-idle, but only up to the inline clamp - after it
+			// the word or command went through anyway (the HI08 receive queue
+			// is deeper than one word). Keep that exact envelope: a head that
+			// cannot land within the clamp after its due time lands regardless,
+			// so a firmware waiting for the NEXT item can never deadlock.
+			const bool overdue = now >= deadline + clamp;
 			if(item.kind == HostToDspItem::Kind::Data)
 			{
-				// One-word HRX: the next word lands only after the DSP drained
-				// the previous one, as the serial path modeled with its
-				// inline drain wait.
-				if(hdi08().hasRXData())
+				if(hdi08().hasRXData() && !overdue)
 					return;
 				const TWord word = item.value;
 				hdi08().writeRX(&word, 1);
 			}
 			else
 			{
-				if(hdi08().hostCommandBusy())
+				if(hdi08().hostCommandBusy() && !overdue)
 					return;
 				dispatchHostCommandInterrupt(static_cast<uint8_t>(item.value));
 			}

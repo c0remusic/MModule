@@ -1718,14 +1718,29 @@ namespace md
 	void Hardware::producerWorkerLoop()
 	{
 		auto& d = m_dspProducer;
+		const bool trace = std::getenv("MDMM_TRANSPORT_TRACE") != nullptr;
+		uint64_t chunks = 0, parks = 0;
 		for(;;)
 		{
 			if(m_workerExit.load(std::memory_order_acquire))
 				return;
 			const uint64_t targetCyc = producerTargetCycles();
 			const uint64_t now = d.dsp().getCycles();
+			if(trace && (chunks % 4410) == 0)
+				std::fprintf(stderr, "[worker] chunks=%llu parks=%llu now=%llu target=%llu "
+					"blockTarget=%llu uc=%llu mixer=%llu clamps dsp=%llu link=%llu room=%llu parked=%llu\n",
+					static_cast<unsigned long long>(chunks), static_cast<unsigned long long>(parks),
+					static_cast<unsigned long long>(now), static_cast<unsigned long long>(targetCyc),
+					static_cast<unsigned long long>(m_schedTargetFrames.load()),
+					static_cast<unsigned long long>(m_schedPublished.ucCycles.load()),
+					static_cast<unsigned long long>(m_schedPublished.dspCycles[0].load()),
+					static_cast<unsigned long long>(m_transportWaitClamps[0].load()),
+					static_cast<unsigned long long>(m_transportWaitClamps[1].load()),
+					static_cast<unsigned long long>(m_transportWaitClamps[2].load()),
+					static_cast<unsigned long long>(m_transportWaitClamps[3].load()));
 			if(now >= targetCyc)
 			{
+				++parks;
 				// Gated: park until a publication moves a gate. The wait is
 				// bounded so a lost wake can only cost a few microseconds.
 				m_producerParked.store(true, std::memory_order_release);
@@ -1744,9 +1759,48 @@ namespace md
 			d.applyHostToDspStream();
 			d.stageHostTx();
 			d.dsp().execUntilCycles(stopCyc);
+			++chunks;
+			if(trace && d.dsp().getCycles() == now)
+				std::fprintf(stderr, "[worker] no progress at %llu (stop %llu)\n",
+					static_cast<unsigned long long>(now), static_cast<unsigned long long>(stopCyc));
 			m_schedPublished.dspCycles[1].store(d.dsp().getCycles(),
 				std::memory_order_release);
 			m_signal.notify();
+		}
+	}
+
+	bool Hardware::waitTransportImpl(const TransportWaitSite _site,
+		const std::chrono::microseconds _timeout, const std::function<bool()>& _ready)
+	{
+		if(_ready())
+			return true;
+		const auto start = std::chrono::steady_clock::now();
+		for(;;)
+		{
+			// The mixer may advance only within the laggard-first envelope
+			// (UC + quantum): beyond it the producer, gated by the UC, could
+			// never reach what the mixer's own link wait needs. Publish the UC
+			// position first so the producer's gate and this bound agree.
+			m_schedPublished.ucCycles.store(m_schedUcCyclesDone, std::memory_order_release);
+			const double quantum = schedQuantumFrames(m_model);
+			const double ucFrames = static_cast<double>(m_schedUcCyclesDone) / schedUcCyclesPerFrame();
+			const double bound = std::min(m_schedFramesTotal, ucFrames + quantum);
+			if(m_schedDspOriginLatched[0] && !m_dspThreaded[0].load(std::memory_order_acquire)
+				&& schedDspFramePos(0) < bound)
+			{
+				schedRunDspSlice(0, std::min(schedDspFramePos(0) + quantum, bound));
+				if(_ready())
+					return true;
+				continue;
+			}
+			if(m_signal.waitFor(std::chrono::microseconds(200), _ready))
+				return true;
+			if(std::chrono::steady_clock::now() - start > _timeout)
+			{
+				m_transportWaitClamps[static_cast<size_t>(_site)].fetch_add(1,
+					std::memory_order_relaxed);
+				return false;
+			}
 		}
 	}
 
@@ -1761,7 +1815,8 @@ namespace md
 					>= producerTargetCycles();
 		};
 		if(!m_signal.waitFor(std::chrono::milliseconds(200), parked))
-			m_transportWaitClamps.fetch_add(1, std::memory_order_relaxed);
+			m_transportWaitClamps[static_cast<size_t>(TransportWaitSite::ProducerParked)]
+				.fetch_add(1, std::memory_order_relaxed);
 	}
 
 	uint64_t Hardware::hostToDspDeadline(const uint32_t _dspIndex, const uint64_t _ucCycle) const
@@ -1790,27 +1845,10 @@ namespace md
 		const uint64_t targetCyc = hostToDspDeadline(i, m_schedUcCyclesDone);
 		m_schedPublished.ucCycles.store(m_schedUcCyclesDone, std::memory_order_release);
 		m_signal.notify();
-		const auto reached = [&]
+		waitTransport(TransportWaitSite::DspTime, std::chrono::milliseconds(50), [&]
 		{
 			return m_schedPublished.dspCycles[i].load(std::memory_order_acquire) >= targetCyc;
-		};
-		const auto start = std::chrono::steady_clock::now();
-		while(!reached())
-		{
-			const double target = m_schedFramesTotal;
-			if(m_schedDspOriginLatched[0] && schedDspFramePos(0) < target)
-			{
-				schedRunDspSlice(0, std::min(schedDspFramePos(0) + schedQuantumFrames(m_model), target));
-				continue;
-			}
-			if(m_signal.waitFor(std::chrono::microseconds(200), reached))
-				break;
-			if(std::chrono::steady_clock::now() - start > std::chrono::milliseconds(50))
-			{
-				m_transportWaitClamps.fetch_add(1, std::memory_order_relaxed);
-				break;
-			}
-		}
+		});
 	}
 
 	bool Hardware::linkRxAvailable(const uint32_t _consumer)
@@ -1832,8 +1870,18 @@ namespace md
 			return linkHeadDue(0)
 				|| m_schedPublished.dspCycles[1].load(std::memory_order_acquire) >= neededCyc;
 		};
+		if(proven())
+			return linkHeadDue(0);
+		// This runs inside the mixer's own execution: publish the current
+		// mixer AND UC positions first, or the producer's gates keep it parked
+		// on stale slice-start values and this wait can only expire.
+		m_schedPublished.dspCycles[0].store(m_dspMixer.dsp().getCycles(),
+			std::memory_order_release);
+		m_schedPublished.ucCycles.store(m_schedUcCyclesDone, std::memory_order_release);
+		m_signal.notify();
 		if(!m_signal.waitFor(std::chrono::milliseconds(5), proven))
-			m_transportWaitClamps.fetch_add(1, std::memory_order_relaxed);
+			m_transportWaitClamps[static_cast<size_t>(TransportWaitSite::LinkProducer)]
+				.fetch_add(1, std::memory_order_relaxed);
 		return linkHeadDue(0);
 	}
 

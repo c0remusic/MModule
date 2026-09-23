@@ -121,7 +121,9 @@ namespace md
 			uint64_t ucCycle = 0;
 		};
 		void pushHostToDsp(HostToDspItem::Kind _kind, uint32_t _value);
-		dsp56k::RingBuffer<HostToDspItem, 64, false, true> m_hostToDsp;
+		// Deep enough for a kit/sample upload burst; the UC never drops a
+		// host word, it waits for the worker to apply older items instead.
+		dsp56k::RingBuffer<HostToDspItem, 1024, false, false> m_hostToDsp;
 
 		Hardware&        m_hardware;
 		mc68k::Hdi08&    m_hdiUC;			// ColdFire-facing HI08 register file (owned by the Microcontroller)

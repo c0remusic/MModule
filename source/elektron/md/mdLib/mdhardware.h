@@ -4,6 +4,8 @@
 #include <array>
 #include <atomic>
 #include <memory>
+#include <chrono>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -229,6 +231,35 @@ namespace md
 		// command issued at _ucCycle becomes applicable.
 		uint64_t hostToDspDeadline(uint32_t _dspIndex, uint64_t _ucCycle) const;
 		TransportSignal& transportSignal() { return m_signal; }
+
+		// Audio-thread wait on a worker condition. The audio thread owns the
+		// UC and the mixer, and the producer's gates depend on the mixer's
+		// position, so a plain wait could stall the very thing it waits for:
+		// while the predicate is false the mixer keeps advancing in bounded
+		// slices toward the block target, and only when it cannot advance any
+		// further does the thread park on the signal. Expiry is telemetry
+		// (per site), never a silent success.
+		enum class TransportWaitSite : uint32_t
+		{
+			DspTime,
+			LinkProducer,
+			HostToDspRoom,
+			ProducerParked,
+			Count,
+		};
+		template<typename Predicate>
+		bool waitTransport(const TransportWaitSite _site,
+			const std::chrono::microseconds _timeout, Predicate&& _ready)
+		{
+			return waitTransportImpl(_site, _timeout,
+				std::function<bool()>(std::forward<Predicate>(_ready)));
+		}
+		bool waitTransportImpl(TransportWaitSite _site, std::chrono::microseconds _timeout,
+			const std::function<bool()>& _ready);
+		uint64_t transportWaitClamps(const TransportWaitSite _site) const
+		{
+			return m_transportWaitClamps[static_cast<size_t>(_site)].load(std::memory_order_relaxed);
+		}
 		// Mirrored DMA channel enable bits, one per DSP and channel, kept by
 		// the owning DSP's context through the Dma DE observer. The other
 		// DSP's transport gates read these instead of the peer's registers.
@@ -470,7 +501,7 @@ namespace md
 		std::atomic<bool> m_producerParked{false};
 		std::atomic<bool> m_workerExit{false};
 		std::atomic<uint64_t> m_schedTargetFrames{0};	// published block target (whole frames)
-		std::atomic<uint64_t> m_transportWaitClamps{0};	// bounded waits that expired (telemetry)
+		std::array<std::atomic<uint64_t>, 4> m_transportWaitClamps{};	// expired bounded waits per site
 		TransportSignal m_signal;
 		std::thread m_producerWorker;
 		std::array<RealtimeHostAudioInputTimeline, 2> m_hostAudioInput;
