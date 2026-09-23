@@ -88,10 +88,28 @@ namespace md
 		void traceHostStream(const char* _tag) const;
 		// Host words or commands waiting to be applied by the worker.
 		bool hasPendingHostToDsp() const { return !m_hostToDsp.empty(); }
+		// Stream counters of the threaded adapter, printed by the worker under
+		// MDMM_TRANSPORT_TRACE.
+		struct HostToDspTrace
+		{
+			std::atomic<uint64_t> pushedData{0};
+			std::atomic<uint64_t> pushedCommands{0};
+			std::atomic<uint64_t> landedOnRead{0};
+			std::atomic<uint64_t> landedInChunk{0};
+			std::atomic<uint64_t> landedOverdue{0};
+		};
+		HostToDspTrace& hostToDspTrace() { return m_hostToDspTrace; }
+		size_t hostToDspDepth() const { return m_hostToDsp.size(); }
+		uint64_t hostToDspLastLand() const { return m_hostToDspLastLand.load(std::memory_order_relaxed); }
 		// The DSP cycle up to which the oldest pending host item entitles the
-		// DSP to run (its deadline plus the serial inline clamp), or 0 when
-		// nothing is pending. Mirrors writeWordToDsp's drain run.
+		// DSP to run, or 0 when nothing is pending. Mirrors writeWordToDsp's
+		// drain run: the clamp counts from the later of the item's deadline and
+		// the cycle the previous item landed, so every blocked item gets its
+		// own clamp of DSP time and an unblocked one none.
 		uint64_t hostToDspHeadAllowance() const;
+		// DSP context: the cycle the oldest pending item becomes applicable,
+		// or UINT64_MAX when nothing is pending.
+		uint64_t hostToDspHeadDeadline() const;
 
 	private:
 		void    onUCRxEmpty(bool _needMoreData);
@@ -134,6 +152,12 @@ namespace md
 		// under the serial adapter, so the UC only waits where the serial
 		// path would have stalled too. The UC never drops a host word.
 		dsp56k::RingBuffer<HostToDspItem, 8192, false, false> m_hostToDsp;
+		// DSP cycle at which the worker landed the latest item: where the
+		// serial bridge started the next write's drain run.
+		std::atomic<uint64_t> m_hostToDspLastLand{0};
+		HostToDspTrace m_hostToDspTrace;
+		uint64_t hostToDspDrainStart(const HostToDspItem& _item) const;
+		void landHostToDspWordOnRead();			// DSP context: HRX read edge
 
 		Hardware&        m_hardware;
 		mc68k::Hdi08&    m_hdiUC;			// ColdFire-facing HI08 register file (owned by the Microcontroller)

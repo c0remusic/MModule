@@ -386,6 +386,9 @@ namespace md
 				const bool hasSource = m_hostAudioInputHasSource.load(std::memory_order_acquire);
 				const auto latency = m_hostAudioInputLatencyPublished.load(std::memory_order_acquire);
 				const auto generation = m_hostAudioInputGeneration.load(std::memory_order_acquire);
+				auto& trace = m_hostAudioInputTrace[_dspIndex];
+				if(m_transportTrace)
+					trace.calls.fetch_add(1, std::memory_order_relaxed);
 				if((hasSource || queue.size()!=0) && latency != g_hostAudioInputLatencyUnset
 					&& m_schedDspOriginLatched[_dspIndex])
 				{
@@ -395,12 +398,32 @@ namespace md
 						m_hostAudioInputClockOrigin[_dspIndex] = static_cast<int64_t>(schedDspFramePos(
 							static_cast<uint32_t>(_dspIndex))) - static_cast<int64_t>(_frameIndex);
 						m_hostAudioInputClockGeneration[_dspIndex] = generation;
+						if(m_transportTrace)
+						{
+							trace.reorigins.fetch_add(1, std::memory_order_relaxed);
+							trace.lastOrigin.store(m_hostAudioInputClockOrigin[_dspIndex], std::memory_order_relaxed);
+						}
 					}
 					const auto sample = m_hostAudioInputClockOrigin[_dspIndex]
 						+ static_cast<int64_t>(_frameIndex) - static_cast<int64_t>(latency);
-					if(!queue.readAt(sample,input) && hasSource && !queue.beforeStart(sample))
+					const bool hit = queue.readAt(sample,input);
+					if(!hit && hasSource && !queue.beforeStart(sample))
 						m_hostAudioInputUnderflow[_dspIndex].fetch_add(1, std::memory_order_relaxed);
+					if(m_transportTrace)
+					{
+						trace.lastSample.store(sample, std::memory_order_relaxed);
+						if(hit)
+							trace.hits.fetch_add(1, std::memory_order_relaxed);
+						else if(queue.beforeStart(sample))
+							trace.beforeStart.fetch_add(1, std::memory_order_relaxed);
+						else if(queue.size() == 0)
+							trace.ahead.fetch_add(1, std::memory_order_relaxed);
+						else
+							trace.behind.fetch_add(1, std::memory_order_relaxed);
+					}
 				}
+				else if(m_transportTrace)
+					trace.gated.fetch_add(1, std::memory_order_relaxed);
 				m_hostAudioInputNextRxIndex[_dspIndex] = _frameIndex + 1;
 				_frame.resize(2);
 				_frame[0] = dsp56k::Audio::RxSlot{input[0]};
@@ -640,6 +663,22 @@ namespace md
 					static_cast<unsigned long long>(m_transportWaitClamps[4].load()));
 				if(m_dspThreaded[1].load())
 					m_dspProducer.traceHostStream("[watchdog]   producer");
+				for(size_t r = 0; r < m_hostAudioInputTrace.size(); ++r)
+				{
+					const auto& t = m_hostAudioInputTrace[r];
+					std::fprintf(stderr, "[watchdog]   adc%zu calls=%llu gated=%llu hits=%llu behind=%llu ahead=%llu "
+						"beforeStart=%llu reorigins=%llu lastSample=%lld origin=%lld depth=%zu appendedTo=%.0f "
+						"overflow=%llu underflow=%llu\n", r,
+						static_cast<unsigned long long>(t.calls.load()), static_cast<unsigned long long>(t.gated.load()),
+						static_cast<unsigned long long>(t.hits.load()), static_cast<unsigned long long>(t.behind.load()),
+						static_cast<unsigned long long>(t.ahead.load()),
+						static_cast<unsigned long long>(t.beforeStart.load()),
+						static_cast<unsigned long long>(t.reorigins.load()),
+						static_cast<long long>(t.lastSample.load()), static_cast<long long>(t.lastOrigin.load()),
+						m_hostAudioInput[r].size(), m_schedFramesTotal,
+						static_cast<unsigned long long>(m_hostAudioInputOverflow[r].load()),
+						static_cast<unsigned long long>(m_hostAudioInputUnderflow[r].load()));
+				}
 				lastChunks = chunks;
 				lastSteps = steps;
 			}
@@ -1817,27 +1856,19 @@ namespace md
 		const uint64_t ucLimit = hostToDspDeadline(1,
 			m_schedPublished.ucCycles.load(std::memory_order_acquire));
 		uint64_t cycles = std::min(schedFrameToDspCycles(1, limit), ucLimit);
-		// Pending host writes entitle the producer to run past its gates up
-		// to the cumulative allowance those writes granted (see
-		// grantProducerHostAllowance); once the stream is drained the gates
-		// rule again.
-		if(m_dspProducer.hasPendingHostToDsp())
-			cycles = std::max(cycles, m_producerHostAllowance.load(std::memory_order_acquire));
+		// While the UC is stalled on a full host stream (its time frozen), the
+		// head item entitles the producer to run past its gates by exactly the
+		// drain run the serial bridge gave that write: the inline clamp from
+		// where the write started (its deadline, or the landing of the item
+		// before it). A firmware that does not read therefore gets one clamp of
+		// DSP time per blocked item - enough for a link wait to reach its own
+		// timeout. At any other time the producer stays behind the UC: a
+		// producer running ahead starves its link and Port C sync from the
+		// mixer, spends its cycles waiting on them, drains the host stream ever
+		// slower, and shows the UC host-port state from its own future.
+		if(m_hostWriteBlocked[1].load(std::memory_order_acquire))
+			cycles = std::max(cycles, m_dspProducer.hostToDspHeadAllowance());
 		return cycles;
-	}
-
-	void Hardware::grantProducerHostAllowance()
-	{
-		if(!m_dspThreaded[1].load(std::memory_order_acquire))
-			return;
-		const uint64_t grant = m_schedPublished.dspCycles[1].load(std::memory_order_acquire)
-			+ transportPolicy(m_model).catchUpMaxDspCycles;
-		uint64_t current = m_producerHostAllowance.load(std::memory_order_acquire);
-		while(current < grant && !m_producerHostAllowance.compare_exchange_weak(current, grant,
-			std::memory_order_acq_rel, std::memory_order_acquire))
-		{
-		}
-		m_signal.notify();
 	}
 
 	void Hardware::producerWorkerLoop()
@@ -1863,6 +1894,20 @@ namespace md
 					static_cast<unsigned long long>(m_transportWaitClamps[1].load()),
 					static_cast<unsigned long long>(m_transportWaitClamps[2].load()),
 					static_cast<unsigned long long>(m_transportWaitClamps[3].load()));
+			if(trace && (chunks % 4410) == 0)
+			{
+				auto& s = d.hostToDspTrace();
+				std::fprintf(stderr, "[worker]   stream depth=%zu lastLand=%llu headAllowance=%llu ucGate=%llu "
+					"pushed data=%llu cmd=%llu landed read=%llu chunk=%llu overdue=%llu\n",
+					d.hostToDspDepth(), static_cast<unsigned long long>(d.hostToDspLastLand()),
+					static_cast<unsigned long long>(d.hostToDspHeadAllowance()),
+					static_cast<unsigned long long>(hostToDspDeadline(1, m_schedPublished.ucCycles.load())),
+					static_cast<unsigned long long>(s.pushedData.load()),
+					static_cast<unsigned long long>(s.pushedCommands.load()),
+					static_cast<unsigned long long>(s.landedOnRead.load()),
+					static_cast<unsigned long long>(s.landedInChunk.load()),
+					static_cast<unsigned long long>(s.landedOverdue.load()));
+			}
 			if(now >= targetCyc)
 			{
 				++parks;
@@ -1893,10 +1938,16 @@ namespace md
 				continue;
 			}
 			// One codec frame per chunk: the position publication and the
-			// host-port service run at frame granularity.
-			const uint64_t stopCyc = std::min(targetCyc, now + g_dsp1CyclesPerEsaiFrame);
+			// host-port service run at frame granularity. A pending host item
+			// ends the chunk at its deadline, so it lands exactly when the
+			// serial bridge would have written it rather than up to a frame
+			// late.
 			d.applyHostToDspStream();
 			d.stageHostTx();
+			uint64_t stopCyc = std::min(targetCyc, now + g_dsp1CyclesPerEsaiFrame);
+			const uint64_t headDeadline = d.hostToDspHeadDeadline();
+			if(headDeadline > now)
+				stopCyc = std::min(stopCyc, headDeadline);
 			const auto chunkStart = trace ? std::chrono::steady_clock::now()
 				: std::chrono::steady_clock::time_point{};
 			d.dsp().execUntilCycles(stopCyc);

@@ -17,7 +17,7 @@ Spec de référence : `docs/design/parallel-transport-spec.md`.
 | 1 D=1 frame en série | `2e25a78b` | vert (D=40 casse mmSine : datation prouvée) |
 | 2a miroirs/seams/SPSC | `ee006203` | vert |
 | 2b datation HI08 MD + garde inline | `d5a4ccad` | vert |
-| 2c worker DSP2 (`MDMM_TRANSPORT=parallel`) | `520ab7a8`…`415aa404` | expérimental, opt-in |
+| 2c worker DSP2 (`MDMM_TRANSPORT=parallel`) | `520ab7a8`…HEAD | expérimental, opt-in ; reproducteur ADC vert, perf < série |
 
 Le mode série (défaut) = 94 % realtime (pluginTester 30 s), identique à la
 baseline du ticket 01. Gates série vertes à chaque commit.
@@ -29,28 +29,43 @@ Règles de gates actuelles (`Hardware::producerTargetCycles`) :
   `hostToDspDeadline`, ZÉRO lead — un mot hôte appliqué en retard dans une
   attente masquée du firmware n'est jamais acquitté → tempête de retries) ;
 - producteur ≤ cible de bloc + quantum ;
-- plus d'allowance cumulative : chaque push hôte accorde `+clamp` (100 000
-  cycles) depuis la position courante du producteur (enveloppe exacte de
-  `writeWordToDsp` série) — c'est ce qui a fermé le deadlock du burst ;
+- allowance hôte **seulement pendant que l'UC est bloqué** sur flux plein
+  (`setHostWriteBlocked`, temps UC figé) : tête de flux = `drainStart + clamp`,
+  `drainStart = max(échéance, pose précédente)` — enveloppe exacte de
+  `writeWordToDsp` série. Hors blocage, aucune avance sur l'UC ;
+- pose des mots hôte : au bord de lecture HRX (`setReadRxCallback` →
+  `landHostToDspWordOnRead`) et chunk worker borné à l'échéance de tête ;
 - mixer ≤ UC + D sur le thread audio (`schedStep`, `waitTransportImpl`) ;
   aucune gate producteur↔mixer (cycle sinon).
 
 Reproducteur : `mdParallelTransportFirmwareTest` (vrai Processor+Controller,
 40 s série puis 40 s parallel, garde 15 s/bloc, assertions ADC). ~2 min.
+**Vert** depuis le correctif du 2026-09-23 (underflow/overflow 0/0).
 
-Défauts ouverts, mesurés par ce test (parallel) :
-1. Overflow de la timeline ADC du **mixer** (1,1M frames / 1,9M) : le mixer
-   ne draine pas sa file — probablement cap mixer ≤ UC+D combiné au skip idle
-   UC (l'UC saute des frames, le mixer suit par slices d'une frame ?).
-   À instrumenter en premier : position du mixer vs cible de bloc au fil du
-   rendu, et `readAt` (frame demandée vs tête de file).
-2. Underflow ADC du **producteur** (15k frames) : l'allowance cumulative le
-   laisse dépasser la marge `g_hostAudioInputSafetyFrames` (64). Plafonner
-   l'allowance à cible + 64 frames, ou faire lire l'ADC en retard borné.
-3. Run « 38 % » = les deux receivers décrochés (overflow 1,37M chacun) :
-   faux chiffre, à ne jamais prendre pour une perf.
-4. Perf quand ça marche : 41-82 % realtime (pluginTester), 136 % dans le
-   test processor — churn de parks (20 % des chunks) et notify par chunk.
+Défauts 1-3 (ADC) : une seule cause racine, fermée.
+- Vers 12,5 s machine, l'UC pousse une rafale de ~265-270k mots vers DSP2
+  (même rafale en série), à ~66 cycles DSP/mot.
+- L'ancienne allowance cumulative (`+clamp` depuis la position du producteur
+  à chaque push) s'auto-entretenait tant que le flux n'était pas vide : le
+  producteur prenait 16-20M cycles (~8000 frames) d'avance sur UC et mixer.
+- Devant le mixer, le producteur attend sa synchro (lien, Port C) et consomme
+  ~110-125 cycles/mot au lieu de 69 → avance qui s'auto-alimente.
+- Conséquences : underflow ADC producteur (lit des frames non encore
+  poussées) ; puis l'UC voit l'état DSP2 venu du futur, et **cesse de parler
+  aux deux DSP** (compteurs de mots figés) → mixer n'horloge plus son ESSI1 →
+  overflow ADC mixer. Le défaut 1 n'était pas un bug de file.
+- Réfuté en chemin : compter le flux dans TXDE (sans effet, retiré — la série
+  montre toujours TXDE=1 après drain) ; la granularité de pose seule (pas
+  suffisante).
+- Diagnostics gardés sous `MDMM_TRANSPORT_TRACE` : lignes watchdog `adc0/adc1`
+  (calls/hits/behind/ahead, profondeur, overflow/underflow) et ligne
+  `[worker]   stream` (profondeur, pushed/landed read/chunk/overdue).
+
+Défaut restant :
+4. Perf : test processor 102 % mur/audio en parallèle vs 93 % en série
+   (mesure non tracée, 2026-09-23) — le mode parallèle est encore PLUS LENT
+   que la série. Churn de parks et notify par chunk suspects ; pluginTester
+   pas remesuré depuis le correctif.
 
 Diagnostics : `MDMM_TRANSPORT_TRACE=1` → watchdog 2 s (phase thread audio,
 chunks, positions, clamps par site), sonde de flux hôte, traces d'attente.

@@ -231,8 +231,14 @@ namespace md
 		// command issued at _ucCycle becomes applicable.
 		uint64_t hostToDspDeadline(uint32_t _dspIndex, uint64_t _ucCycle) const;
 		TransportSignal& transportSignal() { return m_signal; }
-		// UC context, after queuing a host word or command for the producer.
-		void grantProducerHostAllowance();
+		// UC context: the UC is stalled on a full host stream to this DSP, with
+		// its time frozen, exactly where the serial bridge ran the DSP past the
+		// UC in writeWordToDsp. Only then may the producer pass its UC gate.
+		void setHostWriteBlocked(const uint32_t _dspIndex, const bool _blocked)
+		{
+			m_hostWriteBlocked[_dspIndex & 1].store(_blocked, std::memory_order_release);
+			m_signal.notify();
+		}
 
 		// Audio-thread wait on a worker condition. The audio thread owns the
 		// UC and the mixer, and the producer's gates depend on the mixer's
@@ -504,12 +510,7 @@ namespace md
 		std::atomic<bool> m_producerParked{false};
 		std::atomic<bool> m_workerExit{false};
 		std::atomic<uint64_t> m_schedTargetFrames{0};	// published block target (whole frames)
-		// Producer cycle up to which pending host writes entitle it to run
-		// regardless of its gates: every UC write grants the inline clamp
-		// from the producer's position at that moment, cumulatively, exactly
-		// as the serial bridge ran the DSP for each writeWordToDsp. This is
-		// what lets a firmware sitting in a link wait reach its own timeout.
-		std::atomic<uint64_t> m_producerHostAllowance{0};
+		std::array<std::atomic<bool>, 2> m_hostWriteBlocked{};	// see setHostWriteBlocked
 		std::array<std::atomic<uint64_t>, 5> m_transportWaitClamps{};	// expired bounded waits per site
 		bool m_transportTrace = false;			// MDMM_TRANSPORT_TRACE: stderr progress from both sides
 		uint64_t m_schedStepCount = 0;
@@ -540,6 +541,21 @@ namespace md
 		// Counts are receiver-frame events; aggregate accessors sum both DSPs.
 		std::array<std::atomic<uint64_t>, 2> m_hostAudioInputUnderflow{};
 		std::array<std::atomic<uint64_t>, 2> m_hostAudioInputOverflow{};
+		// Trace-only receiver bookkeeping (MDMM_TRANSPORT_TRACE), printed by the
+		// watchdog: how each receiver's reads resolve against its timeline.
+		struct HostAudioInputTrace
+		{
+			std::atomic<uint64_t> calls{0};		// codec receive callbacks
+			std::atomic<uint64_t> gated{0};		// no source, latency unset or origin not latched
+			std::atomic<uint64_t> hits{0};
+			std::atomic<uint64_t> behind{0};	// requested frame older than the timeline head
+			std::atomic<uint64_t> ahead{0};		// requested frame not appended yet
+			std::atomic<uint64_t> beforeStart{0};
+			std::atomic<uint64_t> reorigins{0};
+			std::atomic<int64_t> lastSample{0};
+			std::atomic<int64_t> lastOrigin{0};
+		};
+		std::array<HostAudioInputTrace, 2> m_hostAudioInputTrace;
 		synthLib::TAudioInputs m_hostAudioInputSource{};
 		uint32_t m_hostAudioInputSourceFrames = 0;
 		uint32_t m_hostAudioInputSourceCursor = 0;

@@ -186,6 +186,16 @@ namespace md
 				stageHostTx();
 			});
 
+		// Threaded adapter: the HRX read that empties the register is where the
+		// serial bridge's drain run ended and its next write landed. Land the
+		// next due data word right there, in the DSP context, so a host burst
+		// drains at the firmware's own read rate rather than one word per
+		// worker chunk.
+		hdi08().setReadRxCallback([this]
+		{
+			landHostToDspWordOnRead();
+		});
+
 		// ---- Bridge the ColdFire-facing HI08 register file to the DSP (n2x model) ----
 
 		m_hdiUC.setRxEmptyCallback([this](const bool _needMoreData)
@@ -284,16 +294,54 @@ namespace md
 		// give up on a dead worker.
 		// Never drop: an expired wait is logged and retried, a dropped host
 		// word corrupts the firmware's control flow.
-		while(m_hostToDsp.full())
+		if(m_hostToDsp.full())
 		{
-			if(!m_hardware.waitTransport(Hardware::TransportWaitSite::HostToDspRoom,
-				std::chrono::seconds(5), [&] { return !m_hostToDsp.full(); }))
-				std::fprintf(stderr, "[MD] host-to-DSP stream of DSP%u full for 5 s, still waiting\n",
-					m_index + 1);
+			m_hardware.setHostWriteBlocked(m_index, true);
+			while(m_hostToDsp.full())
+			{
+				if(!m_hardware.waitTransport(Hardware::TransportWaitSite::HostToDspRoom,
+					std::chrono::seconds(5), [&] { return !m_hostToDsp.full(); }))
+					std::fprintf(stderr, "[MD] host-to-DSP stream of DSP%u full for 5 s, still waiting\n",
+						m_index + 1);
+			}
+			m_hardware.setHostWriteBlocked(m_index, false);
 		}
 		m_hostToDsp.push_back(HostToDspItem{_kind, _value, m_hardware.hostCurrentCycle()});
-		m_hardware.grantProducerHostAllowance();
+		(_kind == HostToDspItem::Kind::Data ? m_hostToDspTrace.pushedData : m_hostToDspTrace.pushedCommands)
+			.fetch_add(1, std::memory_order_relaxed);
 		m_hardware.transportSignal().notify();
+	}
+
+	void Dsp::landHostToDspWordOnRead()
+	{
+		if(m_hardware.dspInlineRunAllowed(m_index) || m_hostToDsp.empty())
+			return;
+		const auto& item = m_hostToDsp.front();
+		const uint64_t now = m_dsp.getCycles();
+		// Commands keep their chunk-boundary dispatch (host-command-idle has
+		// no read edge to hook); a word waits for its deadline and a free HRX.
+		if(item.kind != HostToDspItem::Kind::Data || hdi08().hasRXData()
+			|| m_hardware.hostToDspDeadline(m_index, item.ucCycle) > now)
+			return;
+		const TWord word = item.value;
+		hdi08().writeRX(&word, 1);
+		m_hostToDsp.pop_front();
+		m_hostToDspLastLand.store(now, std::memory_order_release);
+		m_hostToDspTrace.landedOnRead.fetch_add(1, std::memory_order_relaxed);
+		m_hardware.transportSignal().notify();
+	}
+
+	uint64_t Dsp::hostToDspHeadDeadline() const
+	{
+		if(m_hostToDsp.empty())
+			return std::numeric_limits<uint64_t>::max();
+		return m_hardware.hostToDspDeadline(m_index, m_hostToDsp.front().ucCycle);
+	}
+
+	uint64_t Dsp::hostToDspDrainStart(const HostToDspItem& _item) const
+	{
+		return std::max(m_hardware.hostToDspDeadline(m_index, _item.ucCycle),
+			m_hostToDspLastLand.load(std::memory_order_acquire));
 	}
 
 	void Dsp::applyHostToDspStream()
@@ -310,9 +358,11 @@ namespace md
 			// on host-command-idle, but only up to the inline clamp - after it
 			// the word or command went through anyway (the HI08 receive queue
 			// is deeper than one word). Keep that exact envelope: a head that
-			// cannot land within the clamp after its due time lands regardless,
-			// so a firmware waiting for the NEXT item can never deadlock.
-			const bool overdue = now >= deadline + clamp;
+			// cannot land within the clamp of its drain start lands regardless,
+			// so a firmware waiting for the NEXT item can never deadlock. The
+			// drain starts where the serial write would have: at the deadline,
+			// or later if the previous item landed later.
+			const bool overdue = now >= hostToDspDrainStart(item) + clamp;
 			if(item.kind == HostToDspItem::Kind::Data)
 			{
 				if(hdi08().hasRXData() && !overdue)
@@ -331,6 +381,9 @@ namespace md
 				dispatchHostCommandInterrupt(static_cast<uint8_t>(item.value));
 			}
 			m_hostToDsp.pop_front();
+			m_hostToDspLastLand.store(now, std::memory_order_release);
+			(overdue ? m_hostToDspTrace.landedOverdue : m_hostToDspTrace.landedInChunk)
+				.fetch_add(1, std::memory_order_relaxed);
 		}
 		m_hardware.transportSignal().notify();
 	}
@@ -339,8 +392,7 @@ namespace md
 	{
 		if(m_hostToDsp.empty())
 			return 0;
-		return m_hardware.hostToDspDeadline(m_index, m_hostToDsp.front().ucCycle)
-			+ schedInlineClamp(m_hardware.getModel());
+		return hostToDspDrainStart(m_hostToDsp.front()) + schedInlineClamp(m_hardware.getModel());
 	}
 
 	void Dsp::traceHostStream(const char* _tag) const
