@@ -8,6 +8,7 @@ option(MD_TRANSPORT_DIAGNOSTICS
 add_library(mdLib STATIC)
 
 set(SOURCES
+	mdasyncrender.cpp mdasyncrender.h
 	mdautomation.cpp mdautomation.h
 	mdautomationsync.cpp mdautomationsync.h
 	mddevice.cpp mddevice.h

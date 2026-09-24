@@ -9,6 +9,8 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 namespace
 {
@@ -672,10 +674,41 @@ namespace md
 		m_hardware->readMidiOut(_midiOut);
 	}
 
+	void Device::setAsyncRenderAllowed(const bool _allowed)
+	{
+		if(m_asyncRenderAllowed == _allowed)
+			return;
+		m_asyncRenderAllowed = _allowed;
+		extraLatencyChanged();
+	}
+
+	uint32_t Device::getDefaultLatencyBlocks() const
+	{
+		if(const char* const blocks = std::getenv("MDMM_LATENCY_BLOCKS"))
+			return static_cast<uint32_t>(std::strtoul(blocks, nullptr, 10));
+		return 0;
+	}
+
+	Device::~Device()
+	{
+		// The render thread runs this Device's rendering: stop it first.
+		m_async.reset();
+	}
+
+	void Device::process(const synthLib::TAudioInputs& _inputs, const synthLib::TAudioOutputs& _outputs,
+		const size_t _size, const std::vector<synthLib::SMidiEvent>& _midiIn,
+		std::vector<synthLib::SMidiEvent>& _midiOut)
+	{
+		if(isRenderingAsync())
+			m_async->process(_inputs, _outputs, _size, _midiIn, _midiOut);
+		else
+			synthLib::Device::process(_inputs, _outputs, _size, _midiIn, _midiOut);
+	}
+
 	void Device::processAudio(const synthLib::TAudioInputs& _inputs, const synthLib::TAudioOutputs& _outputs, const size_t _samples)
 	{
 		m_hardware->processAudio(_inputs, _outputs,
-			static_cast<uint32_t>(_samples), getExtraLatencySamples());
+			static_cast<uint32_t>(_samples), hardwareLatency());
 		if(m_deferredPreparedState && m_deferredPreparedState->m_hardware
 			&& m_deferredPreparedState->m_hardware->isProjectStateRestorePending())
 		{
@@ -688,7 +721,27 @@ namespace md
 
 	void Device::extraLatencyChanged()
 	{
-		m_hardware->retimeMidi(getExtraLatencySamples());
+		// Plugin calls this with the device idle. Any plug-in latency moves the
+		// rendering onto its own thread, one latency ahead of the host
+		// (MDMM_ASYNC_RENDER=0 keeps it on the audio thread for A/B runs).
+		const auto latency = getExtraLatencySamples();
+		const char* const asyncEnv = std::getenv("MDMM_ASYNC_RENDER");
+		const bool async = latency > 0 && m_asyncRenderAllowed
+			&& !(asyncEnv && std::strcmp(asyncEnv, "0") == 0);
+		if(m_async)
+			m_async->stop();
+		if(async)
+		{
+			if(!m_async)
+				m_async = std::make_unique<AsyncRender>([this](const synthLib::TAudioInputs& _ins,
+					const synthLib::TAudioOutputs& _outs, const size_t _frames,
+					const std::vector<synthLib::SMidiEvent>& _midiIn, std::vector<synthLib::SMidiEvent>& _midiOut)
+				{
+					synthLib::Device::process(_ins, _outs, _frames, _midiIn, _midiOut);
+				});
+			m_async->start(latency);
+		}
+		m_hardware->retimeMidi(hardwareLatency());
 	}
 
 	bool Device::sendMidi(const synthLib::SMidiEvent& _ev, std::vector<synthLib::SMidiEvent>& _response)
@@ -706,6 +759,6 @@ namespace md
 				return true;
 		}
 
-		return m_hardware->scheduleMidi(_ev, getExtraLatencySamples());
+		return m_hardware->scheduleMidi(_ev, hardwareLatency());
 	}
 }

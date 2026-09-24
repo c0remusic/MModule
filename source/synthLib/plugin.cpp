@@ -48,7 +48,8 @@ namespace synthLib
 
 	bool Plugin::setPreferredDeviceSamplerate(const float _samplerate)
 	{
-		std::lock_guard lock(m_lock);
+		std::unique_lock lock(m_lock);
+		waitDeviceIdle(lock);
 
 		const auto sr = m_device->getDeviceSamplerate(_samplerate, m_hostSamplerate);
 
@@ -67,7 +68,8 @@ namespace synthLib
 
 	void Plugin::setHostSamplerate(const float _hostSamplerate, const float _preferredDeviceSamplerate)
 	{
-		std::lock_guard lock(m_lock);
+		std::unique_lock lock(m_lock);
+		waitDeviceIdle(lock);
 
 		m_deviceSamplerate = m_device->getDeviceSamplerate(_preferredDeviceSamplerate, _hostSamplerate);
 		m_device->setSamplerate(m_deviceSamplerate);
@@ -81,14 +83,16 @@ namespace synthLib
 
 	void Plugin::setResamplerMode(const Resampler::Mode _mode)
 	{
-		std::lock_guard lock(m_lock);
+		std::unique_lock lock(m_lock);
+		waitDeviceIdle(lock);
 		m_resampler.setResamplerMode(_mode);
 		updateDeviceLatency();
 	}
 
 	void Plugin::reserveMidiEventCapacity(const size_t _capacity)
 	{
-		std::lock_guard lock(m_lock);
+		std::unique_lock lock(m_lock);
+		waitDeviceIdle(lock);
 		m_midiIn.reserve(_capacity);
 		m_midiOut.reserve(_capacity);
 		m_resampler.reserveMidiEventCapacity(_capacity);
@@ -172,6 +176,17 @@ namespace synthLib
 				nowNanoseconds() - processStart);
 	}
 
+	void Plugin::waitDeviceIdle(std::unique_lock<std::recursive_mutex>& _lock) const
+	{
+		while(m_device && !m_device->isIdle())
+		{
+			auto* const device = m_device;
+			_lock.unlock();
+			device->waitIdle();
+			_lock.lock();
+		}
+	}
+
 	void Plugin::getMidiOut(std::vector<SMidiEvent>& _midiOut)
 	{
 		std::swap(_midiOut, m_midiOut);
@@ -188,7 +203,8 @@ namespace synthLib
 		if(!_device)
 			return;
 
-		std::lock_guard lock(m_lock);
+		std::unique_lock lock(m_lock);
+		waitDeviceIdle(lock);
 
 		std::vector<uint8_t> deviceState;
 		getState(deviceState, StateTypeGlobal);
@@ -209,7 +225,8 @@ namespace synthLib
 #if !SYNTHLIB_DEMO_MODE
 	bool Plugin::getState(std::vector<uint8_t>& _state, StateType _type) const
 	{
-		std::lock_guard lock(m_lock);
+		std::unique_lock lock(m_lock);
+		waitDeviceIdle(lock);
 
 		if(!m_device)
 			return false;
@@ -227,7 +244,8 @@ namespace synthLib
 
 		if(_state.size() < 2)
 		{
-			std::lock_guard lock(m_lock);
+			std::unique_lock lock(m_lock);
+			waitDeviceIdle(lock);
 			return m_device && m_device->setStateFromUnknownCustomData(_state);
 		}
 
@@ -235,7 +253,8 @@ namespace synthLib
 
 		if(version != g_stateVersion)
 		{
-			std::lock_guard lock(m_lock);
+			std::unique_lock lock(m_lock);
+			waitDeviceIdle(lock);
 			return m_device && m_device->setStateFromUnknownCustomData(_state);
 		}
 
@@ -249,7 +268,8 @@ namespace synthLib
 		Device* transactionDevice = nullptr;
 		std::unique_ptr<Device::StateTransaction> transaction;
 		{
-			std::lock_guard lock(m_lock);
+			std::unique_lock lock(m_lock);
+			waitDeviceIdle(lock);
 			if(!m_device)
 				return false;
 			if(!m_device->supportsStateTransactions())
@@ -264,7 +284,8 @@ namespace synthLib
 		const auto preparationSucceeded = transaction->prepare();
 		bool finished = false;
 		{
-			std::lock_guard lock(m_lock);
+			std::unique_lock lock(m_lock);
+			waitDeviceIdle(lock);
 			if(m_device == transactionDevice)
 				finished = m_device->finishStateTransaction(*transaction);
 		}
@@ -295,7 +316,8 @@ namespace synthLib
 
 	bool Plugin::setLatencyBlocks(uint32_t _latencyBlocks)
 	{
-		std::lock_guard lock(m_lock);
+		std::unique_lock lock(m_lock);
+		waitDeviceIdle(lock);
 
 		if(m_extraLatencyBlocks == _latencyBlocks)
 			return false;
@@ -406,7 +428,8 @@ namespace synthLib
 
 	void Plugin::setBlockSize(const uint32_t _blockSize)
 	{
-		std::lock_guard lock(m_lock);
+		std::unique_lock lock(m_lock);
+		waitDeviceIdle(lock);
 		m_blockSize = _blockSize;
 		m_silentInputBuffer.resize(_blockSize);
 		for(size_t channel = 0; channel < m_device->getChannelCountOut(); ++channel)

@@ -2464,10 +2464,20 @@ namespace md
 		// catch-up loops are how a DSP outruns the UC by thousands of words in the first place
 		// (see the schedStep backpressure comment). MD path untouched.
 		const bool s_mmBp = isMonomachine();
-		while(d.dsp().getCycles() < targetCyc && d.dsp().getCycles() < clampStop
-			&& (!s_mmBp
-				|| d.hostTxBacklog() <= policy.hostTransmitBackpressureThresholdWords))
-			d.dsp().exec();
+		if(!s_mmBp)
+		{
+			// Same stop rule as the per-block loop below (the first block that
+			// reaches the target), under one trampoline entry instead of one per
+			// block. No measurable change on the host bench, kept as the cheaper
+			// equivalent.
+			d.dsp().execUntilCycles(std::min(targetCyc, clampStop));
+		}
+		else
+		{
+			while(d.dsp().getCycles() < targetCyc && d.dsp().getCycles() < clampStop
+				&& d.hostTxBacklog() <= policy.hostTransmitBackpressureThresholdWords)
+				d.dsp().exec();
+		}
 		MD_TRANSPORT_RECORD(const auto executed = d.dsp().getCycles() - startCyc;
 			score.executedCycles += executed;
 			score.maximumExecutedCycles = std::max(score.maximumExecutedCycles, executed);
@@ -2533,10 +2543,14 @@ namespace md
 			score.maximumRequestedCycles = std::max(score.maximumRequestedCycles, requested););
 		m_schedInLinkDelivery = true;
 		const bool bpGate = isMonomachine();
-		while(d.dsp().getCycles() < targetCyc && d.dsp().getCycles() < clampStop
-			&& (!bpGate
-				|| d.hostTxBacklog() <= policy.hostTransmitBackpressureThresholdWords))
-			d.dsp().exec();
+		if(!bpGate)
+			d.dsp().execUntilCycles(std::min(targetCyc, clampStop));	// same stop rule, one JIT entry
+		else
+		{
+			while(d.dsp().getCycles() < targetCyc && d.dsp().getCycles() < clampStop
+				&& d.hostTxBacklog() <= policy.hostTransmitBackpressureThresholdWords)
+				d.dsp().exec();
+		}
 		m_schedInLinkDelivery = false;
 		MD_TRANSPORT_RECORD(const auto executed = d.dsp().getCycles() - startCyc;
 			score.executedCycles += executed;

@@ -4,6 +4,7 @@
 #include <string>
 #include <utility>
 
+#include "mdasyncrender.h"
 #include "mdhardware.h"
 #include "mdsyseximport.h"
 
@@ -85,6 +86,27 @@ namespace md
 
 		Device(const synthLib::DeviceCreateParams& _params,
 			const std::vector<uint8_t>& _initialPatchRam = {});
+		~Device() override;
+
+		// With a plug-in latency of at least one frame the machine renders on
+		// its own thread (AsyncRender) and this call only exchanges buffers;
+		// without latency it renders here, synchronously, as before.
+		void process(const synthLib::TAudioInputs& _inputs, const synthLib::TAudioOutputs& _outputs,
+			size_t _size, const std::vector<synthLib::SMidiEvent>& _midiIn,
+			std::vector<synthLib::SMidiEvent>& _midiOut) override;
+		bool isIdle() const override { return !m_async || m_async->isIdle(); }
+		void waitIdle() override
+		{
+			if(m_async)
+				m_async->waitIdle();
+		}
+		bool isRenderingAsync() const { return m_async && m_async->running(); }
+		// Keeps rendering synchronous whatever the latency (the device then
+		// applies the latency as a MIDI delay itself). Call with the device idle.
+		void setAsyncRenderAllowed(bool _allowed);
+		uint64_t asyncLateBlocks() const { return m_async ? m_async->lateBlocks() : 0; }
+		AsyncRender::Stats asyncStats() const { return m_async ? m_async->stats() : AsyncRender::Stats{}; }
+		const AsyncRender* asyncRender() const { return m_async.get(); }
 
 		float getSamplerate() const override;
 		bool isValid() const override;
@@ -133,8 +155,9 @@ namespace md
 			const std::vector<uint8_t>& _cache, std::string& _error);
 		uint32_t getChannelCountIn() override;
 		uint32_t getChannelCountOut() override;
-		// The synchronous scheduler needs no extra host-block MIDI reserve.
-		uint32_t getDefaultLatencyBlocks() const override { return 0; }
+		// Zero keeps rendering synchronous; any latency renders on AsyncRender.
+		// MDMM_LATENCY_BLOCKS overrides the default (tests, A/B runs).
+		uint32_t getDefaultLatencyBlocks() const override;
 		uint32_t getInternalLatencyInputToOutput() const override
 		{
 			return g_hostAudioInputSafetyFrames;
@@ -244,6 +267,9 @@ namespace md
 
 		void clearProjectStateRestore();
 		void failProjectStateRestore(std::string _error);
+		// Latency the machine applies itself: none while AsyncRender's queue
+		// already delays the output by the plug-in latency.
+		uint32_t hardwareLatency() const { return isRenderingAsync() ? 0 : getExtraLatencySamples(); }
 
 		const MachineModel m_model;
 		std::shared_ptr<FrontPanelPublisher> m_frontPanelPublisher;
@@ -263,5 +289,8 @@ namespace md
 		bool m_sysexStarted = false;
 		bool m_sysexPendingCancelled = false;
 		uint64_t m_deferredStateGeneration = 0;
+		bool m_asyncRenderAllowed = true;
+		// Last member: destroyed (render thread stopped) before everything it renders.
+		std::unique_ptr<AsyncRender> m_async;
 	};
 }

@@ -75,7 +75,8 @@ namespace synthLib
 		template<typename Callback>
 		decltype(auto) withDeviceLocked(Callback&& _callback) const
 		{
-			std::lock_guard lock(m_lock);
+			std::unique_lock lock(m_lock);
+			waitDeviceIdle(lock);
 			return std::forward<Callback>(_callback)(m_device);
 		}
 
@@ -89,6 +90,11 @@ namespace synthLib
 		uint32_t getLatencyBlocks() const { return m_extraLatencyBlocks; }
 
 	private:
+		// Leaves _lock held with the device idle (see Device::isIdle). The wait
+		// itself runs unlocked, so the audio thread is never held up behind a
+		// device that is still rendering; it can only queue more work meanwhile,
+		// which the loop then waits out too.
+		void waitDeviceIdle(std::unique_lock<std::recursive_mutex>& _lock) const;
 		void processMidiClock(double _bpm, double _ppqPos, bool _isPlaying, size_t _sampleCount, bool _ppqKnown);
 		float* getSilentInputBuffer(size_t _minimumSize);
 		float* getDiscardOutputBuffer(size_t _channel, size_t _minimumSize);

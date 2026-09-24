@@ -77,6 +77,9 @@ namespace md
 			return ready;
 		}
 
+		// Spin-wait hint for callers that poll on their own.
+		static void cpuPause() { pause(); }
+
 	private:
 		static void pause()
 		{
