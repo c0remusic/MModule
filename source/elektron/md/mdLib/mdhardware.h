@@ -212,6 +212,9 @@ namespace md
 		// threaded adapter waits on the worker's published position instead.
 		void waitForDspTime(uint32_t _dspIndex);
 		TransportMode transportMode() const { return m_transportMode; }
+		// The producer DSP runs on its worker thread (the parallel handoff has
+		// happened; it never goes back).
+		bool isProducerThreaded() const { return m_dspThreaded[1].load(std::memory_order_acquire); }
 		// Pre-handoff (and always under the serial adapter) the HI08 bridge
 		// may run a DSP inline in the caller's context. Once a DSP is owned by
 		// a worker thread, every access waits on its published position.

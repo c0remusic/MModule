@@ -512,6 +512,7 @@ namespace md
 		// The promoted machine may now take the configured transport; its
 		// worker starts at the next handoff barrier (parallel-transport §7).
 		m_hardware->enableParallelTransport();
+		m_hardware->setTransportMode(preferredTransport());
 		return true;
 	}
 
@@ -672,6 +673,25 @@ namespace md
 	void Device::readMidiOut(std::vector<synthLib::SMidiEvent>& _midiOut)
 	{
 		m_hardware->readMidiOut(_midiOut);
+	}
+
+	TransportMode Device::preferredTransport() const
+	{
+		if(const char* const mode = std::getenv("MDMM_TRANSPORT"))
+			return std::strcmp(mode, "parallel") == 0 ? TransportMode::Parallel : TransportMode::Serial;
+		// The Monomachine stays serial in this migration step.
+		return m_parallelTransport && m_model == MachineModel::Machinedrum
+			? TransportMode::Parallel : TransportMode::Serial;
+	}
+
+	void Device::setParallelTransport(const bool _enabled)
+	{
+		m_parallelTransport = _enabled;
+		// Before the handoff the machine simply follows the preference (the
+		// handoff happens at the next scheduler step once enabled). After it,
+		// the producer stays threaded until this machine is replaced.
+		if(!m_hardware->isProducerThreaded())
+			m_hardware->setTransportMode(preferredTransport());
 	}
 
 	void Device::setAsyncRenderAllowed(const bool _allowed)

@@ -176,6 +176,56 @@ Mesuré le 2026-09-24 sur le 3700X (PR #1 adoptée, fast-forward) :
   `wip/help-first-executor`. Aux mesures : égalité avec la PR #1 dans tous
   les scénarios, l'épinglage ne gagne jamais, cinq fois plus de code.
 
+## Rendu asynchrone et compteur CPU du DAW (2026-09-24/25)
+
+Cible utilisateur : le compteur CPU d'Ableton ne dépasse jamais 30 %. Ce
+compteur mesure le temps passé DANS l'appel process du plugin, pas le CPU
+total. Le transport parallèle seul (étape 2) plafonne vers 70-75 % : UC et
+mixer restent sur le thread audio.
+
+Comparaison avec Virus (lecture du code + mesure, `temp/cmake_virus`,
+virusTestConsole instrumenté, patch non commité) : OsTIrus TI2 sur la
+démo = 31 % mur, 63 % CPU total, 2 DSP à 133 MHz à 2,37 ns/cycle, le même
+coût par cycle que notre worker DSP2. Virus n'émule pas de µC (C++ haut
+niveau) et fait tourner chaque DSP sur son thread avec 1 bloc de latence ;
+le callback audio ne fait que copier. microQ/XT/Nord (68k émulé) suivent
+le même schéma avec l'UC sur son propre thread.
+
+`md::AsyncRender` (67c327ee) : avec une latence plugin > 0, la machine
+entière (ordonnanceur inchangé) tourne sur un thread de rendu MMCSS, un
+pas derrière l'hôte ; `process()` dépose le bloc et lit une FIFO amorcée
+de silence. `Plugin` attend un device au repos avant tout accès hors audio
+(`waitDeviceIdle`, verrou relâché pendant l'attente).
+
+Mesure (banc `--paced 1`, 128 à 48 kHz, 60 s après boot) :
+parallel latence 0 = 77 % moyen / 171 % max / 1446 décrochages en 30 s ;
+parallel 2 blocs = 4,4 % moyen, p99 10 %, max 21 %, 0 décrochage ;
+avec 12 threads MMCSS de charge 3,6 % / p99 8 % / 9 décrochages.
+Défauts plugin (MD) : parallèle + 2 blocs ; réglage « Parallel transport »
+dans la page DSP/Audio ; la latence se règle dans la même page.
+Vérifié sans aucune variable d'env (banc `--mode default`) : parallèle
+demandé et actif, 2 blocs, 3,5 % moyen, p99 7,5 %, max 13,9 %, 0 décrochage
+(4 appelants MMCSS, 20 s après 60 s de chauffe). Une valeur `latencyBlocks`
+déjà sauvée dans la config reste prioritaire sur le défaut.
+
+Pièges trouvés en route (tous des artefacts de mesure, pas du rendu) :
+- banc cadencé qui « rattrape » son retard : appels enchaînés plus vite
+  que le temps réel pendant le rattrapage → pipeline apparemment saturé.
+  Correct = un bloc en retard est un décrochage, le suivant arrive à la
+  période suivante ;
+- `sleep_for(1 ms)` peut dormir un tick OS entier (15,6 ms) → faux
+  décrochages ; cadencement en attente active ;
+- harness en hôte non temps réel : `Processor::processBlock` fait alors
+  le travail du contrôleur sur le thread audio (pics toutes les 5 s).
+  Le banc cadencé passe l'hôte en temps réel, comme un DAW en lecture.
+
+Limite : la première minute après le boot, le firmware vérifie la flash
+mot à mot (boucle UC `$205ec8`, `move.w (a0),d0 / cmpi.l #$ffff`), la
+machine ne tient pas le temps réel (rafales à 1,3-1,8 période). Déjà le
+cas avant ; accélérer cette boucle (ou les lectures flash) est une piste.
+Le profil PC du banc (`--profile N`, UC compris, opcodes bruts) l'a
+révélée.
+
 ## Leçons dures
 
 - Le test firmware `mdAudioFirmwareTest` passe en parallel : il ne déclenche

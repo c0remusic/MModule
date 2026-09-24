@@ -104,6 +104,14 @@ namespace md
 		// Keeps rendering synchronous whatever the latency (the device then
 		// applies the latency as a MIDI delay itself). Call with the device idle.
 		void setAsyncRenderAllowed(bool _allowed);
+		// Parallel transport (the Machinedrum's producer DSP on a worker
+		// thread). Turning it on takes effect at the scheduler's next safe
+		// point; turning it off only for a machine booted later, since the
+		// worker never hands the producer back. MDMM_TRANSPORT, when set,
+		// overrides this (tests, A/B runs). Call with the device idle.
+		void setParallelTransport(bool _enabled);
+		bool isParallelTransportRequested() const { return preferredTransport() == TransportMode::Parallel; }
+		bool isParallelTransportActive() const { return m_hardware->isProducerThreaded(); }
 		uint64_t asyncLateBlocks() const { return m_async ? m_async->lateBlocks() : 0; }
 		AsyncRender::Stats asyncStats() const { return m_async ? m_async->stats() : AsyncRender::Stats{}; }
 		const AsyncRender* asyncRender() const { return m_async.get(); }
@@ -270,6 +278,7 @@ namespace md
 		// Latency the machine applies itself: none while AsyncRender's queue
 		// already delays the output by the plug-in latency.
 		uint32_t hardwareLatency() const { return isRenderingAsync() ? 0 : getExtraLatencySamples(); }
+		TransportMode preferredTransport() const;
 
 		const MachineModel m_model;
 		std::shared_ptr<FrontPanelPublisher> m_frontPanelPublisher;
@@ -290,6 +299,7 @@ namespace md
 		bool m_sysexPendingCancelled = false;
 		uint64_t m_deferredStateGeneration = 0;
 		bool m_asyncRenderAllowed = true;
+		bool m_parallelTransport = false;	// the library default stays serial; the plug-in chooses
 		// Last member: destroyed (render thread stopped) before everything it renders.
 		std::unique_ptr<AsyncRender> m_async;
 	};
