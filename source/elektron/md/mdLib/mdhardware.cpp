@@ -1935,6 +1935,8 @@ namespace md
 		if(const char* const mode = std::getenv("MDMM_TRANSPORT"))
 			m_transportMode = std::strcmp(mode, "parallel") == 0
 				? TransportMode::Parallel : TransportMode::Serial;
+		if(const char* const help = std::getenv("MDMM_PRODUCER_HELP_US"))
+			m_producerHelpDelayUs = static_cast<uint32_t>(std::strtoul(help, nullptr, 10));
 	}
 
 	uint64_t Hardware::producerTargetCycles() const
@@ -2010,12 +2012,16 @@ namespace md
 		{
 			if(m_workerExit.load(std::memory_order_acquire))
 				return;
+			// The audio thread may be executing the producer (tryHelpProducer):
+			// outside m_producerExec only the published position is readable.
 			const uint64_t targetCyc = producerTargetCycles();
-			const uint64_t now = d.dsp().getCycles();
+			const uint64_t now = m_schedPublished.dspCycles[1].load(std::memory_order_acquire);
 			if(trace && (chunks % 4410) == 0)
-				std::fprintf(stderr, "[worker] chunks=%llu parks=%llu now=%llu target=%llu "
+				std::fprintf(stderr, "[worker] chunks=%llu helped=%llu parks=%llu now=%llu target=%llu "
 					"blockTarget=%llu uc=%llu mixer=%llu clamps dsp=%llu link=%llu room=%llu parked=%llu\n",
-					static_cast<unsigned long long>(chunks), static_cast<unsigned long long>(parks),
+					static_cast<unsigned long long>(chunks),
+					static_cast<unsigned long long>(m_producerHelpedChunks.load(std::memory_order_relaxed)),
+					static_cast<unsigned long long>(parks),
 					static_cast<unsigned long long>(now), static_cast<unsigned long long>(targetCyc),
 					static_cast<unsigned long long>(m_schedTargetFrames.load()),
 					static_cast<unsigned long long>(m_schedPublished.ucCycles.load()),
@@ -2024,20 +2030,6 @@ namespace md
 					static_cast<unsigned long long>(m_transportWaitClamps[1].load()),
 					static_cast<unsigned long long>(m_transportWaitClamps[2].load()),
 					static_cast<unsigned long long>(m_transportWaitClamps[3].load()));
-			if(trace && (chunks % 4410) == 0)
-			{
-				auto& s = d.hostToDspTrace();
-				std::fprintf(stderr, "[worker]   stream depth=%zu lastLand=%llu headAllowance=%llu ucGate=%llu "
-					"pushed data=%llu cmd=%llu landed read=%llu chunk=%llu overdue=%llu\n",
-					d.hostToDspDepth(), static_cast<unsigned long long>(d.hostToDspLastLand()),
-					static_cast<unsigned long long>(d.hostToDspHeadAllowance()),
-					static_cast<unsigned long long>(hostToDspDeadline(1, m_schedPublished.ucCycles.load())),
-					static_cast<unsigned long long>(s.pushedData.load()),
-					static_cast<unsigned long long>(s.pushedCommands.load()),
-					static_cast<unsigned long long>(s.landedOnRead.load()),
-					static_cast<unsigned long long>(s.landedInChunk.load()),
-					static_cast<unsigned long long>(s.landedOverdue.load()));
-			}
 			if(now >= targetCyc)
 			{
 				++parks;
@@ -2050,7 +2042,7 @@ namespace md
 				while(!m_signal.waitFor(std::chrono::microseconds(500), [&]
 				{
 					return m_workerExit.load(std::memory_order_acquire)
-						|| producerTargetCycles() > d.dsp().getCycles();
+						|| producerTargetCycles() > m_schedPublished.dspCycles[1].load(std::memory_order_acquire);
 				}))
 				{
 					if(trace)
@@ -2060,7 +2052,7 @@ namespace md
 							"blockTarget=%llu uc=%llu mixer=%llu\n",
 							static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
 								std::chrono::steady_clock::now() - parkStart).count()),
-							static_cast<unsigned long long>(d.dsp().getCycles()),
+							static_cast<unsigned long long>(m_schedPublished.dspCycles[1].load()),
 							static_cast<unsigned long long>(producerTargetCycles()),
 							static_cast<unsigned long long>(m_schedTargetFrames.load()),
 							static_cast<unsigned long long>(m_schedPublished.ucCycles.load()),
@@ -2076,20 +2068,26 @@ namespace md
 				m_producerParked.store(false, std::memory_order_release);
 				continue;
 			}
-			// One codec frame per chunk: the position publication and the
-			// host-port service run at frame granularity. A pending host item
-			// ends the chunk at its deadline, so it lands exactly when the
-			// serial bridge would have written it rather than up to a frame
-			// late.
-			d.applyHostToDspStream();
-			d.stageHostTx();
-			uint64_t stopCyc = std::min(targetCyc, now + g_dsp1CyclesPerEsaiFrame);
-			const uint64_t headDeadline = d.hostToDspHeadDeadline();
-			if(headDeadline > now)
-				stopCyc = std::min(stopCyc, headDeadline);
+			std::lock_guard<std::mutex> exec(m_producerExec);
+			if(trace && (chunks % 4410) == 0)
+			{
+				auto& s = d.hostToDspTrace();
+				std::fprintf(stderr, "[worker]   stream depth=%zu lastLand=%llu headAllowance=%llu ucGate=%llu "
+					"pushed data=%llu cmd=%llu landed read=%llu chunk=%llu overdue=%llu\n",
+					d.hostToDspDepth(), static_cast<unsigned long long>(d.hostToDspLastLand()),
+					static_cast<unsigned long long>(d.hostToDspHeadAllowance()),
+					static_cast<unsigned long long>(hostToDspDeadline(1, m_schedPublished.ucCycles.load())),
+					static_cast<unsigned long long>(s.pushedData.load()),
+					static_cast<unsigned long long>(s.pushedCommands.load()),
+					static_cast<unsigned long long>(s.landedOnRead.load()),
+					static_cast<unsigned long long>(s.landedInChunk.load()),
+					static_cast<unsigned long long>(s.landedOverdue.load()));
+			}
+			const uint64_t startCyc = d.dsp().getCycles();
 			const auto chunkStart = trace ? std::chrono::steady_clock::now()
 				: std::chrono::steady_clock::time_point{};
-			d.dsp().execUntilCycles(stopCyc);
+			if(!runProducerChunk(producerTargetCycles()))
+				continue;	// the audio thread covered the gap while we waited for the lock
 			++chunks;
 			m_workerChunks.store(chunks, std::memory_order_relaxed);
 			if(trace)
@@ -2097,20 +2095,89 @@ namespace md
 				const auto chunkNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
 					std::chrono::steady_clock::now() - chunkStart).count();
 				m_timeTrace.workerExecNs.fetch_add(static_cast<uint64_t>(chunkNs), std::memory_order_relaxed);
-				m_timeTrace.workerExecCycles.fetch_add(d.dsp().getCycles() - now, std::memory_order_relaxed);
+				m_timeTrace.workerExecCycles.fetch_add(d.dsp().getCycles() - startCyc, std::memory_order_relaxed);
 				const auto chunkMs = chunkNs / 1000000;
 				if(chunkMs > 50)
-					std::fprintf(stderr, "[worker] slow chunk %lld ms: cycles %llu -> %llu (stop %llu) pc=%06x\n",
-						static_cast<long long>(chunkMs), static_cast<unsigned long long>(now),
-						static_cast<unsigned long long>(d.dsp().getCycles()),
-						static_cast<unsigned long long>(stopCyc), d.dsp().getPC().toWord());
+					std::fprintf(stderr, "[worker] slow chunk %lld ms: cycles %llu -> %llu pc=%06x\n",
+						static_cast<long long>(chunkMs), static_cast<unsigned long long>(startCyc),
+						static_cast<unsigned long long>(d.dsp().getCycles()), d.dsp().getPC().toWord());
 			}
-			if(trace && d.dsp().getCycles() == now)
-				std::fprintf(stderr, "[worker] no progress at %llu (stop %llu)\n",
-					static_cast<unsigned long long>(now), static_cast<unsigned long long>(stopCyc));
-			m_schedPublished.dspCycles[1].store(d.dsp().getCycles(),
-				std::memory_order_release);
-			m_signal.notify();
+			if(trace && d.dsp().getCycles() == startCyc)
+				std::fprintf(stderr, "[worker] no progress at %llu\n",
+					static_cast<unsigned long long>(startCyc));
+		}
+	}
+
+	bool Hardware::runProducerChunk(const uint64_t _targetCyc)
+	{
+		auto& d = m_dspProducer;
+		const uint64_t now = d.dsp().getCycles();
+		if(now >= _targetCyc)
+			return false;
+		// One codec frame per chunk: the position publication and the
+		// host-port service run at frame granularity. A pending host item
+		// ends the chunk at its deadline, so it lands exactly when the
+		// serial bridge would have written it rather than up to a frame
+		// late.
+		d.applyHostToDspStream();
+		d.stageHostTx();
+		uint64_t stopCyc = std::min(_targetCyc, now + g_dsp1CyclesPerEsaiFrame);
+		const uint64_t headDeadline = d.hostToDspHeadDeadline();
+		if(headDeadline > now)
+			stopCyc = std::min(stopCyc, headDeadline);
+		d.dsp().execUntilCycles(stopCyc);
+		m_schedPublished.dspCycles[1].store(d.dsp().getCycles(), std::memory_order_release);
+		m_signal.notify();
+		return true;
+	}
+
+	bool Hardware::tryHelpProducer()
+	{
+		std::unique_lock<std::mutex> exec(m_producerExec, std::try_to_lock);
+		if(!exec.owns_lock() || !runProducerChunk(producerTargetCycles()))
+			return false;
+		m_producerHelpedChunks.fetch_add(1, std::memory_order_relaxed);
+		return true;
+	}
+
+	bool Hardware::waitSignalOrHelp(const std::chrono::microseconds _timeout,
+		const std::function<bool()>& _ready)
+	{
+		// The audio thread waits here for the producer (host access, link
+		// word). When every core is busy the OS may not schedule the worker
+		// for milliseconds, and the audio thread would sit idle on work it
+		// can do itself. If the producer's published position has not moved
+		// for m_producerHelpDelayUs, run its chunks here until the wait is
+		// satisfied or the worker takes the producer back. The worker
+		// keeps the producer whenever it runs: one failed try-lock ends the
+		// help, and the next wait gives it the delay again.
+		if(m_producerHelpDelayUs == 0 || !m_dspThreaded[1].load(std::memory_order_acquire))
+			return m_signal.waitFor(_timeout, _ready);
+		const auto deadline = std::chrono::steady_clock::now() + _timeout;
+		const std::chrono::microseconds delay(m_producerHelpDelayUs);
+		for(;;)
+		{
+			if(m_audioHelpsProducer)
+			{
+				if(tryHelpProducer())
+				{
+					if(_ready())
+						return true;
+					if(std::chrono::steady_clock::now() >= deadline)
+						return false;
+					continue;
+				}
+				m_audioHelpsProducer = false;
+			}
+			const auto now = std::chrono::steady_clock::now();
+			if(now >= deadline)
+				return _ready();
+			const uint64_t before = m_schedPublished.dspCycles[1].load(std::memory_order_acquire);
+			const auto slice = std::min<std::chrono::steady_clock::duration>(delay, deadline - now);
+			if(m_signal.waitFor(std::chrono::duration_cast<std::chrono::microseconds>(slice), _ready))
+				return true;
+			if(m_schedPublished.dspCycles[1].load(std::memory_order_acquire) == before)
+				m_audioHelpsProducer = true;
 		}
 	}
 
@@ -2151,7 +2218,7 @@ namespace md
 			}
 			const auto blockStart = m_transportTrace ? std::chrono::steady_clock::now()
 				: std::chrono::steady_clock::time_point{};
-			const bool woke = m_signal.waitFor(std::chrono::microseconds(200), _ready);
+			const bool woke = waitSignalOrHelp(std::chrono::microseconds(200), _ready);
 			if(m_transportTrace)
 			{
 				m_timeTrace.blockedNs[siteIndex].fetch_add(static_cast<uint64_t>(
@@ -2279,7 +2346,7 @@ namespace md
 		const auto phaseBefore = m_audioPhase.exchange(11);
 		const auto linkWaitStart = m_transportTrace ? std::chrono::steady_clock::now()
 			: std::chrono::steady_clock::time_point{};
-		const bool provenNow = m_signal.waitFor(std::chrono::milliseconds(5), proven);
+		const bool provenNow = waitSignalOrHelp(std::chrono::milliseconds(5), proven);
 		if(m_transportTrace)
 		{
 			constexpr auto site = static_cast<size_t>(TransportWaitSite::LinkProducer);

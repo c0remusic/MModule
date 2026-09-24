@@ -112,6 +112,40 @@ worker) et ligne `ns/cycle` (coût par cycle émulé et taille des tranches).
 Pour isoler un effet de placement : `SetThreadAffinityMask` sur le thread
 audio (au handoff) et le worker (Ryzen 3700X : CPU logiques 0-7 = CCX0).
 
+## Saturation CPU (après f8d8992)
+
+`f8d8992` (2026-09-23) : worker dans la bande MMCSS « Pro Audio » (repli
+TIME_CRITICAL ; `MDMM_WORKER_PRIORITY=normal|high` pour les A/B) et banc
+hôte `mdParallelTransportBenchmark` (exécutable, pas un ctest). Mesures
+3700X, blocs 128 à 48 kHz, 4 appelants : sans charge 82-95 % partout (série
+~95 %) ; 12 threads de charge time-critical : worker normal 251 %, worker
+time-critical 95 % (série 139 %) ; 12 threads MMCSS : worker MMCSS 170 %
+(série 199 %). **Tous les cœurs pris (14 threads) : 353 % contre 144 % en
+série.** Placement par CPU Sets essayé puis abandonné (pire sous charge).
+
+Cause : sous saturation l'OS ne planifie pas le worker pendant des ms, et
+le thread audio attend DSP2 (DspTime, lien, place du flux hôte) sans rien
+faire alors qu'il a le CPU.
+
+Branche `claude/transport-producer-help` : jeton d'exécution de DSP2
+(`m_producerExec`). Le worker le prend pour chaque tranche ; le thread
+audio le prend en try_lock dans `waitSignalOrHelp` (utilisé par
+`waitTransportImpl` et l'attente lien de `linkRxAvailable`) quand la
+position publiée du producteur n'a pas bougé depuis
+`MDMM_PRODUCER_HELP_US` (défaut 50 µs, 0 = désactivé) et exécute alors les
+tranches lui-même jusqu'à satisfaction, ou jusqu'à ce que le worker
+reprenne le jeton. Hors jeton, seul `dspCycles[1]` publié est lu (garde et
+park du worker). Objectif : sous saturation, retomber au coût série au lieu
+de le dépasser. Risque restant : worker préempté en pleine tranche (jeton
+tenu), borné par la taille d'une tranche (une frame).
+État : compile, tests non firmware verts sous Linux ; **non mesuré** (pas
+de ROM ni de 3700X dans le conteneur cloud). À faire sur la machine de
+référence : `mdParallelTransportFirmwareTest` (vert, underflow/overflow
+0/0), puis le banc avec 14 threads de charge, `MDMM_PRODUCER_HELP_US=50`
+contre `=0`, et sans charge pour vérifier l'absence de régression. Le
+compteur `helped=` de la ligne `[worker]` (`MDMM_TRANSPORT_TRACE=1`) dit
+combien de tranches le thread audio a exécutées.
+
 ## Leçons dures
 
 - Le test firmware `mdAudioFirmwareTest` passe en parallel : il ne déclenche

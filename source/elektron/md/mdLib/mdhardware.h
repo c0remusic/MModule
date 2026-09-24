@@ -500,6 +500,13 @@ namespace md
 		// UC and mixer positions plus L_lead, and parks when gated.
 		void     producerWorkerLoop();
 		uint64_t producerTargetCycles() const;
+		// One producer chunk toward _targetCyc; the caller holds m_producerExec.
+		// Returns false when the producer is already at its gates.
+		bool     runProducerChunk(uint64_t _targetCyc);
+		// Audio thread only: run a producer chunk here if the worker is not
+		// executing one, see waitSignalOrHelp.
+		bool     tryHelpProducer();
+		bool     waitSignalOrHelp(std::chrono::microseconds _timeout, const std::function<bool()>& _ready);
 		void     stopProducerWorker();
 		void     schedDrainCodecOutput();		// pop the mixer ESSI1 output ring so its TX never blocks
 		void     schedCatchUpDspToDsp(uint32_t _consumer, uint32_t _producer);
@@ -515,6 +522,15 @@ namespace md
 		// never back; the worker exists only for the producer in this step.
 		std::array<std::atomic<bool>, 2> m_dspThreaded{};
 		alignas(64) std::atomic<bool> m_producerParked{false};
+		// Right to execute the producer DSP. The worker holds it for each
+		// chunk. The audio thread only try-locks it, to run chunks itself
+		// when it waits on a producer that is not being scheduled (all cores
+		// busy): the pair then degrades to the serial cost instead of
+		// stalling behind the OS scheduler.
+		alignas(64) std::mutex m_producerExec;
+		uint32_t m_producerHelpDelayUs = 50;	// MDMM_PRODUCER_HELP_US, 0 disables helping
+		bool m_audioHelpsProducer = false;		// audio thread only: helped on its last wait
+		alignas(64) std::atomic<uint64_t> m_producerHelpedChunks{0};
 		alignas(64) std::atomic<bool> m_workerExit{false};
 		alignas(64) std::atomic<uint64_t> m_schedTargetFrames{0};	// published block target (whole frames)
 		std::array<std::atomic<bool>, 2> m_hostWriteBlocked{};	// see setHostWriteBlocked
