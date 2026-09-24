@@ -236,6 +236,8 @@ namespace md
 		// UC in writeWordToDsp. Only then may the producer pass its UC gate.
 		void setHostWriteBlocked(const uint32_t _dspIndex, const bool _blocked)
 		{
+			if(_blocked)
+				m_hostWriteBlockEpisode[_dspIndex & 1].fetch_add(1, std::memory_order_release);
 			m_hostWriteBlocked[_dspIndex & 1].store(_blocked, std::memory_order_release);
 			m_signal.notify();
 		}
@@ -499,6 +501,11 @@ namespace md
 		// chunks toward the published block target, gated by the published
 		// UC and mixer positions plus L_lead, and parks when gated.
 		void     producerWorkerLoop();
+		// The producer's gates from published positions only: any thread may
+		// evaluate it, whoever is executing the producer.
+		uint64_t producerGateHint() const;
+		// The gates plus a blocked host write's allowance, which reads the
+		// host stream head: only under m_producerExec.
 		uint64_t producerTargetCycles() const;
 		// One producer chunk toward _targetCyc; the caller holds m_producerExec.
 		// Returns false when the producer is already at its gates.
@@ -534,6 +541,7 @@ namespace md
 		alignas(64) std::atomic<bool> m_workerExit{false};
 		alignas(64) std::atomic<uint64_t> m_schedTargetFrames{0};	// published block target (whole frames)
 		std::array<std::atomic<bool>, 2> m_hostWriteBlocked{};	// see setHostWriteBlocked
+		std::array<std::atomic<uint32_t>, 2> m_hostWriteBlockEpisode{};	// bumped by every new blocked write
 		std::array<std::atomic<uint64_t>, 5> m_transportWaitClamps{};	// expired bounded waits per site
 		bool m_transportTrace = false;			// MDMM_TRANSPORT_TRACE: stderr progress from both sides
 		uint64_t m_schedStepCount = 0;

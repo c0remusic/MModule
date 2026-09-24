@@ -131,6 +131,8 @@ namespace md
 		if(const char* const mode = std::getenv("MDMM_TRANSPORT"))
 			m_transportMode = std::strcmp(mode, "parallel") == 0
 				? TransportMode::Parallel : TransportMode::Serial;
+		if(const char* const help = std::getenv("MDMM_PRODUCER_HELP_US"))
+			m_producerHelpDelayUs = static_cast<uint32_t>(std::strtoul(help, nullptr, 10));
 		m_transportTrace = std::getenv("MDMM_TRANSPORT_TRACE") != nullptr;
 		if(m_transportTrace)
 			startWatchdog();
@@ -1939,7 +1941,7 @@ namespace md
 			m_producerHelpDelayUs = static_cast<uint32_t>(std::strtoul(help, nullptr, 10));
 	}
 
-	uint64_t Hardware::producerTargetCycles() const
+	uint64_t Hardware::producerGateHint() const
 	{
 		// Gates of the worker (spec §3): block target, mixer + L_lead,
 		// UC + L_lead, all in machine frames; L_lead = the serial quantum.
@@ -1970,7 +1972,12 @@ namespace md
 		// an expired wait.
 		const uint64_t ucLimit = hostToDspDeadline(1,
 			m_schedPublished.ucCycles.load(std::memory_order_acquire));
-		uint64_t cycles = std::min(schedFrameToDspCycles(1, limit), ucLimit);
+		return std::min(schedFrameToDspCycles(1, limit), ucLimit);
+	}
+
+	uint64_t Hardware::producerTargetCycles() const
+	{
+		uint64_t cycles = producerGateHint();
 		// While the UC is stalled on a full host stream (its time frozen), the
 		// head item entitles the producer to run past its gates by exactly the
 		// drain run the serial bridge gave that write: the inline clamp from
@@ -2008,13 +2015,30 @@ namespace md
 		auto& d = m_dspProducer;
 		const bool trace = std::getenv("MDMM_TRANSPORT_TRACE") != nullptr;
 		uint64_t chunks = 0, parks = 0;
+		// The audio thread may be executing the producer (tryHelpProducer):
+		// outside m_producerExec only published values are readable, so the
+		// gate is judged from the hint. A blocked host write lets the producer
+		// run past it by the head item's allowance, which only the lock holder
+		// can read: while a write is blocked the worker takes the lock to find
+		// out, and once it finds the allowance used up it records where
+		// (position and blocking episode) so it parks instead of retrying
+		// until either moves.
+		uint64_t spentAt = std::numeric_limits<uint64_t>::max();
+		uint32_t spentEpisode = 0;
+		const auto gateOpen = [&]
+		{
+			const uint64_t published = m_schedPublished.dspCycles[1].load(std::memory_order_acquire);
+			if(producerGateHint() > published)
+				return true;
+			return m_hostWriteBlocked[1].load(std::memory_order_acquire)
+				&& (published != spentAt
+					|| m_hostWriteBlockEpisode[1].load(std::memory_order_acquire) != spentEpisode);
+		};
 		for(;;)
 		{
 			if(m_workerExit.load(std::memory_order_acquire))
 				return;
-			// The audio thread may be executing the producer (tryHelpProducer):
-			// outside m_producerExec only the published position is readable.
-			const uint64_t targetCyc = producerTargetCycles();
+			const uint64_t targetCyc = producerGateHint();
 			const uint64_t now = m_schedPublished.dspCycles[1].load(std::memory_order_acquire);
 			if(trace && (chunks % 4410) == 0)
 				std::fprintf(stderr, "[worker] chunks=%llu helped=%llu parks=%llu now=%llu target=%llu "
@@ -2030,7 +2054,7 @@ namespace md
 					static_cast<unsigned long long>(m_transportWaitClamps[1].load()),
 					static_cast<unsigned long long>(m_transportWaitClamps[2].load()),
 					static_cast<unsigned long long>(m_transportWaitClamps[3].load()));
-			if(now >= targetCyc)
+			if(!gateOpen())
 			{
 				++parks;
 				// Gated: park until a publication moves a gate. The wait is
@@ -2041,8 +2065,7 @@ namespace md
 				uint32_t parkRounds = 0;
 				while(!m_signal.waitFor(std::chrono::microseconds(500), [&]
 				{
-					return m_workerExit.load(std::memory_order_acquire)
-						|| producerTargetCycles() > m_schedPublished.dspCycles[1].load(std::memory_order_acquire);
+					return m_workerExit.load(std::memory_order_acquire) || gateOpen();
 				}))
 				{
 					if(trace)
@@ -2053,7 +2076,7 @@ namespace md
 							static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
 								std::chrono::steady_clock::now() - parkStart).count()),
 							static_cast<unsigned long long>(m_schedPublished.dspCycles[1].load()),
-							static_cast<unsigned long long>(producerTargetCycles()),
+							static_cast<unsigned long long>(producerGateHint()),
 							static_cast<unsigned long long>(m_schedTargetFrames.load()),
 							static_cast<unsigned long long>(m_schedPublished.ucCycles.load()),
 							static_cast<unsigned long long>(m_schedPublished.dspCycles[0].load()));
@@ -2086,8 +2109,24 @@ namespace md
 			const uint64_t startCyc = d.dsp().getCycles();
 			const auto chunkStart = trace ? std::chrono::steady_clock::now()
 				: std::chrono::steady_clock::time_point{};
-			if(!runProducerChunk(producerTargetCycles()))
-				continue;	// the audio thread covered the gap while we waited for the lock
+			// The authoritative gate, with the blocked flag read once: only a
+			// gate that included the allowance may record it as used up.
+			const bool writeBlocked = m_hostWriteBlocked[1].load(std::memory_order_acquire);
+			const uint32_t episode = m_hostWriteBlockEpisode[1].load(std::memory_order_acquire);
+			uint64_t gate = producerGateHint();
+			if(writeBlocked)
+				gate = std::max(gate, d.hostToDspHeadAllowance());
+			if(!runProducerChunk(gate))
+			{
+				// Already at the gate: the audio thread covered the gap while
+				// we waited for the lock, or the allowance is used up.
+				if(writeBlocked)
+				{
+					spentAt = startCyc;
+					spentEpisode = episode;
+				}
+				continue;
+			}
 			++chunks;
 			m_workerChunks.store(chunks, std::memory_order_relaxed);
 			if(trace)

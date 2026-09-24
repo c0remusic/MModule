@@ -138,13 +138,43 @@ reprenne le jeton. Hors jeton, seul `dspCycles[1]` publié est lu (garde et
 park du worker). Objectif : sous saturation, retomber au coût série au lieu
 de le dépasser. Risque restant : worker préempté en pleine tranche (jeton
 tenu), borné par la taille d'une tranche (une frame).
-État : compile, tests non firmware verts sous Linux ; **non mesuré** (pas
-de ROM ni de 3700X dans le conteneur cloud). À faire sur la machine de
-référence : `mdParallelTransportFirmwareTest` (vert, underflow/overflow
-0/0), puis le banc avec 14 threads de charge, `MDMM_PRODUCER_HELP_US=50`
-contre `=0`, et sans charge pour vérifier l'absence de régression. Le
-compteur `helped=` de la ligne `[worker]` (`MDMM_TRANSPORT_TRACE=1`) dit
+Le compteur `helped=` de la ligne `[worker]` (`MDMM_TRANSPORT_TRACE=1`) dit
 combien de tranches le thread audio a exécutées.
+
+Mesuré le 2026-09-24 sur le 3700X (PR #1 adoptée, fast-forward) :
+- Gate verte : suite série, et en `MDMM_TRANSPORT=parallel`
+  `mdAudioFirmwareTest`, `mdMidiTimingFirmwareTest`, `mdUwFirmwareTest`,
+  `mdParallelTransportFirmwareTest`, avec aide (défaut) et sans (`=0`).
+- Banc, même exécutable, `MDMM_PRODUCER_HELP_US=0` contre défaut, 2 passes :
+  sans charge 87 % contre 87 % ; 12 threads MMCSS 103 % contre 103 % ;
+  **16 threads MMCSS (plus de threads que de CPU) 317 % contre 155 %,
+  p99 21,9 ms contre 8,7 ms, pire bloc 48-56 ms contre 10-12 ms**.
+  L'aide ne coûte rien hors saturation et divise par deux le temps quand
+  les cœurs manquent — le cas d'un Live chargé.
+- Le « 353 % contre 144 % » ci-dessus ne se reproduit pas sur machine
+  calme (12 et 14 threads : parallèle 100-110 %, série 110-150 %). Il était
+  mesuré avec un serveur vite égaré qui prenait 3,3 cœurs : la machine
+  était en fait sursouscrite, régime où série et parallèle sans aide
+  tombent tous deux vers 330-375 %.
+- Correctifs après revue adversariale : `MDMM_PRODUCER_HELP_US` n'était lu
+  que dans `enableParallelTransport` (restauration d'état projet), donc
+  ignoré par une instance neuve et par le banc — lu aussi au constructeur ;
+  le worker appelait `producerTargetCycles()` hors jeton, qui lit la tête
+  du flux hôte pendant que le thread audio peut la dépiler (course de
+  données) — la porte hors jeton est désormais `producerGateHint()`
+  (valeurs publiées seules), la porte d'autorité avec l'allowance est
+  calculée sous le jeton, et une allowance épuisée est mémorisée
+  (position + épisode de blocage, `m_hostWriteBlockEpisode`) pour parker
+  au lieu de reprendre le verrou en boucle.
+- Constats de revue gardés tels quels : un worker préempté en pleine
+  tranche garde le jeton (l'aide ne couvre que le worker non planifié
+  entre deux tranches) ; `waitSignalOrHelp` tourne par tranches de 50 µs
+  sans parker (le thread audio attend activement pendant un bloc).
+- Alternative écartée : un exécuteur « help-first » plus complet (jeton
+  Free/Worker/Host, bail rendu aux points sûrs, demande de cession sur
+  stall, placement Auto mesuré entre threaded et épinglé), branche locale
+  `wip/help-first-executor`. Aux mesures : égalité avec la PR #1 dans tous
+  les scénarios, l'épinglage ne gagne jamais, cinq fois plus de code.
 
 ## Leçons dures
 
