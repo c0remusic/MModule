@@ -119,7 +119,7 @@ namespace md
 		// worker never hands the producer back. MDMM_TRANSPORT, when set,
 		// overrides this (tests, A/B runs). Call with the device paused.
 		void setParallelTransport(bool _enabled);
-		bool isParallelTransportRequested() const { return preferredTransport() == TransportMode::Parallel; }
+		bool isParallelTransportRequested() const { return preferredTransport() != TransportMode::Serial; }
 		bool isParallelTransportActive() const { return m_hardware->isProducerThreaded(); }
 		uint64_t asyncLateBlocks() const { return m_async ? m_async->lateBlocks() : 0; }
 		AsyncRender::Stats asyncStats() const { return m_async ? m_async->stats() : AsyncRender::Stats{}; }

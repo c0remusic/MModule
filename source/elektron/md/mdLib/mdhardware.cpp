@@ -129,8 +129,7 @@ namespace md
 		if(const char* const depth = std::getenv("MD_LINK_PIPELINE_DEPTH"))
 			m_linkPipelineDepthFrames = std::max(0.0, std::atof(depth));
 		if(const char* const mode = std::getenv("MDMM_TRANSPORT"))
-			m_transportMode = std::strcmp(mode, "parallel") == 0
-				? TransportMode::Parallel : TransportMode::Serial;
+			m_transportMode = parseTransportMode(mode);
 		if(const char* const help = std::getenv("MDMM_PRODUCER_HELP_US"))
 			m_producerHelpDelayUs = static_cast<uint32_t>(std::strtoul(help, nullptr, 10));
 		m_transportTrace = std::getenv("MDMM_TRANSPORT_TRACE") != nullptr;
@@ -252,7 +251,7 @@ namespace md
 								score.currentRingDepth = ring.size();
 								score.maximumRingDepth = std::max(score.maximumRingDepth, ring.size()););
 						}
-						if(!m_dspThreaded[1].load(std::memory_order_acquire))
+						if(dspsShareThread())
 							schedCatchUpDspToDsp(1u - _selfDsp, _selfDsp);
 						++_frameIndex;
 						return;
@@ -269,9 +268,10 @@ namespace md
 					// when the floor is 0, per-interaction when raised. The 2048-deep transport
 					// below absorbs a slice's burst, so per-word catch-up is NOT required for throughput;
 					// the floor controls transport fidelity versus rendezvous tightness.
-					// With a threaded producer neither DSP runs the other inline:
-					// the dated ring and the pop-side wait replace the rendezvous.
-					if(!m_dspThreaded[1].load(std::memory_order_acquire))
+					// With the producer alone on its worker neither DSP runs the
+					// other inline: the dated ring and the pop-side wait replace
+					// the rendezvous. Two DSPs sharing a thread keep it.
+					if(dspsShareThread())
 						schedCatchUpDspToDsp(1u - _selfDsp, _selfDsp);
 
 					// Every gate that used to read CONSUMER state here (receive
@@ -411,7 +411,15 @@ namespace md
 						+ static_cast<int64_t>(_frameIndex) - static_cast<int64_t>(latency);
 					const bool hit = queue.readAt(sample,input);
 					if(!hit && hasSource && !queue.beforeStart(sample))
+					{
 						m_hostAudioInputUnderflow[_dspIndex].fetch_add(1, std::memory_order_relaxed);
+						if(m_transportTrace)
+							std::fprintf(stderr, "[adc%zu] underflow sample=%lld dspFrames=%.1f target=%llu uc=%llu blocked=%d/%d\n",
+								_dspIndex, static_cast<long long>(sample), schedDspFramePos(static_cast<uint32_t>(_dspIndex)),
+								static_cast<unsigned long long>(m_schedTargetFrames.load()),
+								static_cast<unsigned long long>(m_schedPublished.ucCycles.load()),
+								m_hostWriteBlocked[0].load() ? 1 : 0, m_hostWriteBlocked[1].load() ? 1 : 0);
+					}
 					if(m_transportTrace)
 					{
 						trace.lastSample.store(sample, std::memory_order_relaxed);
@@ -1394,7 +1402,11 @@ namespace md
 
 		// The callback runs inside the mixer on the scheduler thread. Drain the
 		// codec ring immediately so its blocking producer can never park that thread.
-		schedDrainCodecOutput();
+		// A mixer on the pair worker leaves the ring to the audio thread,
+		// which drains it at the end of each advance: the ring is the SPSC
+		// hand-over between the two.
+		if(!m_dspThreaded[0].load(std::memory_order_relaxed))
+			schedDrainCodecOutput();
 	}
 
 	void Hardware::ensureBufferSize(const uint32_t _frames)
@@ -1443,6 +1455,9 @@ namespace md
 				m_hostAudioInputOverflow[receiver].fetch_add(dropped, std::memory_order_relaxed);
 		}
 		m_hostAudioInputSourceCursor += _frames;
+		// Only now is there input to miss: a receiver on a worker thread may
+		// read between the call's start and this first append.
+		m_hostAudioInputHasSource.store(true, std::memory_order_release);
 	}
 
 	void Hardware::processAudio(const uint32_t _frames, const uint32_t _latency)
@@ -1490,7 +1505,8 @@ namespace md
 	{
 		m_hostAudioInputSource = _inputs;
 		m_hostAudioInputSourceFrames = _frames;
-		m_hostAudioInputHasSource.store(_inputs[0] || _inputs[1], std::memory_order_release);
+		// Set by queueHostAudioInput once input is queued.
+		m_hostAudioInputHasSource.store(false, std::memory_order_release);
 		m_hostAudioInputSourceCursor = 0;
 		processAudio(_outputs, _frames, _latency);
 		m_hostAudioInputSource.fill(nullptr);
@@ -1577,13 +1593,16 @@ namespace md
 		// publication points the workers will wait on.
 		m_schedPublished.ucCycles.store(m_schedUcCyclesDone,
 			std::memory_order_release);
-		m_schedPublished.dspCycles[0].store(m_dspMixer.dsp().getCycles(),
-			std::memory_order_release);
+		// A DSP owned by a worker publishes its own position.
+		if(!m_dspThreaded[0].load(std::memory_order_acquire))
+			m_schedPublished.dspCycles[0].store(m_dspMixer.dsp().getCycles(),
+				std::memory_order_release);
 		if(!m_dspThreaded[1].load(std::memory_order_acquire))
 			m_schedPublished.dspCycles[1].store(m_dspProducer.dsp().getCycles(),
 				std::memory_order_release);
 		m_signal.notify();
 		schedTryHandoffProducer();
+		schedTryHandoffPair();
 
 		const double ucPos = static_cast<double>(m_schedUcCyclesDone) / ucPerFrame;
 
@@ -1602,9 +1621,11 @@ namespace md
 			}
 		}
 		// A DSP that is not yet runnable is parked at the target so it is never chosen as the laggard.
-		double dsp1Pos = m_schedDspOriginLatched[0] ? schedDspFramePos(0) : target;
-		// A producer owned by its worker is parked from the scheduler's point
-		// of view: it paces itself against the published positions instead.
+		// So is a DSP owned by a worker: it paces itself against the published
+		// positions instead.
+		double dsp1Pos = (m_schedDspOriginLatched[0]
+			&& !m_dspThreaded[0].load(std::memory_order_acquire))
+			? schedDspFramePos(0) : target;
 		double dsp2Pos = (m_schedDspOriginLatched[1]
 			&& !m_dspThreaded[1].load(std::memory_order_acquire))
 			? schedDspFramePos(1) : target;
@@ -1619,6 +1640,9 @@ namespace md
 			const auto policy = transportPolicy(m_model);
 			for(uint32_t i = 0; i < 2; ++i)
 			{
+				// A worker applies the backpressure of the DSPs it owns.
+				if(m_dspThreaded[i].load(std::memory_order_acquire))
+					continue;
 				auto& d = (i == 0) ? m_dspMixer : m_dspProducer;
 				double& pos = (i == 0) ? dsp1Pos : dsp2Pos;
 				if(!m_schedDspOriginLatched[i] || !d.booted()
@@ -1665,6 +1689,47 @@ namespace md
 				// UC-gated producer cannot have produced, and the UC cannot
 				// advance while this thread waits inside the mixer for them.
 				subTarget = std::min(subTarget, mixerCap);
+		}
+
+		// Pair worker: the DSPs trail the UC, so a DSP word reaches the UC as
+		// late as the DSPs lag. The serial scheduler bounded that lag by one
+		// quantum (laggard-first): keep the UC within that lead of the slower
+		// DSP, waiting for the worker when it is there. A DSP held by MM
+		// backpressure does not count - it waits for this UC, not the other
+		// way round. MD_PAIR_UC_LEAD_US overrides the lead.
+		if(m_dspPairWorker.load(std::memory_order_acquire))
+		{
+			const double ucLead = m_pairUcLeadFrames;
+			const auto dspMinFrames = [&]
+			{
+				double pos = std::numeric_limits<double>::infinity();
+				for(uint32_t i = 0; i < 2; ++i)
+				{
+					if(m_pairBackpressured[i].load(std::memory_order_acquire))
+						continue;
+					const auto cycles = m_schedPublished.dspCycles[i].load(std::memory_order_acquire);
+					pos = std::min(pos, m_schedDspOriginFrame[i]
+						+ static_cast<double>(cycles - std::min(cycles, m_schedDspOriginCycles[i]))
+							/ static_cast<double>(g_dsp1CyclesPerEsaiFrame));
+				}
+				return pos;
+			};
+			// The DSP minimum only grows while a DSP stays unheld: re-read the
+			// published positions only when the cached one would cap this slice.
+			if(m_pairDspMinCache + ucLead < ucPos + quantumFrames)
+				m_pairDspMinCache = dspMinFrames();
+			if(ucPos >= m_pairDspMinCache + ucLead)
+			{
+				m_schedPublished.ucCycles.store(m_schedUcCyclesDone, std::memory_order_release);
+				m_signal.notify();
+				waitTransport(TransportWaitSite::DspTime, std::chrono::milliseconds(50), [&]
+				{
+					return dspMinFrames() + ucLead > ucPos;
+				});
+				m_pairDspMinCache = dspMinFrames();
+				return true;
+			}
+			subTarget = std::min(subTarget, std::max(m_pairDspMinCache + ucLead, ucPos + 1e-3));
 		}
 
 		if(m_transportTrace && (++m_schedStepCount % 20000) == 0)
@@ -1727,12 +1792,16 @@ namespace md
 			// transmit registers empty the pump is a no-op (no UC reads happen
 			// mid-skip, so the latched queue state cannot be observed), and the
 			// skip stays transparent.
-			const bool dspTxClear = !m_dspMixer.hdi08().hasTX()
-				&& !m_dspProducer.hdi08().hasTX();
+			// Evaluated only for the Machinedrum: DSP registers are not the
+			// UC's to read once a worker owns the DSPs.
+			const auto dspTxClear = [this]
+			{
+				return !m_dspMixer.hdi08().hasTX() && !m_dspProducer.hdi08().hasTX();
+			};
 			// A deferred (dated) host word no longer forbids the skip: the jump
 			// below is bounded by its ready cycle, so the pump delivers it at
 			// exactly the host cycle a non-skipping UC would have reached.
-			if(((probeCount++ & 15u) == 0) && (isMonomachine() || dspTxClear)
+			if(((probeCount++ & 15u) == 0) && (isMonomachine() || dspTxClear())
 				&& m_schedUcCyclesDone < clampStop
 					&& !m_pendingFlashRestoreActive.load(std::memory_order_acquire)
 					&& !m_schedulerHostPumpDirty.load(std::memory_order_acquire)
@@ -1929,6 +1998,271 @@ namespace md
 		m_producerWorker = std::thread([this] { producerWorkerLoop(); });
 	}
 
+	void Hardware::schedTryHandoffPair()
+	{
+		// The lone producer's barrier: both DSPs booted and rate-locked, and
+		// the MD OS 1.63 rendezvous armed. The two DSPs stay on one thread, so
+		// the link, the Port C strobe and the MM epochs keep their serial
+		// ordering; only the UC's accesses become dated.
+		if(m_transportMode != TransportMode::Pair
+			|| m_dspThreaded[1].load(std::memory_order_acquire)
+			|| !m_dspProducer.booted() || !m_dspMixer.booted()
+			|| !m_schedDspOriginLatched[0] || !m_schedDspOriginLatched[1]
+			|| m_mdLink.rendezvousArmPending.load(std::memory_order_acquire))
+			return;
+		// This thread still owns both DSPs: hand what the serial path holds
+		// over to the threaded structures before the worker starts.
+		if(m_transportTrace)
+			std::fprintf(stderr, "[pair] handoff at uc=%llu\n", static_cast<unsigned long long>(m_schedUcCyclesDone));
+		schedDrainCodecOutput();
+		m_dspMixer.enterThreadedHostTransport();
+		m_dspProducer.enterThreadedHostTransport();
+		m_dspMixer.publishHostStatus();
+		m_dspProducer.publishHostStatus();
+		// Gate constants: the serial envelope, one quantum each way. The
+		// laggard-first scheduler let a DSP run up to a quantum past the UC (a
+		// UC word then landed that much late in DSP time) and the UC a quantum
+		// past a DSP (a DSP word reached it that much late). MD_PAIR_LEAD_US
+		// and MD_PAIR_UC_LEAD_US override them; past about 60 us each way the
+		// Monomachine's GND SIN oracle fails.
+		const auto envUs = [](const char* _name)
+		{
+			const char* const value = std::getenv(_name);
+			return value ? std::atof(value) : -1.0;
+		};
+		const auto usToFrames = [](const double _us) { return _us * static_cast<double>(g_samplerate) / 1.0e6; };
+		const auto policy = transportPolicy(m_model);
+		m_pairQuantumFrames = schedQuantumFrames(m_model);
+		const double dspLeadUs = envUs("MD_PAIR_LEAD_US");
+		const double dspLeadFrames = dspLeadUs >= 0.0 ? usToFrames(dspLeadUs) : m_pairQuantumFrames;
+		m_pairDspLeadUc = static_cast<uint64_t>(dspLeadFrames * schedUcCyclesPerFrame());
+		const double ucLeadUs = envUs("MD_PAIR_UC_LEAD_US");
+		m_pairUcLeadFrames = ucLeadUs >= 0.0 ? usToFrames(ucLeadUs) : m_pairQuantumFrames;
+		m_pairBpThreshold = policy.hostTransmitBackpressureThresholdWords;
+		m_pairBpRelease = policy.hostTransmitBackpressureReleaseUcCycles;
+		for(uint32_t i = 0; i < 2; ++i)
+		{
+			auto& d = (i == 0) ? m_dspMixer : m_dspProducer;
+			m_schedPublished.dspCycles[i].store(d.dsp().getCycles(), std::memory_order_release);
+			m_pairBackpressured[i].store(false, std::memory_order_release);
+			m_pairBpSince[i] = 0;
+		}
+		m_producerParked.store(false, std::memory_order_release);
+		m_workerExit.store(false, std::memory_order_release);
+		m_dspPairWorker.store(true, std::memory_order_release);
+		m_dspThreaded[0].store(true, std::memory_order_release);
+		m_dspThreaded[1].store(true, std::memory_order_release);
+		m_producerWorker = std::thread([this] { pairWorkerLoop(); });
+	}
+
+	uint64_t Hardware::pairGateCycles(const uint32_t _dspIndex, const bool _update)
+	{
+		const uint32_t i = _dspIndex & 1;
+		auto& d = (i == 0) ? m_dspMixer : m_dspProducer;
+		// The lone producer's gates (producerGateHint), for either DSP: the
+		// block target plus one quantum, and never past the UC, whose host
+		// words and commands are dated with the UC cycle that issued them.
+		const double limit = static_cast<double>(m_schedTargetFrames.load(std::memory_order_acquire))
+			+ m_pairQuantumFrames;
+		const uint64_t ucCycles = m_schedPublished.ucCycles.load(std::memory_order_acquire);
+		// Lead over the UC (spec §3 gate 3, L_lead): see the gate constants in
+		// schedTryHandoffPair.
+		const uint64_t gate = std::min(schedFrameToDspCycles(i, limit),
+			hostToDspDeadline(i, ucCycles + m_pairDspLeadUc));
+		// Where the serial bridge ran a DSP past the UC, its head item lets it
+		// pass the gates by the same envelope: an item due but blocked on HRX
+		// or on the previous command (writeWordToDsp, hdiSendIrqToDSP), and a
+		// UC stalled on a full host stream (producerTargetCycles). The peer
+		// DSP gets the same machine time, since the one being waited for may
+		// need it on the link.
+		double allowanceFrames = -1.0;
+		for(uint32_t x = 0; x < 2; ++x)
+		{
+			auto& dx = (x == 0) ? m_dspMixer : m_dspProducer;
+			uint64_t allowance = dx.hostToDspHeadBlockedAllowance();
+			if(m_hostWriteBlocked[x].load(std::memory_order_acquire))
+				allowance = std::max(allowance, dx.hostToDspHeadAllowance());
+			if(allowance > m_schedDspOriginCycles[x])
+				allowanceFrames = std::max(allowanceFrames, m_schedDspOriginFrame[x]
+					+ static_cast<double>(allowance - m_schedDspOriginCycles[x])
+						/ static_cast<double>(g_dsp1CyclesPerEsaiFrame));
+		}
+		if(allowanceFrames >= 0.0)
+		{
+			// Not past the host audio input the audio thread has queued (the
+			// block target plus the 64-frame safety margin, spec §3 gate 1),
+			// except for a UC stalled on a full stream, which cannot queue more
+			// before the DSP lands its item.
+			const bool uncapped = m_hostWriteBlocked[0].load(std::memory_order_acquire)
+				|| m_hostWriteBlocked[1].load(std::memory_order_acquire);
+			if(!uncapped)
+				allowanceFrames = std::min(allowanceFrames,
+					static_cast<double>(m_schedTargetFrames.load(std::memory_order_acquire))
+						+ g_hostAudioInputSafetyFrames / 2);
+			const uint64_t allowed = std::max(gate, schedFrameToDspCycles(i, allowanceFrames));
+			if(allowed > gate)
+				return allowed;
+		}
+		if(!isMonomachine())
+			return gate;
+		// MM host traffic is a flow-controlled lossless stream (schedStep): a
+		// DSP whose host backlog exceeds the threshold holds until the UC
+		// drains it, for at most the release window of UC time. Its UC waits
+		// give way meanwhile (m_pairBackpressured), so the UC keeps running and
+		// the window always ends.
+		const auto setBackpressured = [&](const bool _held)
+		{
+			if(!_update || m_pairBackpressured[i].load(std::memory_order_relaxed) == _held)
+				return;
+			m_pairBackpressured[i].store(_held, std::memory_order_release);
+			m_signal.notify();
+		};
+		if(d.hostTxBacklog() <= m_pairBpThreshold)
+		{
+			if(_update)
+				m_pairBpSince[i] = 0;
+			setBackpressured(false);
+			return gate;
+		}
+		const uint64_t since = m_pairBpSince[i] ? m_pairBpSince[i] : ucCycles + 1;	// +1: 0 means "not stalled"
+		if(_update)
+			m_pairBpSince[i] = since;
+		if(ucCycles - (since - 1) >= m_pairBpRelease)
+		{
+			setBackpressured(false);
+			return gate;
+		}
+		setBackpressured(true);
+		return std::min(gate, d.dsp().getCycles());
+	}
+
+	void Hardware::runPairChunk(const uint32_t _dspIndex, const uint64_t _targetCyc)
+	{
+		const uint32_t i = _dspIndex & 1;
+		auto& d = (i == 0) ? m_dspMixer : m_dspProducer;
+		// One codec frame per chunk, ending at a pending host item's deadline
+		// (runProducerChunk). The link catch-ups inside may run the other DSP
+		// up to this one's time: never past its own gates, which are the same.
+		d.serviceHostTransport();
+		const uint64_t now = d.dsp().getCycles();
+		uint64_t stopCyc = std::min(_targetCyc, now + g_dsp1CyclesPerEsaiFrame);
+		const uint64_t hostEvent = d.nextHostTransportCycle();
+		if(hostEvent > now)
+			stopCyc = std::min(stopCyc, hostEvent);
+		d.dsp().execUntilCycles(stopCyc);
+		// Both: the link catch-ups inside may have run the other DSP too.
+		m_dspMixer.publishHostStatus();
+		m_dspProducer.publishHostStatus();
+		m_schedPublished.dspCycles[0].store(m_dspMixer.dsp().getCycles(), std::memory_order_release);
+		m_schedPublished.dspCycles[1].store(m_dspProducer.dsp().getCycles(), std::memory_order_release);
+		m_signal.notify();
+	}
+
+	void Hardware::pairWorkerLoop()
+	{
+		// The audio thread waits on this worker for every block's codec
+		// frames: share the host's audio scheduling band (producerWorkerLoop).
+		struct ProAudioTask
+		{
+			void* task = nullptr;
+			~ProAudioTask() { dsp56k::ThreadTools::leaveProAudioTask(task); }
+		} proAudio;
+		const char* const priority = std::getenv("MDMM_WORKER_PRIORITY");
+		if(priority && std::strcmp(priority, "high") == 0)
+			dsp56k::ThreadTools::setCurrentThreadPriority(dsp56k::ThreadPriority::Highest);
+		else if(!priority || std::strcmp(priority, "normal") != 0)
+			proAudio.task = dsp56k::ThreadTools::joinProAudioTask();
+		dsp56k::ThreadTools::setCurrentThreadName("MD DSPs");
+		const bool trace = m_transportTrace;
+		std::array<uint64_t, 2> gate{};
+		const auto runnable = [&](const uint32_t _i)
+		{
+			auto& d = (_i == 0) ? m_dspMixer : m_dspProducer;
+			// A head item may become applicable with the DSP held exactly at
+			// its gate (a drain window ending there): land what is due first,
+			// or nothing would, and the UC waiting on stream room with it.
+			d.serviceHostTransport();
+			d.publishHostStatus();
+			gate[_i] = pairGateCycles(_i);
+			// Gather the UC's frequent small publications into chunks of half a
+			// frame: a chunk's fixed cost is otherwise as large as its work.
+			const uint64_t minChunk = m_pairUrgent.load(std::memory_order_acquire) ? 1 : PairMinChunkCycles;
+			return d.dsp().getCycles() + minChunk <= gate[_i];
+		};
+		for(;;)
+		{
+			if(m_workerExit.load(std::memory_order_acquire))
+				return;
+			const bool run0 = runnable(0);
+			const bool run1 = runnable(1);
+			if(!run0 && !run1)
+			{
+				// Both gated: park until a publication (UC position, block
+				// target, drained backlog) opens a gate. Bounded, so a lost
+				// wake costs at most the timeout.
+				m_producerParked.store(true, std::memory_order_release);
+				m_signal.notify();
+				const auto parkStart = trace ? std::chrono::steady_clock::now()
+					: std::chrono::steady_clock::time_point{};
+				// The predicate runs under the signal's mutex: gates are only
+				// read here. An item that becomes due exactly at a closed gate
+				// lands at the next turn, the timeout at the latest.
+				const auto wouldRun = [&](const uint32_t _i)
+				{
+					const uint64_t minChunk = m_pairUrgent.load(std::memory_order_acquire) ? 1 : PairMinChunkCycles;
+					return ((_i == 0) ? m_dspMixer : m_dspProducer).dsp().getCycles() + minChunk
+						<= pairGateCycles(_i, false);
+				};
+				m_signal.waitFor(std::chrono::microseconds(500), [&]
+				{
+					return m_workerExit.load(std::memory_order_acquire) || wouldRun(0) || wouldRun(1);
+				});
+				if(trace)
+				{
+					m_timeTrace.workerParks.fetch_add(1, std::memory_order_relaxed);
+					m_timeTrace.workerParkNs.fetch_add(static_cast<uint64_t>(
+						std::chrono::duration_cast<std::chrono::nanoseconds>(
+							std::chrono::steady_clock::now() - parkStart).count()), std::memory_order_relaxed);
+				}
+				m_producerParked.store(false, std::memory_order_release);
+				continue;
+			}
+			// Laggard first, like the serial scheduler's DSP choice.
+			uint32_t idx = run0 ? 0 : 1;
+			if(run0 && run1 && schedDspFramePos(1) < schedDspFramePos(0))
+				idx = 1;
+			const auto chunkStart = trace ? std::chrono::steady_clock::now()
+				: std::chrono::steady_clock::time_point{};
+			const uint64_t startCycles = m_dspMixer.dsp().getCycles() + m_dspProducer.dsp().getCycles();
+			runPairChunk(idx, gate[idx]);
+			if(trace)
+			{
+				m_timeTrace.workerExecNs.fetch_add(static_cast<uint64_t>(
+					std::chrono::duration_cast<std::chrono::nanoseconds>(
+						std::chrono::steady_clock::now() - chunkStart).count()), std::memory_order_relaxed);
+				m_timeTrace.workerExecCycles.fetch_add(m_dspMixer.dsp().getCycles()
+					+ m_dspProducer.dsp().getCycles() - startCycles, std::memory_order_relaxed);
+			}
+		}
+	}
+
+	void Hardware::waitMixerAtTarget()
+	{
+		// The block's codec frames come from the mixer on the pair worker. It
+		// can always reach the block target: its gates are the target plus a
+		// quantum and the UC, which is there already. MM backpressure may hold
+		// it short; the serial scheduler then ended the block short as well.
+		const uint64_t targetCyc = std::min(schedFrameToDspCycles(0, m_schedFramesTotal),
+			hostToDspDeadline(0, m_schedUcCyclesDone));
+		m_schedPublished.ucCycles.store(m_schedUcCyclesDone, std::memory_order_release);
+		m_signal.notify();
+		waitTransport(TransportWaitSite::MixerGate, std::chrono::milliseconds(50), [&]
+		{
+			return m_schedPublished.dspCycles[0].load(std::memory_order_acquire) >= targetCyc
+				|| m_pairBackpressured[0].load(std::memory_order_acquire);
+		});
+	}
+
 	void Hardware::stopProducerWorker()
 	{
 		if(!m_producerWorker.joinable())
@@ -1941,8 +2275,7 @@ namespace md
 	void Hardware::enableParallelTransport()
 	{
 		if(const char* const mode = std::getenv("MDMM_TRANSPORT"))
-			m_transportMode = std::strcmp(mode, "parallel") == 0
-				? TransportMode::Parallel : TransportMode::Serial;
+			m_transportMode = parseTransportMode(mode);
 		if(const char* const help = std::getenv("MDMM_PRODUCER_HELP_US"))
 			m_producerHelpDelayUs = static_cast<uint32_t>(std::strtoul(help, nullptr, 10));
 	}
@@ -2196,7 +2529,9 @@ namespace md
 		// satisfied or the worker takes the producer back. The worker
 		// keeps the producer whenever it runs: one failed try-lock ends the
 		// help, and the next wait gives it the delay again.
-		if(m_producerHelpDelayUs == 0 || !m_dspThreaded[1].load(std::memory_order_acquire))
+		// The pair worker owns both DSPs: nothing to help with in isolation.
+		if(m_producerHelpDelayUs == 0 || !m_dspThreaded[1].load(std::memory_order_acquire)
+			|| m_dspPairWorker.load(std::memory_order_acquire))
 			return m_signal.waitFor(_timeout, _ready);
 		const auto deadline = std::chrono::steady_clock::now() + _timeout;
 		const std::chrono::microseconds delay(m_producerHelpDelayUs);
@@ -2231,6 +2566,18 @@ namespace md
 	{
 		if(_ready())
 			return true;
+		// The pair worker gathers short chunks into longer ones unless this
+		// thread waits on it.
+		struct Urgency
+		{
+			std::atomic<uint32_t>* count;
+			~Urgency() { if(count) count->fetch_sub(1, std::memory_order_acq_rel); }
+		} urgency{m_dspPairWorker.load(std::memory_order_acquire) ? &m_pairUrgent : nullptr};
+		if(urgency.count)
+		{
+			urgency.count->fetch_add(1, std::memory_order_acq_rel);
+			m_signal.notify();
+		}
 		const auto siteIndex = static_cast<size_t>(_site);
 		if(m_transportTrace)
 			m_timeTrace.waits[siteIndex].fetch_add(1, std::memory_order_relaxed);
@@ -2299,6 +2646,18 @@ namespace md
 	{
 		if(!m_dspThreaded[1].load(std::memory_order_acquire))
 			return;
+		if(m_dspPairWorker.load(std::memory_order_acquire))
+		{
+			// The pair worker parks only with both DSPs at their gates, which
+			// stay put while this thread holds the UC.
+			if(!m_signal.waitFor(std::chrono::milliseconds(200), [&]
+				{
+					return m_producerParked.load(std::memory_order_acquire);
+				}))
+				m_transportWaitClamps[static_cast<size_t>(TransportWaitSite::ProducerParked)]
+					.fetch_add(1, std::memory_order_relaxed);
+			return;
+		}
 		const auto parked = [&]
 		{
 			return m_producerParked.load(std::memory_order_acquire)
@@ -2336,9 +2695,12 @@ namespace md
 		const uint64_t targetCyc = hostToDspDeadline(i, m_schedUcCyclesDone);
 		m_schedPublished.ucCycles.store(m_schedUcCyclesDone, std::memory_order_release);
 		m_signal.notify();
+		// A DSP held by MM backpressure on the pair worker is where the serial
+		// catch-up stopped: at the threshold, short of the UC.
 		const bool reached = waitTransport(TransportWaitSite::DspTime, std::chrono::milliseconds(50), [&]
 		{
-			return m_schedPublished.dspCycles[i].load(std::memory_order_acquire) >= targetCyc;
+			return m_schedPublished.dspCycles[i].load(std::memory_order_acquire) >= targetCyc
+				|| m_pairBackpressured[i].load(std::memory_order_acquire);
 		});
 		if(!reached && m_transportTrace)
 		{
@@ -2363,8 +2725,7 @@ namespace md
 		// Mixer input with a threaded producer: an empty (or immature) ring
 		// is genuinely empty only if the producer has already passed the
 		// time this slot needs (pop rule (c)); otherwise wait for it (d).
-		if(_consumer != 0 || !m_dspThreaded[1].load(std::memory_order_acquire)
-			|| !m_schedDspOriginLatched[1])
+		if(_consumer != 0 || dspsShareThread() || !m_schedDspOriginLatched[1])
 			return false;
 		const double needed = linkConsumerNow(0) - m_linkPipelineDepthFrames;
 		// Never wait for more than the producer's own UC gate can grant (the
@@ -2549,13 +2910,44 @@ namespace md
 			score.maximumRequestedCycles = std::max(score.maximumRequestedCycles, requested););
 		m_schedInLinkDelivery = true;
 		const bool bpGate = isMonomachine();
+		// A consumer on the pair worker gets its UC items through the dated
+		// stream: land them on the way at their deadlines, as its own chunks do.
+		const bool dated = !dspInlineRunAllowed(c);
+		uint64_t nextHostItem = std::numeric_limits<uint64_t>::max();
+		if(dated)
+		{
+			d.serviceHostTransport();
+			nextHostItem = d.nextHostTransportCycle();
+		}
 		if(!bpGate)
-			d.dsp().execUntilCycles(std::min(targetCyc, clampStop));	// same stop rule, one JIT entry
+		{
+			const uint64_t stop = std::min(targetCyc, clampStop);
+			while(d.dsp().getCycles() < stop)
+			{
+				const uint64_t now = d.dsp().getCycles();
+				d.dsp().execUntilCycles(nextHostItem > now ? std::min(stop, nextHostItem) : stop);	// same stop rule, one JIT entry
+				if(!dated)
+					break;
+				d.serviceHostTransport();
+				nextHostItem = d.nextHostTransportCycle();
+			}
+		}
 		else
 		{
 			while(d.dsp().getCycles() < targetCyc && d.dsp().getCycles() < clampStop
 				&& d.hostTxBacklog() <= policy.hostTransmitBackpressureThresholdWords)
+			{
+				if(d.dsp().getCycles() >= nextHostItem)
+				{
+					d.serviceHostTransport();
+					nextHostItem = d.nextHostTransportCycle();
+					// An item that cannot land yet is retried at the next
+					// chunk or HRX read edge, not at every instruction.
+					if(nextHostItem <= d.dsp().getCycles())
+						nextHostItem = std::numeric_limits<uint64_t>::max();
+				}
 				d.dsp().exec();
+			}
 		}
 		m_schedInLinkDelivery = false;
 		MD_TRANSPORT_RECORD(const auto executed = d.dsp().getCycles() - startCyc;
@@ -2588,6 +2980,10 @@ namespace md
 		{
 		}
 
+		// The mixer on the pair worker delivers this window's codec frames
+		// through the ESSI1 ring; take them once it has reached the target.
+		if(m_dspPairWorker.load(std::memory_order_acquire))
+			waitMixerAtTarget();
 		schedDrainCodecOutput();					// final drain (also covers a UC-only advance window)
 		advanceFactoryFlashCapture();
 		// Never make the emulation/audio thread wait for a UI snapshot read. If the

@@ -5,6 +5,7 @@
 #include <atomic>
 #include <memory>
 #include <chrono>
+#include <cstring>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -42,13 +43,28 @@ namespace md
 	// Which execution adapter drives the DSPs (parallel-transport spec §9,
 	// MDMM_TRANSPORT): Serial = the deterministic interleave scheduler runs
 	// everything on the calling thread and may execute a DSP inline for a
-	// host access; Parallel = worker threads own the DSPs and every such
-	// access waits on a published position instead.
+	// host access; Parallel = a worker thread owns the producer DSP and
+	// every such access waits on a published position instead; Pair = one
+	// worker owns BOTH DSPs, which keep their serial interleave and link
+	// catch-ups between them, while the calling thread keeps only the UC.
+	// Pair suits the Monomachine: its link is a strobe request/burst
+	// response the two DSPs must run in lockstep, and its cost splits
+	// evenly between the UC and the DSPs.
 	enum class TransportMode
 	{
 		Serial,
 		Parallel,
+		Pair,
 	};
+
+	inline TransportMode parseTransportMode(const char* _mode)
+	{
+		if(std::strcmp(_mode, "parallel") == 0)
+			return TransportMode::Parallel;
+		if(std::strcmp(_mode, "pair") == 0)
+			return TransportMode::Pair;
+		return TransportMode::Serial;
+	}
 
 	struct FactoryFlashSnapshot
 	{
@@ -212,9 +228,19 @@ namespace md
 		// threaded adapter waits on the worker's published position instead.
 		void waitForDspTime(uint32_t _dspIndex);
 		TransportMode transportMode() const { return m_transportMode; }
-		// The producer DSP runs on its worker thread (the parallel handoff has
-		// happened; it never goes back).
+		// The producer DSP runs on a worker thread (the parallel or pair
+		// handoff has happened; it never goes back).
 		bool isProducerThreaded() const { return m_dspThreaded[1].load(std::memory_order_acquire); }
+		// Both DSPs run on one worker (TransportMode::Pair).
+		bool isDspPairThreaded() const { return m_dspPairWorker.load(std::memory_order_acquire); }
+		// The two DSPs run on the same thread, so one may run the other inline
+		// for a link delivery: always, except with the producer alone on its
+		// worker.
+		bool dspsShareThread() const
+		{
+			return !m_dspThreaded[1].load(std::memory_order_acquire)
+				|| m_dspPairWorker.load(std::memory_order_acquire);
+		}
 		// Pre-handoff (and always under the serial adapter) the HI08 bridge
 		// may run a DSP inline in the caller's context. Once a DSP is owned by
 		// a worker thread, every access waits on its published position.
@@ -498,6 +524,22 @@ namespace md
 		bool     schedStep();					// one advance() event-loop iteration; false once all caught up
 		void     schedRunDspSlice(uint32_t _dspIndex, double _subTarget);	// one bounded DSP slice (serial adapter)
 		void     schedTryHandoffProducer();		// start the DSP2 worker once the boot-era protocol is armed
+		void     schedTryHandoffPair();			// start the worker of both DSPs (TransportMode::Pair)
+		// Worker of both DSPs: the serial scheduler's laggard-first DSP choice,
+		// in one-frame chunks toward the published block target, each DSP gated
+		// by the published UC position like the lone producer; parks when both
+		// are gated.
+		void     pairWorkerLoop();
+		// A DSP's gate on the pair worker (worker context). With _update it
+		// keeps the MM backpressure state and publishes it; without, it only
+		// reads it - the form a wait predicate may use, since predicates run
+		// under the signal's mutex and must not notify.
+		uint64_t pairGateCycles(uint32_t _dspIndex, bool _update = true);
+		// One chunk of a DSP toward _targetCyc on the pair worker.
+		void     runPairChunk(uint32_t _dspIndex, uint64_t _targetCyc);
+		// Audio thread, pair mode: wait until the mixer has produced the codec
+		// frames of the block target (or is held by MM backpressure).
+		void     waitMixerAtTarget();
 		double   schedDspFramePos(uint32_t _dspIndex);	// a runnable DSP's machine-frame position
 		uint64_t schedFrameToDspCycles(uint32_t _dspIndex, double _frames) const;
 		// DSP2 worker (parallel-transport spec §3): free-runs in one-frame
@@ -529,8 +571,28 @@ namespace md
 		bool     m_schedBoundedJit = true;		// cycle-bounded DSP background slices
 		TransportMode m_transportMode = TransportMode::Serial;
 		// Threaded-transport state. m_dspThreaded flips once at handoff and
-		// never back; the worker exists only for the producer in this step.
+		// never back. The worker runs the producer alone (Parallel) or both
+		// DSPs (Pair, m_dspPairWorker).
 		std::array<std::atomic<bool>, 2> m_dspThreaded{};
+		alignas(64) std::atomic<bool> m_dspPairWorker{false};
+		// Pair worker: a DSP whose gate MM backpressure holds shut. The UC's
+		// waits on that DSP give way to it, as the serial catch-up stopped at
+		// the backpressure threshold instead of running the DSP to the UC.
+		alignas(64) std::array<std::atomic<bool>, 2> m_pairBackpressured{};
+		// Pair worker only: UC cycle + 1 at which a DSP's backpressure park began.
+		std::array<uint64_t, 2> m_pairBpSince{};
+		// Gate constants of the pair mode, fixed at the handoff: the gates are
+		// evaluated in the worker's wait loop.
+		double   m_pairQuantumFrames = 0.0;		// block-target slack
+		double   m_pairDspMinCache = 0.0;		// audio thread: last read minimum of the unheld DSPs, frames
+		// Audio thread waiting on the pair worker (any transport wait): the
+		// worker runs even the short chunks it otherwise gathers into longer ones.
+		alignas(64) std::atomic<uint32_t> m_pairUrgent{0};
+		static constexpr uint64_t PairMinChunkCycles = 2304 / 2;	// half a codec frame of DSP cycles
+		uint64_t m_pairDspLeadUc = 0;			// DSP lead over the UC, in UC cycles (MD_PAIR_LEAD_US)
+		double   m_pairUcLeadFrames = 0.0;		// UC lead over the slower DSP (MD_PAIR_UC_LEAD_US)
+		size_t   m_pairBpThreshold = 0;
+		uint64_t m_pairBpRelease = 0;
 		alignas(64) std::atomic<bool> m_producerParked{false};
 		// Right to execute the producer DSP. The worker holds it for each
 		// chunk. The audio thread only try-locks it, to run chunks itself

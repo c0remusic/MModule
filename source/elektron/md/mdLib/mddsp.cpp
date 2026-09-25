@@ -98,6 +98,8 @@ namespace md
 		if(m_hardware.isMonomachine())
 			m_hdiUC.setReadCvrCallback([this](uint8_t value)
 			{
+				// Exact even for the pair worker: a published, bounded-stale
+				// acceptance fails the Monomachine's GND SIN oracle.
 				m_hardware.waitForDspTime(m_index);
 				const bool pending = hdi08().hostCommandPending();
 				const bool future = m_hardware.hostRxReadyCycle(m_index, hdi08().hostCommandAcceptedCycle())
@@ -175,7 +177,12 @@ namespace md
 			hdi08().setWriteTxCallback([this]
 			{
 				m_mmHostTxCycle = m_dsp.getCycles();
-				hdiTransferDSPtoUC();
+				// A DSP on a worker never touches the UC's register file: it
+				// stages the word, the UC context takes it (stageHostTx).
+				if(m_hardware.dspInlineRunAllowed(m_index))
+					hdiTransferDSPtoUC();
+				else
+					stageHostTx();
 			});
 		else
 			// MD: the DSP context is the only reader of its HOTX latch. Each
@@ -259,9 +266,69 @@ namespace md
 	{
 		// The UC-facing receive depth comes from the mirror the UC context
 		// publishes, so a DSP worker can evaluate its backlog without reading
-		// the ColdFire's register file.
-		return hdi08().txData().size() + m_hardware.ucRxDepth(m_index)
+		// the ColdFire's register file. A threaded MM stages in the dated
+		// queue instead of the latch (stageHostTx).
+		// A threaded MM's taken copy sits both in HOTX and in the UC latch
+		// until the DSP acknowledges the take: count it once.
+		const size_t backlog = hdi08().txData().size() + m_hardware.ucRxDepth(m_index)
 			+ (m_timedHostRx.pending() ? 1 : 0);
+		// Only a staged copy can have been taken (serial MM never stages one).
+		const size_t takes = m_mmTxStaged ? m_hostTxTakes.size() : 0;
+		return backlog > takes ? backlog - takes : 0;
+	}
+
+	void Dsp::applyHostTxTakes()
+	{
+		while(!m_hostTxTakes.empty()
+			&& m_hardware.hostToDspDeadline(m_index, m_hostTxTakes.front()) <= m_dsp.getCycles())
+		{
+			m_hostTxTakes.pop_front();
+			// The UC read the latch this word went to: HOTX frees at that time,
+			// as when the serial bridge moved the word out.
+			if(hdi08().hasTX())
+				hdi08().readTX();
+			m_mmTxStaged = false;
+		}
+	}
+
+	uint64_t Dsp::nextHostTxTakeCycle() const
+	{
+		if(m_hostTxTakes.empty())
+			return std::numeric_limits<uint64_t>::max();
+		return m_hardware.hostToDspDeadline(m_index, m_hostTxTakes.front());
+	}
+
+	uint64_t Dsp::nextHostTransportCycle() const
+	{
+		return std::min(hostToDspHeadDeadline(), nextHostTxTakeCycle());
+	}
+
+	void Dsp::serviceHostTransport()
+	{
+		applyHostToDspStream();
+		stageHostTx();
+	}
+
+	void Dsp::publishHostStatus()
+	{
+		const auto hf23 = hdi08().readControlRegister() & 0x18;	// HF2 (bit3), HF3 (bit4)
+		const auto depth = std::min<size_t>(hdi08().rxData().size(), 0xffffff);
+		const auto status = static_cast<uint32_t>(hf23 | (depth << 8));
+		if(m_hostStatus.load(std::memory_order_relaxed) != status)
+			m_hostStatus.store(status, std::memory_order_release);
+	}
+
+	void Dsp::enterThreadedHostTransport()
+	{
+		// Scheduler thread, before a worker owns this DSP: a word still in the
+		// MM's serial one-word latch moves to the dated staging queue, which
+		// is the only DSP->UC path from now on.
+		if(!m_hardware.isMonomachine() || !m_timedHostRx.pending())
+			return;
+		const uint64_t ready = m_timedHostRx.readyCycle();
+		uint32_t word = 0;
+		if(m_timedHostRx.take(std::numeric_limits<uint64_t>::max(), word))
+			m_hostTxStaging.push_back(StagedHostWord{word, ready});
 	}
 
 	void Dsp::publishUcRxDepth()
@@ -271,18 +338,40 @@ namespace md
 
 	void Dsp::stageHostTx()
 	{
-		if(m_hardware.isMonomachine() || m_hostTxStaging.full() || !hdi08().hasTX())
+		if(m_hardware.isMonomachine())
+		{
+			// Threaded MM: the one-latch rule of the serial path
+			// (hdiTransferDSPtoUC) with the UC's side of it in the UC context.
+			// The DSP stages a copy of its HOTX word at once; the UC takes it
+			// when its latch is free and its time has reached the word; HOTX
+			// frees when the DSP reaches the time of that take. The serial MM
+			// stages from the UC side.
+			if(m_hardware.dspInlineRunAllowed(m_index))
+				return;
+			applyHostTxTakes();
+			if(m_mmTxStaged || !hdi08().hasTX() || m_hostTxStaging.full())
+				return;
+			m_hostTxStaging.push_back(StagedHostWord{hdi08().txData().front(),
+				m_hardware.hostRxReadyCycle(m_index, m_mmHostTxCycle), true});
+			m_mmTxStaged = true;
+			m_hardware.notifyHostPumpStateChanged();
+			return;
+		}
+		if(m_hostTxStaging.full() || !hdi08().hasTX())
 			return;
 		m_hostTxStaging.push_back(StagedHostWord{hdi08().readTX(),
 			m_hardware.hostRxReadyCycle(m_index, m_lastHostTxCycle)});
 		m_hardware.notifyHostPumpStateChanged();
 	}
 
-	bool Dsp::takeDueHostRx(const uint64_t _now, uint32_t& _word)
+	bool Dsp::takeDueHostRx(const uint64_t _now, uint32_t& _word, bool* _inHotx)
 	{
 		if(m_hostTxStaging.empty() || m_hostTxStaging.front().readyCycle > _now)
 			return false;
-		_word = m_hostTxStaging.pop_front().word;
+		const auto staged = m_hostTxStaging.pop_front();
+		_word = staged.word;
+		if(_inHotx)
+			*_inHotx = staged.inHotx;
 		return true;
 	}
 
@@ -348,6 +437,14 @@ namespace md
 	{
 		const uint64_t now = m_dsp.getCycles();
 		const uint64_t clamp = schedInlineClamp(m_hardware.getModel());
+		// Wake a UC waiting for stream room only when an item landed: the
+		// worker applies the stream on every turn, most of them empty.
+		bool landed = false;
+		struct NotifyOnLanding
+		{
+			Hardware& hardware; const bool& landed;
+			~NotifyOnLanding() { if(landed) hardware.transportSignal().notify(); }
+		} notifyOnLanding{m_hardware, landed};
 		while(!m_hostToDsp.empty())
 		{
 			const auto& item = m_hostToDsp.front();
@@ -376,6 +473,12 @@ namespace md
 			}
 			else
 			{
+				// MM: the data words issued before a command are consumed first;
+				// the serial bridge ran the DSP until HORX drained, up to four
+				// clamps (hdiSendIrqToDSP).
+				if(m_hardware.isMonomachine() && !hdi08().rxData().empty()
+					&& now < hostToDspDrainStart(item) + clamp * 4)
+					return;
 				if(hdi08().hostCommandBusy() && !overdue)
 					return;
 				dispatchHostCommandInterrupt(static_cast<uint8_t>(item.value));
@@ -384,8 +487,8 @@ namespace md
 			m_hostToDspLastLand.store(now, std::memory_order_release);
 			(overdue ? m_hostToDspTrace.landedOverdue : m_hostToDspTrace.landedInChunk)
 				.fetch_add(1, std::memory_order_relaxed);
+			landed = true;
 		}
-		m_hardware.transportSignal().notify();
 	}
 
 	uint64_t Dsp::hostToDspHeadAllowance() const
@@ -393,6 +496,23 @@ namespace md
 		if(m_hostToDsp.empty())
 			return 0;
 		return hostToDspDrainStart(m_hostToDsp.front()) + schedInlineClamp(m_hardware.getModel());
+	}
+
+	uint64_t Dsp::hostToDspHeadBlockedAllowance()
+	{
+		if(m_hostToDsp.empty())
+			return 0;
+		const auto& item = m_hostToDsp.front();
+		if(m_hardware.hostToDspDeadline(m_index, item.ucCycle) > m_dsp.getCycles())
+			return 0;
+		const uint64_t clamp = schedInlineClamp(m_hardware.getModel());
+		const uint64_t start = hostToDspDrainStart(item);
+		if(item.kind == HostToDspItem::Kind::Data)
+			return hdi08().hasRXData() || hdi08().dataRXFull() ? start + clamp : 0;
+		const bool mmDrain = m_hardware.isMonomachine() && !hdi08().rxData().empty();
+		if(!mmDrain && !hdi08().hostCommandBusy())
+			return 0;
+		return start + clamp * (m_hardware.isMonomachine() ? 5 : 1);
 	}
 
 	void Dsp::traceHostStream(const char* _tag) const
@@ -414,6 +534,11 @@ namespace md
 			static_cast<unsigned long long>(m_hardware.hostToDspDeadline(m_index, head.ucCycle)),
 			static_cast<unsigned long long>(now), hdi.hasRXData() ? 1 : 0,
 			hdi.hostCommandBusy() ? 1 : 0, m_dsp.getPC().toWord());
+	}
+
+	bool Dsp::stagedHostRxTakeable() const
+	{
+		return !m_hostTxStaging.front().inHotx || m_hdiUC.canReceiveData();
 	}
 
 	uint64_t Dsp::nextDeferredHostRxCycle() const
@@ -632,22 +757,31 @@ namespace md
 		// Catch the DSP up to the UC's current machine time before reporting
 		// status, so a UC status-poll loop sees the DSP's progress (e.g. a reply it is waiting for)
 		// in fine lockstep instead of a frozen snapshot.
-		m_hardware.waitForDspTime(m_index);
+		// The pair worker's DSPs are read from their published state instead
+		// (spec §5.5 bounded-stale fallback): waiting for them at every poll
+		// kept the UC and the worker in lockstep. The UC stays within one
+		// quantum of the slower DSP (schedStep), the staleness bound, and
+		// words still in the dated stream count as occupying HORX.
+		const bool published = m_hardware.isDspPairThreaded();
+		if(!published)
+			m_hardware.waitForDspTime(m_index);
 		hdiTransferDSPtoUC();
 		// Publication above may have changed RXDF after Hdi08 sampled _isr.
 		// Return the current latch state, including on the first data-byte read.
 		_isr = static_cast<uint8_t>((_isr & ~mc68k::Hdi08::Rxdf)
 			| (m_hdiUC.canReceiveData() ? 0 : mc68k::Hdi08::Rxdf));
 
+		const uint32_t status = published ? m_hostStatus.load(std::memory_order_acquire) : 0;
+
 		// Mirror the DSP's host flags HF2/HF3 into the UC-visible ISR.
-		const auto hf23 = hdi08().readControlRegister() & 0x18;	// HF2 (bit3), HF3 (bit4)
+		const auto hf23 = published ? (status & 0x18) : (hdi08().readControlRegister() & 0x18);	// HF2 (bit3), HF3 (bit4)
 		_isr &= ~0x18;
 		_isr |= static_cast<uint8_t>(hf23);
 
 		// Model the two-stage HI08 transmit path described by DSP56303UM 6.3.6/6.6.8:
 		// TXDE reports room in the host latch, while TRDY additionally requires the
 		// DSP receive latch to be empty.
-		const auto horxDepth = hdi08().rxData().size();
+		const auto horxDepth = published ? (status >> 8) + m_hostToDsp.size() : hdi08().rxData().size();
 		_isr &= static_cast<uint8_t>(~(mc68k::Hdi08::IsrBits::Txde | mc68k::Hdi08::IsrBits::Trdy));
 		if(horxDepth == 0)
 			_isr |= mc68k::Hdi08::IsrBits::Txde | mc68k::Hdi08::IsrBits::Trdy;
@@ -666,6 +800,26 @@ namespace md
 			// never stage another word while that latch is readable by the CPU.
 			if(!m_hdiUC.canReceiveData())
 				return false;
+
+			// A DSP on a worker stages its words itself (stageHostTx): the UC
+			// context only takes the due one.
+			if(!m_hardware.dspInlineRunAllowed(m_index))
+			{
+				uint32_t staged = 0;
+				bool inHotx = false;
+				const uint64_t now = m_hardware.hostCurrentCycle();
+				if(!takeDueHostRx(now, staged, &inHotx))
+					return false;
+				m_hdiUC.writeRx(staged);
+				publishUcRxDepth();
+				if(inHotx)
+				{
+					m_hostTxTakes.push_back(now);
+					m_hardware.transportSignal().notify();
+				}
+				m_hardware.notifyHostPumpStateChanged();
+				return true;
+			}
 
 			if(!m_timedHostRx.pending() && hdi08().hasTX())
 			{

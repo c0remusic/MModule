@@ -309,6 +309,51 @@ coûté 14 % des échantillons à l'UC (53 ns/cycle au lieu de 16) par faux
 partage. Toute donnée que le worker écrit en tournant doit avoir sa
 propre ligne de cache.
 
+### Voie 2 : les deux DSP sur un worker, l'UC seul (mode `pair`, 2026-09-25)
+
+`MDMM_TRANSPORT=pair` : un worker exécute les DSP1 et DSP2 (choix du
+retardataire comme l'ordonnanceur série, rattrapages de lien en ligne,
+donc strobe/rafale MM inchangés), le thread audio garde l'UC seul. Opt-in,
+défaut inchangé. Bascule après boot des deux DSP (schedTryHandoffPair).
+
+Écarts au pont série trouvés et corrigés en chemin (chacun cassait le
+canari GND SIN) :
+- commande MM dont la vidange HORX dépasse la porte UC : le série faisait
+  courir le DSP jusqu'à 4 fenêtres en avance ; ici la tête bloquée donne
+  la même avance (hostToDspHeadBlockedAllowance), aussi aux mots bloqués
+  sur HRX et au pair DSP (dépendance par le lien) ;
+- élément devenu applicable pile sur une porte fermée : le worker applique
+  les flux à chaque tour ;
+- prédicat d'attente qui notifie sous le mutex du signal : exception
+  std::system_error → terminate (0xC0000409). Prédicats sans effet de bord ;
+- DSP→UC MM : copie de HOTX mise en file tout de suite, prise par l'UC
+  quand son verrou est libre, HOTX libéré quand le DSP atteint le temps de
+  la prise (accusé daté m_hostTxTakes) - rythme HTDE du série ;
+- DSP en retard sur l'UC : un mot DSP arrive en retard du retard du worker.
+  Borne : UC ≤ DSP le plus lent + un quantum (l'enveloppe laggard-first) ;
+- avances ci-dessus (jusqu'à 5 fenêtres) : le DSP lisait l'entrée audio
+  au-delà de ce que le thread audio avait mis en file → plafond à cible de
+  bloc + 32 trames (marge d'entrée 64), sauf UC bloqué sur flux plein ;
+- `hasSource` levé en début de processAudio avant le premier ajout
+  d'entrée : un worker lisant dans l'intervalle comptait une
+  sous-alimentation (mmInputFirmwareTest instable, 1 échantillon). Levé
+  maintenant après l'ajout.
+
+Tolérances mesurées (canari GND SIN) : avance UC sur DSP ≤ 60 µs (120 µs
+échoue), avance DSP sur UC ≤ 30 µs (60 µs échoue). Lecture CVR (bit HC) :
+exacte obligatoire (publiée à retard borné → échec). Lecture ISR : à retard
+borné acceptée (instantané publié HF2/HF3 + profondeur HORX, flux daté
+compté comme occupé).
+
+Débit (banc série latence 0, MM) : série ~165 %, paire 132-145 % (bruit
+±5 %). Profil par thread : ~26 000 attentes UC/s de ~11 µs, worker avec
+tronçons courts dont le coût fixe égale le travail JIT. Fenêtre MM trop
+étroite (30-60 µs) pour recouvrir UC et DSP avec ce coût de synchro.
+Travail pur : UC ~0,6 s/s, DSP ~0,45 s/s → plafond ~70 % si recouvrement
+parfait. Pistes : coût par tronçon et par synchro (portes en cache, pas de
+double service/publication par tour), synchro par spin court sans noyau,
+ou accélérer l'UC lui-même (interpréteur 68k : 0,6 s/s).
+
 ## Leçons dures
 
 - Le test firmware `mdAudioFirmwareTest` passe en parallel : il ne déclenche

@@ -678,7 +678,7 @@ namespace md
 	TransportMode Device::preferredTransport() const
 	{
 		if(const char* const mode = std::getenv("MDMM_TRANSPORT"))
-			return std::strcmp(mode, "parallel") == 0 ? TransportMode::Parallel : TransportMode::Serial;
+			return parseTransportMode(mode);
 		// The Monomachine stays serial in this migration step.
 		return m_parallelTransport && m_model == MachineModel::Machinedrum
 			? TransportMode::Parallel : TransportMode::Serial;
