@@ -26,8 +26,12 @@ namespace md
 	//
 	// Threads: process() is called by the host's audio thread only (callers
 	// may rotate but never overlap). The render function runs on the render
-	// thread only. isIdle()/waitIdle() may be called from anywhere; anybody
-	// touching the rendered device outside process() must first make it idle.
+	// thread only. finish()/pause()/resume() may be called from any other
+	// thread; anybody touching the rendered device outside process() must
+	// pause it first. A pause holds the render thread between two blocks
+	// until the matching resume(); pauses nest. While it holds, process()
+	// does not wait for audio that cannot come: a block the render thread
+	// has not delivered yet plays as silence.
 	class AsyncRender
 	{
 	public:
@@ -47,20 +51,23 @@ namespace md
 		void start(uint32_t _latency);
 		// Renders what was handed over, then stops the thread and drops the queue.
 		void stop();
-		bool running() const { return m_thread.joinable(); }
+		bool running() const { return m_running.load(std::memory_order_acquire); }
 
 		void process(const synthLib::TAudioInputs& _inputs, const synthLib::TAudioOutputs& _outputs,
 			size_t _frames, const std::vector<synthLib::SMidiEvent>& _midiIn,
 			std::vector<synthLib::SMidiEvent>& _midiOut);
 
-		bool isIdle() const
-		{
-			return m_done.load(std::memory_order_acquire) == m_submitted.load(std::memory_order_acquire);
-		}
-		void waitIdle();
+		// Returns once the blocks handed over before the call are rendered, or
+		// at once while a pause holds (they cannot be rendered then).
+		void finish();
+		// Returns once the render thread holds between two blocks.
+		void pause();
+		void resume();
 
 		// Host blocks whose output was not ready when the callback needed it.
 		uint64_t lateBlocks() const { return m_lateBlocks.load(std::memory_order_relaxed); }
+		// Host blocks dropped while paused with every job slot in use.
+		uint64_t droppedBlocks() const { return m_droppedBlocks.load(std::memory_order_relaxed); }
 		struct Stats
 		{
 			uint64_t jobs = 0;
@@ -97,15 +104,20 @@ namespace md
 			std::vector<synthLib::SMidiEvent> midiIn;
 			std::vector<synthLib::SMidiEvent> midiOut;
 			size_t frames = 0;
+			size_t gap = 0;				// silent frames before this block's output
 			int64_t submittedAt = 0;	// steady_clock ns (diagnostics)
 		};
 
 		void threadFunc();
 		void harvest(size_t _frames, std::vector<synthLib::SMidiEvent>& _midiOut);
+		// The host reads past the render thread when it plays a block that was
+		// not rendered yet as silence; the frames rendered for it later are
+		// written but never read.
 		size_t fifoAvailable() const
 		{
-			return static_cast<size_t>(m_fifoWrite.load(std::memory_order_acquire)
-				- m_fifoRead.load(std::memory_order_acquire));
+			const uint64_t read = m_fifoRead.load(std::memory_order_acquire);
+			const uint64_t write = m_fifoWrite.load(std::memory_order_acquire);
+			return write > read ? static_cast<size_t>(write - read) : 0;
 		}
 
 		RenderFunc m_render;
@@ -118,14 +130,21 @@ namespace md
 		alignas(64) std::atomic<uint64_t> m_submitted{0};
 		alignas(64) std::atomic<uint64_t> m_done{0};
 		uint64_t m_harvested = 0;
+		// Host thread only: blocks dropped while paused (see process()).
+		size_t m_gapFrames = 0;
+		std::vector<synthLib::SMidiEvent> m_carryMidi;
 
 		// Frame FIFO of rendered audio: render thread writes, host reads.
 		alignas(64) std::atomic<uint64_t> m_fifoWrite{0};
 		alignas(64) std::atomic<uint64_t> m_fifoRead{0};
 
 		alignas(64) std::atomic<bool> m_exit{false};
+		std::atomic<bool> m_running{false};
+		std::atomic<uint32_t> m_hold{0};	// pauses in effect
+		std::atomic<bool> m_parked{false};	// render thread holds for a pause
 		std::chrono::microseconds m_idleSpin{0};	// extra spin for the next job before parking (MDMM_RENDER_SPIN_US)
 		std::atomic<uint64_t> m_lateBlocks{0};
+		std::atomic<uint64_t> m_droppedBlocks{0};
 		std::atomic<uint64_t> m_statJobs{0};
 		std::atomic<uint64_t> m_statRenderNs{0};
 		std::atomic<uint64_t> m_statWaitNs{0};
@@ -137,7 +156,7 @@ namespace md
 		std::vector<uint32_t> m_jobTimesNs = std::vector<uint32_t>(JobTimeCount, 0);
 		std::vector<Timeline> m_timeline = std::vector<Timeline>(JobTimeCount);
 		TransportSignal m_jobSignal;		// host -> render thread
-		TransportSignal m_doneSignal;		// render thread -> host / waitIdle
+		TransportSignal m_doneSignal;		// render thread -> host / finish / pause
 		std::thread m_thread;
 	};
 }

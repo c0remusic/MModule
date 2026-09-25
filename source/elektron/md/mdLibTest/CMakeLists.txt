@@ -199,6 +199,12 @@ add_test(NAME mdStateTest COMMAND mdStateTest)
 set_tests_properties(mdStateTest PROPERTIES LABELS "UnitTest")
 set_property(TARGET mdStateTest PROPERTY FOLDER "Elektron")
 
+add_executable(mdAsyncRenderTest mdAsyncRenderTest.cpp)
+target_link_libraries(mdAsyncRenderTest PRIVATE mdLib)
+add_test(NAME mdAsyncRenderTest COMMAND mdAsyncRenderTest)
+set_tests_properties(mdAsyncRenderTest PROPERTIES LABELS "UnitTest" TIMEOUT 60)
+set_property(TARGET mdAsyncRenderTest PROPERTY FOLDER "Elektron/test")
+
 add_executable(mdAudioQueueTest mdAudioQueueTest.cpp)
 target_link_libraries(mdAudioQueueTest PRIVATE mdLib)
 

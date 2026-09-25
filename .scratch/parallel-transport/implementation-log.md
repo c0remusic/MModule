@@ -226,6 +226,40 @@ cas avant ; accélérer cette boucle (ou les lectures flash) est une piste.
 Le profil PC du banc (`--profile N`, UC compris, opcodes bruts) l'a
 révélée.
 
+### Ableton figé par un rendu trop lent (2026-09-25)
+
+Nouveau MM chargé dans Ableton (latence > 0, donc rendu asynchrone) : le
+thread de rendu MM à 100 % d'un cœur, en retard, et Ableton « ne répond
+pas », thread principal à 0 % (bloqué). Cause : `Plugin::waitDeviceIdle`
+attendait `m_done == m_submitted`, verrou relâché ; le thread audio
+soumet un bloc à chaque période, donc un appareil plus lent que le temps
+réel n'est jamais au repos et toute opération de contrôle (sondage du
+contrôleur, getState, réglages) attend sans fin. Le MD y échappait parce
+que son rendu garde de la marge - sauf, en principe, pendant la minute
+de vérification flash au démarrage.
+
+Correction : `Device::finishRendering()` (attend les blocs soumis AVANT
+l'appel, sans verrou), puis `pauseRendering()` (le thread de rendu
+s'arrête entre deux blocs), verrou, opération, `resumeRendering()` au
+destructeur du garde `Plugin::DevicePause`. Attentes bornées quel que
+soit le retard. Pendant une pause, `AsyncRender::process()` n'attend
+plus un rendu qui ne viendra pas : le manque sort en silence ; si les 16
+emplacements sont pleins, le bloc est abandonné (MIDI reporté au suivant,
+trou comblé de zéros pour garder l'alignement). Sans ce dernier point,
+interblocage : thread audio bloqué sur un emplacement en tenant le
+verrou, thread de contrôle bloqué sur le verrou - le test
+`mdAsyncRenderTest` l'a trouvé (hôte qui rattrape son retard en rafale ;
+dans un DAW, un thread interface suspendu > ~40 ms entre pause et verrou
+suffirait). Mesure du test : accès de contrôle au pire 7 ms avec un
+rendu à 200 % du temps réel.
+
+Constat MM, pas encore expliqué : le MM du build installé le 22/09 (PGO,
+série, latence 0) semblait ne presque rien coûter dans Ableton (threads
+audio ~10 % d'un cœur au total), alors que le MM actuel sature un cœur et
+que le banc mesure 140-160 % en série. Profil banc MM : UC 36 % dans sa
+boucle d'attente `$2004be` (`bra *`, censée être sautée par paquets),
+chaque DSP ~30 % dans une boucle d'effacement `p:$100164`.
+
 ## Leçons dures
 
 - Le test firmware `mdAudioFirmwareTest` passe en parallel : il ne déclenche

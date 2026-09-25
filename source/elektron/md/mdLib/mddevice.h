@@ -94,21 +94,30 @@ namespace md
 		void process(const synthLib::TAudioInputs& _inputs, const synthLib::TAudioOutputs& _outputs,
 			size_t _size, const std::vector<synthLib::SMidiEvent>& _midiIn,
 			std::vector<synthLib::SMidiEvent>& _midiOut) override;
-		bool isIdle() const override { return !m_async || m_async->isIdle(); }
-		void waitIdle() override
+		void finishRendering() override
 		{
 			if(m_async)
-				m_async->waitIdle();
+				m_async->finish();
+		}
+		void pauseRendering() override
+		{
+			if(m_async)
+				m_async->pause();
+		}
+		void resumeRendering() override
+		{
+			if(m_async)
+				m_async->resume();
 		}
 		bool isRenderingAsync() const { return m_async && m_async->running(); }
 		// Keeps rendering synchronous whatever the latency (the device then
-		// applies the latency as a MIDI delay itself). Call with the device idle.
+		// applies the latency as a MIDI delay itself). Call with the device paused.
 		void setAsyncRenderAllowed(bool _allowed);
 		// Parallel transport (the Machinedrum's producer DSP on a worker
 		// thread). Turning it on takes effect at the scheduler's next safe
 		// point; turning it off only for a machine booted later, since the
 		// worker never hands the producer back. MDMM_TRANSPORT, when set,
-		// overrides this (tests, A/B runs). Call with the device idle.
+		// overrides this (tests, A/B runs). Call with the device paused.
 		void setParallelTransport(bool _enabled);
 		bool isParallelTransportRequested() const { return preferredTransport() == TransportMode::Parallel; }
 		bool isParallelTransportActive() const { return m_hardware->isProducerThreaded(); }

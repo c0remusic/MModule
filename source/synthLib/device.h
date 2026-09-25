@@ -108,10 +108,15 @@ namespace synthLib
 		BASELIB_NOINLINE virtual void release(std::vector<SMidiEvent>& _events);
 
 		// A device that renders on a thread of its own is busy after process()
-		// has returned. Anyone touching it outside process() must wait until it
-		// is idle; Plugin does so for every control access.
-		virtual bool isIdle() const { return true; }
-		virtual void waitIdle() {}
+		// has returned. Before every control access Plugin calls
+		// finishRendering(), which returns once the blocks handed over so far are
+		// rendered, then pauseRendering(), which returns once the render thread
+		// has stopped between two blocks, and resumeRendering() when the access
+		// is done. Neither wait depends on the device keeping up with real time,
+		// and process() keeps being called meanwhile. Pauses nest.
+		virtual void finishRendering() {}
+		virtual void pauseRendering() {}
+		virtual void resumeRendering() {}
 
 		auto& getMidiTranslator() { return m_midiTranslator; }
 		void reserveMidiEventCapacity(size_t _capacity)

@@ -27,6 +27,7 @@ namespace md
 		}
 		for(auto& out : m_renderOut)
 			out.reserve(g_reserveFrames);
+		m_carryMidi.reserve(g_reserveMidi);
 		for(auto& fifo : m_fifo)
 			fifo.assign(FifoFrames, 0.0f);
 	}
@@ -42,6 +43,8 @@ namespace md
 		m_submitted.store(0, std::memory_order_relaxed);
 		m_done.store(0, std::memory_order_relaxed);
 		m_harvested = 0;
+		m_gapFrames = 0;
+		m_carryMidi.clear();
 		for(auto& fifo : m_fifo)
 			std::fill(fifo.begin(), fifo.end(), 0.0f);
 		// The latency is served as silence before the first rendered frame.
@@ -49,6 +52,10 @@ namespace md
 		m_fifoRead.store(0, std::memory_order_relaxed);
 		m_fifoWrite.store(latency, std::memory_order_relaxed);
 		m_exit.store(false, std::memory_order_release);
+		m_parked.store(false, std::memory_order_release);
+		// A pause taken before the start (the device is paused whenever its
+		// latency changes) holds the new thread too.
+		m_running.store(true, std::memory_order_release);
 		m_thread = std::thread([this] { threadFunc(); });
 	}
 
@@ -61,6 +68,9 @@ namespace md
 		m_exit.store(true, std::memory_order_release);
 		m_jobSignal.notify();
 		m_thread.join();
+		m_running.store(false, std::memory_order_release);
+		m_parked.store(false, std::memory_order_release);
+		m_doneSignal.notify();
 		for(auto& job : m_jobs)
 		{
 			job.midiIn.clear();
@@ -68,10 +78,38 @@ namespace md
 		}
 	}
 
-	void AsyncRender::waitIdle()
+	void AsyncRender::finish()
 	{
-		while(!isIdle())
-			m_doneSignal.waitFor(std::chrono::milliseconds(10), [this] { return isIdle(); });
+		// Blocks handed over later are concurrent with the caller; waiting for
+		// them too would never end with a device slower than real time.
+		const uint64_t target = m_submitted.load(std::memory_order_acquire);
+		const auto rendered = [&]
+		{
+			return m_done.load(std::memory_order_acquire) >= target
+				|| m_hold.load(std::memory_order_acquire) > 0 || !running();
+		};
+		while(!rendered())
+			m_doneSignal.waitFor(std::chrono::milliseconds(10), rendered);
+	}
+
+	void AsyncRender::pause()
+	{
+		m_hold.fetch_add(1, std::memory_order_acq_rel);
+		m_jobSignal.notify();
+		const auto parked = [&] { return m_parked.load(std::memory_order_acquire) || !running(); };
+		while(!parked())
+			m_doneSignal.waitFor(std::chrono::milliseconds(10), parked);
+	}
+
+	void AsyncRender::resume()
+	{
+		// A render started inside a pause scope never saw that pause.
+		uint32_t hold = m_hold.load(std::memory_order_relaxed);
+		while(hold > 0 && !m_hold.compare_exchange_weak(hold, hold - 1, std::memory_order_acq_rel,
+			std::memory_order_relaxed))
+		{
+		}
+		m_jobSignal.notify();
 	}
 
 	void AsyncRender::harvest(const size_t _frames, std::vector<synthLib::SMidiEvent>& _midiOut)
@@ -114,50 +152,86 @@ namespace md
 
 		// Hand this block over. A slot is reused only once its MIDI output was
 		// harvested; all slots busy means the renderer is JobCount blocks late.
+		// If it is paused besides, no slot frees up before the pausing thread
+		// gets the lock this call runs under: the block is dropped then. Its
+		// MIDI goes with the next block, and the next block's output starts
+		// after as many silent frames, so the audio stays aligned.
 		const uint64_t submitted = m_submitted.load(std::memory_order_relaxed);
+		bool drop = false;
 		while(submitted - m_harvested >= JobCount)
 		{
+			if(m_parked.load(std::memory_order_acquire))
+			{
+				drop = true;
+				break;
+			}
 			m_doneSignal.waitFor(std::chrono::milliseconds(10), [&]
 			{
-				return m_done.load(std::memory_order_acquire) > m_harvested;
+				return m_done.load(std::memory_order_acquire) > m_harvested
+					|| m_parked.load(std::memory_order_acquire);
 			});
 			harvest(_frames, _midiOut);
 		}
-		auto& job = m_jobs[submitted % JobCount];
-		for(size_t c = 0; c < ChannelsIn; ++c)
+		if(drop)
 		{
-			job.in[c].resize(_frames);
-			if(_inputs[c])
-				std::copy_n(_inputs[c], _frames, job.in[c].data());
-			else
-				std::fill_n(job.in[c].data(), _frames, 0.0f);
+			m_droppedBlocks.fetch_add(1, std::memory_order_relaxed);
+			m_gapFrames = std::min(m_gapFrames + _frames, FifoFrames / 2);
+			for(const auto& ev : _midiIn)
+			{
+				m_carryMidi.push_back(ev);
+				m_carryMidi.back().offset = 0;
+			}
 		}
-		job.midiIn.assign(_midiIn.begin(), _midiIn.end());
-		job.frames = _frames;
-		job.submittedAt = std::chrono::duration_cast<std::chrono::nanoseconds>(
-			std::chrono::steady_clock::now().time_since_epoch()).count();
-		m_submitted.store(submitted + 1, std::memory_order_release);
-		m_jobSignal.notify();
+		else
+		{
+			auto& job = m_jobs[submitted % JobCount];
+			for(size_t c = 0; c < ChannelsIn; ++c)
+			{
+				job.in[c].resize(_frames);
+				if(_inputs[c])
+					std::copy_n(_inputs[c], _frames, job.in[c].data());
+				else
+					std::fill_n(job.in[c].data(), _frames, 0.0f);
+			}
+			job.midiIn.assign(m_carryMidi.begin(), m_carryMidi.end());
+			job.midiIn.insert(job.midiIn.end(), _midiIn.begin(), _midiIn.end());
+			m_carryMidi.clear();
+			job.frames = _frames;
+			job.gap = m_gapFrames;
+			m_gapFrames = 0;
+			job.submittedAt = std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now().time_since_epoch()).count();
+			m_submitted.store(submitted + 1, std::memory_order_release);
+			m_jobSignal.notify();
+		}
 
-		// Take this block's audio: rendered earlier, or the initial silence.
+		// Take this block's audio: rendered earlier, or the initial silence. A
+		// paused render thread delivers nothing until the pause ends, and the
+		// pausing thread may be waiting for the lock this call runs under.
 		if(fifoAvailable() < _frames)
 		{
 			m_lateBlocks.fetch_add(1, std::memory_order_relaxed);
 			const auto waitStart = std::chrono::steady_clock::now();
-			while(fifoAvailable() < _frames)
-				m_doneSignal.waitFor(std::chrono::milliseconds(10), [&] { return fifoAvailable() >= _frames; });
+			const auto ready = [&]
+			{
+				return fifoAvailable() >= _frames || m_parked.load(std::memory_order_acquire);
+			};
+			while(!ready())
+				m_doneSignal.waitFor(std::chrono::milliseconds(10), ready);
 			m_statWaitNs.fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 				std::chrono::steady_clock::now() - waitStart).count()), std::memory_order_relaxed);
 		}
 		timeline.hostResume = nowNs();
 		const uint64_t read = m_fifoRead.load(std::memory_order_relaxed);
+		const size_t available = std::min(fifoAvailable(), _frames);
 		for(size_t c = 0; c < ChannelsOut; ++c)
 		{
 			if(!_outputs[c])
 				continue;
 			const auto& fifo = m_fifo[c];
-			for(size_t i = 0; i < _frames; ++i)
+			for(size_t i = 0; i < available; ++i)
 				_outputs[c][i] = fifo[(read + i) & (FifoFrames - 1)];
+			std::fill(_outputs[c] + available, _outputs[c] + _frames, 0.0f);
 		}
 		m_fifoRead.store(read + _frames, std::memory_order_release);
 		m_jobSignal.notify();	// room in the FIFO for a renderer waiting on it
@@ -170,8 +244,21 @@ namespace md
 		// the host waits on this thread whenever it falls behind.
 		void* const task = dsp56k::ThreadTools::joinProAudioTask();
 		dsp56k::ThreadTools::setCurrentThreadName("MD render");
+		const auto held = [this]
+		{
+			return m_hold.load(std::memory_order_acquire) > 0 && !m_exit.load(std::memory_order_acquire);
+		};
 		for(;;)
 		{
+			if(held())
+			{
+				m_parked.store(true, std::memory_order_release);
+				m_doneSignal.notify();
+				while(held())
+					m_jobSignal.waitFor(std::chrono::milliseconds(100), [&] { return !held(); });
+				m_parked.store(false, std::memory_order_release);
+				continue;
+			}
 			const uint64_t index = m_done.load(std::memory_order_relaxed);
 			if(m_submitted.load(std::memory_order_acquire) == index)
 			{
@@ -180,7 +267,7 @@ namespace md
 				const auto idleStart = std::chrono::steady_clock::now();
 				const auto jobReady = [&]
 				{
-					return m_exit.load(std::memory_order_acquire)
+					return m_exit.load(std::memory_order_acquire) || held()
 						|| m_submitted.load(std::memory_order_acquire) != index;
 				};
 				// The next block arrives within one host period: waiting for it
@@ -229,22 +316,26 @@ namespace md
 
 			// The host drains the FIFO every block; it only fills up if the host
 			// stops calling, and then the thread waits (or leaves on exit).
-			while(FifoFrames - fifoAvailable() < job.frames && !m_exit.load(std::memory_order_acquire))
+			const size_t frames = job.gap + job.frames;
+			while(FifoFrames - fifoAvailable() < frames && !m_exit.load(std::memory_order_acquire))
 			{
 				m_jobSignal.waitFor(std::chrono::milliseconds(10), [&]
 				{
-					return FifoFrames - fifoAvailable() >= job.frames || m_exit.load(std::memory_order_acquire);
+					return FifoFrames - fifoAvailable() >= frames || m_exit.load(std::memory_order_acquire);
 				});
 			}
+			// Blocks dropped before this one play as silence (see process()).
 			const uint64_t write = m_fifoWrite.load(std::memory_order_relaxed);
 			for(size_t c = 0; c < ChannelsOut; ++c)
 			{
 				auto& fifo = m_fifo[c];
 				const auto& out = m_renderOut[c];
+				for(size_t i = 0; i < job.gap; ++i)
+					fifo[(write + i) & (FifoFrames - 1)] = 0.0f;
 				for(size_t i = 0; i < job.frames; ++i)
-					fifo[(write + i) & (FifoFrames - 1)] = out[i];
+					fifo[(write + job.gap + i) & (FifoFrames - 1)] = out[i];
 			}
-			m_fifoWrite.store(write + job.frames, std::memory_order_release);
+			m_fifoWrite.store(write + frames, std::memory_order_release);
 			m_done.store(index + 1, std::memory_order_release);
 			m_doneSignal.notify();
 		}

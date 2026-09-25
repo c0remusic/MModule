@@ -76,7 +76,7 @@ namespace synthLib
 		decltype(auto) withDeviceLocked(Callback&& _callback) const
 		{
 			std::unique_lock lock(m_lock);
-			waitDeviceIdle(lock);
+			const auto pause = pauseDevice(lock);
 			return std::forward<Callback>(_callback)(m_device);
 		}
 
@@ -90,11 +90,25 @@ namespace synthLib
 		uint32_t getLatencyBlocks() const { return m_extraLatencyBlocks; }
 
 	private:
-		// Leaves _lock held with the device idle (see Device::isIdle). The wait
-		// itself runs unlocked, so the audio thread is never held up behind a
-		// device that is still rendering; it can only queue more work meanwhile,
-		// which the loop then waits out too.
-		void waitDeviceIdle(std::unique_lock<std::recursive_mutex>& _lock) const;
+		// Keeps a device that renders on its own thread paused while it lives
+		// (see Device::pauseRendering). A device replaced in the meantime was
+		// stopped by its destructor and is not touched again.
+		class DevicePause
+		{
+		public:
+			DevicePause(const Plugin& _plugin, Device* _device) : m_plugin(_plugin), m_device(_device) {}
+			DevicePause(const DevicePause&) = delete;
+			DevicePause& operator=(const DevicePause&) = delete;
+			~DevicePause();
+		private:
+			const Plugin& m_plugin;
+			Device* const m_device;
+		};
+
+		// Called and returns with _lock held. The waits run unlocked, so the
+		// audio thread is never held up behind a device that is still rendering,
+		// and they are bounded whether or not the device keeps up.
+		[[nodiscard]] DevicePause pauseDevice(std::unique_lock<std::recursive_mutex>& _lock) const;
 		void processMidiClock(double _bpm, double _ppqPos, bool _isPlaying, size_t _sampleCount, bool _ppqKnown);
 		float* getSilentInputBuffer(size_t _minimumSize);
 		float* getDiscardOutputBuffer(size_t _channel, size_t _minimumSize);

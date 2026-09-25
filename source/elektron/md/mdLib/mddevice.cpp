@@ -741,7 +741,7 @@ namespace md
 
 	void Device::extraLatencyChanged()
 	{
-		// Plugin calls this with the device idle. Any plug-in latency moves the
+		// Plugin calls this with the device paused. Any plug-in latency moves the
 		// rendering onto its own thread, one latency ahead of the host
 		// (MDMM_ASYNC_RENDER=0 keeps it on the audio thread for A/B runs).
 		const auto latency = getExtraLatencySamples();

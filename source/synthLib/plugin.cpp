@@ -49,7 +49,7 @@ namespace synthLib
 	bool Plugin::setPreferredDeviceSamplerate(const float _samplerate)
 	{
 		std::unique_lock lock(m_lock);
-		waitDeviceIdle(lock);
+		const auto pause = pauseDevice(lock);
 
 		const auto sr = m_device->getDeviceSamplerate(_samplerate, m_hostSamplerate);
 
@@ -69,7 +69,7 @@ namespace synthLib
 	void Plugin::setHostSamplerate(const float _hostSamplerate, const float _preferredDeviceSamplerate)
 	{
 		std::unique_lock lock(m_lock);
-		waitDeviceIdle(lock);
+		const auto pause = pauseDevice(lock);
 
 		m_deviceSamplerate = m_device->getDeviceSamplerate(_preferredDeviceSamplerate, _hostSamplerate);
 		m_device->setSamplerate(m_deviceSamplerate);
@@ -84,7 +84,7 @@ namespace synthLib
 	void Plugin::setResamplerMode(const Resampler::Mode _mode)
 	{
 		std::unique_lock lock(m_lock);
-		waitDeviceIdle(lock);
+		const auto pause = pauseDevice(lock);
 		m_resampler.setResamplerMode(_mode);
 		updateDeviceLatency();
 	}
@@ -92,7 +92,7 @@ namespace synthLib
 	void Plugin::reserveMidiEventCapacity(const size_t _capacity)
 	{
 		std::unique_lock lock(m_lock);
-		waitDeviceIdle(lock);
+		const auto pause = pauseDevice(lock);
 		m_midiIn.reserve(_capacity);
 		m_midiOut.reserve(_capacity);
 		m_resampler.reserveMidiEventCapacity(_capacity);
@@ -176,15 +176,25 @@ namespace synthLib
 				nowNanoseconds() - processStart);
 	}
 
-	void Plugin::waitDeviceIdle(std::unique_lock<std::recursive_mutex>& _lock) const
+	Plugin::DevicePause::~DevicePause()
 	{
-		while(m_device && !m_device->isIdle())
-		{
-			auto* const device = m_device;
-			_lock.unlock();
-			device->waitIdle();
-			_lock.lock();
-		}
+		if(m_device && m_plugin.m_device == m_device)
+			m_device->resumeRendering();
+	}
+
+	Plugin::DevicePause Plugin::pauseDevice(std::unique_lock<std::recursive_mutex>& _lock) const
+	{
+		auto* const device = m_device;
+		if(!device)
+			return {*this, nullptr};
+		// Waiting for an idle device instead could last forever: the audio
+		// thread hands over a block every period, so a device slower than real
+		// time is never idle.
+		_lock.unlock();
+		device->finishRendering();
+		device->pauseRendering();
+		_lock.lock();
+		return {*this, device};
 	}
 
 	void Plugin::getMidiOut(std::vector<SMidiEvent>& _midiOut)
@@ -204,7 +214,7 @@ namespace synthLib
 			return;
 
 		std::unique_lock lock(m_lock);
-		waitDeviceIdle(lock);
+		const auto pause = pauseDevice(lock);
 
 		std::vector<uint8_t> deviceState;
 		getState(deviceState, StateTypeGlobal);
@@ -226,7 +236,7 @@ namespace synthLib
 	bool Plugin::getState(std::vector<uint8_t>& _state, StateType _type) const
 	{
 		std::unique_lock lock(m_lock);
-		waitDeviceIdle(lock);
+		const auto pause = pauseDevice(lock);
 
 		if(!m_device)
 			return false;
@@ -245,7 +255,7 @@ namespace synthLib
 		if(_state.size() < 2)
 		{
 			std::unique_lock lock(m_lock);
-			waitDeviceIdle(lock);
+			const auto pause = pauseDevice(lock);
 			return m_device && m_device->setStateFromUnknownCustomData(_state);
 		}
 
@@ -254,7 +264,7 @@ namespace synthLib
 		if(version != g_stateVersion)
 		{
 			std::unique_lock lock(m_lock);
-			waitDeviceIdle(lock);
+			const auto pause = pauseDevice(lock);
 			return m_device && m_device->setStateFromUnknownCustomData(_state);
 		}
 
@@ -269,7 +279,7 @@ namespace synthLib
 		std::unique_ptr<Device::StateTransaction> transaction;
 		{
 			std::unique_lock lock(m_lock);
-			waitDeviceIdle(lock);
+			const auto pause = pauseDevice(lock);
 			if(!m_device)
 				return false;
 			if(!m_device->supportsStateTransactions())
@@ -285,7 +295,7 @@ namespace synthLib
 		bool finished = false;
 		{
 			std::unique_lock lock(m_lock);
-			waitDeviceIdle(lock);
+			const auto pause = pauseDevice(lock);
 			if(m_device == transactionDevice)
 				finished = m_device->finishStateTransaction(*transaction);
 		}
@@ -317,7 +327,7 @@ namespace synthLib
 	bool Plugin::setLatencyBlocks(uint32_t _latencyBlocks)
 	{
 		std::unique_lock lock(m_lock);
-		waitDeviceIdle(lock);
+		const auto pause = pauseDevice(lock);
 
 		if(m_extraLatencyBlocks == _latencyBlocks)
 			return false;
@@ -429,7 +439,7 @@ namespace synthLib
 	void Plugin::setBlockSize(const uint32_t _blockSize)
 	{
 		std::unique_lock lock(m_lock);
-		waitDeviceIdle(lock);
+		const auto pause = pauseDevice(lock);
 		m_blockSize = _blockSize;
 		m_silentInputBuffer.resize(_blockSize);
 		for(size_t channel = 0; channel < m_device->getChannelCountOut(); ++channel)
