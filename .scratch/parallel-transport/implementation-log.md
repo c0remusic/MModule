@@ -289,6 +289,26 @@ MM (producer ~0,42 s/s sur le worker) → rendu ~0,85-0,95 s/s, juste ; à
 44,1 kHz et en PGO, marge probable. Stratégie déjà ratifiée :
 `issues/06-strategie-mm.md` (canaris mmSine*).
 
+### Bascule du producer MM : échec mesuré (branche locale wip/mm-parallel-handoff)
+
+Essai minimal : retirer l'exclusion MM de `schedTryHandoffProducer` et
+donner au worker la contre-pression MM comme garde fermée (seuil 4 mots,
+relâche 200 000 cycles UC publiés). Bascule effective (`active=1`), mais
+304 % du temps réel au mieux (série ~165 %), et quasi-interblocage dans
+d'autres essais : UC bloqué 86 % du temps sur le producer (8590 délais
+expirés / 2 s), attentes de lien toutes expirées, worker immobile. Le
+lien MM est un aller-retour strobe → rafale : le producer lit la réponse
+du mixer, le mixer ne peut devancer l'UC que de D = 1 trame, l'UC attend
+le producer. C'est le point 5 du ticket 06, « seul point non prouvé » :
+il ne tient pas. Piste suivante : repli D_mm = 0 du ticket, ou dater le
+sens mixer → producer, ou autoriser le mixer à devancer l'UC.
+
+Piège au passage : le marqueur de contre-pression, écrit à chaque
+évaluation de la garde et placé juste après `m_schedUcCyclesDone`, a
+coûté 14 % des échantillons à l'UC (53 ns/cycle au lieu de 16) par faux
+partage. Toute donnée que le worker écrit en tournant doit avoir sa
+propre ligne de cache.
+
 ## Leçons dures
 
 - Le test firmware `mdAudioFirmwareTest` passe en parallel : il ne déclenche
