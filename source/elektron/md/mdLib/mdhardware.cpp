@@ -1512,7 +1512,13 @@ namespace md
 	{
 		double schedQuantumFrames(const MachineModel _model)
 		{
-			const double us = transportPolicy(_model).backgroundQuantumMicroseconds;
+			// MD_BACKGROUND_QUANTUM_US overrides the policy for experiments.
+			static const double s_override = []
+			{
+				const char* const us = std::getenv("MD_BACKGROUND_QUANTUM_US");
+				return us ? std::atof(us) : 0.0;
+			}();
+			const double us = s_override > 0.0 ? s_override : transportPolicy(_model).backgroundQuantumMicroseconds;
 			return us * static_cast<double>(g_samplerate) / 1.0e6;				// -> codec frames
 		}
 

@@ -260,6 +260,35 @@ que le banc mesure 140-160 % en série. Profil banc MM : UC 36 % dans sa
 boucle d'attente `$2004be` (`bra *`, censée être sautée par paquets),
 chaque DSP ~30 % dans une boucle d'effacement `p:$100164`.
 
+### Coût MM en temps hôte (2026-09-25)
+
+Attention : le profil `--profile` (PC des processeurs émulés) donne le temps
+ÉMULÉ, pas le temps hôte - une boucle d'attente sautée garde son PC. Pour
+le temps hôte : compteurs `MDMM_TRANSPORT_TRACE` (ns/cycle par composant)
+et nouveau `--host-profile N` du banc (échantillonne le RIP des threads,
+symboles DbgHelp, JIT = `[jit]`).
+
+Série, latence 0, par seconde émulée : MD = UC 331 ms + mixer 348 +
+producer 368 (~105 %) ; MM = UC 634 + mixer 288 + producer 417 (~134 %,
+banc 142-167 %). UC MM : 15,8 ns/cycle contre 8,3, ~2,3× plus
+d'instructions 68k interprétées (firmware plus occupé : 36 % du temps
+émulé en attente contre 65 % pour le MD). DSP MM : cycles exécutés ~1,55×
+ceux du MD (le MD n'exécute que ~55 % de ses cycles DSP). Tranches MM 4×
+plus courtes (quantum 30 µs contre 125).
+
+Boucle `p:$100162` = temporisation `do #$c80` + `nop`, puis effacement de
+32 mots Y. Leviers essayés, sans effet mesurable (bruit ±15 %, Ableton
+chargé en fond) : `MD_MAX_DO_ITERATIONS` 4/64/1024 = 166/157/171 % ;
+quantum (`MD_BACKGROUND_QUANTUM_US`, nouveau) 30/60/125/250 µs =
+168/177/199/163 %. Profil hôte MM : 30 % JIT, puis schedStep 6,6 %,
+interpréteur 68k 6,3 %, timers SIM 4,2 %, accès mémoire 68k ~8 %,
+périphériques DSP ~8 %, rééchantillonnage 48→44,1 kHz ~4 %.
+
+Conclusion : pas de réglage, coût intrinsèque. Voie : transport parallèle
+MM (producer ~0,42 s/s sur le worker) → rendu ~0,85-0,95 s/s, juste ; à
+44,1 kHz et en PGO, marge probable. Stratégie déjà ratifiée :
+`issues/06-strategie-mm.md` (canaris mmSine*).
+
 ## Leçons dures
 
 - Le test firmware `mdAudioFirmwareTest` passe en parallel : il ne déclenche
