@@ -446,6 +446,7 @@ namespace md
 		void serviceRamRecordingMode();
 		void registerExternalInteraction();
 		void pumpDsp2HostRequest();		// DSP2 HI08 HREQ -> ColdFire external IRQ4 (see .cpp)
+
 		// Dated pop-side disposal (see .cpp). _rxTick = called from the RX
 		// availability probe, the only site where the ROE arrival semantics
 		// may destroy a word; returns true when it did.
@@ -637,6 +638,27 @@ namespace md
 			std::atomic<uint64_t> ucSlices{0};
 		};
 		alignas(64) TransportTimeTrace m_timeTrace;
+		// Trace-only accounting of the pair transport: where each of the two
+		// threads' wall time goes, and why the worker stops.
+		enum class PairIdle : uint32_t { UcGate, BlockTarget, Backpressure, Gathering, Count };
+		struct PairTrace
+		{
+			alignas(64) std::atomic<uint64_t> chunks{0};
+			std::atomic<uint64_t> chunkNs{0};			// inside runPairChunk
+			std::atomic<uint64_t> chunkCycles{0};		// DSP cycles advanced by chunks (both DSPs)
+			std::atomic<uint64_t> turnNs{0};			// worker between chunks: services and gates
+			std::array<std::atomic<uint64_t>, static_cast<size_t>(PairIdle::Count)> idles{};
+			std::array<std::atomic<uint64_t>, static_cast<size_t>(PairIdle::Count)> idleNs{};
+			alignas(64) std::atomic<uint64_t> leadWaits{0};		// UC at its lead over the slower DSP
+			std::atomic<uint64_t> leadWaitNs{0};
+			std::atomic<uint64_t> dspTimeWaits{0};		// exact reads (waitForDspTime)
+			std::atomic<uint64_t> dspTimeWaitNs{0};
+			std::atomic<uint64_t> mixerWaits{0};		// block end, codec frames
+			std::atomic<uint64_t> mixerWaitNs{0};
+		};
+		PairTrace m_pairTrace;
+		// Pair worker: why a DSP cannot run now (for m_pairTrace).
+		PairIdle pairIdleReason(uint32_t _dspIndex, uint64_t _gate);
 		std::atomic<bool> m_watchdogExit{false};
 		std::thread m_watchdog;
 		void startWatchdog();

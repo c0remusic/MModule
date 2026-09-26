@@ -653,6 +653,8 @@ namespace md
 			std::array<uint64_t, timeSlots> lastTime{};
 			std::array<uint64_t, 10> lastCost{};
 			auto lastWall = std::chrono::steady_clock::now();
+			std::array<uint64_t, 18> lastPair{};
+			auto lastPairWall = lastWall;
 			while(!m_watchdogExit.load(std::memory_order_acquire))
 			{
 				for(int i = 0; i < 20 && !m_watchdogExit.load(std::memory_order_acquire); ++i)
@@ -712,6 +714,30 @@ namespace md
 						static_cast<unsigned long long>(cost[5] - lastCost[5]),
 						static_cast<unsigned long long>(cost[7] - lastCost[7]));
 					lastCost = cost;
+				}
+				if(m_dspPairWorker.load(std::memory_order_acquire))
+				{
+					const auto& p = m_pairTrace;
+					const std::array<uint64_t, 18> now{
+						p.chunks.load(), p.chunkNs.load(), p.chunkCycles.load(), p.turnNs.load(),
+						p.idles[0].load(), p.idles[1].load(), p.idles[2].load(), p.idles[3].load(),
+						p.idleNs[0].load(), p.idleNs[1].load(), p.idleNs[2].load(), p.idleNs[3].load(),
+						p.leadWaits.load(), p.leadWaitNs.load(), p.dspTimeWaits.load(), p.dspTimeWaitNs.load(),
+						p.mixerWaits.load(), p.mixerWaitNs.load()};
+					const auto wallNow = std::chrono::steady_clock::now();
+					const double wallNs = static_cast<double>(
+						std::chrono::duration_cast<std::chrono::nanoseconds>(wallNow - lastPairWall).count());
+					const auto d = [&](const size_t _k) { return static_cast<double>(now[_k] - lastPair[_k]); };
+					const auto pct = [&](const size_t _k) { return 100.0 * d(_k) / wallNs; };
+					const auto rate = [&](const size_t _k) { return d(_k) * 1.0e9 / wallNs; };
+					std::fprintf(stderr, "[pair] worker chunk=%.1f%% (%.0f/s, %.0f cyc, %.2f ns/cyc) turn=%.1f%% idle "
+						"ucGate=%.1f%%(%.0f/s) target=%.1f%%(%.0f/s) bp=%.1f%%(%.0f/s) gather=%.1f%%(%.0f/s) | UC waits "
+						"lead=%.1f%%(%.0f/s) dspTime=%.1f%%(%.0f/s) mixer=%.1f%%(%.0f/s)\n",
+						pct(1), rate(0), d(0) > 0 ? d(2) / d(0) : 0.0, d(2) > 0 ? d(1) / d(2) : 0.0, pct(3),
+						pct(8), rate(4), pct(9), rate(5), pct(10), rate(6), pct(11), rate(7),
+						pct(13), rate(12), pct(15), rate(14), pct(17), rate(16));
+					lastPair = now;
+					lastPairWall = wallNow;
 				}
 				const auto chunks = m_workerChunks.load(std::memory_order_relaxed);
 				const auto steps = m_schedStepCount;
@@ -1722,10 +1748,18 @@ namespace md
 			{
 				m_schedPublished.ucCycles.store(m_schedUcCyclesDone, std::memory_order_release);
 				m_signal.notify();
+				const auto waitStart = m_transportTrace ? std::chrono::steady_clock::now()
+					: std::chrono::steady_clock::time_point{};
 				waitTransport(TransportWaitSite::DspTime, std::chrono::milliseconds(50), [&]
 				{
 					return dspMinFrames() + ucLead > ucPos;
 				});
+				if(m_transportTrace)
+				{
+					m_pairTrace.leadWaits.fetch_add(1, std::memory_order_relaxed);
+					m_pairTrace.leadWaitNs.fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+						std::chrono::steady_clock::now() - waitStart).count()), std::memory_order_relaxed);
+				}
 				m_pairDspMinCache = dspMinFrames();
 				return true;
 			}
@@ -2038,6 +2072,7 @@ namespace md
 		m_pairDspLeadUc = static_cast<uint64_t>(dspLeadFrames * schedUcCyclesPerFrame());
 		const double ucLeadUs = envUs("MD_PAIR_UC_LEAD_US");
 		m_pairUcLeadFrames = ucLeadUs >= 0.0 ? usToFrames(ucLeadUs) : m_pairQuantumFrames;
+
 		m_pairBpThreshold = policy.hostTransmitBackpressureThresholdWords;
 		m_pairBpRelease = policy.hostTransmitBackpressureReleaseUcCycles;
 		for(uint32_t i = 0; i < 2; ++i)
@@ -2189,10 +2224,16 @@ namespace md
 			const uint64_t minChunk = m_pairUrgent.load(std::memory_order_acquire) ? 1 : PairMinChunkCycles;
 			return d.dsp().getCycles() + minChunk <= gate[_i];
 		};
+		const auto nowNs = []
+		{
+			return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now().time_since_epoch()).count());
+		};
 		for(;;)
 		{
 			if(m_workerExit.load(std::memory_order_acquire))
 				return;
+			const uint64_t turnStart = trace ? nowNs() : 0;
 			const bool run0 = runnable(0);
 			const bool run1 = runnable(1);
 			if(!run0 && !run1)
@@ -2204,6 +2245,16 @@ namespace md
 				m_signal.notify();
 				const auto parkStart = trace ? std::chrono::steady_clock::now()
 					: std::chrono::steady_clock::time_point{};
+				PairIdle reason = PairIdle::UcGate;
+				uint64_t parkStartNs = 0;
+				if(trace)
+				{
+					// The laggard is what holds the machine back.
+					const uint32_t laggard = schedDspFramePos(1) < schedDspFramePos(0) ? 1u : 0u;
+					reason = pairIdleReason(laggard, gate[laggard]);
+					parkStartNs = nowNs();
+					m_pairTrace.turnNs.fetch_add(parkStartNs - turnStart, std::memory_order_relaxed);
+				}
 				// The predicate runs under the signal's mutex: gates are only
 				// read here. An item that becomes due exactly at a closed gate
 				// lands at the next turn, the timeout at the latest.
@@ -2223,6 +2274,9 @@ namespace md
 					m_timeTrace.workerParkNs.fetch_add(static_cast<uint64_t>(
 						std::chrono::duration_cast<std::chrono::nanoseconds>(
 							std::chrono::steady_clock::now() - parkStart).count()), std::memory_order_relaxed);
+					const auto r = static_cast<size_t>(reason);
+					m_pairTrace.idles[r].fetch_add(1, std::memory_order_relaxed);
+					m_pairTrace.idleNs[r].fetch_add(nowNs() - parkStartNs, std::memory_order_relaxed);
 				}
 				m_producerParked.store(false, std::memory_order_release);
 				continue;
@@ -2233,6 +2287,9 @@ namespace md
 				idx = 1;
 			const auto chunkStart = trace ? std::chrono::steady_clock::now()
 				: std::chrono::steady_clock::time_point{};
+			const uint64_t chunkStartNs = trace ? nowNs() : 0;
+			if(trace)
+				m_pairTrace.turnNs.fetch_add(chunkStartNs - turnStart, std::memory_order_relaxed);
 			const uint64_t startCycles = m_dspMixer.dsp().getCycles() + m_dspProducer.dsp().getCycles();
 			runPairChunk(idx, gate[idx]);
 			if(trace)
@@ -2240,10 +2297,28 @@ namespace md
 				m_timeTrace.workerExecNs.fetch_add(static_cast<uint64_t>(
 					std::chrono::duration_cast<std::chrono::nanoseconds>(
 						std::chrono::steady_clock::now() - chunkStart).count()), std::memory_order_relaxed);
-				m_timeTrace.workerExecCycles.fetch_add(m_dspMixer.dsp().getCycles()
-					+ m_dspProducer.dsp().getCycles() - startCycles, std::memory_order_relaxed);
+				const uint64_t cycles = m_dspMixer.dsp().getCycles() + m_dspProducer.dsp().getCycles() - startCycles;
+				m_timeTrace.workerExecCycles.fetch_add(cycles, std::memory_order_relaxed);
+				m_pairTrace.chunks.fetch_add(1, std::memory_order_relaxed);
+				m_pairTrace.chunkCycles.fetch_add(cycles, std::memory_order_relaxed);
+				m_pairTrace.chunkNs.fetch_add(nowNs() - chunkStartNs, std::memory_order_relaxed);
 			}
 		}
+	}
+
+	Hardware::PairIdle Hardware::pairIdleReason(const uint32_t _dspIndex, const uint64_t _gate)
+	{
+		const uint32_t i = _dspIndex & 1;
+		if(m_pairBackpressured[i].load(std::memory_order_relaxed))
+			return PairIdle::Backpressure;
+		const uint64_t cycles = ((i == 0) ? m_dspMixer : m_dspProducer).dsp().getCycles();
+		if(cycles < _gate)
+			return PairIdle::Gathering;
+		const uint64_t targetGate = schedFrameToDspCycles(i,
+			static_cast<double>(m_schedTargetFrames.load(std::memory_order_relaxed)) + m_pairQuantumFrames);
+		const uint64_t ucGate = hostToDspDeadline(i,
+			m_schedPublished.ucCycles.load(std::memory_order_relaxed) + m_pairDspLeadUc);
+		return targetGate <= ucGate ? PairIdle::BlockTarget : PairIdle::UcGate;
 	}
 
 	void Hardware::waitMixerAtTarget()
@@ -2256,11 +2331,21 @@ namespace md
 			hostToDspDeadline(0, m_schedUcCyclesDone));
 		m_schedPublished.ucCycles.store(m_schedUcCyclesDone, std::memory_order_release);
 		m_signal.notify();
-		waitTransport(TransportWaitSite::MixerGate, std::chrono::milliseconds(50), [&]
+		const auto ready = [&]
 		{
 			return m_schedPublished.dspCycles[0].load(std::memory_order_acquire) >= targetCyc
 				|| m_pairBackpressured[0].load(std::memory_order_acquire);
-		});
+		};
+		if(m_transportTrace && !ready())
+		{
+			const auto waitStart = std::chrono::steady_clock::now();
+			waitTransport(TransportWaitSite::MixerGate, std::chrono::milliseconds(50), ready);
+			m_pairTrace.mixerWaits.fetch_add(1, std::memory_order_relaxed);
+			m_pairTrace.mixerWaitNs.fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - waitStart).count()), std::memory_order_relaxed);
+			return;
+		}
+		waitTransport(TransportWaitSite::MixerGate, std::chrono::milliseconds(50), ready);
 	}
 
 	void Hardware::stopProducerWorker()
@@ -2697,11 +2782,20 @@ namespace md
 		m_signal.notify();
 		// A DSP held by MM backpressure on the pair worker is where the serial
 		// catch-up stopped: at the threshold, short of the UC.
-		const bool reached = waitTransport(TransportWaitSite::DspTime, std::chrono::milliseconds(50), [&]
+		const auto ready = [&]
 		{
 			return m_schedPublished.dspCycles[i].load(std::memory_order_acquire) >= targetCyc
 				|| m_pairBackpressured[i].load(std::memory_order_acquire);
-		});
+		};
+		const bool mustWait = m_transportTrace && !ready();
+		const auto waitStart = mustWait ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+		const bool reached = waitTransport(TransportWaitSite::DspTime, std::chrono::milliseconds(50), ready);
+		if(mustWait)
+		{
+			m_pairTrace.dspTimeWaits.fetch_add(1, std::memory_order_relaxed);
+			m_pairTrace.dspTimeWaitNs.fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - waitStart).count()), std::memory_order_relaxed);
+		}
 		if(!reached && m_transportTrace)
 		{
 			static std::atomic<uint32_t> s_reports{0};
