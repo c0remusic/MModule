@@ -1375,6 +1375,68 @@ namespace md
 		m_schedUcCyclesDone += deltaCycles;
 	}
 
+	uint32_t Hardware::processUCBatch(const uint64_t _maxCycles)
+	{
+		// processUC checks its inputs before every instruction and advances the
+		// SIM after it. When no input is pending and no SIM, scheduled MIDI or
+		// host word event falls within the budget, those checks find nothing
+		// and the SIM advance is linear: run the instructions back to back and
+		// advance the SIM once. A peripheral access or an interrupt acknowledge
+		// ends the batch after its instruction (Microcontroller::beginBatch), so
+		// the host port and the SIM see exactly what the one-by-one path shows.
+		// Inputs other threads queue meanwhile (panel, MIDI, a pair worker's host
+		// pump wake) are taken up after the batch.
+		constexpr uint64_t minCycles = 16;
+		if(_maxCycles < minCycles)
+			return 0;
+		if(m_pendingFlashRestoreActive.load(std::memory_order_acquire) || m_panelIn.hasPending()
+			|| m_midiSysexTransfer.ownsMidiWire() || m_midiInByteCursor != 0
+			|| !m_midiIn.empty() || m_realtimeMidiIn.size() != 0)
+			return 0;
+		if(m_schedulerHostPumpDirty.load(std::memory_order_acquire)
+			|| m_dspMixer.hasDeferredHostRx() || m_dspProducer.hasDeferredHostRx())
+			return 0;
+		// As for the idle skip: a Machinedrum DSP transmit word waits for the pump
+		if(!isMonomachine() && (m_dspMixer.hdi08().hasTX() || m_dspProducer.hdi08().hasTX()))
+			return 0;
+		const auto& sim = m_uc.getSim();
+		if(sim.needsInterruptCheck() || m_uc.m_externalIrq4Pending != sim.externalIrq4Asserted())
+			return 0;
+
+		uint64_t budget = _maxCycles;
+		for(const auto deadline : {sim.cyclesUntilNextTimerInterrupt(), sim.cyclesUntilNextUartTransmit()})
+		{
+			if(deadline != Sim::g_noTimerInterruptDeadline)
+				budget = std::min<uint64_t>(budget, deadline);
+		}
+		if(!m_scheduledMidi.empty())
+		{
+			const auto due = m_scheduledMidi.front().cycle;
+			budget = std::min<uint64_t>(budget, due > m_schedUcCyclesDone ? due - m_schedUcCyclesDone : 0);
+		}
+		if(budget < minCycles)
+			return 0;
+
+		// The batch ends once it reaches the budget: its last instruction may
+		// cross an event, which the SIM advance at the end then raises, as the
+		// one-by-one path does after that instruction. A pump wake from a DSP
+		// worker ends it too, as processUC would pump before the next
+		// instruction: a later take of the DSP's word frees its HOTX later and
+		// shifts the DSP's HTDE pacing (GND SIN clicks in pair mode).
+		uint64_t done = 0;
+		m_uc.beginBatch();
+		do
+		{
+			const auto cycles = m_uc.stepBatch();
+			done += cycles;
+			m_schedUcCyclesDone += cycles;
+		}
+		while(done < budget && !m_uc.batchBroken() && !m_uc.isAtIdleSelfBranch()
+			&& !m_schedulerHostPumpDirty.load(std::memory_order_relaxed));
+		m_uc.endBatch();
+		return static_cast<uint32_t>(done);
+	}
+
 	void Hardware::pumpDsp2HostRequest()
 	{
 		// The settled path executes millions of ColdFire instructions between meaningful
@@ -1808,10 +1870,23 @@ namespace md
 			// so no host word can ever be stamped behind the producer.
 			const bool publishInSlice = m_dspThreaded[1].load(std::memory_order_acquire);
 			uint32_t publishCount = 0;
+			// MD_UC_BATCH=0 steps every instruction through processUC.
+			static const bool s_ucBatch = []{ const char* e = std::getenv("MD_UC_BATCH"); return !e || e[0] != '0'; }();
 			do
 			{
-			processUC();
-			if(publishInSlice && (++publishCount & 31) == 0)
+			// A batch stays within the slice, and within a short stretch while a
+			// threaded DSP paces itself on the published UC position.
+			bool batched = false;
+			if(s_ucBatch)
+			{
+				const double sliceLeft = subTarget * ucPerFrame - static_cast<double>(m_schedUcCyclesDone);
+				if(sliceLeft > 0.0 && m_schedUcCyclesDone < clampStop)
+					batched = processUCBatch(std::min<uint64_t>({static_cast<uint64_t>(std::ceil(sliceLeft)),
+						clampStop - m_schedUcCyclesDone, publishInSlice ? uint64_t{128} : uint64_t{2048}})) != 0;
+			}
+			if(!batched)
+				processUC();
+			if(publishInSlice && (batched || (++publishCount & 31) == 0))
 			{
 				m_schedPublished.ucCycles.store(m_schedUcCyclesDone, std::memory_order_release);
 				m_signal.notify();
@@ -1835,7 +1910,9 @@ namespace md
 			// A deferred (dated) host word no longer forbids the skip: the jump
 			// below is bounded by its ready cycle, so the pump delivers it at
 			// exactly the host cycle a non-skipping UC would have reached.
-			if(((probeCount++ & 15u) == 0) && (isMonomachine() || dspTxClear())
+			// A batch stops at the idle loop: probe right away.
+			if(((batched && m_uc.isAtIdleSelfBranch()) || (probeCount++ & 15u) == 0)
+				&& (isMonomachine() || dspTxClear())
 				&& m_schedUcCyclesDone < clampStop
 					&& !m_pendingFlashRestoreActive.load(std::memory_order_acquire)
 					&& !m_schedulerHostPumpDirty.load(std::memory_order_acquire)
@@ -2072,7 +2149,8 @@ namespace md
 		m_pairDspLeadUc = static_cast<uint64_t>(dspLeadFrames * schedUcCyclesPerFrame());
 		const double ucLeadUs = envUs("MD_PAIR_UC_LEAD_US");
 		m_pairUcLeadFrames = ucLeadUs >= 0.0 ? usToFrames(ucLeadUs) : m_pairQuantumFrames;
-
+		if(const char* const minChunk = std::getenv("MD_PAIR_MIN_CHUNK"))
+			m_pairMinChunkCycles = std::max<uint64_t>(1, std::strtoull(minChunk, nullptr, 10));
 		m_pairBpThreshold = policy.hostTransmitBackpressureThresholdWords;
 		m_pairBpRelease = policy.hostTransmitBackpressureReleaseUcCycles;
 		for(uint32_t i = 0; i < 2; ++i)
@@ -2221,7 +2299,7 @@ namespace md
 			gate[_i] = pairGateCycles(_i);
 			// Gather the UC's frequent small publications into chunks of half a
 			// frame: a chunk's fixed cost is otherwise as large as its work.
-			const uint64_t minChunk = m_pairUrgent.load(std::memory_order_acquire) ? 1 : PairMinChunkCycles;
+			const uint64_t minChunk = m_pairUrgent.load(std::memory_order_acquire) ? 1 : m_pairMinChunkCycles;
 			return d.dsp().getCycles() + minChunk <= gate[_i];
 		};
 		const auto nowNs = []
@@ -2260,7 +2338,7 @@ namespace md
 				// lands at the next turn, the timeout at the latest.
 				const auto wouldRun = [&](const uint32_t _i)
 				{
-					const uint64_t minChunk = m_pairUrgent.load(std::memory_order_acquire) ? 1 : PairMinChunkCycles;
+					const uint64_t minChunk = m_pairUrgent.load(std::memory_order_acquire) ? 1 : m_pairMinChunkCycles;
 					return ((_i == 0) ? m_dspMixer : m_dspProducer).dsp().getCycles() + minChunk
 						<= pairGateCycles(_i, false);
 				};

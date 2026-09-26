@@ -474,6 +474,11 @@ namespace md
 #endif
 	}
 
+	bool Microcontroller::isAtIdleSelfBranch() const
+	{
+		return getCpuState()->ir == 0x60fe;
+	}
+
 	void Microcontroller::advanceIdleSelfBranch(const uint32_t _instructions)
 	{
 		// The qualified branch changes no registers or memory. Its previous
@@ -486,6 +491,10 @@ namespace md
 
 	uint32_t Microcontroller::readIrqUserVector(const uint8_t _level)
 	{
+		// Acknowledge: the IRQ4 bookkeeping below re-offers a still asserted line
+		// after this instruction, which a batch would postpone
+		if(m_batchActive)
+			m_batchBreak = true;
 		const auto vector = Mc68k::readIrqUserVector(_level);
 		if(m_externalIrq4Pending && _level == m_externalIrq4PendingLevel
 			&& vector == m_externalIrq4PendingVector)
@@ -572,6 +581,7 @@ namespace md
 				if(const auto value = m_flashCommands.read8(offset))
 					return *value;
 		}
+		notePeripheralAccess(_addr);
 		if(memorymap::g_sim.contains(_addr))		return m_sim.read8(memorymap::g_sim.offset(_addr));
 		if(memorymap::g_dsp1Hdi08.contains(_addr))	return m_hdi08Dsp1.read8(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp1Hdi08.offset(_addr)));
 		if(memorymap::g_dsp2Hdi08.contains(_addr))	return m_hdi08Dsp2.read8(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp2Hdi08.offset(_addr)));
@@ -597,6 +607,7 @@ namespace md
 				if(const auto value = m_flashCommands.read16(offset))
 					return *value;
 		}
+		notePeripheralAccess(_addr);
 		if(memorymap::g_sim.contains(_addr))		return m_sim.read16(memorymap::g_sim.offset(_addr));
 		if(memorymap::g_dsp1Hdi08.contains(_addr))	return m_hdi08Dsp1.read16(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp1Hdi08.offset(_addr)));
 		if(memorymap::g_dsp2Hdi08.contains(_addr))	return m_hdi08Dsp2.read16(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp2Hdi08.offset(_addr)));
@@ -612,6 +623,7 @@ namespace md
 
 	void Microcontroller::write8(const uint32_t _addr, const uint8_t _val)
 	{
+		notePeripheralAccess(_addr);
 		if(memorymap::g_sim.contains(_addr))		{ m_sim.write8(memorymap::g_sim.offset(_addr), _val); return; }
 		if(memorymap::g_dsp1Hdi08.contains(_addr))	{ m_hdi08Dsp1.write8(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp1Hdi08.offset(_addr)), _val); return; }
 		if(memorymap::g_dsp2Hdi08.contains(_addr))	{ m_hdi08Dsp2.write8(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp2Hdi08.offset(_addr)), _val); return; }
@@ -673,6 +685,7 @@ namespace md
 				return;
 			}
 		}
+		notePeripheralAccess(_addr);
 		if(memorymap::g_sim.contains(_addr))		{ m_sim.write16(memorymap::g_sim.offset(_addr), _val); return; }
 		if(memorymap::g_dsp1Hdi08.contains(_addr))	{ m_hdi08Dsp1.write16(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp1Hdi08.offset(_addr)), _val); return; }
 		if(memorymap::g_dsp2Hdi08.contains(_addr))	{ m_hdi08Dsp2.write16(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp2Hdi08.offset(_addr)), _val); return; }

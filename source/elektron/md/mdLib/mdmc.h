@@ -17,6 +17,7 @@
 #include "hardwareLib/am29f.h"
 
 #include "mdflash.h"
+#include "mdmemorymap.h"
 #include "mdsim.h"
 #include "mdturbomidi.h"
 #include "mdtypes.h"
@@ -263,6 +264,50 @@ namespace md
 		void advanceAfterCpu(uint32_t _cycles);
 		uint32_t idleSelfBranchInstructions(uint32_t _maxCycles);
 		void advanceIdleSelfBranch(uint32_t _instructions);
+
+		// Batched instructions (Hardware::processUCBatch): the caller has checked
+		// that no SIM event, interrupt or host-side input is due within the batch,
+		// so the SIM time of its instructions is applied once, at the end. An
+		// access to a peripheral window applies the time accumulated so far first
+		// (the SIM is then exactly where the one-by-one path would have it) and,
+		// like an interrupt acknowledge, ends the batch after the instruction.
+		void beginBatch()
+		{
+			m_batchActive = true;
+			m_batchBreak = false;
+			m_batchCycles = 0;
+		}
+		uint32_t stepBatch()
+		{
+			const auto cycles = execInstruction();
+			m_batchCycles += cycles;
+			return cycles;
+		}
+		bool batchBroken() const { return m_batchBreak; }
+		// The last instruction was the BRA.B -2 idle loop (idleSelfBranchInstructions)
+		bool isAtIdleSelfBranch() const;
+		void endBatch()
+		{
+			m_batchActive = false;
+			const auto cycles = m_batchCycles;
+			m_batchCycles = 0;
+			advanceAfterCpu(cycles);
+		}
+		void notePeripheralAccess(const uint32_t _addr)
+		{
+			if(!m_batchActive || !(memorymap::g_sim.contains(_addr)
+				|| memorymap::g_dsp1Hdi08.contains(_addr) || memorymap::g_dsp2Hdi08.contains(_addr)))
+				return;
+			m_batchBreak = true;
+			if(m_batchCycles)
+			{
+				m_sim.exec(m_batchCycles);
+				m_batchCycles = 0;
+			}
+		}
+		bool m_batchActive = false;
+		bool m_batchBreak = false;
+		uint32_t m_batchCycles = 0;
 		void decodePanelByte(uint8_t _byte);
 		void serviceExternalIrq4();
 		bool m_externalIrq4Pending = false;

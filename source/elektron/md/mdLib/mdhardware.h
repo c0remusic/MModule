@@ -446,7 +446,10 @@ namespace md
 		void serviceRamRecordingMode();
 		void registerExternalInteraction();
 		void pumpDsp2HostRequest();		// DSP2 HI08 HREQ -> ColdFire external IRQ4 (see .cpp)
-
+		// Runs UC instructions for up to about _maxCycles as one batch when nothing
+		// processUC checks per instruction can act before then. Returns the cycles
+		// run, 0 when the UC must step through processUC.
+		uint32_t processUCBatch(uint64_t _maxCycles);
 		// Dated pop-side disposal (see .cpp). _rxTick = called from the RX
 		// availability probe, the only site where the ROE arrival semantics
 		// may destroy a word; returns true when it did.
@@ -589,7 +592,7 @@ namespace md
 		// Audio thread waiting on the pair worker (any transport wait): the
 		// worker runs even the short chunks it otherwise gathers into longer ones.
 		alignas(64) std::atomic<uint32_t> m_pairUrgent{0};
-		static constexpr uint64_t PairMinChunkCycles = 2304 / 2;	// half a codec frame of DSP cycles
+		uint64_t m_pairMinChunkCycles = 2304 / 2;	// half a codec frame of DSP cycles (MD_PAIR_MIN_CHUNK)
 		uint64_t m_pairDspLeadUc = 0;			// DSP lead over the UC, in UC cycles (MD_PAIR_LEAD_US)
 		double   m_pairUcLeadFrames = 0.0;		// UC lead over the slower DSP (MD_PAIR_UC_LEAD_US)
 		size_t   m_pairBpThreshold = 0;
