@@ -439,6 +439,56 @@ Couplage paire après lots (44,1 kHz, trace) : taille mini de tronçon
 travaille 80 % du temps, reste attente de rafales UC.
 `MD_PAIR_MIN_CHUNK` reste pour ces essais.
 
+### Piste 2 : coût côté DSP et placement (2026-09-26)
+
+Qui fixe les échéances périphériques du MM (47 M services / ~15 s, deux
+DSP) : créneaux fins du lien ESSI0 74 % (~78 cycles, travail réel), HDI08
+14 % à délai 0, DMA 8 % à délai ~1.6, minuteries 3 %.
+- HDI08 à délai 0 : mot hôte en attente, canal DMA récepteur coupé (DE
+  effacé en fin de bloc) → `exec` redemande un service à chaque bloc
+  jusqu'à ce que le firmware réarme le canal. 6,7 M services sans effet.
+  Rendre MaxDelay dans ce cas : **aucun gain mesuré** (131-135 % des deux
+  côtés), et pas exact (les interruptions externes ne sont traitées qu'aux
+  services). Abandonné.
+- DMA délai ~1 : transfert bloc déclenché par DE en mode 3D, un mot par
+  service après le délai initial (canal 2, 3,7 M mots). Coût faible,
+  changer le modèle serait un changement de timing. Laissé.
+
+Profil série 44,1 kHz (après lots UC) : postes bon marché à supprimer, tous
+exacts :
+- `std::min({…})` à 4 éléments → dispatcher vectorisé MSVC
+  `__std_minmax_disp` : 2,5 % (Peripherals56303::exec, budget de lot) ;
+- `skipNopLoop` 4,1 % : divisions entières à chaque entrée de boucle
+  (~3 M/s) → pas de division si pas = 1, masques pour la période de sortie
+  (puissance de 2) ;
+- crochet de lot UC appelé à chaque accès mémoire → déplacé dans les
+  branches SIM/HI08 ;
+- `transportPolicy` construisait sa struct à chaque appel → référence.
+Série 128 → 121-123 %, paire ~100 → 91-97 %.
+
+Placement des deux threads (Ryzen 7 3700X : 2 CCX de 4 cœurs, SMT) :
+UC/worker sur cœurs distincts d'un même CCX **80 %**, frères SMT d'un cœur
+94-96 %, CCX différents 90-91 %, placement libre 90-97 % (le « 80 % »
+aléatoire vu plus tôt). `MDMM_PAIR_AFFINITY=auto` : UC gardé sur son cœur
+physique au handoff, worker sur les autres cœurs du même cache L3 → 78-86 %
+à 44,1 kHz, 87-94 % à 48 kHz. Opt-in : dans un DAW, les threads du moteur
+partagent ces cœurs, à mesurer dans Ableton avant d'en faire le défaut.
+
+Worker seul placé (UC libre, `=worker`) : 95-99 %, **aucun gain** : l'UC
+libre migre vers le frère SMT ou l'autre CCX. Le gain exige de fixer l'UC.
+Défaut retenu : placement `auto` seulement quand l'ordonnanceur tourne sur
+le thread de rendu du device (latence plugin ≥ 1 bloc), jamais sur le
+thread audio de l'hôte ; `MDMM_PAIR_AFFINITY=off` le coupe.
+
+Plugin MM : réglage « Parallel transport » ajouté (page CPU Load), par
+défaut actif comme sur MD ; pour le MM il choisit le mode paire.
+
+Pourquoi pas le mode MD (producer seul sur un worker) pour le MM : essayé
+(section plus haut), 304 % et quasi-interblocages. Le lien MM est un
+aller-retour strobe (port C) → rafale DMA sur ESSI0 que DSP1 attend ;
+coupé entre deux threads, chaque strobe devient une attente croisée
+UC ↔ DSP1 ↔ DSP2.
+
 ## Leçons dures
 
 - Le test firmware `mdAudioFirmwareTest` passe en parallel : il ne déclenche
