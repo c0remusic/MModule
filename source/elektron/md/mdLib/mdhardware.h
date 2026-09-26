@@ -233,6 +233,10 @@ namespace md
 		bool isProducerThreaded() const { return m_dspThreaded[1].load(std::memory_order_acquire); }
 		// Both DSPs run on one worker (TransportMode::Pair).
 		bool isDspPairThreaded() const { return m_dspPairWorker.load(std::memory_order_acquire); }
+		// The device tells, before each block, whether the scheduler runs on a
+		// thread it owns (its render thread). Only then may the pair handoff pin
+		// that thread to a core (see schedTryHandoffPair).
+		void setPairPlacementAllowed(const bool _allowed) { m_pairPlacementAllowed.store(_allowed, std::memory_order_relaxed); }
 		// The two DSPs run on the same thread, so one may run the other inline
 		// for a link delivery: always, except with the producer alone on its
 		// worker.
@@ -594,6 +598,7 @@ namespace md
 		alignas(64) std::atomic<uint32_t> m_pairUrgent{0};
 		uint64_t m_pairMinChunkCycles = 2304 / 2;	// half a codec frame of DSP cycles (MD_PAIR_MIN_CHUNK)
 		uint64_t m_pairWorkerAffinity = 0;			// logical CPU mask of the pair worker, 0 = free (MDMM_PAIR_AFFINITY)
+		std::atomic<bool> m_pairPlacementAllowed{false};	// the scheduler runs on a thread the device owns
 		uint64_t m_pairDspLeadUc = 0;			// DSP lead over the UC, in UC cycles (MD_PAIR_LEAD_US)
 		double   m_pairUcLeadFrames = 0.0;		// UC lead over the slower DSP (MD_PAIR_UC_LEAD_US)
 		size_t   m_pairBpThreshold = 0;

@@ -2151,14 +2151,18 @@ namespace md
 		m_pairUcLeadFrames = ucLeadUs >= 0.0 ? usToFrames(ucLeadUs) : m_pairQuantumFrames;
 		if(const char* const minChunk = std::getenv("MD_PAIR_MIN_CHUNK"))
 			m_pairMinChunkCycles = std::max<uint64_t>(1, std::strtoull(minChunk, nullptr, 10));
-		// MDMM_PAIR_AFFINITY=u,w pins this (UC) thread to logical CPU u and the
-		// worker to w, for placement experiments. =auto keeps this thread on the
-		// physical core it runs on and the worker on the other cores sharing its
-		// last-level cache: on a Ryzen 3700X that is ~80% of real time for the
-		// Monomachine against 90-97% with free placement (SMT siblings or two CCX).
-		// =worker places the worker the same way and leaves this thread free,
-		// which may be a host's audio thread.
-		if(const char* const affinity = std::getenv("MDMM_PAIR_AFFINITY"))
+		// Placement. auto keeps this (UC) thread on the physical core it runs on
+		// and the worker on the other cores sharing its last-level cache: on a
+		// Ryzen 3700X that is ~80% of real time for the Monomachine against
+		// 90-97% with free placement (SMT siblings or two CCX). It is the
+		// default when this thread is the device's own render thread, never a
+		// host's audio thread. MDMM_PAIR_AFFINITY overrides: auto, off, worker
+		// (the worker alone, which measured no gain), or u,w to pin this thread
+		// to logical CPU u and the worker to w.
+		const char* affinity = std::getenv("MDMM_PAIR_AFFINITY");
+		if(!affinity)
+			affinity = m_pairPlacementAllowed.load(std::memory_order_relaxed) ? "auto" : "off";
+		if(std::strcmp(affinity, "off") != 0)
 		{
 			const bool workerOnly = std::strcmp(affinity, "worker") == 0;
 			if(workerOnly || std::strcmp(affinity, "auto") == 0)

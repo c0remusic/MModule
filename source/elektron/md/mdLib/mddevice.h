@@ -113,11 +113,11 @@ namespace md
 		// Keeps rendering synchronous whatever the latency (the device then
 		// applies the latency as a MIDI delay itself). Call with the device paused.
 		void setAsyncRenderAllowed(bool _allowed);
-		// Parallel transport (the Machinedrum's producer DSP on a worker
-		// thread). Turning it on takes effect at the scheduler's next safe
-		// point; turning it off only for a machine booted later, since the
-		// worker never hands the producer back. MDMM_TRANSPORT, when set,
-		// overrides this (tests, A/B runs). Call with the device paused.
+		// Parallel transport: the Machinedrum's producer DSP, or both of the
+		// Monomachine's DSPs, on a worker thread. Turning it on takes effect at
+		// the scheduler's next safe point; turning it off only for a machine
+		// booted later, since the worker never hands the DSPs back. MDMM_TRANSPORT,
+		// when set, overrides this (tests, A/B runs). Call with the device paused.
 		void setParallelTransport(bool _enabled);
 		bool isParallelTransportRequested() const { return preferredTransport() != TransportMode::Serial; }
 		bool isParallelTransportActive() const { return m_hardware->isProducerThreaded(); }

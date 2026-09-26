@@ -679,9 +679,12 @@ namespace md
 	{
 		if(const char* const mode = std::getenv("MDMM_TRANSPORT"))
 			return parseTransportMode(mode);
-		// The Monomachine stays serial in this migration step.
-		return m_parallelTransport && m_model == MachineModel::Machinedrum
-			? TransportMode::Parallel : TransportMode::Serial;
+		if(!m_parallelTransport)
+			return TransportMode::Serial;
+		// The Monomachine's DSPs exchange a strobe request and a burst reply on
+		// their link, which does not survive splitting them across threads: both
+		// go to one worker, the ColdFire stays on the scheduler thread.
+		return m_model == MachineModel::Machinedrum ? TransportMode::Parallel : TransportMode::Pair;
 	}
 
 	void Device::setParallelTransport(const bool _enabled)
@@ -722,7 +725,11 @@ namespace md
 		if(isRenderingAsync())
 			m_async->process(_inputs, _outputs, _size, _midiIn, _midiOut);
 		else
+		{
+			// The host's thread: not ours to pin to a core
+			m_hardware->setPairPlacementAllowed(false);
 			synthLib::Device::process(_inputs, _outputs, _size, _midiIn, _midiOut);
+		}
 	}
 
 	void Device::processAudio(const synthLib::TAudioInputs& _inputs, const synthLib::TAudioOutputs& _outputs, const size_t _samples)
@@ -757,6 +764,8 @@ namespace md
 					const synthLib::TAudioOutputs& _outs, const size_t _frames,
 					const std::vector<synthLib::SMidiEvent>& _midiIn, std::vector<synthLib::SMidiEvent>& _midiOut)
 				{
+					// The render thread is the device's own
+					m_hardware->setPairPlacementAllowed(true);
 					synthLib::Device::process(_ins, _outs, _frames, _midiIn, _midiOut);
 				});
 			m_async->start(latency);
