@@ -17,7 +17,6 @@
 #include "hardwareLib/am29f.h"
 
 #include "mdflash.h"
-#include "mdmemorymap.h"
 #include "mdsim.h"
 #include "mdturbomidi.h"
 #include "mdtypes.h"
@@ -293,10 +292,10 @@ namespace md
 			m_batchCycles = 0;
 			advanceAfterCpu(cycles);
 		}
-		void notePeripheralAccess(const uint32_t _addr)
+		// Called by the peripheral window branches of the memory handlers
+		void onPeripheralAccess()
 		{
-			if(!m_batchActive || !(memorymap::g_sim.contains(_addr)
-				|| memorymap::g_dsp1Hdi08.contains(_addr) || memorymap::g_dsp2Hdi08.contains(_addr)))
+			if(!m_batchActive)
 				return;
 			m_batchBreak = true;
 			if(m_batchCycles)

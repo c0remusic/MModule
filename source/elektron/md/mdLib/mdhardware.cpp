@@ -1881,8 +1881,8 @@ namespace md
 			{
 				const double sliceLeft = subTarget * ucPerFrame - static_cast<double>(m_schedUcCyclesDone);
 				if(sliceLeft > 0.0 && m_schedUcCyclesDone < clampStop)
-					batched = processUCBatch(std::min<uint64_t>({static_cast<uint64_t>(std::ceil(sliceLeft)),
-						clampStop - m_schedUcCyclesDone, publishInSlice ? uint64_t{128} : uint64_t{2048}})) != 0;
+					batched = processUCBatch(std::min(std::min(static_cast<uint64_t>(std::ceil(sliceLeft)),
+						clampStop - m_schedUcCyclesDone), publishInSlice ? uint64_t{128} : uint64_t{2048})) != 0;
 			}
 			if(!batched)
 				processUC();

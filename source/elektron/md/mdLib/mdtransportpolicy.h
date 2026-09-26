@@ -27,10 +27,15 @@ namespace md
 		double linkPipelineDepthFrames;
 	};
 
-	constexpr TransportPolicy transportPolicy(const MachineModel _model)
+	namespace detail
 	{
-		return _model == MachineModel::Monomachine
-			? TransportPolicy{30.0, 100'000, 1, 16, 4, 200'000, true, 1.0}
-			: TransportPolicy{125.0, 100'000, 3, 16, 4, 200'000, false, 1.0};
+		inline constexpr TransportPolicy g_monomachinePolicy{30.0, 100'000, 1, 16, 4, 200'000, true, 1.0};
+		inline constexpr TransportPolicy g_machinedrumPolicy{125.0, 100'000, 3, 16, 4, 200'000, false, 1.0};
+	}
+
+	// Scheduler hot paths ask for this per step: hand out the constant, not a copy
+	constexpr const TransportPolicy& transportPolicy(const MachineModel _model)
+	{
+		return _model == MachineModel::Monomachine ? detail::g_monomachinePolicy : detail::g_machinedrumPolicy;
 	}
 }

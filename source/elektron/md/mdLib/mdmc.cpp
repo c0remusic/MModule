@@ -581,10 +581,9 @@ namespace md
 				if(const auto value = m_flashCommands.read8(offset))
 					return *value;
 		}
-		notePeripheralAccess(_addr);
-		if(memorymap::g_sim.contains(_addr))		return m_sim.read8(memorymap::g_sim.offset(_addr));
-		if(memorymap::g_dsp1Hdi08.contains(_addr))	return m_hdi08Dsp1.read8(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp1Hdi08.offset(_addr)));
-		if(memorymap::g_dsp2Hdi08.contains(_addr))	return m_hdi08Dsp2.read8(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp2Hdi08.offset(_addr)));
+		if(memorymap::g_sim.contains(_addr))		{ onPeripheralAccess(); return m_sim.read8(memorymap::g_sim.offset(_addr)); }
+		if(memorymap::g_dsp1Hdi08.contains(_addr))	{ onPeripheralAccess(); return m_hdi08Dsp1.read8(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp1Hdi08.offset(_addr))); }
+		if(memorymap::g_dsp2Hdi08.contains(_addr))	{ onPeripheralAccess(); return m_hdi08Dsp2.read8(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp2Hdi08.offset(_addr))); }
 		const bool patchRam = memorymap::isPatchRam(_addr);
 		std::shared_lock patchLock(m_patchRamMutex, std::defer_lock);
 		if(patchRam)
@@ -607,10 +606,9 @@ namespace md
 				if(const auto value = m_flashCommands.read16(offset))
 					return *value;
 		}
-		notePeripheralAccess(_addr);
-		if(memorymap::g_sim.contains(_addr))		return m_sim.read16(memorymap::g_sim.offset(_addr));
-		if(memorymap::g_dsp1Hdi08.contains(_addr))	return m_hdi08Dsp1.read16(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp1Hdi08.offset(_addr)));
-		if(memorymap::g_dsp2Hdi08.contains(_addr))	return m_hdi08Dsp2.read16(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp2Hdi08.offset(_addr)));
+		if(memorymap::g_sim.contains(_addr))		{ onPeripheralAccess(); return m_sim.read16(memorymap::g_sim.offset(_addr)); }
+		if(memorymap::g_dsp1Hdi08.contains(_addr))	{ onPeripheralAccess(); return m_hdi08Dsp1.read16(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp1Hdi08.offset(_addr))); }
+		if(memorymap::g_dsp2Hdi08.contains(_addr))	{ onPeripheralAccess(); return m_hdi08Dsp2.read16(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp2Hdi08.offset(_addr))); }
 		const bool patchRam = memorymap::isPatchRam(_addr);
 		std::shared_lock patchLock(m_patchRamMutex, std::defer_lock);
 		if(patchRam)
@@ -623,10 +621,9 @@ namespace md
 
 	void Microcontroller::write8(const uint32_t _addr, const uint8_t _val)
 	{
-		notePeripheralAccess(_addr);
-		if(memorymap::g_sim.contains(_addr))		{ m_sim.write8(memorymap::g_sim.offset(_addr), _val); return; }
-		if(memorymap::g_dsp1Hdi08.contains(_addr))	{ m_hdi08Dsp1.write8(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp1Hdi08.offset(_addr)), _val); return; }
-		if(memorymap::g_dsp2Hdi08.contains(_addr))	{ m_hdi08Dsp2.write8(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp2Hdi08.offset(_addr)), _val); return; }
+		if(memorymap::g_sim.contains(_addr))		{ onPeripheralAccess(); m_sim.write8(memorymap::g_sim.offset(_addr), _val); return; }
+		if(memorymap::g_dsp1Hdi08.contains(_addr))	{ onPeripheralAccess(); m_hdi08Dsp1.write8(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp1Hdi08.offset(_addr)), _val); return; }
+		if(memorymap::g_dsp2Hdi08.contains(_addr))	{ onPeripheralAccess(); m_hdi08Dsp2.write8(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp2Hdi08.offset(_addr)), _val); return; }
 		const bool patchRam = memorymap::isPatchRam(_addr);
 		std::unique_lock patchLock(m_patchRamMutex, std::defer_lock);
 		if(patchRam)
@@ -685,10 +682,9 @@ namespace md
 				return;
 			}
 		}
-		notePeripheralAccess(_addr);
-		if(memorymap::g_sim.contains(_addr))		{ m_sim.write16(memorymap::g_sim.offset(_addr), _val); return; }
-		if(memorymap::g_dsp1Hdi08.contains(_addr))	{ m_hdi08Dsp1.write16(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp1Hdi08.offset(_addr)), _val); return; }
-		if(memorymap::g_dsp2Hdi08.contains(_addr))	{ m_hdi08Dsp2.write16(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp2Hdi08.offset(_addr)), _val); return; }
+		if(memorymap::g_sim.contains(_addr))		{ onPeripheralAccess(); m_sim.write16(memorymap::g_sim.offset(_addr), _val); return; }
+		if(memorymap::g_dsp1Hdi08.contains(_addr))	{ onPeripheralAccess(); m_hdi08Dsp1.write16(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp1Hdi08.offset(_addr)), _val); return; }
+		if(memorymap::g_dsp2Hdi08.contains(_addr))	{ onPeripheralAccess(); m_hdi08Dsp2.write16(static_cast<mc68k::PeriphAddress>(memorymap::g_dsp2Hdi08.offset(_addr)), _val); return; }
 		if(m_monomachineFlash && (memorymap::g_flashFull.contains(_addr)
 			|| memorymap::g_flashLow.contains(_addr)))
 		{
