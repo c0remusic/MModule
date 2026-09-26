@@ -354,6 +354,91 @@ parfait. Pistes : coût par tronçon et par synchro (portes en cache, pas de
 double service/publication par tour), synchro par spin court sans noyau,
 ou accélérer l'UC lui-même (interpréteur 68k : 0,6 s/s).
 
+## Piste 1 : mesure fine du mode paire (2026-09-26)
+
+Trace `[pair]` sous `MDMM_TRANSPORT_TRACE` (horodatage QPC par tronçon, par
+tour, par attente, raison d'arrêt du laggard ; côté UC : borne d'avance,
+lecture exacte, fin de bloc). Banc MM paire, latence 0 :
+
+- worker : tronçons 75 % du mur (70 000/s, ~2 030 cycles, 5,25 ns/cycle),
+  tour 2,4 %, repos 22 % dont « gather » 17 % (attente de place UC) ;
+- UC : attend la borne d'avance 27 % (23 000/s, ~11 µs), lecture exacte
+  5 % (5 400/s), fin de bloc 0,2 %.
+
+Le profil hôte (échantillonnage suspend/contexte) donnait l'inverse (worker
+~60 % en portes/spin). Biais d'observateur : suspendre un thread pour
+l'échantillonner fait attendre l'autre, que l'échantillon suivant trouve
+alors en spin. Avec deux threads couplés serré, croire la trace QPC, pas
+l'échantillonneur. En série (un seul thread), l'échantillonneur reste fiable.
+
+Le coût DSP par cycle est le même qu'en série (série tracée : mixer 4,6,
+producteur 5,4 ns/cycle). Travail DSP par seconde émulée ≈ 203 M cycles ×
+5,25 ns ≈ 1,07 s : **le mode paire ne pouvait pas descendre sous ~107 %**,
+quelle que soit la synchro. La piste 1 seule ne suffit pas.
+
+Où vont les cycles DSP (profil PC, positions d'arrêt ≈ cycles émulés) :
+~30 % des deux DSP dans une boucle de délai `do #3200 { nop }` (p:$100162),
+puis des boucles de scrutation : DSP1 DSR1 (DMA1, ~20 % dont une boucle
+multi-blocs à $000087), DSP2 PDRC bit 1 (strobe du lien, 7,7 %) et DDR0
+(DMA0, 6,4 %). Avec `maxDoIterations = 4` (MM), la boucle de délai sort du
+JIT toutes les 4 itérations : autant d'allers-retours trampoline.
+
+Saut de boucle NOP (sous-module DSP, `DSP::skipNopLoop`) : un corps de DO
+fait de NOP applique d'un coup les itérations jusqu'à la première sortie
+vers le dispatcher qui agirait (cible execUntilCycles, périphérique dû,
+interruption en attente). Mêmes sorties, mêmes échéances : exécution
+identique au pas à pas. `DSP_NOP_SKIP=0` le coupe. A/B sans trace, MM
+série : 168-169 % → 157-161 % ; paire (trace) 137 % → 130 %, worker
+5,27 → 4,54 ns/cycle.
+
+Balayage avance UC avec le saut (15/30/45/60 µs) : 130/130/131/135 %. Plus
+d'avance échange des attentes de borne contre des lectures exactes plus
+longues ; le « gather » du worker reste ~23 %. Les deux threads ont chacun
+~0,9 s de travail par seconde émulée ; l'UC alterne phases chargées (plus
+lentes que le temps réel) et repos (sautés vite). La fenêtre de ±30 µs
+n'absorbe pas ces rafales : en phase chargée le worker attend l'UC, au repos
+l'UC attend le worker. Plancher de ce modèle ≈ 110 % avant pertes de synchro.
+
+Saut des boucles de scrutation (`DSP::skipPollLoop`, même principe) : un
+bloc qui rebranche sur son début en ne lisant que des registres
+périphériques sans effet de bord (DMA, données ports C/D) et des registres
+qu'il ne modifie pas. Trouve DSR1 (DSP1), DDR0 et PDRC (DSP2) ; la boucle
+DSR1 multi-blocs ($000087) reste hors portée. Série −3 %, paire inchangée :
+le worker va plus vite mais attend l'UC d'autant. Analyse registres :
+`Opcodes::getRegisters` n'inscrit pas la destination d'une lecture movep,
+à compléter pour l'analyse d'idempotence. Sous-module `1ba7d7d`.
+
+Rééchantillonnage : le banc tourne à 48 kHz, le MM à 44,1 kHz ; le filtre
+libresample haute qualité (`lrsFilterUp`) coûte ~15 points sur le thread
+UC. Option `--rate 44100` du banc : paire 126 % (48 kHz) → 112 % (44,1 kHz).
+
+Lots d'instructions UC (`Hardware::processUCBatch`) : `processUC` vérifie à
+chaque instruction panneau, MIDI, pompe hôte, et avance la SIM après. Sans
+entrée en attente et sans échéance SIM (minuterie, UART panneau), MIDI
+programmé ou mot hôte dans le budget, ces vérifications ne trouvent rien et
+l'avance SIM est linéaire : instructions enchaînées, SIM avancée une fois.
+Un accès à une fenêtre périphérique (SIM, HI08) avance d'abord la SIM du
+temps accumulé puis clôt le lot après l'instruction ; un acquittement
+d'interruption aussi. Le lot s'arrête sur la boucle de repos (BRA.B -2) pour
+laisser le saut de repos agir. Budget ≤ 128 cycles quand un worker suit la
+position UC publiée (publication à chaque lot), 2048 sinon.
+`MD_UC_BATCH=0` le coupe. A/B 44,1 kHz : série 151 → 127 %, **paire 117
+→ 102 %** ; le worker (DSP) redevient le goulot (78-80 % en tronçons, UC
+~30 % en attente de borne).
+
+Piège trouvé par le gate (paire, 2 échecs GND SIN sur 5) : un réveil de
+pompe hôte posé par le worker pendant un lot n'était vu qu'à la fin du lot.
+L'UC prenait le mot du DSP jusqu'à 128 cycles plus tard, HOTX se libérait
+plus tard et décalait le rythme HTDE du DSP : clics. Le lot s'arrête
+désormais dès que le drapeau de pompe se lève (6/6 puis gate vert). Coût
+~4 points en paire.
+
+Couplage paire après lots (44,1 kHz, trace) : taille mini de tronçon
+288/576/1152/2304 cycles → 99,8/102/99/99,5 % ; avance UC 45/60 µs → 106 %
+(lectures exactes plus longues). Rien à gagner par ces réglages : le worker
+travaille 80 % du temps, reste attente de rafales UC.
+`MD_PAIR_MIN_CHUNK` reste pour ces essais.
+
 ## Leçons dures
 
 - Le test firmware `mdAudioFirmwareTest` passe en parallel : il ne déclenche
