@@ -2151,6 +2151,41 @@ namespace md
 		m_pairUcLeadFrames = ucLeadUs >= 0.0 ? usToFrames(ucLeadUs) : m_pairQuantumFrames;
 		if(const char* const minChunk = std::getenv("MD_PAIR_MIN_CHUNK"))
 			m_pairMinChunkCycles = std::max<uint64_t>(1, std::strtoull(minChunk, nullptr, 10));
+		// MDMM_PAIR_AFFINITY=u,w pins this (UC) thread to logical CPU u and the
+		// worker to w, for placement experiments. =auto keeps this thread on the
+		// physical core it runs on and the worker on the other cores sharing its
+		// last-level cache: on a Ryzen 3700X that is ~80% of real time for the
+		// Monomachine against 90-97% with free placement (SMT siblings or two CCX).
+		// =worker places the worker the same way and leaves this thread free,
+		// which may be a host's audio thread.
+		if(const char* const affinity = std::getenv("MDMM_PAIR_AFFINITY"))
+		{
+			const bool workerOnly = std::strcmp(affinity, "worker") == 0;
+			if(workerOnly || std::strcmp(affinity, "auto") == 0)
+			{
+				uint64_t core = 0, cache = 0;
+				if(dsp56k::ThreadTools::getCpuTopology(dsp56k::ThreadTools::getCurrentCpu(), core, cache)
+					&& (cache & ~core))
+				{
+					if(!workerOnly)
+						dsp56k::ThreadTools::setCurrentThreadAffinity(core);
+					m_pairWorkerAffinity = cache & ~core;
+				}
+			}
+			else
+			{
+				char* end = nullptr;
+				const auto uc = std::strtoul(affinity, &end, 10);
+				if(end && *end == ',')
+				{
+					const auto worker = std::strtoul(end + 1, nullptr, 10);
+					if(worker < 64)
+						m_pairWorkerAffinity = uint64_t{1} << worker;
+				}
+				if(uc < 64)
+					dsp56k::ThreadTools::setCurrentThreadAffinity(uint64_t{1} << uc);
+			}
+		}
 		m_pairBpThreshold = policy.hostTransmitBackpressureThresholdWords;
 		m_pairBpRelease = policy.hostTransmitBackpressureReleaseUcCycles;
 		for(uint32_t i = 0; i < 2; ++i)
@@ -2286,6 +2321,8 @@ namespace md
 		else if(!priority || std::strcmp(priority, "normal") != 0)
 			proAudio.task = dsp56k::ThreadTools::joinProAudioTask();
 		dsp56k::ThreadTools::setCurrentThreadName("MD DSPs");
+		if(m_pairWorkerAffinity)
+			dsp56k::ThreadTools::setCurrentThreadAffinity(m_pairWorkerAffinity);
 		const bool trace = m_transportTrace;
 		std::array<uint64_t, 2> gate{};
 		const auto runnable = [&](const uint32_t _i)

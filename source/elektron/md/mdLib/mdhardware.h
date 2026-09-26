@@ -593,6 +593,7 @@ namespace md
 		// worker runs even the short chunks it otherwise gathers into longer ones.
 		alignas(64) std::atomic<uint32_t> m_pairUrgent{0};
 		uint64_t m_pairMinChunkCycles = 2304 / 2;	// half a codec frame of DSP cycles (MD_PAIR_MIN_CHUNK)
+		uint64_t m_pairWorkerAffinity = 0;			// logical CPU mask of the pair worker, 0 = free (MDMM_PAIR_AFFINITY)
 		uint64_t m_pairDspLeadUc = 0;			// DSP lead over the UC, in UC cycles (MD_PAIR_LEAD_US)
 		double   m_pairUcLeadFrames = 0.0;		// UC lead over the slower DSP (MD_PAIR_UC_LEAD_US)
 		size_t   m_pairBpThreshold = 0;
