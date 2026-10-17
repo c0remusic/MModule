@@ -5,7 +5,8 @@ Label: wayfinder:map
 ## Destination
 
 Une Machine utilisateur faite pour MDX X.20 (un des 43 `.syx` du zip X.20 B, ou toute autre Machine MDS) installée dans
-MoDule joue sur une Track comme une Machine intégrée, avec le son qu'elle a sous X.20. Fini quand : garde-fou vert avec
+MoDule joue sur une Track comme une Machine intégrée, avec le son qu'elle a sous X.20 (selon la spécification MDS et
+l'oreille de l'utilisateur : « La référence du son après Booter X.20 »). Fini quand : garde-fou vert avec
 les nouveaux tests, poussé sur `main`, joué par l'utilisateur dans Live sous Windows (macOS construit par la CI, pas
 vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, avec la carte des Samples et Push mappé.
 
@@ -20,8 +21,8 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   - installées par le même lâcher que les Samples (où lâcher : ticket « Où lâcher » de la carte des Samples) et par
     une entrée « Install User Machine… » du Menu ;
   - pour 0.1.2, seulement les imports qu'utilisent les 43 du zip (1, 6, 7, 8) ;
-  - la référence du son est X.20 lui-même, booté dans mdLib comme 1.63 l'est aujourd'hui (ticket « Booter X.20 dans
-    mdLib ») ; si X.20 ne boote pas, la carte revient sur la question ;
+  - la référence du son devait être X.20 booté dans mdLib ; il ne boote pas (l'unité MAC du ColdFire), et la carte
+    s'en remet à la spécification MDS et à l'oreille (« La référence du son après Booter X.20 ») ;
   - les 8 Machines intégrées nouvelles d'X.20 (GND-SN-PRO, GND-SW, GND-PU, NFX-EV, NFX-CO, NFX-UC, INP-CA, INP-CB) :
     hors de cette carte et de 0.1.2 (voir Out of scope) ;
   - aucun contact des auteurs requis : rien n'est redistribué.
@@ -61,18 +62,20 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 - [Où vivent les Machines utilisateur installées](issues/07-ou-vivent-les-machines.md) : dans la Library du dossier de
   données et dans l'état du set ; le set sonne comme enregistré partout ; chaque instance joue sa copie ; même règle
   pour les Samples.
+- [Où tourne le code d'une Machine utilisateur](issues/05-ou-tourne-le-code.md) : dans le DSP voix, à la manière
+  d'X.20 (tables d'appel à 211 entrées) ; mêmes règles que les intégrées (prévisualisation, JIT à l'avance, départ
+  aligné) ; ni plafond de code ni refus au-delà de ce qu'X.20 refuse ; NEIGHBOUR attend son descripteur.
+- [La référence du son après « Booter X.20 »](issues/09-reference-du-son.md) : la spécification MDS et l'oreille pour
+  0.1.2, plus la lecture des conversions Pitch et Decay dans l'OS X.20 ; X.20 dans mdLib sur une carte à part ; les
+  corrections d'émulateur reviennent sur `main`.
 
 ## Not yet specified
 
-- Les tranches de construction : charger un paquet MDS1 dans le moteur, les imports 1, 6, 7 et 8, la conversion des
-  paramètres (l'octet de conversion de MDM1), les drapeaux TONAL, CONTINUOUS RETRIGGER, NEIGHBOUR et STEREO PAIR, une
-  Machine utilisateur dans le dump de Kit, la prévisualisation du Hit, la compilation à l'avance du JIT, les tests
-  contre X.20. Elles sortent une fois tranchés « Faire jouer TX8-BD sur un DSP56300 nu », « Où tourne le code d'une
-  Machine utilisateur », « Le paramètre Machine et USR-01 à USR-16 » et « Où vivent les Machines utilisateur
-  installées ».
+- Les drapeaux TONAL et CONTINUOUS RETRIGGER : ce que MoDule en fait (les modes d'accord d'X.20 sont hors périmètre).
+- NEIGHBOUR et STEREO PAIR (les 9 NFX et les 4 SYN-F) : le descripteur de quatre tampons qu'X.20 tient à Y:`$7F0` et
+  fait tourner Track après Track, que le harnais du DSP voix devra tenir ; le rôle stéréo à Y+9. Refusés d'ici là.
 - L'éditeur : le navigateur de Machines (la catégorie de MDM1, le sprite 32x24), les noms de SYN1-8 tirés de MDM1,
   l'installation par lâcher et par le Menu.
-- Où sonne un Hit d'une Machine utilisateur par rapport à `Engine::AlignedStart`.
 - Le fondu ANTI-CLICK qu'X.20 fait avant TRIG : le faire ou non, OS 1.63 n'en a pas.
 - Le nom et les paramètres d'une Machine utilisateur dans le fichier `.kit` de md-drums-seq et sur Push.
 - SAMPLE_INFO et SAMPLE_READ, pour qu'une Machine utilisateur lise les Samples (lien avec la carte des Samples).
@@ -86,4 +89,6 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 - Le séquenceur d'X.20 : le séquenceur du firmware reste au repos, md-drums-seq séquence (cadrage).
 - RAM_WORKSPACE et RAM_RECORD : la RAM est hors périmètre comme sur la carte des Samples (cadrage).
 - Installer une Machine utilisateur par SysEx depuis l'hôte (cadrage).
+- X.20 booté dans mdLib (l'unité MAC du ColdFire, puis la suite) : une carte à part, plus tard
+  ([La référence du son après « Booter X.20 »](issues/09-reference-du-son.md)).
 - La vérification à la main sous macOS.

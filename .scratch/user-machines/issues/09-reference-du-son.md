@@ -1,7 +1,8 @@
 # La référence du son après « Booter X.20 »
 
 Type: grilling
-Status:
+Status: resolved
+Assignee: c0remusic (session du 2026-10-17)
 Blocked by: 02
 
 ## Question
@@ -13,3 +14,15 @@ ticket jusqu'à ce qu'un Hit de TX8-BD sorte), ou se contenter, pour 0.1.2, de l
 l'utilisateur, X.20 dans mdLib devenant une carte à part ? Avec : les conversions Pitch et Decay, qu'aucune autre
 source ne donne (lire leur code dans l'OS X.20 décodé par « Décoder l'OS X.20 » en est une troisième voie), et les
 trois corrections d'émulateur de la branche `x20-boot` (CMPU, EOR #xxxx, push d'octet), à garder sur `main` ou non.
+
+## Answer
+
+Choix de l'utilisateur (2026-10-17) :
+
+- **Pour 0.1.2, la spécification MDS et l'oreille de l'utilisateur** font la référence. X.20 booté dans mdLib (l'unité
+  MAC du ColdFire, puis la suite) sort de cette carte : une carte à part, plus tard.
+- **Plus un ticket de recherche ciblé** : [Lire les conversions Pitch et Decay dans l'OS X.20](10-conversions-pitch-decay.md),
+  dans l'OS déjà décodé par « Décoder l'OS X.20 », sans le booter : les seules conversions que la spécification ne
+  donne pas.
+- **Les trois corrections d'émulateur de `x20-boot` reviennent sur `main`** après le garde-fou complet :
+  [Reprendre les corrections d'émulateur de x20-boot](11-corrections-emulateur.md).
