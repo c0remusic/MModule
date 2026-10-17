@@ -28,8 +28,7 @@ namespace md::engine
 	constexpr uint8_t kFirstUserMachine = 194;
 	constexpr bool isUserMachine(const uint8_t _id) { return _id >= kFirstUserMachine && _id < kFirstUserMachine + 16; }
 
-	// TVoices: VoiceEngine (default) or any type with the same setSlot/renderBlock/Block/kSlotWords surface
-	// (e.g. ParallelVoiceEngine, which splits the 16 slots across threads - see its header).
+	// TVoices: VoiceEngine, or any type with the same setSlot/renderBlock/Block/kSlotWords surface.
 	template<class TVoices = VoiceEngine>
 	class HostModel
 	{
@@ -180,7 +179,6 @@ namespace md::engine
 		uint32_t m_tickCount = 0;
 		int m_maxActive = kTracks * 2;
 		std::array<bool, kTracks> m_silenceNext{};	// budget victims to silence on their next tick
-		std::array<float, kTracks> m_costEma{};	// DSP instructions per block a track costs while it sounds (moving average), for group balancing
 		std::vector<int> m_activeOrder;	// least- to most-recently-triggered
 		int m_releaseThreshold = -1, m_releaseBlocks = 0;	// silence release, off (see setSilenceRelease)
 		std::array<int, kTracks> m_quiet{};	// consecutive quiet blocks per sounding voice

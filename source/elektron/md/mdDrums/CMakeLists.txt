@@ -56,10 +56,6 @@ if(BUILD_TESTING)
 	# The Hit screen's preview (ticket 28): the Hit the Device would play first, the same each time, on a shared thread
 	add_md_drums_test(mdDrumsHitPreviewTest "FirmwareTest" 120)
 
-	# Measurement, not a gate: the voices split across threads (ParallelVoiceEngine) against the single voice DSP. Run by
-	# hand (ticket 25 of the editor map)
-	add_md_drums_executable(mdDrumsParallelTest)
-
 	# A Track's first Hit against the next ones, the OS's code and the voice DSP apart, on a cold engine and on one whose
 	# machines were compiled ahead (ticket 31): the times are printed, the two engines' samples must be the same
 	add_md_drums_test(mdDrumsFirstHitTest "FirmwareTest" 120)

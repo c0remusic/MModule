@@ -42,7 +42,7 @@ if(MSVC)
 
 	set(CMAKE_STATIC_LINKER_FLAGS_RELEASE "${CMAKE_STATIC_LINKER_FLAGS_RELEASE} /LTCG")
 	# /DEBUG turns the linker's dead code removal off unless asked for: the plug-in otherwise ships every function of every
-	# object it links, called or not (JUCE's modules whole, the Monomachine's codecs, ParallelVoiceEngine)
+	# object it links, called or not (JUCE's modules whole, the Monomachine's codecs)
 	set(CMAKE_MODULE_LINKER_FLAGS_RELEASE "${CMAKE_MODULE_LINKER_FLAGS_RELEASE} /LTCG /DEBUG /OPT:REF /OPT:ICF")
 	set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_MODULE_LINKER_FLAGS_RELEASE} /LTCG /DEBUG")
 	set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /LTCG /DEBUG")

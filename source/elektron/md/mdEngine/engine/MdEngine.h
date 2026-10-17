@@ -10,24 +10,19 @@
 #include <string>
 #include <vector>
 
-#include <type_traits>
-#include <vector>
 #include "HostModel.h"
 #include "MachineRunner.h"
 #include "MasterEngine.h"
 #include "Mixer.h"
-#include "ParallelVoiceEngine.h"
 #include "TrackFx.h"
 #include "VoiceEngine.h"
 
 namespace md::engine
 {
-	// TVoices: VoiceEngine (default, one DSP2 instance) or ParallelVoiceEngine (splits the 16 voices across
-	// threads - see its header and HANDOFF.md, "per-machine cost profiled"). Template so both share this same
-	// code; defined inline here (not in Engine.cpp, which is now just an include of this header, kept so
-	// existing build commands that name engine/Engine.cpp as a source file still work) so each consumer gets
-	// its own instantiation without needing whole-class explicit instantiation, which would force every
-	// TVoices to support every constructor overload below.
+	// TVoices: VoiceEngine, the one DSP2 instance that renders the 16 voices. A template as upstream has it, defined
+	// inline here (MdEngine.h, not Engine.h: macOS file systems ignore case and that would be the MPC wrapper's
+	// engine.h). md-drums: upstream's other TVoices, ParallelVoiceEngine (the 16 voices split across threads), is
+	// left out: measured and not worth it (ticket 25 of MD Drums' editor map).
 	template<class TVoices = VoiceEngine>
 	class EngineT
 	{
@@ -35,24 +30,12 @@ namespace md::engine
 		static constexpr int kTracks = 16;
 		static constexpr int kBlock = 32;
 
-		// _osImage: the OS file's section 0 (the ColdFire OS), decompressed. Constructs TVoices with just the
-		// firmware (VoiceEngine's own constructor).
+		// _osImage: the OS file's section 0 (the ColdFire OS), decompressed.
 		EngineT(const fw::Firmware& _fw, std::vector<uint8_t> _osImage)
 			: m_tables(std::make_shared<const TrackFx::Tables>(_fw)), m_mixer(*m_tables)
 		{
 			m_os = std::make_unique<MachineRunner>(std::move(_osImage));
 			m_voices = std::make_unique<TVoices>(_fw);
-			init();
-		}
-
-		// As above, but forwards _voicesArg to TVoices' constructor too (e.g. ParallelVoiceEngine's group
-		// count). Only ever instantiated for a TVoices whose constructor actually takes (firmware, _voicesArg).
-		template<class TVoicesArg>
-		EngineT(const fw::Firmware& _fw, std::vector<uint8_t> _osImage, TVoicesArg _voicesArg)
-			: m_tables(std::make_shared<const TrackFx::Tables>(_fw)), m_mixer(*m_tables)
-		{
-			m_os = std::make_unique<MachineRunner>(std::move(_osImage));
-			m_voices = std::make_unique<TVoices>(_fw, _voicesArg);
 			init();
 		}
 
@@ -81,44 +64,37 @@ namespace md::engine
 		// after loadRomBank, before the first render. Returns the machines run, or -1 if the voice DSP faulted.
 		int warmUpVoices(const int _blocks = 4)
 		{
-			if constexpr(kParallel)
+			const auto state = m_voices->saveState();
+			const auto os = m_os->clone();
+			std::vector<const MachineInfo*> machines;
+			for(const auto& m : os->machines())
+				if(isAudioMachine(m.id) && m.name.rfind("RAM", 0) != 0)
+					machines.push_back(&m);
+			typename TVoices::Block block;
+			bool ok = true;
+			for(size_t first = 0; first < machines.size() && ok; first += kTracks)
 			{
-				return 0;
-			}
-			else
-			{
-				const auto state = m_voices->saveState();
-				const auto os = m_os->clone();
-				std::vector<const MachineInfo*> machines;
-				for(const auto& m : os->machines())
-					if(isAudioMachine(m.id) && m.name.rfind("RAM", 0) != 0)
-						machines.push_back(&m);
-				typename TVoices::Block block;
-				bool ok = true;
-				for(size_t first = 0; first < machines.size() && ok; first += kTracks)
+				for(int b = 0; b < _blocks && ok; ++b)
 				{
-					for(int b = 0; b < _blocks && ok; ++b)
+					for(size_t v = 0; v < static_cast<size_t>(kTracks) && first + v < machines.size(); ++v)
 					{
-						for(size_t v = 0; v < static_cast<size_t>(kTracks) && first + v < machines.size(); ++v)
-						{
-							const auto& machine = *machines[first + v];
-							// SYN1-8: the machine reads no other
-							std::array<uint16_t, 8> params{};
-							for(size_t p = 0; p < 8; ++p)
-								params[p] = static_cast<uint16_t>(machine.defaults[p] << 7);
-							uint32_t out[32];
-							const int n = os->compute(machine.id, params.data(), out, 32, b == 0);
-							if(n < 0)
-								continue;
-							out[0] = b == 0 ? static_cast<uint32_t>(machine.id) + 1 : 0;
-							m_voices->setSlot(static_cast<int>(v), out, std::clamp(n, 1, static_cast<int>(TVoices::kSlotWords)));
-						}
-						ok = m_voices->renderBlock(block);
+						const auto& machine = *machines[first + v];
+						// SYN1-8: the machine reads no other
+						std::array<uint16_t, 8> params{};
+						for(size_t p = 0; p < 8; ++p)
+							params[p] = static_cast<uint16_t>(machine.defaults[p] << 7);
+						uint32_t out[32];
+						const int n = os->compute(machine.id, params.data(), out, 32, b == 0);
+						if(n < 0)
+							continue;
+						out[0] = b == 0 ? static_cast<uint32_t>(machine.id) + 1 : 0;
+						m_voices->setSlot(static_cast<int>(v), out, std::clamp(n, 1, static_cast<int>(TVoices::kSlotWords)));
 					}
+					ok = m_voices->renderBlock(block);
 				}
-				m_voices->restoreState(*state);
-				return ok ? static_cast<int>(machines.size()) : -1;
 			}
+			m_voices->restoreState(*state);
+			return ok ? static_cast<int>(machines.size()) : -1;
 		}
 
 		// md-drums: a User Machine at USR-01 to USR-16 (_index 0-15): its code into the voice DSP, its package to the host
@@ -127,39 +103,29 @@ namespace md::engine
 		// play (VoiceEngine::installUserMachine).
 		void installUserMachine(const int _index, std::shared_ptr<const md::mds::Package> _package, const int _blocks = 4)
 		{
-			if constexpr(kParallel)
+			m_voices->installUserMachine(_index, _package);
+			m_host->setUserMachine(_index, _package);
+			const auto state = m_voices->saveState();
+			uint32_t words[9] = {};
+			for(size_t p = 0; p < _package->parameters.size() && p < 8; ++p)
+				words[1 + p] = md::mds::convert(_package->parameters[p], _package->parameters[p].defaultValue,
+					m_host->decayTable());
+			typename TVoices::Block block;
+			bool ok = true;
+			for(int b = 0; b < _blocks && ok; ++b)
 			{
-				throw std::runtime_error("User Machines play on one voice DSP only");
+				words[0] = b == 0 ? VoiceEngine::kFirstUserType + static_cast<uint32_t>(_index) : 0;
+				m_voices->setSlot(0, words, 9);
+				ok = m_voices->renderBlock(block);
 			}
-			else
-			{
-				m_voices->installUserMachine(_index, _package);
-				m_host->setUserMachine(_index, _package);
-				const auto state = m_voices->saveState();
-				uint32_t words[9] = {};
-				for(size_t p = 0; p < _package->parameters.size() && p < 8; ++p)
-					words[1 + p] = md::mds::convert(_package->parameters[p], _package->parameters[p].defaultValue,
-						m_host->decayTable());
-				typename TVoices::Block block;
-				bool ok = true;
-				for(int b = 0; b < _blocks && ok; ++b)
-				{
-					words[0] = b == 0 ? VoiceEngine::kFirstUserType + static_cast<uint32_t>(_index) : 0;
-					m_voices->setSlot(0, words, 9);
-					ok = m_voices->renderBlock(block);
-				}
-				m_voices->restoreState(*state);
-				if(!ok)
-					throw std::runtime_error("voice DSP fault while compiling " + _package->displayName());
-			}
+			m_voices->restoreState(*state);
+			if(!ok)
+				throw std::runtime_error("voice DSP fault while compiling " + _package->displayName());
 		}
 		void removeUserMachine(const int _index)
 		{
-			if constexpr(!kParallel)
-			{
-				m_voices->removeUserMachine(_index);
-				m_host->setUserMachine(_index, nullptr);
-			}
+			m_voices->removeUserMachine(_index);
+			m_host->setUserMachine(_index, nullptr);
 		}
 
 		// md-drums: each voice's 32 samples of the last block, before its Track's effects (for the tests)
@@ -202,13 +168,10 @@ namespace md::engine
 		bool timingOn = false;
 		double fxUs = 0, mixUs = 0, masterUs = 0;
 
-		static constexpr bool kParallel = std::is_same_v<TVoices, ParallelVoiceEngine>;
-
 		// One track's effects: a settled silent track's chain gives the same again while its input stays silent and
 		// its state (which holds its params) stays the same, so it is skipped. Exact - see HANDOFF.md, "fixed
-		// per-block cost". Touches only track _t's state, so tracks can run on different threads (each with its own
-		// TrackFx: its scratch buffers are per instance).
-		void fxTrack(TrackFx& _fx, const int _t, const int32_t* _src, int32_t* _dst)
+		// per-block cost".
+		void fxTrack(const int _t, const int32_t* _src, int32_t* _dst)
 		{
 			TrackFx::setParams(m_state[_t], m_host->mixerInput(_t).fx.data());
 			const bool silentIn = std::all_of(_src, _src + kBlock, [](int32_t s) { return s == 0; });
@@ -218,7 +181,7 @@ namespace md::engine
 				return;
 			}
 			const auto before = m_state[_t];
-			_fx.process(m_state[_t], _src, _dst);
+			m_fx->process(m_state[_t], _src, _dst);
 			m_settled[_t] = silentIn && m_state[_t].y == before.y && std::all_of(_dst, _dst + kBlock, [](int32_t s) { return s == 0; });
 			if(m_settled[_t])
 				m_settledState[_t] = m_state[_t];
@@ -227,7 +190,6 @@ namespace md::engine
 		bool render(Output& _out)
 		{
 			m_host->timingOn = timingOn;
-			m_out = &_out;
 			if(!m_host->renderBlock(m_voiceOut))
 				return false;
 			// md-drums: the master words the tick computed, before the master runs on this block (the OS sends them while
@@ -240,10 +202,8 @@ namespace md::engine
 			}
 			using Clock = std::chrono::steady_clock;
 			const auto tf0 = timingOn ? Clock::now() : Clock::time_point{};
-			// Parallel: the groups' threads already ran their tracks' effects (see init()).
-			if constexpr(!kParallel)
-				for(int t = 0; t < kTracks; ++t)
-					fxTrack(*m_fxs[0], t, m_voiceOut[t].data(), _out.tracks[t].data());
+			for(int t = 0; t < kTracks; ++t)
+				fxTrack(t, m_voiceOut[t].data(), _out.tracks[t].data());
 			// md-drums: without the mixer (mixOn), each track's output is all there is
 			if(!mixOn)
 				return true;
@@ -277,27 +237,14 @@ namespace md::engine
 			m_host = std::make_unique<HostModel<TVoices>>(*m_os, *m_voices);
 			for(auto& s : m_state)
 				TrackFx::init(s);
-			m_fxs.push_back(std::make_unique<TrackFx>(*m_tables));
-			if constexpr(kParallel)
-			{
-				// Each group's thread runs the effects of its own tracks right after its voices render.
-				for(int g = 1; g < m_voices->groupCount(); ++g)
-					m_fxs.push_back(std::make_unique<TrackFx>(*m_tables));
-				m_voices->setPost([this](int _g, const typename TVoices::Block& _blk)
-				{
-					for(int t = 0; t < kTracks; ++t)
-						if(m_voices->groupOf(t) == _g)
-							fxTrack(*m_fxs[static_cast<size_t>(_g)], t, _blk[t].data(), m_out->tracks[t].data());
-				});
-			}
+			m_fx = std::make_unique<TrackFx>(*m_tables);
 		}
 
 		std::unique_ptr<MachineRunner> m_os;
 		std::unique_ptr<TVoices> m_voices;
 		std::unique_ptr<HostModel<TVoices>> m_host;
 		std::shared_ptr<const TrackFx::Tables> m_tables;	// md-drums: shared, so that the editor measures with them (tables())
-		std::vector<std::unique_ptr<TrackFx>> m_fxs;	// one per voice group (one when not parallel)
-		Output* m_out = nullptr;
+		std::unique_ptr<TrackFx> m_fx;
 		Mixer m_mixer;
 		std::unique_ptr<MasterEngine> m_master;	// md-drums: the master effects, once enabled
 		std::array<TrackFx::State, kTracks> m_state{};
@@ -307,6 +254,4 @@ namespace md::engine
 	};
 
 	using Engine = EngineT<VoiceEngine>;
-	// Constructed with (firmware, osImage, groupCount) - see ParallelVoiceEngine.h.
-	using ParallelEngine = EngineT<ParallelVoiceEngine>;
 }

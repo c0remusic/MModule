@@ -68,6 +68,10 @@ later versions can be compared file by file. Their documentation is in `.scratch
   `$200000` (as its own comment says), and `saveState` copied them all. `MasterEngine` already uses 2M.
 - `engine/HostModel.h`: `isAudioMachine` (MID and CTR give the voice DSP nothing), shared with `warmUpVoices`.
 - `engine/MachineRunner.cpp`: `call` pushes its arguments from their list itself, without copying them into a vector.
+- Removed: `engine/ParallelVoiceEngine.*` (the 16 voices split across threads, measured and not worth it: ticket 25
+  of MD Drums' editor map), with `EngineT`'s branches for it, `HostModel`'s voice-group balancing and the
+  instruction counts it read from `VoiceEngine`; and `engine/Engine.cpp`, an include of `MdEngine.h` kept for build
+  scripts this repository does not have.
 
 Machinemodule's own `dsp56300` fork is not used: its x64 JIT stops the voice DSP's init on Windows
 (`instruction budget exceeded at PC=$10008b`), and ours runs it.

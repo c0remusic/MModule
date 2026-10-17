@@ -375,26 +375,14 @@ namespace md::engine
 	bool VoiceEngine::readBlock(Block& _out, const uint64_t _maxInstructions)
 	{
 		auto& hi = m_periphX->getHI08();
-		m_lastActive = 0;
-		uint64_t prev = m_dsp->getInstructionCounter();
-		int idx = 0;
 		for(auto& voice : _out)
 		{
 			if(!runUntilTx(1, _maxInstructions))
 				return false;
-			// The DSP reaches voice k's flag after finishing voice k-1's render: the instructions between two flags are
-			// the previous voice's cost (an idle voice costs almost nothing).
-			{
-				const uint64_t now = m_dsp->getInstructionCounter();
-				if(idx > 0) m_voiceInstr[static_cast<size_t>(idx - 1)] = static_cast<uint32_t>(now - prev);
-				prev = now;
-			}
 			const TWord flag = hi.readTX() & 0xffffff;
-			if(flag == 1) ++m_lastActive;
 			if(flag != 1)
 			{
 				voice.fill(0);
-				++idx;
 				continue;
 			}
 			if(!runUntilTx(voice.size(), _maxInstructions))
@@ -404,9 +392,7 @@ namespace md::engine
 				const TWord t = hi.readTX() & 0xffffff;
 				s = static_cast<int32_t>(t << 8) >> 8;
 			}
-			++idx;
 		}
-		m_voiceInstr[kVoices - 1] = static_cast<uint32_t>(m_dsp->getInstructionCounter() - prev);
 		return true;
 	}
 
@@ -446,10 +432,6 @@ namespace md::engine
 		auto& hi = m_periphX->getHI08();
 		const TWord go = 1;
 		hi.writeRX(&go, 1);
-		const auto start = m_dsp->getInstructionCounter();
-		if(!readBlock(_out, kMaxInstrBlock))
-			return false;
-		m_lastInstructions = m_dsp->getInstructionCounter() - start;
-		return true;
+		return readBlock(_out, kMaxInstrBlock);
 	}
 }

@@ -2,10 +2,8 @@
 
 #include <chrono>
 #include <cstdlib>
-#include "ParallelVoiceEngine.h"
 
 #include <algorithm>
-#include <type_traits>
 #include <vector>
 #include <cmath>
 
@@ -235,13 +233,11 @@ namespace md::engine
 	template<class TVoices>
 	void HostModel<TVoices>::hit(const int _track, const int _velocity, const bool _accent)
 	{
-		bool wasSounding = false;
 		// Voice budget: the tracks that have sounded (and so keep costing DSP time until silenced) are kept in trigger
 		// order, and a trigger that would take their total cost past the budget cuts the least-recently-triggered ones.
 		{
 			auto it = std::find(m_activeOrder.begin(), m_activeOrder.end(), _track);
-			wasSounding = it != m_activeOrder.end();
-			if(wasSounding)
+			if(it != m_activeOrder.end())
 				m_activeOrder.erase(it);
 			const int self = voiceCost(m_pendingMachine[_track] >= 0 ? static_cast<uint8_t>(m_pendingMachine[_track]) : m_machine[_track]);
 			auto total = [&] { int c = self; for(const int t : m_activeOrder) c += voiceCost(m_machine[t]); return c; };
@@ -254,34 +250,6 @@ namespace md::engine
 			}
 			m_activeOrder.push_back(_track);
 			m_quiet[static_cast<size_t>(_track)] = 0;
-		}
-		if constexpr(std::is_same_v<TVoices, ParallelVoiceEngine>)
-		{
-			// Balance the voice groups: a track that was not sounding takes the group with the least sounding cost; one
-			// that was keeps its group (its DSP voice state lives there). The old group's copy is silenced.
-			const int groups = m_voices.groupCount();
-			if(groups > 1 && !wasSounding)
-			{
-				std::vector<int> cost(static_cast<size_t>(groups), 0);
-				for(const int t : m_activeOrder)
-					if(t != _track)
-						cost[static_cast<size_t>(m_voices.groupOf(t))] += static_cast<int>(m_costEma[static_cast<size_t>(t)] > 0 ? m_costEma[static_cast<size_t>(t)] : 3000.f * static_cast<float>(voiceCost(m_machine[t])));
-				int best = m_voices.groupOf(_track);
-				for(int g = 0; g < groups; ++g)
-					if(cost[static_cast<size_t>(g)] < cost[static_cast<size_t>(best)])
-						best = g;
-				if(best != m_voices.groupOf(_track))
-				{
-					uint32_t out[32];
-					const uint16_t params[8] = {};
-					const int n = m_os.compute(0, params, out, 32);
-					if(n > 0)
-					{
-						out[0] = 1;
-						m_voices.moveVoice(_track, best, out, std::min(n, TVoices::kSlotWords));
-					}
-				}
-			}
 		}
 		m_trigger[_track] = true;
 		m_velocity[_track] = static_cast<uint8_t>(std::clamp(_velocity, 1, 127));
@@ -478,13 +446,6 @@ namespace md::engine
 			tickUs += std::chrono::duration<double, std::micro>(t1 - t0).count();
 			dspUs += std::chrono::duration<double, std::micro>(t2 - t1).count();
 		}
-		if(ok)
-			for(int t = 0; t < kTracks; ++t)	// what each sounding track costs the DSP (idle voices cost a few dozen instructions)
-			{
-				const auto x = static_cast<float>(m_voices.voiceInstructions(t));
-				if(x > 500.f)
-					m_costEma[static_cast<size_t>(t)] = m_costEma[static_cast<size_t>(t)] > 0 ? 0.95f * m_costEma[static_cast<size_t>(t)] + 0.05f * x : x;
-			}
 		if(ok && m_releaseThreshold >= 0)
 			for(size_t i = 0; i < m_activeOrder.size();)
 			{
@@ -507,5 +468,4 @@ namespace md::engine
 	}
 
 	template class HostModel<VoiceEngine>;
-	template class HostModel<ParallelVoiceEngine>;
 }

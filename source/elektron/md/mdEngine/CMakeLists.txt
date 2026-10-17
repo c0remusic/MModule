@@ -11,7 +11,6 @@ add_library(mdEngine STATIC
 	engine/MasterEngine.cpp engine/MasterEngine.h
 	engine/MdEngine.h
 	engine/Mixer.cpp engine/Mixer.h
-	engine/ParallelVoiceEngine.cpp engine/ParallelVoiceEngine.h
 	engine/TrackFx.cpp engine/TrackFx.h
 	engine/VoiceEngine.cpp engine/VoiceEngine.h
 	tools/mdfw/Firmware.cpp tools/mdfw/Firmware.h
