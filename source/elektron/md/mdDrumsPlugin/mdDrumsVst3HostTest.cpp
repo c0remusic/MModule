@@ -882,7 +882,8 @@ namespace
 				shown);
 			require(editor->getWidth() > 0 && editor->getHeight() > 0, "the editor has no size");
 			require(shown >= 16, "the editor drew nothing in the host's window");
-			std::printf("Editor open and idle: %s\n", cpuWhile([] { pump(3000); }).text.c_str());
+			const auto idle = cpuWhile([] { pump(3000); });
+			std::printf("Editor open and idle: %s\n", idle.text.c_str());
 
 			std::atomic<bool> stop{false};
 			std::vector<double> openMs;
@@ -931,10 +932,14 @@ namespace
 			pump(300);
 			// The plug-in keeps its editor (PluginEditorState) for when the host opens the window again: its frame stops.
 			// Measured on the reference PC: 25 Mcycles/s, against 20 to 34 with no editor at all; the views' own timers,
-			// before the editor's frame, kept 68
+			// before the editor's frame, kept 68, as much as the editor open. A loaded PC raises all three, the closed
+			// editor by up to 16 over no editor (55.9 against 39.9, the editor open 76.2): the bound is halfway to the
+			// editor open, at least 15 over no editor
 			const auto closed = cpuWhile([] { pump(3000); });
 			std::printf("Editor closed and kept: %s\n", closed.text.c_str());
-			require(closed.mcyclesPerSecond < noEditor.mcyclesPerSecond + 15.0,
+			const auto bound = std::max(noEditor.mcyclesPerSecond + 15.0,
+				(noEditor.mcyclesPerSecond + idle.mcyclesPerSecond) / 2.0);
+			require(closed.mcyclesPerSecond < bound,
 				"the editor keeps working on the message thread once its window is closed");
 		}
 	}
