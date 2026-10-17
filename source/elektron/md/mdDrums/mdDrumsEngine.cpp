@@ -379,6 +379,11 @@ namespace mdDrums
 		m_state->engine.host().lock(_track, _param, _value);
 	}
 
+	void Engine::accent(const int _track, const int _amount)
+	{
+		m_state->engine.host().accent(_track, _amount);
+	}
+
 	void Engine::setLevel(const int _track, const int _level)
 	{
 		m_state->engine.host().setLevel(_track, _level);

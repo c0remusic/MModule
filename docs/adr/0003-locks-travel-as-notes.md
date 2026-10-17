@@ -83,3 +83,26 @@ file is written at once for a new id and again when the Kit played changes, at m
 (renamed over itself); it goes fifteen seconds after its device's last hello, and with the plug-in. Notes 36-51 and
 64-87 are unchanged. `mdDrumsDeviceTest` checks the hello and the files on a clock of its own, `mdDrumsProcessorTest`
 a hello through the host's MIDI.
+
+## Amendment (2026-10-17): note 88 accents its Hit
+
+The Machinedrum's sequencer plays an accented step at velocity 128 + 2 x the Pattern's accent amount. A MIDI note stops
+at 127 and the OS gives MIDI notes no accent, so no input of MD Drums carried one, although the engine plays it
+(`HostModel::trigger`'s accent, `setAccentAmount`). md-drums-seq gives its Patterns an Accent row and an amount
+(md-drums-seq issue 26).
+
+Note 88, after the Locks' 64-87, accents the Hit it goes with, as the sequencer accents a step: that Hit plays at
+velocity 128 + 2 x amount, and its Link's Hit too, as the OS's note handler gives the trig group's track the trigger's
+accent ($20cf8c).
+
+- It binds to its Hit as a Lock does: on channels 2-16 it names its Track; on channel 1 it goes with the last channel-1
+  Hit received just before it at the same sample, or else Track 1. It applies to that Hit within the same 32-sample
+  block, and is dropped without one.
+- Its velocity carries the accent amount on the Locks' scale, 1-63 for 0-62 and 64-127 for themselves
+  (`messages::lockValue`). The amount stays the engine's from then on, as the Pattern's does on the machine.
+- The engine takes it where the block's Locks are taken (`HostModel::accent`), so the Hit's note-on, which triggers at
+  once, may come before it: no Hit waits for it, and every Hit still sounds `Engine::HitDelay` after its note.
+- Its note-off does nothing, like a Lock's.
+- md-drums-seq sends, at one tick and for every ratchet of an accented step, the Hit, then its Locks, then note 88.
+  `mdDrumsDeviceTest` checks that order, both rules of channel 1, the Link, the drop, and the loudness on the Track's
+  Out: at amount 64 the Hit plays about twice as loud as at velocity 127.

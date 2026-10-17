@@ -104,6 +104,9 @@ namespace mdDrums
 		// A Lock (0-127, ADR 0003) for _track's Hit in the next block: the parameter plays it at once until the track's
 		// next Hit, which plays the Kit's value again unless it has its own; dropped if no Hit of _track comes in the block
 		void lock(int _track, int _param, int _value);
+		// An accent (ADR 0003, amended 2026-10-17) for _track's Hit in the next block, as a Lock goes with it: that Hit and
+		// its Link's play at velocity 128 + 2 x _amount (0-127), the accent amount from then on; dropped without the Hit
+		void accent(int _track, int _amount);
 		void setLevel(int _track, int _level);				// 0-127
 		// A muted track is silent and drops its Hits, firing neither its Link nor its Choke
 		void setMute(int _track, bool _mute);

@@ -1,7 +1,7 @@
 // MD Drums' Device driven by MIDI bytes alone, through synthLib::Plugin as the plug-in drives it: it boots with factory
 // Kit 1, plays notes 36-51 and drops the others, takes the Machinedrum's CCs and SysEx from the editor and ignores the
 // host's, answers ASSIGN MACHINE with the 24 parameters it sets as CCs, plays Mute, Solo and Out, keeps its Kit and
-// mixer across a state round trip, plays Locks (ADR 0003), and renders with notes and CCs without allocating. It
+// mixer across a state round trip, plays Locks and accents (ADR 0003), and renders with notes and CCs without allocating. It
 // reports the note-to-sound latency at 44.1 and 48 kHz, and fills the Telemetry the editor reads (peaks, Hits) for at
 // most 1 % of one core. md-drums-seq's Kit files need no flash image: they are checked without one too.
 // usage: mdDrumsDeviceTest [--measure], which also times the whole Device with and without its Telemetry
@@ -606,7 +606,81 @@ namespace
 		std::printf("Locks on channel 1: with the last channel-1 Hit just before at the same sample, else Track 1's\n");
 	}
 
-	// A note on that plays nothing (outside 36-51 and 64-87) counts in the Telemetry, which the editor says (ticket 35);
+	// Accents (ADR 0003, amended 2026-10-17): note 88 accents the Hit it goes with, as the Machinedrum's sequencer accents
+	// a step, its velocity the accent amount on the Locks' scale. The Hit plays at velocity 128 + 2 x amount, heard on its
+	// Track's Out, where the gain follows the velocity: louder than velocity 127 at amount 0, about twice as loud at 64.
+	// As md-drums-seq sends it, after the Hit and its Locks at the same sample, on channel 1 with the last channel-1 Hit;
+	// on its Track's channel in either order; its Link's Hit accented too; dropped without a Hit in its block.
+	void accents(const std::vector<uint8_t>& _flash)
+	{
+		constexpr uint8_t Track3 = 38;
+		const auto take = [&](const uint8_t _track, const std::function<void(Take&)>& _send)
+		{
+			Take t(_flash);
+			t.rig.send(MidiEventSource::Editor, mdDrums::messages::out(0, 1).message());	// Track 1 on Out 01
+			t.rig.send(MidiEventSource::Editor, mdDrums::messages::out(2, 3).message());	// Track 3 on Out 03
+			t.rig.send(MidiEventSource::Editor, mdDrums::messages::out(3, 4).message());	// Track 4 on Out 04
+			_send(t);
+			return t.rig.listen(static_cast<size_t>(2 + _track));
+		};
+		const auto hit = [](Take& _t, const uint8_t _note, const uint8_t _velocity, const uint8_t _channel = 0)
+		{
+			_t.rig.send(MidiEventSource::Host, {static_cast<uint8_t>(0x90 | _channel), _note, _velocity}, Take::Offset);
+		};
+		const auto accent = [](Take& _t, const uint8_t _amount, const uint8_t _channel = 0)
+		{
+			_t.rig.send(MidiEventSource::Host, {static_cast<uint8_t>(0x90 | _channel),
+				static_cast<uint8_t>(mdDrums::Device::AccentNote), lockVelocity(_amount)}, Take::Offset);
+		};
+
+		const auto loudest = take(0, [&](Take& _t) { hit(_t, 36, 127); });
+		const auto amount0 = take(0, [&](Take& _t) { hit(_t, 36, 100); _t.lock(Srr, 0); accent(_t, 0); });
+		const auto amount64 = take(0, [&](Take& _t) { hit(_t, 36, 100); _t.lock(Srr, 0); accent(_t, 64); });
+		std::printf("accents: velocity 127 %.4f; accented at amount 0 %.4f, at 64 %.4f (%.3f times velocity 127's, "
+			"256 / 127 = %.3f)\n", loudest, amount0, amount64, amount64 / loudest, 256.0 / 127.0);
+		require(loudest > 0.01f && amount0 > loudest, "an accented Hit is not louder than velocity 127");
+		require(std::abs(amount64 / loudest - 256.0f / 127.0f) < 0.05f, "an accent of 64 does not play velocity 256");
+
+		// On its Track's channel before or after its Hit; on channel 1 with the last channel-1 Hit, another channel's Hit
+		// between them; Track 1's on channel 1 with no Hit before it, so dropped for Track 3
+		const auto plain3 = take(2, [&](Take& _t) { hit(_t, Track3, 100); });
+		const auto byChannel = take(2, [&](Take& _t) { accent(_t, 64, 2); hit(_t, Track3, 100); });
+		const auto byHit = take(2, [&](Take& _t) { hit(_t, Track3, 100); hit(_t, 40, 100, 4); accent(_t, 64); });
+		const auto before = take(2, [&](Take& _t) { accent(_t, 64); hit(_t, Track3, 100); });
+		require(byChannel > 2.0f * plain3, "an accent on Track 3's channel did not accent its Hit");
+		require(byHit == byChannel, "an accent on channel 1 did not go with the last channel-1 Hit");
+		require(before == plain3, "an accent on channel 1 before any Hit went to Track 3");
+
+		// Its Link's Hit too: Track 3 linked to Track 4
+		const auto linked = [&](const bool _accented)
+		{
+			return take(3, [&](Take& _t)
+			{
+				_t.rig.send(MidiEventSource::Editor, *sysex::linkChange(2, 3));
+				hit(_t, Track3, 100);
+				if(_accented)
+					accent(_t, 64);
+			});
+		};
+		require(linked(true) > 2.0f * linked(false), "an accented Hit did not accent its Link's");
+
+		// Dropped without a Hit in its block: the Hit two host blocks later plays unaccented
+		const auto later = [&](const bool _accent)
+		{
+			return take(0, [&](Take& _t)
+			{
+				if(_accent)
+					accent(_t, 64);
+				_t.rig.process();
+				_t.rig.process();
+				hit(_t, 36, 127);
+			});
+		};
+		require(later(true) == later(false), "an accent without its Hit reached a later Hit");
+		std::printf("accents: on its Track's channel, with the last channel-1 Hit, on its Link, dropped without its Hit\n");
+	}
+
+	// A note on that plays nothing (outside 36-51 and 64-88) counts in the Telemetry, which the editor says (ticket 35);
 	// a Hit and a Lock do not
 	void unplayed(const std::vector<uint8_t>& _flash)
 	{
@@ -974,6 +1048,7 @@ int main(const int _argc, char** _argv)
 		parameters(_flash);
 		assignAndLfo(_flash);
 		locks(_flash);
+		accents(_flash);
 		unplayed(_flash);
 		hello(_flash);
 		allocations(_flash);

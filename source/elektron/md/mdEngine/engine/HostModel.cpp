@@ -107,6 +107,33 @@ namespace md::engine
 	}
 
 	template<class TVoices>
+	void HostModel<TVoices>::accent(const int _track, const int _amount)
+	{
+		if(_track < 0 || _track >= kTracks)
+			return;
+		m_accentPending |= 1u << _track;
+		m_accentPendingAmount = static_cast<uint8_t>(std::clamp(_amount, 0, 127));
+	}
+
+	template<class TVoices>
+	void HostModel<TVoices>::applyAccents()
+	{
+		// The block's accented Hits, and their Links' (the note handler gives the trig group's track the trigger's
+		// accent, $20cf8c), before any voice's mixer words are computed; an accent whose track has no Hit drops
+		for(int t = 0; t < kTracks && m_accentPending; ++t)
+		{
+			if(!((m_accentPending >> t) & 1) || !m_trigger[t])
+				continue;
+			m_accentAmount = m_accentPendingAmount;
+			m_accent[t] = true;
+			const auto link = m_link[t];
+			if(link < kTracks && link != t && m_trigger[link])
+				m_accent[link] = true;
+		}
+		m_accentPending = 0;
+	}
+
+	template<class TVoices>
 	uint8_t HostModel<TVoices>::target(const int _track, const int _param) const
 	{
 		return (m_locked[_track] >> _param) & 1 ? m_lockValue[_track][_param] : m_raw[_track][_param];
@@ -382,6 +409,7 @@ namespace md::engine
 			if(m_trigger[t])
 				applyLocks(t);
 		m_lockPending.fill(0);
+		applyAccents();
 		m_cutBy.fill(kOff);
 		if(m_blockCount++ % kBlocksPerTick == 0)
 			tick();

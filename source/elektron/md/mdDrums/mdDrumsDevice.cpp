@@ -222,14 +222,19 @@ namespace mdDrums
 			m_helloNotes = 0;
 			const auto track = static_cast<int>(_event.b) - FirstNote;
 			const auto param = static_cast<int>(_event.b) - FirstLockNote;
+			// A Lock's or an accent's Track. Channels 2-16 name their Track. Channel 1 names the last channel-1 Hit just
+			// before at the same sample: Live gives a Max for Live device's notes channel 1, and a printed Track 1 plays
+			// there among the other Tracks' channels (ADR 0003, amended); without one, Track 1
+			const auto channel = _event.a & 0x0f;
+			const auto boundTrack = channel == 0 && m_lastHitPosition == m_position ? m_lastHitTrack : channel;
 			if(param >= 0 && param < Engine::ParamCount)
 			{
-				// Channels 2-16 name their Track. Channel 1 names the last channel-1 Hit just before at the same sample:
-				// Live gives a Max for Live device's notes channel 1, and a printed Track 1 plays there among the other
-				// Tracks' channels (ADR 0003, amended); without one, Track 1
-				const auto channel = _event.a & 0x0f;
-				const auto lockTrack = channel == 0 && m_lastHitPosition == m_position ? m_lastHitTrack : channel;
-				m_engine->lock(lockTrack, param, messages::lockValue(_event.c));
+				m_engine->lock(boundTrack, param, messages::lockValue(_event.c));
+				return;
+			}
+			if(_event.b == AccentNote)
+			{
+				m_engine->accent(boundTrack, messages::lockValue(_event.c));
 				return;
 			}
 			if(track < 0 || track >= Engine::TrackCount)

@@ -55,6 +55,10 @@ namespace md::engine
 		// holds it until the track's next Hit; a Hit without a lock on a parameter the last Hit locked plays the Kit's
 		// value again, at once too. A lock with no Hit of its track in that block is dropped; param() stays the Kit's.
 		void lock(int _track, int _param, int _value);
+		// md-drums: an accent for the track's Hit in the block about to render, as the sequencer's accented step: that Hit
+		// and its Link's play at velocity 128 + 2 x _amount, the accent amount (0-127) from then on. Taken where the
+		// block's locks are, so the Hit's trigger may come before it; with no Hit of its track in that block, dropped.
+		void accent(int _track, int _amount);
 		void setTempo(double _bpm);							// tempo factor for tempo-synced LFOs and E12/ROM retrig
 		// velocity 1-127; accent: the sequencer's accented step (velocity becomes 128 + 2 x accent amount). A muted track
 		// drops its Hit, as the OS's note handler does ($20ccf6), and so fires neither its Link nor its Choke.
@@ -169,6 +173,9 @@ namespace md::engine
 		void applyLocks(int _track);
 		uint8_t target(int _track, int _param) const;
 		std::array<uint32_t, kTracks> m_lockPending{};
+		void applyAccents();
+		uint32_t m_accentPending = 0;	// bit n: track n's Hit in the block about to render is accented
+		uint8_t m_accentPendingAmount = 0;
 		std::array<uint32_t, kTracks> m_locked{};
 		std::array<std::array<uint8_t, kParams>, kTracks> m_lockPendingValue{};
 		std::array<std::array<uint8_t, kParams>, kTracks> m_lockValue{};

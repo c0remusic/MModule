@@ -28,6 +28,8 @@ namespace mdDrums
 	public:
 		static constexpr int FirstNote = 36;
 		static constexpr int FirstLockNote = 64;	// SYN1 to LFOM, the engine's parameter order; velocity: lockValue()
+		// After the Locks: accents the Hit it goes with, as a Lock goes with it; velocity: the accent amount, lockValue()
+		static constexpr int AccentNote = 88;
 		// md-drums-seq's hello (KitFiles): note-ons 124 to 127 in that order, on any channel, each velocity 1 + six
 		// bits of the device's id, the most significant first (helloVelocity); another note-on between them cancels
 		// it. They play nothing.

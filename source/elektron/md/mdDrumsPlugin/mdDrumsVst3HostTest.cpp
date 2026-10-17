@@ -1,8 +1,8 @@
 // MD Drums as a host loads it: the VST3 the user installs, through JUCE's VST3 hosting, as Live does.
 // mdDrumsProcessorTest checks the processor; this checks the VST3 layer between it and the host: the class and the
 // 608 parameter IDs that Live sets keep (the hashes of the frozen "page_part_index" strings), the only automatable ones
-// with Bypass; Main and 15 Outs, any Track on any (Live opens 16 buses); notes, Locks (as md-drums-seq sends them in
-// Live) and host automation through the VST3 process call; the latency reported; the state through IComponent; the same
+// with Bypass; Main and 15 Outs, any Track on any (Live opens 16 buses); notes, Locks and accents (as md-drums-seq sends
+// them in Live) and host automation through the VST3 process call; the latency reported; the state through IComponent; the same
 // samples whatever the block sizes and offline; no block that stalls the audio thread; nothing told to the host as an
 // edit (performEdit, which Live records while it records) as it loads, plays Locks, automates, restores a state or
 // changes a Track's machine, whose 24 parameters the host reads again, and Push 2's relays as edits when the host shows
@@ -809,6 +809,49 @@ namespace
 				}
 				std::printf("\n");
 				require(instance->told.edited(ids).empty(), "printed: MD Drums told the host of a Lock");
+				render(plugin, {}, g_rate);
+			}
+
+			// Accents through VST3, as md-drums-seq sends them in Live (ADR 0003, amended 2026-10-17): on channel 1, each
+			// Hit, then its Lock, then on every other beat note 88 at amount 64, at the same sample. Accented, a Hit of
+			// velocity 100 plays at 256: more than twice as loud as the others on Track 1's Out
+			{
+				instance->told.clear();
+				constexpr int accentNote = 88;
+				std::vector<Note> notes;
+				for(int beat = 0; beat < 8; ++beat)
+				{
+					const auto at = g_beat * (beat + 1);
+					const auto off = at + g_beat / 4;
+					notes.push_back({at, 36, 100, 1});
+					notes.push_back({at, 64 + g_vol, 100, 1});
+					if(beat % 2)
+					{
+						notes.push_back({at, accentNote, 64, 1});
+						notes.push_back({off, accentNote, 0, 1, true});
+					}
+					notes.push_back({off, 64 + g_vol, 0, 1, true});
+					notes.push_back({off, 36, 0, 1, true});
+				}
+				std::stable_sort(notes.begin(), notes.end(), [](const Note& _a, const Note& _b) { return _a.sample < _b.sample; });
+				const auto take = render(plugin, notes, g_beat * 10);
+				pump(200);
+				float plainMost = 0.0f, accentedLeast = 1e9f;
+				std::printf("Accents: Track 1 on channel 1, each Hit then its Lock then note 88 on every other beat (A):");
+				for(int beat = 0; beat < 8; ++beat)
+				{
+					const auto value = std::abs(peak(take, 2, g_beat * (beat + 1) + g_block, g_beat / 2));
+					const bool accented = beat % 2;
+					std::printf(" %s%.3f", accented ? "A" : "", value);
+					if(accented)
+						accentedLeast = std::min(accentedLeast, value);
+					else
+						plainMost = std::max(plainMost, value);
+				}
+				std::printf("\n");
+				require(plainMost > g_sound && accentedLeast > 2.0f * plainMost,
+					"accents: an accented Hit is not louder than twice a Hit of velocity 100");
+				require(instance->told.edited(ids).empty(), "accents: MD Drums told the host of an accent");
 				render(plugin, {}, g_rate);
 			}
 		}
