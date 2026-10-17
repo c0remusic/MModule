@@ -18,7 +18,14 @@
 #include "synthLib/deviceException.h"
 #include "synthLib/os.h"
 
+#include "MdsPackage.h"
+
+#include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdio>
+#include <fstream>
+#include <iterator>
 
 namespace mdDrums
 {
@@ -229,6 +236,65 @@ namespace mdDrums
 			if(sample && !(held && *held == *sample))
 				setDeviceSample(rom, sample);
 		}
+	}
+
+	Processor::Import Processor::importFile(const std::filesystem::path& _file, const int _track)
+	{
+		auto extension = _file.extension().u8string();
+		std::transform(extension.begin(), extension.end(), extension.begin(),
+			[](const char _c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(_c))); });
+		const auto name = _file.filename().u8string();
+		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
+		if(!device)
+			return {false, -1, "MoDule needs its flash image first"};
+		auto* machine = _track >= 0 && _track < Engine::TrackCount ? getController().getParameter("Machine",
+			static_cast<uint8_t>(_track)) : nullptr;
+		const auto playing = machine ? static_cast<uint8_t>(machine->getUnnormalizedValue()) : uint8_t{0};
+		const auto play = [&](const int _id)
+		{
+			if(machine)
+				machine->setUnnormalizedValueNotifyingHost(_id, pluginLib::Parameter::Origin::Ui);
+		};
+		const auto onTrack = machine ? ", Track " + std::to_string(_track + 1) : std::string();
+
+		if(extension == ".syx" || extension == ".mds")
+		{
+			// The number the Track plays, else the first free one
+			int index = md::engine::isUserMachine(playing) ? playing - Engine::FirstUserMachine : -1;
+			for(int i = 0; i < Library::Size && index < 0 && m_library; ++i)
+				if(!m_library->get(i))
+					index = i;
+			if(index < 0)
+				return {false, -1, "The 16 User Machines are taken: " + name + " was not installed"};
+			std::ifstream in(_file, std::ios::binary);
+			const std::vector<uint8_t> bytes{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+			if(auto error = installUserMachine(index, bytes); !error.empty())
+				return {false, -1, name + ": " + error};
+			const auto id = Engine::FirstUserMachine + index;
+			play(id);
+			const auto package = m_library->get(index);
+			char number[8];
+			std::snprintf(number, sizeof(number), "USR-%02d", index + 1);
+			return {true, id, (package ? package->displayName() : name) + " installed as " + number + onTrack};
+		}
+		if(extension == ".wav" || extension == ".wave" || extension == ".aif" || extension == ".aiff" || extension == ".flac")
+		{
+			// The ROM the Track plays, else the first of ROM-33 to ROM-48 without a user's Sample
+			int rom = Samples::romOf(playing);
+			for(int r = 32; r < Samples::RomCount && rom < 0; ++r)
+				if(!device->sample(r))
+					rom = r;
+			if(rom < 0)
+				return {false, -1, "ROM-33 to ROM-48 all hold a Sample: put " + name + " on a Track playing a ROM Machine"};
+			if(auto error = loadSampleFile(rom, _file); !error.empty())
+				return {false, -1, error};
+			const auto id = rom < 32 ? 128 + rom : 176 + rom - 32;
+			play(id);
+			char number[8];
+			std::snprintf(number, sizeof(number), "ROM-%02d", rom + 1);
+			return {true, id, name + " on " + number + onTrack};
+		}
+		return {false, -1, name + ": MoDule takes WAV, AIFF and FLAC files, and User Machines (.syx, .mds)"};
 	}
 
 	std::array<std::shared_ptr<const Sample>, Samples::RomCount> Processor::samples()

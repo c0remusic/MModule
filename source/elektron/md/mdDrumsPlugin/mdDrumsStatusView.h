@@ -5,6 +5,7 @@
 #include "juce_gui_basics/juce_gui_basics.h"
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -46,6 +47,13 @@ namespace mdDrums
 
 		// Opens a file chooser for the flash image, then gives the file to Processor::loadFlashImage
 		void chooseFlashImage();
+		// Opens a file chooser for a User Machine (.syx, .mds), then imports it (the Menu's "Install User Machine...")
+		void chooseUserMachine();
+		// A file chosen or dropped, imported for the Track shown (Processor::importFile), what happened said for a few
+		// seconds; true when it went
+		bool importFile(const std::filesystem::path& _file);
+		// _text on the line for a few seconds, from the next frame on
+		void say(std::string _text);
 		// The line as it stands, for the tests
 		std::string text() const;
 
@@ -76,6 +84,9 @@ namespace mdDrums
 		std::string m_flashError;
 		bool m_flashErrorNew = false;	// said from the next frame on, for a few seconds
 		double m_flashErrorUntil = 0.0;
+		std::string m_said;
+		bool m_saidNew = false;			// say's, from the next frame on, for a few seconds
+		double m_saidUntil = 0.0;
 		double m_nextMs = 0.0;			// when the frame looks again
 		std::string m_latestSeen;					// the check's last release this view took
 		std::optional<updates::Release> m_newer;	// newer than this build

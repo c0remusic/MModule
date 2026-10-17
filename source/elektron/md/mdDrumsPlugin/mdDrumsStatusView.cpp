@@ -1,5 +1,6 @@
 #include "mdDrumsStatusView.h"
 
+#include "mdDrumsController.h"
 #include "mdDrumsDevice.h"
 #include "mdDrumsEditor.h"
 #include "mdDrumsFrame.h"
@@ -83,6 +84,12 @@ namespace mdDrums
 			m_flashErrorNew = false;
 			m_flashErrorUntil = seconds + g_flashErrorSeconds;
 		}
+		if(m_saidNew)
+		{
+			m_saidNew = false;
+			m_saidUntil = seconds + g_flashErrorSeconds;
+			m_nextMs = 0.0;
+		}
 		if(!_frame.every(m_nextMs, RefreshHz))
 			return false;
 
@@ -117,6 +124,8 @@ namespace mdDrums
 			return {device ? m_flashError : m_flashError + ": choose another", Action::ChooseFlash};
 		if(!device)
 			return {"No Machinedrum flash image: choose the file", Action::ChooseFlash};
+		if(now < m_saidUntil)
+			return {m_said, Action::None};
 
 		const auto& telemetry = m_editor.processor().getTelemetry();
 		if(const auto count = telemetry.unplayedCount(); count != m_unplayedSeen)
@@ -149,6 +158,36 @@ namespace mdDrums
 		case Action::None:
 			break;
 		}
+	}
+
+	void StatusView::say(std::string _text)
+	{
+		m_said = std::move(_text);
+		m_saidNew = true;
+	}
+
+	bool StatusView::importFile(const std::filesystem::path& _file)
+	{
+		const auto track = m_editor.controller().getCurrentPart();
+		const auto result = m_editor.processor().importFile(_file, track);
+		say(result.text);
+		// Said at once, with the Track's new machine
+		m_editor.frame();
+		return result.ok;
+	}
+
+	void StatusView::chooseUserMachine()
+	{
+		// A FileChooser deleted drops its callback: the one this replaces, or this view's when the editor closes
+		m_chooser = std::make_unique<juce::FileChooser>("Install a User Machine (MDX X.20's .syx or .mds)",
+			juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.syx;*.mds");
+		m_chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+			[this](const juce::FileChooser& _chooser)
+			{
+				const auto file = _chooser.getResult();
+				if(file != juce::File())
+					importFile(pathOf(file));
+			});
 	}
 
 	void StatusView::chooseFlashImage()

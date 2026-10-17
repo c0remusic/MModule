@@ -96,6 +96,21 @@ namespace mdDrums
 		void takeSamples(const md::automation::sysex::MdKit& _kit);
 		// The user's Samples (ticket 10 of the Samples map), "Samples" in the plug-in's data folder, made with the Bank
 		SampleLibrary* getSampleLibrary() const { return m_samples.get(); }
+		// What choosing a file in the Menu or dropping it on the editor does (ticket 16 of the User Machines map, 06 of the
+		// Samples map), _track (0-15) then playing it:
+		// - a User Machine (.syx, .mds) goes into the Library at the number _track plays, or else the first free one
+		//   (none: refused), and into this instance's Device;
+		// - an audio file (WAV, AIFF, FLAC) becomes the Sample of the ROM Machine _track plays, or else of the first of
+		//   ROM-33 to ROM-48 without a user's Sample (loadSampleFile).
+		// The line the editor shows: what went where, or why not.
+		struct Import
+		{
+			bool ok = false;
+			int machine = -1;	// the machine id _track now plays
+			std::string text;
+		};
+		Import importFile(const std::filesystem::path& _file, int _track);
+
 		// The Samples this instance's Device plays, for the Hit preview; none without a Device. On the message thread.
 		std::array<std::shared_ptr<const Sample>, Samples::RomCount> samples();
 

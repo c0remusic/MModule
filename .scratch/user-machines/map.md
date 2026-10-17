@@ -83,14 +83,15 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 - [La référence du son après « Booter X.20 »](issues/09-reference-du-son.md) : la spécification MDS et l'oreille pour
   0.1.2, plus la lecture des conversions Pitch et Decay dans l'OS X.20 ; X.20 dans mdLib sur une carte à part ; les
   corrections d'émulateur reviennent sur `main`.
+- [Installer une Machine utilisateur par le Menu](issues/16-installer-par-le-menu.md) : construit ; Menu et lâcher
+  par le même import, premier numéro libre, la Track montrée la joue, la ligne d'état le dit.
 
 ## Not yet specified
 
 - Les drapeaux TONAL et CONTINUOUS RETRIGGER : ce que MoDule en fait (les modes d'accord d'X.20 sont hors périmètre).
 - NEIGHBOUR et STEREO PAIR (les 9 NFX et les 4 SYN-F) : le descripteur de quatre tampons qu'X.20 tient à Y:`$7F0` et
   fait tourner Track après Track, que le harnais du DSP voix devra tenir ; le rôle stéréo à Y+9. Refusés d'ici là.
-- L'installation par lâcher : avec « Où lâcher » de la carte des Samples. Le sprite 32x24 de MDM1 : où le montrer,
-  si l'éditeur le montre.
+- Le sprite 32x24 de MDM1 : où le montrer, si l'éditeur le montre.
 - Le fondu ANTI-CLICK qu'X.20 fait avant TRIG : le faire ou non, OS 1.63 n'en a pas.
 - Le nom et les paramètres d'une Machine utilisateur sur Push.
 - SAMPLE_INFO et SAMPLE_READ, pour qu'une Machine utilisateur lise les Samples (lien avec la carte des Samples).

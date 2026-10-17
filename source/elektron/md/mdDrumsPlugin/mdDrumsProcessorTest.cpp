@@ -779,6 +779,57 @@ namespace
 		folder.deleteRecursively();
 	}
 
+	// A file chosen in the Menu or dropped on the editor (ticket 16 of the User Machines map, 06 of the Samples map),
+	// through Processor::importFile: an audio file on a Track that plays no ROM Machine goes to the first of ROM-33 to
+	// ROM-48 without a user's Sample, and the Track plays it; on a Track that plays one, it replaces that ROM's Sample.
+	// A User Machine goes to the first free number, and the Track plays it; with the 16 taken it is refused. Any other
+	// file is refused, saying what MoDule takes.
+	void imports(const double _rate)
+	{
+		const auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("MoDuleImportsTest");
+		folder.deleteRecursively();
+		require(folder.createDirectory().wasOk(), "no folder for the test's files");
+		juce::WavAudioFormat wav;
+		const auto low = writeTone(wav, folder.getChildFile("low.wav"), 44100.0, 1, 0.5).getFullPathName().toStdString();
+		const auto high = writeTone(wav, folder.getChildFile("high.wav"), 22050.0, 1, 0.5).getFullPathName().toStdString();
+		const auto saw = folder.getChildFile("saw.mds");
+		const auto package = mdDrums::test::sawPackage();
+		require(saw.replaceWithData(package.data(), package.size()), "the test's User Machine file was not written");
+		const auto text = folder.getChildFile("notes.txt");
+		require(text.replaceWithText("not a Sample"), "the test's text file was not written");
+
+		mdDrums::Processor processor(true);
+		require(prepare(processor, _rate, g_block), "no Device for the imports");
+		const auto machineOf = [&](const uint8_t _track)
+		{
+			return static_cast<int>(parameter(processor, "Machine", _track).getUnnormalizedValue());
+		};
+
+		const auto first = processor.importFile(low, 0);
+		require(first.ok && first.machine == 176 && machineOf(0) == 176 && device(processor).sample(32)
+			&& device(processor).sample(32)->name == "low.wav", "a WAV on Track 1 did not go to ROM-33: " + first.text);
+		const auto replaced = processor.importFile(high, 0);
+		require(replaced.ok && replaced.machine == 176 && device(processor).sample(32)->name == "high.wav"
+			&& !device(processor).sample(33), "a WAV on a Track playing ROM-33 did not replace its Sample: " + replaced.text);
+		const auto second = processor.importFile(low, 1);
+		require(second.ok && second.machine == 177 && machineOf(1) == 177, "a WAV on Track 2 did not go to ROM-34");
+
+		const auto user = processor.importFile(saw.getFullPathName().toStdString(), 2);
+		require(user.ok && user.machine == mdDrums::Engine::FirstUserMachine && machineOf(2) == user.machine
+			&& device(processor).userMachine(0), "a User Machine on Track 3 did not go to USR-01: " + user.text);
+		// No Track (-1): installed only
+		for(int i = 1; i < mdDrums::Library::Size; ++i)
+			require(processor.importFile(saw.getFullPathName().toStdString(), -1).ok, "USR-" + std::to_string(i + 1)
+				+ " was not installed");
+		const auto full = processor.importFile(saw.getFullPathName().toStdString(), 4);
+		require(!full.ok && full.text.find("taken") != std::string::npos, "a 17th User Machine was not refused");
+		const auto other = processor.importFile(text.getFullPathName().toStdString(), 0);
+		require(!other.ok && machineOf(0) == 176, "a text file was not refused");
+		std::printf("imports: \"%s\"; \"%s\"; \"%s\"; \"%s\"; \"%s\"\n", first.text.c_str(), replaced.text.c_str(),
+			user.text.c_str(), full.text.c_str(), other.text.c_str());
+		folder.deleteRecursively();
+	}
+
 	// User Machines (tickets 07 and 14 of the User Machines map): installed into a Processor's Library and its Device,
 	// played on a Track; a set opened where none is installed plays its own copy; two instances hold two Machines at the
 	// same number; a Kit of the Bank takes the Library's; a Track on a number the Device lacks takes the Library's
@@ -866,6 +917,7 @@ int main()
 				userMachines(rate);
 				sampleFiles(rate);
 				keptSamples(rate);
+				imports(rate);
 			}
 			juce::AudioProcessor& host = processor;
 

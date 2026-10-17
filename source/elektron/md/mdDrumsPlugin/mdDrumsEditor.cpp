@@ -1,5 +1,6 @@
 #include "mdDrumsEditor.h"
 
+#include "mdDrumsDropView.h"
 #include "mdDrumsFilterView.h"
 #include "mdDrumsFrame.h"
 #include "mdDrumsGlyph.h"
@@ -73,6 +74,7 @@ namespace mdDrums
 		m_kitsView = std::make_unique<KitsView>(*this);
 		m_linksView = std::make_unique<LinksView>(*this);
 		m_statusView = std::make_unique<StatusView>(*this);
+		m_dropView = std::make_unique<DropView>(*this);
 
 		// The frame before every RmlUi update (under its lock: the views' writes are laid out and drawn in that
 		// update); the first one now, so that the first render shows the Track and not the skin's defaults; then the
@@ -251,6 +253,12 @@ namespace mdDrums
 			if(auto* editor = dynamic_cast<Editor*>(getEditor()))
 				if(auto* status = editor->getStatusView())
 					status->chooseFlashImage();
+		});
+		menu.addEntry("Install User Machine...", [this]
+		{
+			if(auto* editor = dynamic_cast<Editor*>(getEditor()))
+				if(auto* status = editor->getStatusView())
+					status->chooseUserMachine();
 		});
 		menu.addSeparator();
 		menu.addEntry("Prepare Push list: a page per Track (Live in Configure mode)", [this]

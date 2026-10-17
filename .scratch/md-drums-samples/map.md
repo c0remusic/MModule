@@ -61,6 +61,8 @@ Windows (macOS construit par la CI, pas vérifié à la main). Pas de tag.
   moyenne des canaux, rate du fichier jusqu'à 48 kHz, boucle `smpl`, codes de 12 bits par la table de l'OS.
 - [La bibliothèque des Samples et l'état du set](issues/10-bibliotheque-et-etat.md) : construit ; `ROM-NN.smp`
   partagés dans le dossier de données, copie par instance, l'état du set porte les Samples de son Kit.
+- [Où lâcher](issues/06-ou-lacher.md) (prototype construit, jugement dans Live en attente) : sur le nom de la Machine et
+  l'écran Hit ; la ROM de la Track, sinon la première ROM-33..48 libre ; la ligne d'état dit ce qui s'est passé.
 
 ## Not yet specified
 

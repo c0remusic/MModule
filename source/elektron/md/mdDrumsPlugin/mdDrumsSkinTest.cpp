@@ -23,6 +23,7 @@
 
 #include "mdDrumsBank.h"
 #include "mdDrumsController.h"
+#include "mdDrumsDropView.h"
 #include "mdDrumsEditor.h"
 #include "mdDrumsEngine.h"
 #include "mdDrumsFilterView.h"
@@ -38,6 +39,7 @@
 #include "mdDrumsTrackView.h"
 
 #include "jucePluginEditorLib/pluginEditorState.h"
+#include "juce_audio_formats/juce_audio_formats.h"
 #include "juceRmlPlugin/rmlParameterBinding.h"
 #include "juceRmlUi/juceRmlComponent.h"
 #include "juceRmlUi/juceRmlLookAndFeel.h"
@@ -1276,6 +1278,39 @@ namespace
 		look(300);
 		require(view->text().empty() && !line->IsVisible(), "the note that plays nothing is said for more than 5 s");
 		std::printf("status: said for 5 s, then gone\n");
+
+		// A WAV dropped on the editor (ticket 06 of the Samples map, DropView): Track 1 plays it on ROM-33, the line says
+		// so within its box; the files a drop takes, by their extension
+		require(mdDrums::DropView::takes("a.WAV") && mdDrums::DropView::takes("b.flac") && mdDrums::DropView::takes("c.mds")
+			&& !mdDrums::DropView::takes("d.mp3") && !mdDrums::DropView::takes("e"), "a drop takes the wrong files");
+		const auto file = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("MoDuleDrop.wav");
+		{
+			file.deleteFile();
+			juce::WavAudioFormat wav;
+			auto out = file.createOutputStream();
+			std::unique_ptr<juce::AudioFormatWriter> writer(wav.createWriterFor(out.get(), 44100.0, 1, 16, {}, 0));
+			require(writer != nullptr, "no WAV writer");
+			out.release();
+			juce::AudioBuffer<float> tone(1, 4410);
+			for(int i = 0; i < tone.getNumSamples(); ++i)
+				tone.setSample(0, i, 0.5f * static_cast<float>(std::sin(2.0 * 3.14159265358979 * 441.0 * i / 44100.0)));
+			require(writer->writeFromAudioSampleBuffer(tone, 0, tone.getNumSamples()), "the WAV was not written");
+		}
+		auto& machine = mdDrums::testSupport::parameter(_f.processor, "Machine", 0);
+		const auto before = static_cast<int>(machine.getUnnormalizedValue());
+		require(_f.editor->getDropView() && _f.editor->getDropView()->drop(file.getFullPathName().toStdString()),
+			"a WAV dropped on the editor did not go");
+		look(1000.0 / mdDrums::StatusView::RefreshHz);
+		const auto dropped = view->text();
+		std::printf("status: a WAV dropped says \"%s\", %g of %g dp wide\n", dropped.c_str(), line->GetScrollWidth(),
+			_f.box(*line).w);
+		require(dropped == "MoDuleDrop.wav on ROM-33, Track 1" && static_cast<int>(machine.getUnnormalizedValue()) == 176,
+			"a WAV dropped did not put Track 1 on ROM-33");
+		require(line->GetScrollWidth() <= _f.box(*line).w + 0.5f, "the drop's line overflows its box");
+		_f.processor.removeSample(32);
+		mdDrums::testSupport::uiSets(machine, before);
+		look(9000);
+		file.deleteFile();
 	}
 
 	struct Spread
