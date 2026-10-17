@@ -41,7 +41,9 @@ if(MSVC)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W3 /D_CRT_SECURE_NO_WARNINGS")
 
 	set(CMAKE_STATIC_LINKER_FLAGS_RELEASE "${CMAKE_STATIC_LINKER_FLAGS_RELEASE} /LTCG")
-	set(CMAKE_MODULE_LINKER_FLAGS_RELEASE "${CMAKE_MODULE_LINKER_FLAGS_RELEASE} /LTCG /DEBUG")
+	# /DEBUG turns the linker's dead code removal off unless asked for: the plug-in otherwise ships every function of every
+	# object it links, called or not (JUCE's modules whole, the Monomachine's codecs, ParallelVoiceEngine)
+	set(CMAKE_MODULE_LINKER_FLAGS_RELEASE "${CMAKE_MODULE_LINKER_FLAGS_RELEASE} /LTCG /DEBUG /OPT:REF /OPT:ICF")
 	set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_MODULE_LINKER_FLAGS_RELEASE} /LTCG /DEBUG")
 	set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /LTCG /DEBUG")
 
@@ -68,6 +70,9 @@ elseif(APPLE)
 	# Keep release builds linkable within bounded disk and memory budgets.
 	string(APPEND CMAKE_C_FLAGS_RELEASE " -funroll-loops -Ofast -fno-lto -fno-stack-protector")
 	string(APPEND CMAKE_CXX_FLAGS_RELEASE " -funroll-loops -Ofast -fno-lto -fno-stack-protector")
+	# The plug-in's bundles without the code nothing calls (the linker keeps it all by default)
+	string(APPEND CMAKE_MODULE_LINKER_FLAGS_RELEASE " -Wl,-dead_strip")
+	string(APPEND CMAKE_SHARED_LINKER_FLAGS_RELEASE " -Wl,-dead_strip")
 else()
 	message("CMAKE_SYSTEM_PROCESSOR: " ${CMAKE_SYSTEM_PROCESSOR})
 	message("CMAKE_HOST_SYSTEM_PROCESSOR: " ${CMAKE_HOST_SYSTEM_PROCESSOR})
