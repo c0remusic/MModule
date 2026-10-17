@@ -48,6 +48,8 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 - [Décoder l'OS X.20 et y trouver ses Machines intégrées](issues/01-decoder-l-os-x20.md) : le fichier se décode en
   entier ; le DSP voix d'X.20 est celui de 1.63 plus les 8 et l'hôte des Machines utilisateur ; les 8 coûtent 3 à 5
   semaines.
+- [Booter X.20 dans mdLib](issues/02-booter-x20-dans-mdlib.md) : pas encore ; le chargeur va au bout, l'OS s'arrête
+  sur l'unité MAC du ColdFire que Musashi n'émule pas ; trois manques d'émulateur corrigés sur la branche `x20-boot`.
 - [Mémoire libre et point d'appel dans le DSP voix d'OS 1.63](issues/04-memoire-du-dsp-voix.md) : 16 Machines
   utilisateur tiennent dans le DSP voix, en place et en temps, par ses tables d'appel étendues comme X.20 ; un DSP à
   part n'apporte que l'isolement.

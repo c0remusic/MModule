@@ -2,6 +2,7 @@
 
 Type: grilling
 Status:
+Assignee: c0remusic (session du 2026-10-17)
 Blocked by: 03, 04
 
 ## Question
