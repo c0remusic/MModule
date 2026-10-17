@@ -73,6 +73,9 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   numéros 194 à 209 dans le paramètre, `$5B` et le dump ; un numéro vide joue muet.
 - [La Library et l'état du set](issues/14-library-et-etat.md) : construit ; Library partagée dans le dossier de
   données, copie par instance, l'état du set porte les Machines de son Kit.
+- [Reprendre les corrections d'émulateur de x20-boot](issues/11-corrections-emulateur.md) : faites ; CMPU et EOR
+  #xxxx sur le fork dsp56300, le push d'octet du ColdFire sur le fork mc68k de l'utilisateur, chacune testée ; le son
+  de MoDule n'en change pas.
 - [Les conversions d'X.20 dans MoDule](issues/15-conversions-x20.md) : construit ; Pitch DEFAULT par la table L,
   Decay par la table d'OS 1.63 lue dans l'image de l'utilisateur, bords d'Unipolar, Boolean et Index d'X.20.
 - [Lire les conversions Pitch et Decay dans l'OS X.20](issues/10-conversions-pitch-decay.md) : Pitch DEFAULT par une

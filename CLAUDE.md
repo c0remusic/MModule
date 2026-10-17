@@ -106,7 +106,8 @@ The ROM is required. A firmware test exits 77 without its ROM and ctest reports 
 - `origin` is c0remusic/MModule, default branch `main`. Its history and md-mm's share no commit since the filter: bring a fix of c0remusic/gearmulator-md-mm in as a patch (`git format-patch`, then `git am` with paths that still exist here), then gate.
 - Commit messages carry no `Co-authored-by` trailer.
 - Stage with explicit pathspecs.
-- `source/dsp56300` pins commits of c0remusic/dsp56300-md-mm, the user's fork: changes there are fine.
+- `source/dsp56300` pins commits of c0remusic/dsp56300-md-mm and `source/mc68k` of c0remusic/mc68k-md-mm (forked
+  from joelanders/mc68k-md-mm on 2026-10-17), the user's forks, both on their `mmodule` branch: changes there are fine.
 - CI: `.github/workflows/md-drums-macos.yml`, by hand, builds the macOS release (the runner has no flash image, so it runs `mdProtocolKitTest` alone).
 
 ## Reference

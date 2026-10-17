@@ -21,6 +21,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -224,6 +225,23 @@ namespace
 		same(os::Ctr8pAddress + 16, os::Ctr8pTargets, "Ctr8pTargets");
 		same(os::CtrBlocksAddress, os::CtrBlocks, "CtrBlocks");
 		std::printf("ASSIGN MACHINE's tables are OS 1.63's\n");
+	}
+
+	// The ColdFire that runs OS 1.63's routines (ticket 11 of the User Machines map): a byte through -(A7) or (A7)+ moves
+	// its stack pointer by one, where the 68000 moves it by two to keep it word aligned. GCC for ColdFire pushes a char
+	// argument with a byte push then subq.l #3,sp; MDX X.20's OS crashed on the 68000's rule.
+	void coldFireBytePush(const md::fw::FlashOs& _os)
+	{
+		md::engine::MachineRunner runner(_os.osImage);
+		// d1 = sp; move.b d1,-(sp); d2 = sp; d1 -= d2; move.b (sp)+,d0; d0 = sp - d2; d0 = d0 << 8 | d1; rts
+		constexpr uint16_t code[] = {0x220f, 0x1f01, 0x240f, 0x9282, 0x101f, 0x200f, 0x9082, 0xe188, 0x8081, 0x4e75};
+		constexpr uint32_t at = 0x0100e200;	// the runner's scratch area in internal SRAM, which no OS routine uses
+		for(uint32_t i = 0; i < std::size(code); ++i)
+			runner.poke16(at + 2 * i, code[i]);
+		const auto steps = runner.call(at, {});
+		std::printf("ColdFire: a byte pushed moves the stack pointer by %lld, a byte popped by %lld\n",
+			static_cast<long long>(steps & 0xff), static_cast<long long>(steps >> 8 & 0xff));
+		require(steps == 0x0101, "a byte through the ColdFire's stack pointer does not move it by one");
 	}
 
 	// Where the voices start (ticket 36): every machine that sounds, at velocity 127 with the Kit's defaults, on its own
@@ -696,6 +714,7 @@ int main()
 		equivalence(_flash, os, bank);
 		retrigger(os, bank);
 		chokes(os, bank);
+		coldFireBytePush(os);
 		conversions(os);
 		userMachines(os, bank);
 

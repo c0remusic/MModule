@@ -6,7 +6,7 @@
 	url = https://github.com/joelanders/JUCE-md-mm.git
 [submodule "source/mc68k"]
 	path = source/mc68k
-	url = https://github.com/joelanders/mc68k-md-mm.git
+	url = https://github.com/c0remusic/mc68k-md-mm.git
 [submodule "source/3rdparty/RmlUi"]
 	path = source/3rdparty/RmlUi
 	url = https://github.com/dsp56300/RmlUi.git
