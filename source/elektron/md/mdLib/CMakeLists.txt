@@ -9,7 +9,6 @@ add_library(mdLib STATIC)
 
 set(SOURCES
 	mdasyncrender.cpp mdasyncrender.h
-	mdautomationsync.cpp mdautomationsync.h
 	mdchainplayer.cpp mdchainplayer.h
 	mddevice.cpp mddevice.h
 	mddsp.cpp mddsp.h
