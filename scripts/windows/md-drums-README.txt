@@ -27,13 +27,14 @@ Install
 -------
 
 1. Copy the "MD Drums.vst3" folder to C:\Program Files\Common Files\VST3\
-2. Put elektron_sps1-1uw_os1.63.bin in Documents\c0remusic\MD Drums\roms\
-   (create the folder). MD Drums also looks in
-   %LOCALAPPDATA%\Programs\Gearmulator-Elektron\
-   Or load MD Drums first: its status line asks for the file, and a click
-   there chooses it and copies it into that folder.
-3. Rescan plug-ins in your host and load "MD Drums" (c0remusic) as an
+2. Rescan plug-ins in your host and load "MD Drums" (c0remusic) as an
    instrument.
+3. Give it the flash image: click "No Machinedrum flash image: choose the
+   file" in its top bar (or right-click the editor and choose "Load
+   Machinedrum flash image...") and pick the file. MD Drums checks it, plays at
+   once and copies it into Documents\c0remusic\MD Drums\roms\, where it
+   finds it on its own next time. You can also put the file there yourself,
+   named exactly elektron_sps1-1uw_os1.63.bin, before loading the plug-in.
 
 
 Playing

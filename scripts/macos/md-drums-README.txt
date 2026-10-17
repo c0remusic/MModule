@@ -29,9 +29,11 @@ Install
 -------
 
 The installer package (MD-Drums-...-macOS-universal.pkg, beside this zip on
-the release page) puts both into /Library/Audio/Plug-Ins/. It is not notarized:
-macOS refuses the first time; then open System Settings > Privacy & Security
-and choose "Open Anyway", or right-click the package and choose Open.
+the release page) puts both into /Library/Audio/Plug-Ins/. Apple hasn't
+notarized it, so macOS refuses it the first time: open System Settings >
+Privacy & Security, scroll down to the message about the package, click
+"Open Anyway" and confirm with your password. On macOS 15 Sequoia that is the
+only way through: right-click > Open no longer gets past Gatekeeper.
 
 Or by hand, from this zip:
 
@@ -44,10 +46,13 @@ Or by hand, from this zip:
 
 Then, either way:
 
-3. Put elektron_sps1-1uw_os1.63.bin in ~/Documents/c0remusic/MD Drums/roms/
-   (create the folder). MD Drums also looks in
-   ~/Documents/Gearmulator Preview/Machinedrum/
-4. Rescan plug-ins in your host and load "MD Drums" (c0remusic).
+3. Rescan plug-ins in your host and load "MD Drums" (c0remusic).
+4. Give it the flash image: click "No Machinedrum flash image: choose the
+   file" in its top bar (or right-click the editor and choose "Load
+   Machinedrum flash image...") and pick the file. MD Drums checks it, plays at
+   once and copies it into ~/Documents/c0remusic/MD Drums/roms/, where it finds
+   it on its own next time. You can also put the file there yourself, named
+   exactly elektron_sps1-1uw_os1.63.bin, before loading the plug-in.
 
 
 Playing
