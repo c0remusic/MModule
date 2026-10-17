@@ -311,6 +311,16 @@ namespace mdDrums
 		m_state->engine.host().setMachine(_track, _machineId);
 	}
 
+	void Engine::installUserMachine(const int _index, std::shared_ptr<const md::mds::Package> _package)
+	{
+		m_state->engine.installUserMachine(_index, std::move(_package));
+	}
+
+	void Engine::removeUserMachine(const int _index)
+	{
+		m_state->engine.removeUserMachine(_index);
+	}
+
 	const md::engine::MachineInfo* Engine::machine(const uint8_t _id) const
 	{
 		return m_state->engine.os().machine(_id);

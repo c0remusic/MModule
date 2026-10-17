@@ -8,6 +8,10 @@
 
 #include "Firmware.h"
 #include "MdEngine.h"
+#include "MdsHost.h"
+#include "MdsPackage.h"
+
+#include "dsp56kEmu/assembler.h"
 
 #include "mdProtocol/mdkitchange.h"
 
@@ -447,6 +451,209 @@ namespace
 			" engine's blocks (place %d)\n", worstRatio, worstPlace);
 		require(worstRatio <= 1.5f, "a retrigger clicks with the sample-accurate delays");
 	}
+
+	// A User Machine of the test's own, written here in DSP56300 assembly since no one else's may be carried
+	// (.scratch/user-machines/map.md): a sawtooth that decays, PTCH (raw 14-bit) its increment, DEC (unipolar) its
+	// envelope's factor per sample. Its loop's end is an address in its own code, so the package relocates it.
+	md::mds::Draft sawDraft()
+	{
+		struct Code
+		{
+			std::vector<uint32_t> words;
+			void op(const std::string& _text)
+			{
+				dsp56k::Assembler as;
+				const auto r = as.assemble(_text.c_str());
+				require(r.success(), "cannot assemble '" + _text + "'");
+				words.push_back(r.word[0]);
+				if(r.wordCount > 1)
+					words.push_back(r.word[1]);
+			}
+		};
+		const std::vector<std::string> loop{"add x0,b", "move b1,x1", "mpy x1,y0,a", "move a,y:(r7)+", "mpy y1,y0,a",
+			"move a,y0"};
+		Code body;
+		for(const auto& line : loop)
+			body.op(line);
+
+		md::mds::Draft draft;
+		Code code;
+		draft.initOffset = 0;
+		code.op("clr a");
+		code.op("move a,y:(r6+$9)");	// the phase
+		code.op("move a,y:(r6+$a)");	// the envelope
+		code.op("rts");
+		draft.trigOffset = static_cast<uint16_t>(code.words.size());
+		code.op("clr a");
+		code.op("move a,y:(r6+$9)");
+		code.op("move #>$7fffff,x0");
+		code.op("move x0,y:(r6+$a)");
+		code.op("rts");
+		draft.renderOffset = static_cast<uint16_t>(code.words.size());
+		code.op("move y:(r6+$9),b");
+		code.op("move y:(r6+$1),x0");	// PTCH
+		code.op("move y:(r6+$a),y0");
+		code.op("move y:(r6+$2),y1");	// DEC
+		const auto end = code.words.size() + 2 + body.words.size();
+		char text[32];
+		std::snprintf(text, sizeof(text), "do #32,$%zx", end);
+		draft.relocated.push_back(static_cast<uint16_t>(code.words.size() + 1));
+		code.op(text);
+		code.words.insert(code.words.end(), body.words.begin(), body.words.end());
+		code.op("move b1,y:(r6+$9)");
+		code.op("move y0,y:(r6+$a)");
+		code.op("rts");
+		draft.program = code.words;
+		draft.yWords = 11;
+		draft.declaredCycles = 900;
+		draft.category = "TST";
+		draft.code = "SW";
+		draft.name = "TEST SAW";
+		draft.id = "org.mmodule.test.saw";
+		md::mds::Parameter ptch;
+		ptch.name = "PTCH";
+		ptch.defaultValue = 100;
+		ptch.conversion = md::mds::Conversion::Raw14;
+		md::mds::Parameter dec;
+		dec.name = "DEC";
+		dec.defaultValue = 127;
+		dec.conversion = md::mds::Conversion::UnipolarQ23;
+		draft.parameters = {ptch, dec};
+		return draft;
+	}
+
+	// User Machines (ticket 12 of the User Machines map): the test's sawtooth, packaged as MDX X.20 packages are, at
+	// USR-02 on Track 3 of the engine (md::engine::Engine, as mdEngineFirmwareTest compares it): its voice gives the bare
+	// host's samples (md::mds::BareHost, mdsPlay's), from its Hit, its code relocated and its parameters converted, and the
+	// other Tracks give what they give without it. mdDrums::Engine plays it with a Hit, compiled ahead, and stops when it is
+	// removed. A package the voice DSP cannot play is refused.
+	void userMachines(const md::fw::FlashOs& _os, const md::fw::RomBank& _bank)
+	{
+		const auto package = std::make_shared<const md::mds::Package>(md::mds::parsePackage(md::mds::buildPackage(sawDraft())));
+		constexpr int user = 1;	// USR-02
+		const auto id = static_cast<uint8_t>(mdDrums::Engine::FirstUserMachine + user);
+		constexpr int track = 2;
+		constexpr int blocks = 96;
+
+		// The bare host, from INIT and TRIG on
+		md::mds::BareHost bare(*package);
+		for(size_t p = 0; p < package->parameters.size(); ++p)
+			bare.setParameter(p, package->parameters[p].defaultValue);
+		bare.init();
+		bare.trig();
+		std::vector<int32_t> alone(blocks * mdDrums::Engine::BlockSize);
+		for(int b = 0; b < blocks; ++b)
+			bare.render(alone.data() + b * mdDrums::Engine::BlockSize);
+
+		// Two engines, Tracks 1, 2 and 4 struck alike; Track 3 on the User Machine in one, on the empty machine in the other
+		const auto play = [&](const bool _withUser, std::vector<std::array<int32_t, mdDrums::Engine::BlockSize>>& _voices)
+		{
+			md::engine::Engine raw(_os.firmware, _os.osImage);
+			raw.loadRomBank(_bank);
+			mdDrums::applyEngineDefaults(raw.host());
+			if(_withUser)
+			{
+				raw.installUserMachine(user, package);
+				raw.host().setMachine(track, id);
+			}
+			else
+			{
+				raw.host().setMachine(track, 0);
+			}
+			md::engine::Engine::Output out;
+			_voices.assign(static_cast<size_t>(blocks) * mdDrums::Engine::TrackCount, {});
+			for(int b = 0; b < blocks; ++b)
+			{
+				if(b == 2)
+					for(const int t : {0, 1, track, 3})
+						raw.host().trigger(t, 100);
+				require(raw.render(out), "the engine faulted");
+				for(int t = 0; t < mdDrums::Engine::TrackCount; ++t)
+					_voices[static_cast<size_t>(b * mdDrums::Engine::TrackCount + t)] = raw.voiceBlock()[static_cast<size_t>(t)];
+			}
+		};
+		std::vector<std::array<int32_t, mdDrums::Engine::BlockSize>> with, without;
+		play(true, with);
+		play(false, without);
+
+		std::vector<int32_t> voice;
+		for(int b = 0; b < blocks; ++b)
+		{
+			const auto& block = with[static_cast<size_t>(b * mdDrums::Engine::TrackCount + track)];
+			voice.insert(voice.end(), block.begin(), block.end());
+		}
+		const auto first = static_cast<size_t>(std::find_if(voice.begin(), voice.end(), [](int32_t _s) { return _s != 0; })
+			- voice.begin());
+		require(first < voice.size(), "the User Machine is silent on its Track's voice");
+		require(first % mdDrums::Engine::BlockSize == 0, "the User Machine's voice does not start its block");
+		const std::vector<int32_t> fromHit(voice.begin() + static_cast<ptrdiff_t>(first), voice.end());
+		const std::vector<int32_t> bareSame(alone.begin(), alone.begin() + static_cast<ptrdiff_t>(fromHit.size()));
+		const auto diffs = differences(fromHit, bareSame);
+		size_t others = 0;
+		for(int b = 0; b < blocks; ++b)
+			for(int t = 0; t < mdDrums::Engine::TrackCount; ++t)
+				if(t != track && with[static_cast<size_t>(b * mdDrums::Engine::TrackCount + t)]
+					!= without[static_cast<size_t>(b * mdDrums::Engine::TrackCount + t)])
+					++others;
+		std::printf("User Machine %s at USR-02 on Track 3: its voice from block %zu, %zu samples, %zu differ from the bare"
+			" host's; the other Tracks' voices differ in %zu blocks of %d\n", package->displayName().c_str(),
+			first / mdDrums::Engine::BlockSize, fromHit.size(), diffs, others, blocks * (mdDrums::Engine::TrackCount - 1));
+		require(diffs == 0, "the User Machine's voice is not the bare host's");
+		require(others == 0, "a User Machine changed another Track's voice");
+
+		// mdDrums::Engine: installed (compiled ahead), struck like any machine on Track 1's own output, then removed
+		{
+			mdDrums::Engine engine(_os, _bank, false);
+			const auto start = std::chrono::steady_clock::now();
+			engine.installUserMachine(0, package);
+			const auto installMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+			engine.setMachine(0, mdDrums::Engine::FirstUserMachine);
+			engine.setLevel(0, 100);
+			engine.setSeparateOutputs(1);
+			std::vector<std::vector<float>> buffers(mdDrums::Engine::OutputCount, std::vector<float>(4096));
+			std::array<float*, mdDrums::Engine::OutputCount> outputs{};
+			for(int i = 0; i < mdDrums::Engine::OutputCount; ++i)
+				outputs[i] = buffers[i].data();
+			engine.render(outputs.data(), mdDrums::Engine::BlockSize * 3);
+			engine.trigger(0, 127);
+			engine.render(outputs.data(), 4096);
+			const auto& own = buffers[2];
+			const auto sounds = std::find_if(own.begin(), own.end(), [](float _v) { return _v != 0.0f; });
+			require(sounds != own.end(), "mdDrums::Engine does not play a User Machine");
+			const auto at = static_cast<int>(sounds - own.begin());
+			std::printf("User Machine on mdDrums::Engine: installed and compiled in %.1f ms; a Hit at velocity 127 sounds %d"
+				" samples after its trigger on its own output (HitDelay %d)\n", installMs, at, mdDrums::Engine::HitDelay);
+
+			engine.removeUserMachine(0);
+			for(int i = 0; i < 4; ++i)
+				engine.render(outputs.data(), 4096);
+			engine.trigger(0, 127);
+			engine.render(outputs.data(), 4096);
+			require(std::all_of(own.begin(), own.end(), [](float _v) { return std::abs(_v) < 1e-6f; }),
+				"a removed User Machine still sounds");
+
+			// Refused: an import the voice DSP does not provide (SAMPLE_READ), and NEIGHBOUR
+			auto sampleRead = sawDraft();
+			sampleRead.imports.push_back({0, 5, 10});
+			auto neighbour = sawDraft();
+			neighbour.flags = md::mds::FlagNeighbour;
+			for(const auto& draft : {sampleRead, neighbour})
+			{
+				bool refused = false;
+				try
+				{
+					engine.installUserMachine(3, std::make_shared<const md::mds::Package>(
+						md::mds::parsePackage(md::mds::buildPackage(draft))));
+				}
+				catch(const std::exception& _e)
+				{
+					refused = true;
+					std::printf("refused: %s\n", _e.what());
+				}
+				require(refused, "a User Machine the voice DSP cannot play was installed");
+			}
+		}
+	}
 }
 
 int main()
@@ -497,6 +704,7 @@ int main()
 		equivalence(_flash, os, bank);
 		retrigger(os, bank);
 		chokes(os, bank);
+		userMachines(os, bank);
 
 		// Track 1 on its own output: it leaves the main mix and sounds there alone.
 		{

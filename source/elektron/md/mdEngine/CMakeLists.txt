@@ -15,13 +15,14 @@ add_library(mdEngine STATIC
 	engine/TrackFx.cpp engine/TrackFx.h
 	engine/VoiceEngine.cpp engine/VoiceEngine.h
 	tools/mdfw/Firmware.cpp tools/mdfw/Firmware.h
+	tools/mds/MdsHost.cpp tools/mds/MdsHost.h
+	tools/mds/MdsPackage.cpp tools/mds/MdsPackage.h
 )
-target_include_directories(mdEngine PUBLIC engine tools/mdfw ${CMAKE_CURRENT_SOURCE_DIR}/../../.. ${CMAKE_CURRENT_SOURCE_DIR}/../../../mc68k)
+target_include_directories(mdEngine PUBLIC engine tools/mdfw tools/mds ${CMAKE_CURRENT_SOURCE_DIR}/../../.. ${CMAKE_CURRENT_SOURCE_DIR}/../../../mc68k)
 target_link_libraries(mdEngine PUBLIC dsp56kEmu 68kEmu)
 set_property(TARGET mdEngine PROPERTY FOLDER "Elektron")
 
 # A User Machine of MDX X.20 (jmamma/MDS) played on a bare DSP56300, outside the plug-in
-add_executable(mdsPlay tools/mds/mdsPlay.cpp tools/mds/MdsPackage.cpp tools/mds/MdsPackage.h)
-target_include_directories(mdsPlay PRIVATE tools/mds ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
-target_link_libraries(mdsPlay PRIVATE dsp56kEmu)
+add_executable(mdsPlay tools/mds/mdsPlay.cpp)
+target_link_libraries(mdsPlay PRIVATE mdEngine)
 set_property(TARGET mdsPlay PROPERTY FOLDER "Elektron")

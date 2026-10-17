@@ -82,4 +82,23 @@ namespace md::mds
 	// The word the host writes at Y:(R6+1+i) for a setting, as the documents give the conversions. Pitch and Decay
 	// are not specified there (X.20 computes them): these two are guesses until X.20 can be compared
 	uint32_t convert(const Parameter& _parameter, int _setting);
+	// The same for a setting between two steps, as the smoothing and the LFOs give it: _value is the setting << 7
+	// (0 to $3fff), and the documents allow the DSP word to fall between two settings' words
+	uint32_t convertFine(const Parameter& _parameter, uint16_t _value);
+
+	// A package from its parts, as an author's tools would make it: for tests, which carry no User Machine of anyone
+	// else. The content ID is left zero (parsePackage does not check it); the CRCs are right.
+	struct Draft
+	{
+		std::vector<uint32_t> program;		// 24-bit words, addresses relative to the program's start
+		std::vector<uint16_t> relocated;	// words that hold a program address
+		std::vector<Import> imports;
+		uint16_t initOffset = 0, trigOffset = 0, renderOffset = 0;
+		uint16_t xWords = 0, yWords = 9;
+		uint16_t declaredCycles = 1000;
+		uint8_t flags = 0;
+		std::string category, code, name, id;
+		std::vector<Parameter> parameters;
+	};
+	std::vector<uint8_t> buildPackage(const Draft& _draft);
 }

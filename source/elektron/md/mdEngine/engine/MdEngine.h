@@ -6,6 +6,8 @@
 #include <chrono>
 #include <array>
 #include <memory>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 #include <type_traits>
@@ -118,6 +120,49 @@ namespace md::engine
 				return ok ? static_cast<int>(machines.size()) : -1;
 			}
 		}
+
+		// md-drums: a User Machine at USR-01 to USR-16 (_index 0-15): its code into the voice DSP, its package to the host
+		// model, then compiled as warmUpVoices compiles the built-in Machines (a Hit at its defaults on the voice DSP alone,
+		// which then gets its memory and registers back). Never while render runs. Throws on a package the voice DSP cannot
+		// play (VoiceEngine::installUserMachine).
+		void installUserMachine(const int _index, std::shared_ptr<const md::mds::Package> _package, const int _blocks = 4)
+		{
+			if constexpr(kParallel)
+			{
+				throw std::runtime_error("User Machines play on one voice DSP only");
+			}
+			else
+			{
+				m_voices->installUserMachine(_index, _package);
+				m_host->setUserMachine(_index, _package);
+				const auto state = m_voices->saveState();
+				uint32_t words[9] = {};
+				for(size_t p = 0; p < _package->parameters.size() && p < 8; ++p)
+					words[1 + p] = md::mds::convert(_package->parameters[p], _package->parameters[p].defaultValue);
+				typename TVoices::Block block;
+				bool ok = true;
+				for(int b = 0; b < _blocks && ok; ++b)
+				{
+					words[0] = b == 0 ? VoiceEngine::kFirstUserType + static_cast<uint32_t>(_index) : 0;
+					m_voices->setSlot(0, words, 9);
+					ok = m_voices->renderBlock(block);
+				}
+				m_voices->restoreState(*state);
+				if(!ok)
+					throw std::runtime_error("voice DSP fault while compiling " + _package->displayName());
+			}
+		}
+		void removeUserMachine(const int _index)
+		{
+			if constexpr(!kParallel)
+			{
+				m_voices->removeUserMachine(_index);
+				m_host->setUserMachine(_index, nullptr);
+			}
+		}
+
+		// md-drums: each voice's 32 samples of the last block, before its Track's effects (for the tests)
+		const typename TVoices::Block& voiceBlock() const { return m_voiceOut; }
 
 		struct Output
 		{

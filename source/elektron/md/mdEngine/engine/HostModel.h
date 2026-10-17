@@ -12,15 +12,21 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "MachineRunner.h"
+#include "MdsPackage.h"
 #include "VoiceEngine.h"
 
 namespace md::engine
 {
 	// MID and CTR machines ($60-$7b) give the voice DSP nothing to play
 	constexpr bool isAudioMachine(const uint8_t _id) { return !(_id >= 0x60 && _id <= 0x7b); }
+
+	// md-drums: USR-01 to USR-16, the User Machines' ids as MDX X.20 numbers them (machine number + 128, 66 to 81)
+	constexpr uint8_t kFirstUserMachine = 194;
+	constexpr bool isUserMachine(const uint8_t _id) { return _id >= kFirstUserMachine && _id < kFirstUserMachine + 16; }
 
 	// TVoices: VoiceEngine (default) or any type with the same setSlot/renderBlock/Block/kSlotWords surface
 	// (e.g. ParallelVoiceEngine, which splits the 16 slots across threads - see its header).
@@ -35,7 +41,13 @@ namespace md::engine
 
 		// Assign a machine (0-191, MachineInfo::id). SYN1-8 take the machine's defaults. As on the MD, the voice
 		// switches machine at its next trigger, where all 24 parameters take effect immediately (no glide).
+		// md-drums: or a User Machine, USR-01 to USR-16 (isUserMachine), which takes its package's defaults, or plays the
+		// empty machine while its number holds none.
 		void setMachine(int _track, uint8_t _machineId);
+		// md-drums: the package of the User Machine at USR-01 to USR-16 (_index 0-15), or none: its defaults, and the
+		// conversions that turn its eight parameters into the words its code reads at Y:(R6+1..8). The voice DSP holds the
+		// code (VoiceEngine::installUserMachine).
+		void setUserMachine(int _index, std::shared_ptr<const md::mds::Package> _package);
 		void setParam(int _track, int _param, int _value);	// 0-127, smoothed like the MD
 		int param(int _track, int _param) const { return m_raw[_track][_param]; }
 		// md-drums: a parameter lock (0-127) for the track's Hit in the block about to render. Where the tick's trigger
@@ -177,6 +189,7 @@ namespace md::engine
 		std::array<uint8_t, kTracks> m_cutBy{};	// md-drums: cutBy, for the block being rendered
 		MasterWords m_masterWords;
 		bool m_masterPending = false;
+		std::array<std::shared_ptr<const md::mds::Package>, 16> m_userMachines{};
 
 		// md-drums: locks (bit n = parameter n) waiting for a Hit in the block about to render, and those the track's
 		// last Hit plays; the smoothing target is the lock's value on a locked parameter, the Kit's elsewhere

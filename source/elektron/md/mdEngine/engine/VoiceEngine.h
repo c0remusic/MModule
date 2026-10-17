@@ -13,6 +13,7 @@
 #include "../tools/mdfw/Firmware.h"
 
 namespace dsp56k { class DSP; class Memory; class Peripherals56303; class PeripheralsNop; class DefaultMemoryValidator; }
+namespace md::mds { struct Package; }
 
 namespace md::engine
 {
@@ -45,6 +46,20 @@ namespace md::engine
 		void writeP(uint32_t _addr, const uint32_t* _words, size_t _count);
 		uint32_t readP(uint32_t _addr) const;
 
+		// md-drums: User Machines (MDX X.20's, jmamma/MDS packages) at USR-01 to USR-16, _index 0-15, as X.20 runs them:
+		// the dispatch tables extended from OS 1.63's 193 types to 211, USR-01 being type 195 (its machine id 194, + 1),
+		// each package's code relocated into the memory P, X and Y share ($020000 + $E000 words a number), and its imports
+		// on 1.63's layout (the sine table, P-I's 1,536 words of external memory per Track, the X and Y scratch). A type
+		// without a User Machine plays the empty machine. Throws, installing nothing, on a package it cannot play: an import
+		// it does not provide (the Sample and RAM services, the rings), NEIGHBOUR or STEREO PAIR (the four-buffer
+		// descriptor X.20 keeps at Y:$7F0 is not there), more code than a number's room, a declared cost X.20 refuses.
+		// reset() keeps them.
+		static constexpr int kUserMachines = 16;
+		static constexpr uint32_t kFirstUserType = 195;
+		static void checkUserMachine(const md::mds::Package& _package);
+		void installUserMachine(int _index, std::shared_ptr<const md::mds::Package> _package);
+		void removeUserMachine(int _index);
+
 		// md-drums: the DSP's memory and registers between two blocks, and back (EngineT::warmUpVoices, which runs every
 		// machine once so that the JIT compiles its code, then puts the DSP back as it was: P holds the same code after,
 		// so what the JIT compiled stays valid)
@@ -61,6 +76,8 @@ namespace md::engine
 	private:
 		void loadImage(const fw::DspImage& _img);
 		void installHarness();
+		void extendDispatch();
+		void writeUserMachine(int _index);
 		bool runUntilTx(size_t _words, uint64_t _maxInstructions);
 		bool readBlock(Block& _out, uint64_t _maxInstructions);
 
@@ -74,5 +91,6 @@ namespace md::engine
 		int m_lastActive = 0;
 		std::array<uint32_t, kVoices> m_voiceInstr{};
 		std::string m_fault;
+		std::array<std::shared_ptr<const md::mds::Package>, kUserMachines> m_userMachines{};
 	};
 }

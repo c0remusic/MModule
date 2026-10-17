@@ -71,11 +71,27 @@ namespace md::engine
 	template<class TVoices>
 	void HostModel<TVoices>::setMachine(const int _track, const uint8_t _machineId)
 	{
+		if(isUserMachine(_machineId))
+		{
+			// md-drums: its package's defaults, or none while its number is empty
+			const auto& package = m_userMachines[_machineId - kFirstUserMachine];
+			m_pendingMachine[_track] = _machineId;
+			for(size_t p = 0; p < 8; ++p)
+				m_raw[_track][p] = package && p < package->parameters.size() ? package->parameters[p].defaultValue : 0;
+			return;
+		}
 		const auto* m = m_os.machine(_machineId);
 		if(!m) return;
 		m_pendingMachine[_track] = _machineId;
 		for(int p = 0; p < 8; ++p)
 			m_raw[_track][p] = m->defaults[p];
+	}
+
+	template<class TVoices>
+	void HostModel<TVoices>::setUserMachine(const int _index, std::shared_ptr<const md::mds::Package> _package)
+	{
+		if(_index >= 0 && _index < static_cast<int>(m_userMachines.size()))
+			m_userMachines[static_cast<size_t>(_index)] = std::move(_package);
 	}
 
 	template<class TVoices>
@@ -315,6 +331,22 @@ namespace md::engine
 		{
 			silenceVoice(_track);	// budget cut: the voice goes back to machine 0 and stops costing DSP time
 			m_silenceNext[_track] = false;
+		}
+		else if(isUserMachine(id))
+		{
+			// md-drums: a User Machine's words are its eight parameters, converted as its package says, from the voice's
+			// array after the smoothing and the LFOs (a setting between two steps falls between their words, as MDS allows);
+			// word 0 the trigger flag, the type its number's (id + 1), as the built-in Machines'
+			m_silenceNext[_track] = false;
+			uint32_t out[9] = {};
+			if(const auto& package = m_userMachines[id - kFirstUserMachine])
+			{
+				const auto* params = voiceParams(_track);
+				for(size_t p = 0; p < package->parameters.size() && p < 8; ++p)
+					out[1 + p] = md::mds::convertFine(package->parameters[p], params[p]);
+			}
+			out[0] = m_trigger[_track] ? static_cast<uint32_t>(id) + 1 : 0;
+			m_voices.setSlot(_track, out, 9);
 		}
 		else if(isAudioMachine(id))
 		{

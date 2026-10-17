@@ -1,7 +1,11 @@
 // Harness structure adapted from shnolk/monomodule src/core/dsp/DspEngine.cpp (AGPL-3.0).
 #include "VoiceEngine.h"
 
+#include "MdsPackage.h"
+
 #include <algorithm>
+#include <array>
+#include <utility>
 #include <cstdio>
 #include <cstdlib>
 #include <sstream>
@@ -49,6 +53,23 @@ namespace md::engine
 
 		constexpr uint64_t kMaxInstrInit = 200'000'000;
 		constexpr uint64_t kMaxInstrBlock = 20'000'000;
+
+		// md-drums: the dispatch tables (Y, in the memory P, X and Y share), one word per type (machine id + 1): INIT, the
+		// update (MDS's TRIG) and RENDER, which the program reads through the bases it holds at P:$8A and P:$95 and the
+		// harness through kSkipNormal's. OS 1.63's have 193 types; X.20 copies them to 211, past the end of 1.63's
+		// (.scratch/user-machines/research/04-voice-dsp-memory.md), and so does this.
+		constexpr TWord kDispatchInit = 0x145af5, kDispatchTrig = 0x145bb6, kDispatchRender = 0x145c77;
+		constexpr TWord kDispatchTypes = 193;
+		constexpr TWord kExtInit = 0x145d38, kExtTrig = 0x145e0b, kExtRender = 0x145ede;
+		constexpr TWord kExtTypes = 211;
+		constexpr TWord kInitBase = 0x8a, kTrigBase = 0x95;
+		constexpr TWord kEmptyType = 1;	// GND--, machine id 0: silent
+		// User Machines: a number's code in the memory 1.63 never writes, $020000-$0FFFFF, split in 16
+		constexpr TWord kUserCode = 0x020000, kUserCodeWords = 0xe000;
+		// Their imports on 1.63's layout: the sine table its init builds, P-I's external memory (track 0's region,
+		// 1,536 words a Track), and the stock renderers' scratch at X:0 and Y:0
+		constexpr TWord kImportSine = 0x148000, kImportExternal = 0x135600, kImportScratchX = 0, kImportScratchY = 0;
+		constexpr int kMaxDeclaredCycles = 3951;
 	}
 
 	VoiceEngine::VoiceEngine(const fw::Firmware& _fw) : m_fw(_fw)
@@ -180,7 +201,7 @@ namespace md::engine
 		{
 			TWord pc = kSkipNormal;
 			emit(pc, "movep #>1,x:<<$ffffc7");	// this voice will render: flag 1, its 32 samples follow
-			emit(pc, "move y:(r0+$145c77),r1");
+			emit(pc, "move y:(r0+" + hex(kExtRender) + "),r1");	// md-drums: the RENDER table, extended (extendDispatch)
 			m_dsp->memWriteP(pc++, 0x0af080);	// jmp >kAfterRenderFn
 			m_dsp->memWriteP(pc++, kAfterRenderFn);
 		}
@@ -203,6 +224,80 @@ namespace md::engine
 		}
 	}
 
+	void VoiceEngine::extendDispatch()
+	{
+		// The three tables copied past 1.63's, every type past 1.63's playing the empty machine until a User Machine fills it
+		constexpr std::array<std::pair<TWord, TWord>, 3> tables{{{kDispatchInit, kExtInit}, {kDispatchTrig, kExtTrig},
+			{kDispatchRender, kExtRender}}};
+		for(const auto& [from, to] : tables)
+			for(TWord t = 0; t < kExtTypes; ++t)
+				m_dsp->memWriteP(to + t, readP(from + (t < kDispatchTypes ? t : kEmptyType)));
+		// The program's own reads of the INIT and update tables (the harness reads RENDER's itself)
+		if(readP(kInitBase) != kDispatchInit || readP(kTrigBase) != kDispatchTrig)
+			throw std::runtime_error("voice DSP: the dispatch tables are not where OS 1.63 has them");
+		m_dsp->memWriteP(kInitBase, kExtInit);
+		m_dsp->memWriteP(kTrigBase, kExtTrig);
+	}
+
+	void VoiceEngine::checkUserMachine(const md::mds::Package& _package)
+	{
+		if(_package.flags & (md::mds::FlagNeighbour | md::mds::FlagStereoPair))
+			throw std::runtime_error(_package.displayName() + " processes other Tracks (NEIGHBOUR), which MoDule does not play yet");
+		for(const auto& im : _package.imports)
+		{
+			if(im.symbol != 1 && im.symbol != 6 && im.symbol != 7 && im.symbol != 8)
+				throw std::runtime_error(_package.displayName() + " needs import " + std::to_string(im.symbol)
+					+ ", which MoDule does not provide yet");
+		}
+		if(_package.program.size() > kUserCodeWords)
+			throw std::runtime_error(_package.displayName() + " has more code than a User Machine's room");
+		if(_package.declaredCycles == 0 || _package.declaredCycles > kMaxDeclaredCycles)
+			throw std::runtime_error(_package.displayName() + " declares a cost X.20 refuses");
+	}
+
+	void VoiceEngine::installUserMachine(const int _index, std::shared_ptr<const md::mds::Package> _package)
+	{
+		if(_index < 0 || _index >= kUserMachines || !_package)
+			throw std::runtime_error("no such User Machine number");
+		checkUserMachine(*_package);
+		m_userMachines[static_cast<size_t>(_index)] = std::move(_package);
+		writeUserMachine(_index);
+	}
+
+	void VoiceEngine::removeUserMachine(const int _index)
+	{
+		if(_index < 0 || _index >= kUserMachines)
+			return;
+		m_userMachines[static_cast<size_t>(_index)].reset();
+		const auto type = kFirstUserType + static_cast<TWord>(_index);
+		m_dsp->memWriteP(kExtInit + type, readP(kDispatchInit + kEmptyType));
+		m_dsp->memWriteP(kExtTrig + type, readP(kDispatchTrig + kEmptyType));
+		m_dsp->memWriteP(kExtRender + type, readP(kDispatchRender + kEmptyType));
+	}
+
+	void VoiceEngine::writeUserMachine(const int _index)
+	{
+		const auto& package = *m_userMachines[static_cast<size_t>(_index)];
+		const TWord base = kUserCode + kUserCodeWords * static_cast<TWord>(_index);
+		auto words = package.program;
+		for(size_t i = 0; i < words.size(); ++i)
+			if(package.relocate[i])
+				words[i] = (words[i] + base) & 0xffffff;
+		for(const auto& im : package.imports)
+		{
+			const TWord resource = im.symbol == 1 ? kImportSine : im.symbol == 6 ? kImportExternal
+				: im.symbol == 7 ? kImportScratchX : kImportScratchY;
+			words[im.word] = (words[im.word] + resource) & 0xffffff;
+		}
+		// Through memWriteP, so that the JIT forgets what it compiled of a User Machine this number held before
+		for(size_t i = 0; i < words.size(); ++i)
+			m_dsp->memWriteP(base + static_cast<TWord>(i), words[i]);
+		const auto type = kFirstUserType + static_cast<TWord>(_index);
+		m_dsp->memWriteP(kExtInit + type, base + package.initOffset);
+		m_dsp->memWriteP(kExtTrig + type, base + package.trigOffset);
+		m_dsp->memWriteP(kExtRender + type, base + package.renderOffset);
+	}
+
 	void VoiceEngine::writeP(const uint32_t _addr, const uint32_t* _words, const size_t _count)
 	{
 		for(size_t i = 0; i < _count && _addr + i < m_mem->sizeP(); ++i)
@@ -220,6 +315,10 @@ namespace md::engine
 		m_dsp->resetHW();
 		loadImage(m_fw.dspA);	// section 1 = voice program (docs/PROTOCOL.md)
 		installHarness();
+		extendDispatch();
+		for(int i = 0; i < kUserMachines; ++i)
+			if(m_userMachines[static_cast<size_t>(i)])
+				writeUserMachine(i);
 		for(int i = 0; i < 4; ++i)
 			m_periphX->write(0xfffff9 - static_cast<TWord>(i), kAar[i]);
 		m_dsp->regs().omr.var = kOmr;

@@ -85,6 +85,13 @@ namespace mdDrums
 		std::shared_ptr<const md::engine::TrackFx::Tables> fxTables() const;
 
 		void setMachine(int _track, uint8_t _machineId);
+		// A User Machine (an MDX X.20 package) at USR-01 to USR-16, _index 0-15, machine ids 194 to 209: the voice DSP plays
+		// it as X.20 does, compiled now rather than at its first Hit. Never while render runs: it takes the time of a
+		// copy of the voice DSP's memory and a few blocks. Throws, installing nothing, on a package the voice DSP cannot
+		// play (md::engine::VoiceEngine::installUserMachine).
+		static constexpr uint8_t FirstUserMachine = md::engine::kFirstUserMachine;
+		void installUserMachine(int _index, std::shared_ptr<const md::mds::Package> _package);
+		void removeUserMachine(int _index);
 		void setParam(int _track, int _param, int _value);	// 0-127
 		// What _track's voice plays of its 24 parameters, as the engine's last tick left them: after the OS's smoothing
 		// and the LFOs, a parameter's value << 7 (0 to $3fff)

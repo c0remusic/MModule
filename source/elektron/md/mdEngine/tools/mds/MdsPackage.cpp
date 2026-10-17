@@ -201,10 +201,16 @@ namespace md::mds
 		return package;
 	}
 
-	uint32_t convert(const Parameter& _parameter, int _setting)
+	uint32_t convert(const Parameter& _parameter, const int _setting)
 	{
-		if(_setting < _parameter.min) _setting = _parameter.min;
-		if(_setting > _parameter.max) _setting = _parameter.max;
+		return convertFine(_parameter, static_cast<uint16_t>(std::clamp(_setting, 0, 127) << 7));
+	}
+
+	uint32_t convertFine(const Parameter& _parameter, const uint16_t _value)
+	{
+		// A setting is _value / 128; at a whole setting each conversion gives the documents' word
+		const int v = std::clamp(static_cast<int>(_value), _parameter.min << 7, _parameter.max << 7);
+		const double setting = v / 128.0;
 		const auto q23 = [](const double _v)
 		{
 			const auto w = static_cast<int32_t>(std::lround(std::clamp(_v, -1.0, 1.0 - 1.0 / 8388608.0) * 8388608.0));
@@ -212,25 +218,107 @@ namespace md::mds
 		};
 		switch(_parameter.conversion)
 		{
-		case Conversion::Raw14:			return static_cast<uint32_t>(_setting) << 7;			// 64 becomes 8192
-		case Conversion::UnipolarQ23:	return static_cast<uint32_t>(_setting) << 16;		// 64 becomes 0.5
-		case Conversion::SquaredQ23:	return static_cast<uint32_t>(_setting * _setting) << 9;	// 64 becomes 0.25
-		case Conversion::BipolarQ23:	return static_cast<uint32_t>((_setting - 64) << 17) & 0xffffff;	// 0 is -1, 64 zero
-		case Conversion::Boolean:		return _setting ? 1u : 0u;
-		case Conversion::Index:			return static_cast<uint32_t>(_setting - _parameter.min);
+		case Conversion::Raw14:			return static_cast<uint32_t>(v);							// 64 becomes 8192
+		case Conversion::UnipolarQ23:	return static_cast<uint32_t>(v) << 9;						// 64 becomes 0.5
+		case Conversion::SquaredQ23:	return static_cast<uint32_t>(static_cast<int64_t>(v) * v >> 5);	// 64 becomes 0.25
+		case Conversion::BipolarQ23:	return static_cast<uint32_t>((v - 8192) * 1024) & 0xffffff;	// 0 is -1, 64 zero
+		case Conversion::Boolean:		return v >= 64 ? 1u : 0u;
+		case Conversion::Index:			return static_cast<uint32_t>(((v + 64) >> 7) - _parameter.min);
 		case Conversion::Pitch:
 			{
 				// Guess: the setting as a MIDI note at A=440 Hz; P = f * 2^21 / 44,100 (the documents' increment)
-				const double f = 440.0 * std::pow(2.0, (_setting - 69) / 12.0);
+				const double f = 440.0 * std::pow(2.0, (setting - 69.0) / 12.0);
 				return static_cast<uint32_t>(std::lround(f * 2097152.0 / 44100.0)) & 0xffffff;
 			}
 		case Conversion::Decay:
 			{
 				// Guess: 0 is 5 ms to -60 dB, 127 is 10 s, exponentially between
-				const double seconds = 0.005 * std::pow(2000.0, _setting / 127.0);
+				const double seconds = 0.005 * std::pow(2000.0, setting / 127.0);
 				return q23(std::exp(std::log(0.001) / (seconds * 44100.0)));
 			}
 		}
 		return 0;
+	}
+
+	std::vector<uint8_t> buildPackage(const Draft& _draft)
+	{
+		std::vector<uint8_t> b(128, 0);
+		const auto align = [&b] { while(b.size() % 4) b.push_back(0); };
+		const auto put16 = [&b](const size_t _at, const uint32_t _v) { b[_at] = uint8_t(_v >> 8); b[_at + 1] = uint8_t(_v); };
+		const auto put32 = [&b](const size_t _at, const uint32_t _v)
+		{
+			b[_at] = uint8_t(_v >> 24); b[_at + 1] = uint8_t(_v >> 16); b[_at + 2] = uint8_t(_v >> 8); b[_at + 3] = uint8_t(_v);
+		};
+		const auto text = [&b](const size_t _at, const std::string& _s, const size_t _size)
+		{
+			for(size_t i = 0; i < _s.size() && i < _size; ++i)
+				b[_at + i] = static_cast<uint8_t>(_s[i]);
+		};
+
+		const size_t program = b.size();
+		for(const auto w : _draft.program)
+		{
+			b.push_back(uint8_t(w >> 16)); b.push_back(uint8_t(w >> 8)); b.push_back(uint8_t(w));
+		}
+		const size_t programLength = b.size() - program;
+		align();
+		const size_t relocation = b.size();
+		b.resize(b.size() + (_draft.program.size() + 7) / 8, 0);
+		for(const auto w : _draft.relocated)
+			b[relocation + w / 8] |= static_cast<uint8_t>(1 << (w % 8));
+		align();
+		const size_t imports = b.size();
+		for(const auto& im : _draft.imports)
+		{
+			b.push_back(uint8_t(im.word >> 8)); b.push_back(uint8_t(im.word)); b.push_back(im.kind); b.push_back(im.symbol);
+		}
+		align();
+		const size_t description = b.size();
+		b.resize(b.size() + 128, 0);
+		text(description, "MDM1", 4);
+		b[description + 4] = 1;
+		b[description + 5] = static_cast<uint8_t>(_draft.parameters.size());
+		b[description + 6] = _draft.flags;
+		text(description + 8, _draft.category, 4);
+		text(description + 12, _draft.code, 2);
+		text(description + 16, _draft.name, 16);
+		text(description + 32, _draft.id, 32);
+		for(size_t i = 0; i < _draft.parameters.size() && i < 8; ++i)
+		{
+			const auto& p = _draft.parameters[i];
+			const auto at = description + 64 + i * 8;
+			text(at, p.name, 4);
+			b[at + 4] = p.defaultValue;
+			b[at + 5] = p.min;
+			b[at + 6] = p.max;
+			b[at + 7] = static_cast<uint8_t>(p.style << 4 | static_cast<uint8_t>(p.conversion));
+		}
+		b.resize(b.size() + 128, 0);	// the sprite: none
+
+		text(0, "MDS1", 4);
+		put16(4, 1);
+		put16(6, 128);
+		put32(8, static_cast<uint32_t>(b.size()));
+		put16(16, 0x5603);
+		put16(18, 1);
+		put16(22, static_cast<uint32_t>(_draft.program.size()));
+		put16(24, static_cast<uint32_t>(_draft.imports.size()));
+		put16(26, _draft.xWords);
+		put16(28, _draft.yWords);
+		put32(32, static_cast<uint32_t>(program));
+		put32(36, static_cast<uint32_t>(programLength));
+		put32(40, static_cast<uint32_t>(programLength));
+		put32(44, static_cast<uint32_t>(relocation));
+		put32(48, static_cast<uint32_t>(imports));
+		put16(52, 128);
+		put32(56, static_cast<uint32_t>(description));
+		put16(64, _draft.initOffset);
+		put16(66, _draft.trigOffset);
+		put16(68, _draft.renderOffset);
+		put16(70, _draft.declaredCycles);
+		put32(76, crc32(b, program, program + programLength));
+		put32(80, crc32(b, description, description + 128));
+		put32(84, crc32(b, 0, b.size(), 84, 88));
+		return b;
 	}
 }

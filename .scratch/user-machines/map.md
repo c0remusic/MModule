@@ -65,6 +65,11 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 - [Où tourne le code d'une Machine utilisateur](issues/05-ou-tourne-le-code.md) : dans le DSP voix, à la manière
   d'X.20 (tables d'appel à 211 entrées) ; mêmes règles que les intégrées (prévisualisation, JIT à l'avance, départ
   aligné) ; ni plafond de code ni refus au-delà de ce qu'X.20 refuse ; NEIGHBOUR attend son descripteur.
+- [Une Machine utilisateur jouée par le moteur](issues/12-charger-dans-le-moteur.md) : construit ; tables d'appel à 211
+  types, code à `$020000 + $E000·n` ; la voix d'une Machine de test égale l'hôte nu, 0 différence ; installée en 7 ms ;
+  latence inchangée.
+- [Lire les conversions Pitch et Decay dans l'OS X.20](issues/10-conversions-pitch-decay.md) : Pitch DEFAULT par une
+  table de 128 (16 réglages par octave), Decay par la table d'OS 1.63 à `$24bf94` ; Unipolar à $7FFFFF à 127.
 - [La référence du son après « Booter X.20 »](issues/09-reference-du-son.md) : la spécification MDS et l'oreille pour
   0.1.2, plus la lecture des conversions Pitch et Decay dans l'OS X.20 ; X.20 dans mdLib sur une carte à part ; les
   corrections d'émulateur reviennent sur `main`.
