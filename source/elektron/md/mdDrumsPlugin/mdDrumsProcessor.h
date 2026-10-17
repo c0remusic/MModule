@@ -2,6 +2,7 @@
 
 #include "mdDrumsBank.h"
 #include "mdDrumsLibrary.h"
+#include "mdDrumsSampleLibrary.h"
 #include "mdDrumsTelemetry.h"
 
 #include "MachineRunner.h"
@@ -84,13 +85,25 @@ namespace mdDrums
 		void takeUserMachineIfAbsent(int _index);
 
 		// An audio file (WAV, AIFF or FLAC) made a Sample for ROM-01 to ROM-48 (_rom 0-47) as a Machinedrum UW takes one
-		// (readSampleFile, makeSample), then this instance's Device plays it from the next blocks on. Empty when it went,
-		// else why not.
+		// (readSampleFile, makeSample), kept in the sample library, then this instance's Device plays it from the next
+		// blocks on. Empty when it went, else why not.
 		std::string loadSampleFile(int _rom, const std::filesystem::path& _file);
+		// ROM _rom back to the factory's Sample (silence on ROM-33 to ROM-48), in the library and this instance's Device
+		void removeSample(int _rom);
+		// The library's Samples on the ROM Machines _kit plays into this instance's Device, where it holds another or the
+		// factory's: what loading a Kit of the Bank does (ticket 10 of the Samples map). A ROM the library lacks keeps
+		// what the Device plays.
+		void takeSamples(const md::automation::sysex::MdKit& _kit);
+		// The user's Samples (ticket 10 of the Samples map), "Samples" in the plug-in's data folder, made with the Bank
+		SampleLibrary* getSampleLibrary() const { return m_samples.get(); }
+		// The Samples this instance's Device plays, for the Hit preview; none without a Device. On the message thread.
+		std::array<std::shared_ptr<const Sample>, Samples::RomCount> samples();
 
 	private:
 		// The Library's copy into the Device; false when there is none, or the Device has the same
 		bool installFromLibrary(int _index, bool _replace);
+		// A Sample, or none, handed to the Device under its lock; false when it does not fit
+		bool setDeviceSample(int _rom, std::shared_ptr<const Sample> _sample);
 		// Main, then the 15 Outs (messages::OutCount), off until the host enables them
 		static BusesProperties buses();
 		bool isBusesLayoutSupported(const BusesLayout& _layouts) const override;
@@ -104,6 +117,7 @@ namespace mdDrums
 		bool m_forTests = false;
 		std::unique_ptr<Bank> m_bank;
 		std::unique_ptr<Library> m_library;
+		std::unique_ptr<SampleLibrary> m_samples;
 		std::vector<uint8_t> m_chosenFlash;		// loadFlashImage's, for createDevice, while it makes the Device
 	};
 }

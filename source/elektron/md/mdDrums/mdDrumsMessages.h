@@ -1,5 +1,7 @@
 #pragma once
 
+#include "mdDrumsSamples.h"
+
 #include "mdProtocol/mdautomation.h"
 #include "mdProtocol/mdkit.h"
 #include "mdProtocol/mdkitchange.h"
@@ -9,6 +11,7 @@
 #include <array>
 #include <bitset>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -32,6 +35,10 @@ namespace mdDrums::messages
 		// A User Machine a Kit plays, in the Device's state: its number (0-15, USR-01 to USR-16), the package's size
 		// (21 bits), then the package (MDS1), 7 bits to the byte as the Machinedrum's dumps pack them. Allocates.
 		UserMachine = 0x06,
+		// A user's Sample, in the Device's state and the library's files: its ROM (0-47, ROM-01 to ROM-48), its length,
+		// loop and rate (four 7-bit bytes each, high first), its name (a length byte, then 7-bit characters), then its
+		// words, three bytes each, high first, 7 bits to the byte as the Machinedrum's dumps pack them. Allocates.
+		Sample = 0x07,
 	};
 
 	// The Outs a Track can leave Main for: Live opens at most 16 output buses per plug-in, the track's own included
@@ -98,13 +105,23 @@ namespace mdDrums::messages
 	Message userMachine(const UserMachine& _machine);
 	std::optional<UserMachine> parseUserMachine(MessageView _message);
 
-	// md-drums: then a UserMachine message for each User Machine the Kit plays and the Device holds, so that a set sounds
-	// as saved where they are not installed (none: the state as it was before User Machines)
+	struct SampleMessage
+	{
+		uint8_t rom = 0;						// 0-47, ROM-01 to ROM-48
+		std::shared_ptr<const Sample> sample;
+	};
+	Message sample(const SampleMessage& _message);
+	std::optional<SampleMessage> parseSample(MessageView _message);
+
+	// md-drums: then a UserMachine message for each User Machine the Kit plays and the Device holds, and a Sample message
+	// for each user's Sample on a ROM Machine the Kit plays, so that a set sounds as saved where they are not installed
+	// (none: the state as it was before them)
 	struct State
 	{
 		md::automation::sysex::MdKit kit;
 		Mixer mixer;
 		std::vector<UserMachine> userMachines;
+		std::vector<SampleMessage> samples;
 	};
 	std::vector<uint8_t> writeState(const State& _state);
 	std::optional<State> parseState(const uint8_t* _data, size_t _size);

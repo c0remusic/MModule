@@ -209,6 +209,75 @@ namespace mdDrums::messages
 		return machine;
 	}
 
+	Message sample(const SampleMessage& _message)
+	{
+		const auto& s = *_message.sample;
+		Message message(std::begin(g_header), std::end(g_header));
+		message.push_back(static_cast<uint8_t>(Command::Sample));
+		message.push_back(static_cast<uint8_t>(_message.rom & 0x3f));
+		const auto put28 = [&](const uint32_t _v)
+		{
+			for(int shift = 21; shift >= 0; shift -= 7)
+				message.push_back(static_cast<uint8_t>((_v >> shift) & 0x7f));
+		};
+		put28(s.length);
+		put28(s.loop);
+		put28(s.rate);
+		const auto name = s.name.substr(0, 127);
+		message.push_back(static_cast<uint8_t>(name.size()));
+		for(const auto c : name)
+			message.push_back(static_cast<uint8_t>(c & 0x7f));
+		// The words, three bytes each, high first, 7 bits to the byte as the Machinedrum's dumps pack them
+		std::vector<uint8_t> words;
+		words.reserve(3 * s.words.size());
+		for(const auto w : s.words)
+		{
+			words.push_back(static_cast<uint8_t>(w >> 16));
+			words.push_back(static_cast<uint8_t>(w >> 8));
+			words.push_back(static_cast<uint8_t>(w));
+		}
+		md::automation::sysex::codec::append7Bit(message, words.data(), words.size());
+		message.push_back(0xf7);
+		return message;
+	}
+
+	std::optional<SampleMessage> parseSample(const MessageView _message)
+	{
+		const auto data = g_commandAt + 1;
+		if(_message.size() < data + 15 || !std::equal(std::begin(g_header), std::end(g_header), _message.begin())
+			|| _message[g_commandAt] != static_cast<uint8_t>(Command::Sample) || _message.back() != 0xf7
+			|| _message[data] >= Samples::RomCount)
+			return std::nullopt;
+		const auto read28 = [&](const size_t _at)
+		{
+			uint32_t v = 0;
+			for(size_t i = 0; i < 4; ++i)
+				v = v << 7 | (_message[_at + i] & 0x7f);
+			return v;
+		};
+		auto s = std::make_shared<Sample>();
+		s->length = read28(data + 1);
+		s->loop = read28(data + 5);
+		s->rate = read28(data + 9);
+		const size_t nameSize = _message[data + 13];
+		size_t position = data + 14;
+		if(position + nameSize >= _message.size())
+			return std::nullopt;
+		s->name.assign(_message.begin() + static_cast<std::ptrdiff_t>(position),
+			_message.begin() + static_cast<std::ptrdiff_t>(position + nameSize));
+		position += nameSize;
+		const auto wordCount = (static_cast<size_t>(s->length) + 1) / 2;
+		std::vector<uint8_t> words(3 * wordCount);
+		if(!md::automation::sysex::codec::read7Bit(_message, position, words.size(), words.data())
+			|| position != _message.size() - 1)
+			return std::nullopt;
+		s->words.resize(wordCount);
+		for(size_t w = 0; w < wordCount; ++w)
+			s->words[w] = static_cast<uint32_t>(words[3 * w]) << 16 | static_cast<uint32_t>(words[3 * w + 1]) << 8
+				| words[3 * w + 2];
+		return SampleMessage{_message[data], std::move(s)};
+	}
+
 	std::vector<uint8_t> writeState(const State& _state)
 	{
 		auto bytes = md::automation::sysex::mdKitDump(_state.kit, 0);
@@ -217,6 +286,11 @@ namespace mdDrums::messages
 		for(const auto& machine : _state.userMachines)
 		{
 			const auto message = userMachine(machine);
+			bytes.insert(bytes.end(), message.begin(), message.end());
+		}
+		for(const auto& s : _state.samples)
+		{
+			const auto message = sample(s);
 			bytes.insert(bytes.end(), message.begin(), message.end());
 		}
 		return bytes;
@@ -230,8 +304,8 @@ namespace mdDrums::messages
 		auto kit = md::automation::sysex::parseMdKit({_data, dumpSize});
 		if(!kit)
 			return std::nullopt;
-		// The mixer message, then the User Machines', each up to its F7
-		State state{*kit, {}, {}};
+		// The mixer message, then the User Machines' and the Samples', each up to its F7
+		State state{*kit, {}, {}, {}};
 		size_t at = dumpSize;
 		bool first = true;
 		while(at < _size)
@@ -248,12 +322,17 @@ namespace mdDrums::messages
 				state.mixer = mixerMessage->mixer;
 				first = false;
 			}
+			else if(auto machine = parseUserMachine(message))
+			{
+				state.userMachines.push_back(std::move(*machine));
+			}
+			else if(auto s = parseSample(message))
+			{
+				state.samples.push_back(std::move(*s));
+			}
 			else
 			{
-				auto machine = parseUserMachine(message);
-				if(!machine)
-					return std::nullopt;
-				state.userMachines.push_back(std::move(*machine));
+				return std::nullopt;
 			}
 			at += message.size();
 		}

@@ -14,6 +14,7 @@ add_library(mdDrums STATIC
 	mdDrumsLfo.cpp mdDrumsLfo.h
 	mdDrumsLibrary.cpp mdDrumsLibrary.h
 	mdDrumsSampleAudio.cpp mdDrumsSampleAudio.h
+	mdDrumsSampleLibrary.cpp mdDrumsSampleLibrary.h
 	mdDrumsSamples.cpp mdDrumsSamples.h
 	mdDrumsMessages.cpp mdDrumsMessages.h
 	mdDrumsTelemetry.h

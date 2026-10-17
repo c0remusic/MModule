@@ -199,14 +199,56 @@ namespace mdDrums
 			device->sampleRoom() + (held ? held->words.size() : 0));
 		if(const auto* error = std::get_if<std::string>(&made))
 			return *error;
-		const auto sample = std::make_shared<const Sample>(std::move(std::get<Sample>(made)));
+		auto& s = std::get<Sample>(made);
+		s.name = _file.filename().u8string();
+		const auto sample = std::make_shared<const Sample>(std::move(s));
+		if(!setDeviceSample(_rom, sample))
+			return "The Samples have no room left for it";
+		if(m_samples && !m_samples->put(_rom, sample))
+			return "MoDule plays it, but could not keep it in " + m_samples->file(_rom).u8string();
+		return {};
+	}
+
+	void Processor::removeSample(const int _rom)
+	{
+		if(m_samples)
+			m_samples->remove(_rom);
+		setDeviceSample(_rom, nullptr);
+	}
+
+	void Processor::takeSamples(const md::automation::sysex::MdKit& _kit)
+	{
+		if(!m_samples)
+			return;
+		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
+		for(uint8_t track = 0; track < Engine::TrackCount && device; ++track)
+		{
+			const auto rom = Samples::romOf(static_cast<uint8_t>(_kit.machine(track)));
+			const auto sample = rom >= 0 ? m_samples->get(rom) : nullptr;
+			const auto held = sample ? device->sample(rom) : nullptr;
+			if(sample && !(held && *held == *sample))
+				setDeviceSample(rom, sample);
+		}
+	}
+
+	std::array<std::shared_ptr<const Sample>, Samples::RomCount> Processor::samples()
+	{
+		// Read without the lock: a Sample changes on the message thread only
+		std::array<std::shared_ptr<const Sample>, Samples::RomCount> result{};
+		if(const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice()))
+			for(int rom = 0; rom < Samples::RomCount; ++rom)
+				result[static_cast<size_t>(rom)] = device->sample(rom);
+		return result;
+	}
+
+	bool Processor::setDeviceSample(const int _rom, std::shared_ptr<const Sample> _sample)
+	{
 		// Under the Device's lock only to hand it over: the audio thread writes it over the next blocks
-		const auto set = getPlugin().withDeviceLocked([&](synthLib::Device* _device)
+		return getPlugin().withDeviceLocked([&](synthLib::Device* _device)
 		{
 			auto* d = dynamic_cast<Device*>(_device);
-			return d && d->setSample(_rom, sample);
+			return d && d->setSample(_rom, std::move(_sample));
 		});
-		return set ? std::string() : "The Samples have no room left for it";
 	}
 
 	bool Processor::installFromLibrary(const int _index, const bool _replace)
@@ -261,6 +303,8 @@ namespace mdDrums
 			m_bank->read();
 			m_library = std::make_unique<Library>(folder / "UserMachines");
 			m_library->read();
+			m_samples = std::make_unique<SampleLibrary>(folder / "Samples");
+			m_samples->read();
 		}
 
 		synthLib::DeviceCreateParams params;

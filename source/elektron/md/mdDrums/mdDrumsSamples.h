@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace md::engine
@@ -29,6 +30,13 @@ namespace mdDrums
 		uint32_t length = 0;		// samples played, at most twice the words
 		uint32_t loop = NoLoop;		// the loop's first sample, or NoLoop
 		uint32_t rate = Unity;		// as a fraction of 44.1 kHz
+		std::string name;			// the file it was made from, as the editor shows it
+
+		bool operator==(const Sample& _other) const
+		{
+			return words == _other.words && length == _other.length && loop == _other.loop && rate == _other.rate
+				&& name == _other.name;
+		}
 	};
 
 	// The Samples of the 48 ROM Machines, ROM-01 to ROM-48, as the voice DSP holds them (ticket 08 of the Samples map).
@@ -47,6 +55,13 @@ namespace mdDrums
 		static constexpr size_t WordsPerBlock = 4096;	// 13 us of a block's 726
 
 		explicit Samples(const md::fw::RomBank& _factory);
+
+		// The ROM (0-47) a machine id plays: ROM-01 to ROM-32 are 128 to 159, ROM-33 to ROM-48 176 to 191; -1 for another
+		static constexpr int romOf(const uint8_t _machineId)
+		{
+			return _machineId >= 128 && _machineId < 160 ? _machineId - 128 : _machineId >= 176 && _machineId < 192
+				? _machineId - 176 + 32 : -1;
+		}
 
 		// _sample on ROM _rom (0-47), or none to take the factory's back; false, changing nothing, when the user's Samples
 		// would not fit together

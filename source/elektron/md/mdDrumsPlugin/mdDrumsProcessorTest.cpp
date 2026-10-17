@@ -696,6 +696,89 @@ namespace
 		folder.deleteRecursively();
 	}
 
+	// The user's Samples kept (ticket 10 of the Samples map): a WAV loaded into a Processor goes into its sample library
+	// and plays on ROM-33, and the set carries it; a set opened where the library is empty plays its own copy and leaves
+	// the library empty; a Kit of the Bank plays the library's Sample, which differs; taking it away plays the factory's
+	// silence again; two instances hold two Samples on ROM-33; a set whose Kit plays no user's Sample carries none
+	void keptSamples(const double _rate)
+	{
+		constexpr int rom = 32;	// ROM-33
+		const auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("MoDuleKeptSamplesTest");
+		folder.deleteRecursively();
+		require(folder.createDirectory().wasOk(), "no folder for the test's files");
+		juce::WavAudioFormat wav;
+		const auto low = writeTone(wav, folder.getChildFile("low.wav"), 44100.0, 1, 1.0).getFullPathName().toStdString();
+		const auto high = writeTone(wav, folder.getChildFile("high.wav"), 22050.0, 1, 1.0).getFullPathName().toStdString();
+		const auto holds = [&](mdDrums::Processor& _processor, const char* _name)
+		{
+			const auto sample = device(_processor).sample(rom);
+			return _name ? sample && sample->name == _name : !sample;
+		};
+		const auto onRom33 = [&](mdDrums::Processor& _processor)
+		{
+			automate(_processor, "Machine", 0, 176);
+			automate(_processor, "Level", 0, 100);
+			automate(_processor, "DEL", 0, 0);
+			automate(_processor, "REV", 0, 0);
+		};
+
+		juce::MemoryBlock set;
+		float played = 0;
+		{
+			mdDrums::Processor a(true);
+			require(prepare(a, _rate, g_block), "no Device for the kept Samples");
+			require(a.loadSampleFile(rom, low).empty(), "the WAV was not loaded onto ROM-33");
+			require(a.getSampleLibrary()->get(rom) && holds(a, "low.wav"), "the library or the Device lacks ROM-33's Sample");
+			onRom33(a);
+			played = play(a, 36, 0, _rate).peak;
+			require(played > 0.01f, "ROM-33 is silent with its Sample");
+			static_cast<juce::AudioProcessor&>(a).getStateInformation(set);
+		}
+		{
+			// A set opened where the library is empty: its own copy plays, the library stays empty
+			const auto b = restoredFrom(set);
+			require(prepare(*b, _rate, g_block), "no Device to open the set");
+			require(!b->getSampleLibrary()->get(rom) && holds(*b, "low.wav"), "the set did not bring its Sample");
+			require(play(*b, 36, 0, _rate).peak > 0.01f, "the set's Sample is silent where it is not kept");
+
+			// A Kit of the Bank plays the library's Sample on ROM-33, which differs
+			const auto audio = mdDrums::readSampleFile(juce::File(high));
+			auto made = mdDrums::makeSample(std::get<mdDrums::SampleAudio>(audio), device(*b).sampleCodes(),
+				device(*b).sampleRoom());
+			auto other = std::get<mdDrums::Sample>(made);
+			other.name = "high.wav";
+			require(b->getSampleLibrary()->put(rom, std::make_shared<const mdDrums::Sample>(std::move(other))),
+				"the library did not keep the other Sample");
+			require(holds(*b, "low.wav"), "keeping a Sample in the library changed what the instance plays");
+			b->controller().loadKit(device(*b).kit(), 0);
+			block(*b);
+			require(holds(*b, "high.wav"), "a Kit of the Bank did not take the library's Sample");
+
+			// Taken away: the factory's silence on ROM-33, in the library too
+			b->removeSample(rom);
+			require(holds(*b, nullptr) && !b->getSampleLibrary()->get(rom), "the Sample was not taken away");
+			const auto gone = play(*b, 36, 0, _rate).peak;
+			require(gone < played / 100.0f, "ROM-33 still sounds once its Sample is taken away");
+		}
+		{
+			// Two instances, two Samples on ROM-33: each its own
+			mdDrums::Processor c(true), d(true);
+			require(prepare(c, _rate, g_block) && prepare(d, _rate, g_block), "no Devices for two instances");
+			require(c.loadSampleFile(rom, low).empty() && d.loadSampleFile(rom, high).empty(), "two Samples were not loaded");
+			require(holds(c, "low.wav") && holds(d, "high.wav"), "two instances do not each hold their own ROM-33");
+
+			// A set whose Kit plays no user's Sample carries none
+			juce::MemoryBlock plain;
+			static_cast<juce::AudioProcessor&>(c).getStateInformation(plain);
+			const auto e = restoredFrom(plain);
+			require(prepare(*e, _rate, g_block), "no Device to open the plain set");
+			require(holds(*e, nullptr), "a set whose Kit plays no user's Sample carried one");
+		}
+		std::printf("kept Samples: a set brings its own (ROM-33 peaks %.4f), a Kit of the Bank takes the library's, two"
+			" instances hold their own, taken away it is silent again\n", played);
+		folder.deleteRecursively();
+	}
+
 	// User Machines (tickets 07 and 14 of the User Machines map): installed into a Processor's Library and its Device,
 	// played on a Track; a set opened where none is installed plays its own copy; two instances hold two Machines at the
 	// same number; a Kit of the Bank takes the Library's; a Track on a number the Device lacks takes the Library's
@@ -782,6 +865,7 @@ int main()
 			{
 				userMachines(rate);
 				sampleFiles(rate);
+				keptSamples(rate);
 			}
 			juce::AudioProcessor& host = processor;
 

@@ -487,8 +487,13 @@ namespace mdDrums
 			if(messages::isKitParameter(m_addresses[slot].page))
 				m_dirty[slot / 64].fetch_and(~(1ull << (slot % 64)), std::memory_order_acq_rel);
 
-		// A Kit of the Bank plays the Library's User Machines (ticket 07 of the User Machines map)
-		static_cast<Processor&>(getProcessor()).takeUserMachines(_kit);
+		// A Kit of the Bank plays the Library's User Machines and the library's Samples (tickets 07 of the User Machines
+		// map, 10 of the Samples map)
+		auto& processor = static_cast<Processor&>(getProcessor());
+		processor.takeUserMachines(_kit);
+		if(auto* samples = processor.getSampleLibrary())
+			samples->follow();
+		processor.takeSamples(_kit);
 		sendToDevice(md::automation::sysex::mdKitDump(_kit, 0));
 		applyState({_kit, {}}, true);
 		tellHost();

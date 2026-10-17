@@ -6,6 +6,7 @@
 
 #include "mdDrumsBank.h"
 #include "mdDrumsLibrary.h"
+#include "mdDrumsSampleLibrary.h"
 #include "mdDrumsMessages.h"
 
 #include "MdsPackage.h"
@@ -17,6 +18,7 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -148,6 +150,36 @@ int main()
 			require(mine.remove(2) && !mine.get(2), "the Library did not remove USR-03");
 			require(theirs.follow() && !theirs.get(2), "a Library does not follow another's removal");
 			std::printf("the Library: a User Machine installed and removed by one Library, followed by another\n");
+		}
+
+		// The sample library (ticket 10 of the Samples map), shared as the Bank is: a Sample one library keeps another
+		// follows, the file MoDule's Sample message; one it removes, the other loses; a file that is no Sample, ignored
+		{
+			mdDrums::SampleLibrary mine(folder.path() / "Samples"), theirs(folder.path() / "Samples");
+			mine.read();
+			theirs.read();
+			auto sample = std::make_shared<mdDrums::Sample>();
+			sample->words = {0x123456, 0xabcdef, 0x000fff};
+			sample->length = 5;
+			sample->loop = 1;
+			sample->rate = mdDrums::Sample::Unity / 2;
+			sample->name = "kick.wav";
+			require(mine.put(4, sample) && mine.get(4), "the library did not keep a Sample");
+			const auto parsed = mdDrums::messages::parseSample(readFile(mine.file(4)));
+			require(parsed && parsed->rom == 4 && *parsed->sample == *sample, "ROM-05's file is not the Sample's message");
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			require(theirs.follow() && theirs.get(4) && *theirs.get(4) == *sample, "a library does not follow another's Sample");
+			require(!theirs.follow(), "a library read the files again with nothing written");
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			require(mine.remove(4) && !mine.get(4), "the library did not remove ROM-05's Sample");
+			require(theirs.follow() && !theirs.get(4), "a library does not follow another's removal");
+			{
+				std::ofstream junk(mine.file(7), std::ios::binary);
+				junk << "not a Sample";
+			}
+			mine.read();
+			require(!mine.get(7), "the library took a file that is no Sample");
+			std::printf("the sample library: a Sample kept and removed by one library, followed by another\n");
 		}
 
 		// The folder goes, a failure to remove it a failure of the test (TempFolder removes it after one too)
