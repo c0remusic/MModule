@@ -323,9 +323,9 @@ namespace mdDrums
 	void Device::applyChange(const sysex::KitChange& _change)
 	{
 		using Kind = sysex::KitChange::Kind;
-		// A machine the OS has: the Kit takes no other (applyKitChange without its defaults)
-		const auto* machine = _change.kind == Kind::Machine ? m_engine->machine(_change.value) : nullptr;
-		if(!sysex::applyKitChange(_change, m_kit, machine ? &machine->defaults : nullptr))
+		// A machine the OS has, or a User Machine: the Kit takes no other (applyKitChange without its defaults)
+		const auto defaults = _change.kind == Kind::Machine ? m_engine->machineDefaults(_change.value) : std::nullopt;
+		if(!sysex::applyKitChange(_change, m_kit, defaults ? &*defaults : nullptr))
 			return;
 		const auto track = _change.track;
 		switch(_change.kind)

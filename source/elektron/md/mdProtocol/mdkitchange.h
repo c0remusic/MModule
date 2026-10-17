@@ -28,7 +28,7 @@ namespace md::automation::sysex
 		static constexpr uint8_t AssignScope = 2;
 		// $62's fields after LfoSettings' five: LFOS, LFOD and LFOM, the Track's parameters 21 to 23
 		static constexpr uint8_t LfoFields = 8;
-		static constexpr uint8_t LastMachine = 191;
+		static constexpr uint8_t LastMachine = 209;	// USR-16, MDX X.20's last User Machine
 
 		Kind kind = Kind::Machine;
 		uint8_t track = 0;

@@ -429,6 +429,9 @@ namespace mdDrums
 		{
 			for(const auto& machine : *infos)
 				machines.set(machine.id);
+			// USR-01 to USR-16, which the Device takes installed or not (an empty one plays silence)
+			for(size_t id = Engine::FirstUserMachine; id < Engine::FirstUserMachine + 16u; ++id)
+				machines.set(id);
 		}
 		auto kit = m_kitBase;
 		for(size_t slot = 0; slot < ParameterCount; ++slot)

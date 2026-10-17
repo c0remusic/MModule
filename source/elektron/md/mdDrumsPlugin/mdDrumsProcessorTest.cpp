@@ -509,6 +509,10 @@ namespace
 	// is not enough: the last note's tail, under the threshold, moves the next one's first sample at 48 kHz
 	void latency(mdDrums::Processor& _processor, const double _rate)
 	{
+		// USR-16, the Machine parameter's last value (ticket 13 of the User Machines map): an empty User Machine's number,
+		// which the Device takes as a host sets it
+		automate(_processor, "Machine", 0, 209);
+		require(device(_processor).kit().machine(0) == 209, "the Device did not take USR-16 from the Machine parameter");
 		automate(_processor, "Machine", 0, 16);
 		automate(_processor, "Level", 0, 100);
 		uint32_t random = 0x16305eedu;

@@ -312,11 +312,11 @@ namespace
 		// A machine the OS lacks goes, and the Device ignores it; an LFO setting past its range the Machinedrum ignores
 		const auto before = rig.device->kit();
 		const auto absent = mdDrums::messages::parameterMessage(pages::Machine, 0, 0, 6);
-		require(absent.has_value(), "a machine id 0-191 was not sent");
+		require(absent.has_value(), "a machine id 0-209 was not sent");
 		rig.send(MidiEventSource::Editor, absent->message());
 		rig.process();
 		require(rig.device->kit() == before, "a machine the OS lacks changed the Kit");
-		require(!mdDrums::messages::parameterMessage(pages::Machine, 0, 0, 192), "a machine id past 191 was sent");
+		require(!mdDrums::messages::parameterMessage(pages::Machine, 0, 0, 210), "a machine id past USR-16 was sent");
 		require(!mdDrums::messages::parameterMessage(pages::Lfo, 0, 2, md::LfoSettings::ShapeCount),
 			"an LFO shape past its range was sent");
 	}
@@ -386,7 +386,13 @@ namespace
 		const auto before = kit();
 		send(change(KitChange::Kind::Machine, 4, KitChange::AssignScope, 6));
 		require(kit() == before && rig.midiOut.empty(), "a machine the OS lacks was taken");
-		std::printf("$5B: scopes, UW flag, the 24 parameters reported, absent machines as OS 1.63\n");
+		// A User Machine's number (USR-05, 198), installed or not: an empty one takes SYN1-8 at 0 and plays silence
+		send(change(KitChange::Kind::Machine, 4, KitChange::AssignScope, 198));
+		const std::array<uint8_t, 8> none{};
+		require(kit().machine(4) == 198 && page(4, 0) == none && page(4, 1) == os::Effects,
+			"$5B did not set USR-05");
+		require(reported(rig, 4) == 24, "$5B of USR-05 did not report the 24 parameters");
+		std::printf("$5B: scopes, UW flag, the 24 parameters reported, absent machines as OS 1.63, USR-05 taken\n");
 
 		send(change(KitChange::Kind::Lfo, 5, 0, 7));
 		send(unsent(0x62, {5 << 3, 16}));	// Track 6's field 0 (track << 3 | field), the LFO's track, past its range

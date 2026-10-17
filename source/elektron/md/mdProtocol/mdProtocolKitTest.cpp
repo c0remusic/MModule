@@ -162,7 +162,7 @@ namespace
 		size_t count = 0;
 		for(uint8_t t = 0; t < g_tracks; ++t)
 		{
-			for(int id = 0; id <= 191; ++id)
+			for(int id = 0; id <= KitChange::LastMachine; ++id)
 			{
 				for(const uint8_t scope : {uint8_t{0}, uint8_t{1}, KitChange::AssignScope})
 					roundTrip({Kind::Machine, t, scope, static_cast<uint8_t>(id)}), ++count;
@@ -207,9 +207,20 @@ namespace
 		};
 		require(decode({0x5b, 1, 0, 2})->value == 0 && decode({0x5b, 1, 0, 1})->value == 128,
 			"only a UW flag of 1 adds 128");
+		// MDX X.20's User Machines: USR-05 is machine number 70 with the model's high bit, 198; USR-16 the last
+		require(decode({0x5b, 1, 70, 1})->value == 198 && decode({0x5b, 1, 81, 1})->value == KitChange::LastMachine,
+			"a User Machine's $5B");
+		{
+			MdKit withUser;
+			withUser.machines[4] = 198;
+			const auto dump = sysex::mdKitDump(withUser, 3);
+			const auto back = sysex::parseMdKit(dump);
+			require(back && back->machine(4) == 198 && firstDifference(*back, withUser).empty(),
+				"a Kit with USR-05 did not come back from its dump");
+		}
 		require(decode({0x5b, 1, 0})->index == KitChange::AssignScope && decode({0x5b, 1, 0, 0, 1})->index == 1,
 			"a $5B without and with its scope");
-		require(!decode({0x5b, 16, 0, 0}) && !decode({0x5b, 0, 0x40, 1}), "a $5B out of range");
+		require(!decode({0x5b, 16, 0, 0}) && !decode({0x5b, 0, 82, 1}), "a $5B out of range (a Track, past USR-16)");
 		require(!decode({0x62, 0 << 3 | 0, 16}) && !decode({0x62, 3 << 3 | 2, 6}),
 			"a $62 value past its field's range");
 		require(decode({0x62, 3 << 3 | 7, 127})->value == 127, "$62's field 7");

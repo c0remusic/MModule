@@ -552,7 +552,8 @@ namespace
 				require(std::any_of(list.begin(), list.end(), [family](const auto& _m) { return _m.family == family; }),
 					"machine family without machines");
 		}
-		require(md::machines::machines(md).size() == 142 && md::machines::machines(mm).size() == 22,
+		// The Machinedrum's 142, then MDX X.20's 16 User Machines, USR-01 to USR-16
+		require(md::machines::machines(md).size() == 142 + 16 && md::machines::machines(mm).size() == 22,
 			"unexpected machine count");
 		require(md::machines::find(mm, 11)->name == "VO-VO-6" && md::machines::find(md, 176)->name == "ROM-33",
 			"wrong machine names");

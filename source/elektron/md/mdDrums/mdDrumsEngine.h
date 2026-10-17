@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -92,6 +93,9 @@ namespace mdDrums
 		static constexpr uint8_t FirstUserMachine = md::engine::kFirstUserMachine;
 		void installUserMachine(int _index, std::shared_ptr<const md::mds::Package> _package);
 		void removeUserMachine(int _index);
+		// SYN1-8 as assigning _id gives them (sysex::applyKitChange): an OS machine's own, a User Machine's package's
+		// (0 past its parameters, and everywhere while its number holds none); none for an id that is neither
+		std::optional<std::array<uint8_t, 8>> machineDefaults(uint8_t _id) const;
 		void setParam(int _track, int _param, int _value);	// 0-127
 		// What _track's voice plays of its 24 parameters, as the engine's last tick left them: after the OS's smoothing
 		// and the LFOs, a parameter's value << 7 (0 to $3fff)

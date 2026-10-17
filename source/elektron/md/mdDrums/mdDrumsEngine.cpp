@@ -69,6 +69,7 @@ namespace mdDrums
 		};
 
 		md::engine::Engine engine;
+		std::array<std::shared_ptr<const md::mds::Package>, 16> userMachines{};	// as installed, for their defaults
 		md::engine::Engine::Output out;
 		size_t used = BlockSize;	// samples of the output block already handed out
 
@@ -313,12 +314,30 @@ namespace mdDrums
 
 	void Engine::installUserMachine(const int _index, std::shared_ptr<const md::mds::Package> _package)
 	{
-		m_state->engine.installUserMachine(_index, std::move(_package));
+		m_state->engine.installUserMachine(_index, _package);
+		m_state->userMachines[static_cast<size_t>(_index)] = std::move(_package);
 	}
 
 	void Engine::removeUserMachine(const int _index)
 	{
 		m_state->engine.removeUserMachine(_index);
+		if(_index >= 0 && _index < static_cast<int>(m_state->userMachines.size()))
+			m_state->userMachines[static_cast<size_t>(_index)].reset();
+	}
+
+	std::optional<std::array<uint8_t, 8>> Engine::machineDefaults(const uint8_t _id) const
+	{
+		if(md::engine::isUserMachine(_id))
+		{
+			std::array<uint8_t, 8> defaults{};
+			if(const auto& package = m_state->userMachines[_id - FirstUserMachine])
+				for(size_t p = 0; p < package->parameters.size() && p < defaults.size(); ++p)
+					defaults[p] = package->parameters[p].defaultValue;
+			return defaults;
+		}
+		if(const auto* m = machine(_id))
+			return m->defaults;
+		return std::nullopt;
 	}
 
 	const md::engine::MachineInfo* Engine::machine(const uint8_t _id) const

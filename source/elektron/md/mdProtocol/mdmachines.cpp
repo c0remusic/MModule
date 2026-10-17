@@ -12,7 +12,7 @@ namespace md::machines
 		// Ids and names follow the MegaCommand/MCL tables (github.com/jmamma/MCL);
 		// the firmware tests here agree where they overlap: MM GND-SIN = 1,
 		// FX-THRU = 12, DPRO-DDRW = 32, DPRO-DENS = 33; MD ROM-01 = 128.
-		enum MdFamily : uint8_t { MdGnd, MdTrx, MdEfm, MdE12, MdPi, MdInp, MdMid, MdCtr, MdNfx, MdRom, MdRam };
+		enum MdFamily : uint8_t { MdGnd, MdTrx, MdEfm, MdE12, MdPi, MdInp, MdMid, MdCtr, MdNfx, MdRom, MdRam, MdUsr };
 		enum MmFamily : uint8_t { MmGnd, MmSid, MmSwave, MmDpro, MmFm, MmVo, MmFx };
 
 		const std::vector<Family> g_mdFamilies =
@@ -28,6 +28,7 @@ namespace md::machines
 			{"NFX", "effet de piste"},
 			{"ROM", "sample utilisateur (UW)"},
 			{"RAM", "enregistrement et relecture (UW)"},
+			{"USR", "machine utilisateur (MDX X.20)"},
 		};
 
 		const std::vector<Family> g_mmFamilies =
@@ -87,6 +88,12 @@ namespace md::machines
 				{180, "ROM-37", MdRom, true}, {181, "ROM-38", MdRom, true}, {182, "ROM-39", MdRom, true}, {183, "ROM-40", MdRom, true},
 				{184, "ROM-41", MdRom, true}, {185, "ROM-42", MdRom, true}, {186, "ROM-43", MdRom, true}, {187, "ROM-44", MdRom, true},
 				{188, "ROM-45", MdRom, true}, {189, "ROM-46", MdRom, true}, {190, "ROM-47", MdRom, true}, {191, "ROM-48", MdRom, true},
+				// MDX X.20's User Machines, USR-01..16: machine number + 128 (c bit), 66..81. Shown when a Kit holds them; the
+				// editor offers them once installed
+				{194, "USR-01", MdUsr, false}, {195, "USR-02", MdUsr, false}, {196, "USR-03", MdUsr, false}, {197, "USR-04", MdUsr, false},
+				{198, "USR-05", MdUsr, false}, {199, "USR-06", MdUsr, false}, {200, "USR-07", MdUsr, false}, {201, "USR-08", MdUsr, false},
+				{202, "USR-09", MdUsr, false}, {203, "USR-10", MdUsr, false}, {204, "USR-11", MdUsr, false}, {205, "USR-12", MdUsr, false},
+				{206, "USR-13", MdUsr, false}, {207, "USR-14", MdUsr, false}, {208, "USR-15", MdUsr, false}, {209, "USR-16", MdUsr, false},
 			};
 
 			// Ids are unique, so a plain sort gives a fixed order. std::stable_sort would
