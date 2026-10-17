@@ -4,8 +4,9 @@ cmake_minimum_required(VERSION 3.15)
 # without the OS (mdEngine) and the Kit codecs (mdProtocol) are compared with it. Each test needs
 # GEARMULATOR_MD_FIRMWARE_BIN and skips (77) without it.
 
+# The Machinedrum's MIDI and SysEx codecs (mdProtocol), without the firmware
 add_executable(mdAutomationMidiTest automationMidiTest.cpp)
-target_link_libraries(mdAutomationMidiTest PRIVATE mdLib)
+target_link_libraries(mdAutomationMidiTest PRIVATE mdProtocol synthLib)
 add_test(NAME mdAutomationMidiTest COMMAND mdAutomationMidiTest)
 set_tests_properties(mdAutomationMidiTest PROPERTIES LABELS "UnitTest")
 set_property(TARGET mdAutomationMidiTest PROPERTY FOLDER "Elektron")
