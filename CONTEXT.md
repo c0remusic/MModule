@@ -30,6 +30,11 @@ _Avoid_: model, instrument
 The audio one of the 48 ROM Machines (ROM-01 to ROM-48) plays, named by its Machine: ROM-33's Sample.
 _Avoid_: slot (a Bank's place), user wave, ROM slot
 
+**User Machine**:
+A Machine whose code the user installs from a file made for MDX X.20; there are sixteen, USR-01 to USR-16, each named
+by its number like the built-in Machines: "USR-05".
+_Avoid_: slot, USR slot (a Bank's place is a Slot), MDS machine (MDS is the kit the code is written with)
+
 **Hit**:
 One trigger of a Track and the sound it makes.
 _Avoid_: note, trig (the firmware sequencer's word)
