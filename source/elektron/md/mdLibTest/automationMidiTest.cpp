@@ -4,7 +4,6 @@
 #include "synthLib/midiBufferParser.h"
 
 #include <algorithm>
-#include <array>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -100,58 +99,6 @@ namespace
 		_message.push_back(static_cast<uint8_t>(length >> 7));
 		_message.push_back(static_cast<uint8_t>(length & 0x7f));
 		_message.push_back(0xf7);
-	}
-
-	std::vector<uint8_t> rleEncode(const std::vector<uint8_t>& _decoded)
-	{
-		std::vector<uint8_t> result;
-		for(size_t position = 0; position < _decoded.size();)
-		{
-			const auto value = _decoded[position];
-			size_t count = 1;
-			while(position + count < _decoded.size()
-				&& _decoded[position + count] == value && count < 127)
-				++count;
-			if(value >= 0x80 || count > 1)
-			{
-				result.push_back(static_cast<uint8_t>(0x80 | count));
-				result.push_back(value);
-			}
-			else
-				result.push_back(value);
-			position += count;
-		}
-		return result;
-	}
-
-	std::vector<uint8_t> pack7Bit(const std::vector<uint8_t>& _decoded)
-	{
-		std::vector<uint8_t> result;
-		for(size_t position = 0; position < _decoded.size();)
-		{
-			const auto headerPosition = result.size();
-			result.push_back(0);
-			for(uint8_t bit = 0; bit < 7 && position < _decoded.size(); ++bit)
-			{
-				const auto value = _decoded[position++];
-				if(value & 0x80)
-					result[headerPosition] |= static_cast<uint8_t>(1u << (6u - bit));
-				result.push_back(static_cast<uint8_t>(value & 0x7f));
-			}
-		}
-		return result;
-	}
-
-	md::automation::sysex::Message makeMmDump(const uint8_t _command,
-		const std::vector<uint8_t>& _decoded, const uint8_t _slot = 0x02)
-	{
-		md::automation::sysex::Message result{
-			0xf0, 0x00, 0x20, 0x3c, 0x03, 0x00, _command, 0x01, 0x01, _slot};
-		const auto rle = rleEncode(_decoded);
-		const auto packed = pack7Bit(rle);
-		result.insert(result.end(), packed.begin(), packed.end());
-		finishDump(result);
-		return result;
 	}
 
 	void testSysexRequestsAndStatus()
@@ -421,99 +368,6 @@ namespace
 			"accepted corrupt MD Kit checksum");
 	}
 
-	// Appends _data packed in 7-bit groups, as Elektron dumps do.
-	void append7Bit(md::automation::sysex::Message& _message, const std::vector<uint8_t>& _data)
-	{
-		for(size_t group = 0; group < _data.size(); group += 7)
-		{
-			const auto count = std::min<size_t>(7, _data.size() - group);
-			uint8_t highBits = 0;
-			for(size_t bit = 0; bit < count; ++bit)
-				if(_data[group + bit] & 0x80)
-					highBits |= static_cast<uint8_t>(1u << (6u - bit));
-			_message.push_back(highBits);
-			for(size_t bit = 0; bit < count; ++bit)
-				_message.push_back(_data[group + bit] & 0x7f);
-		}
-	}
-
-	// Unpacks _count bytes of a 7-bit run starting at _position, which it advances.
-	std::vector<uint8_t> read7Bit(const md::automation::sysex::Message& _message, size_t& _position, const size_t _count)
-	{
-		std::vector<uint8_t> result;
-		while(result.size() < _count)
-		{
-			const auto highBits = _message.at(_position++);
-			for(uint8_t bit = 0; bit < 7 && result.size() < _count; ++bit)
-				result.push_back(static_cast<uint8_t>(_message.at(_position++) | ((highBits >> (6 - bit)) & 1u) << 7));
-		}
-		return result;
-	}
-
-	// A Machinedrum pattern dump: _trigs and _masks per track, lock rows as given
-	// (the rest empty), and with _extension the 64-step form.
-	md::automation::sysex::Message makePattern(const uint8_t _length, const std::array<uint32_t, 16>& _trigs,
-		const std::array<uint32_t, 16>& _masks, const std::vector<uint8_t>& _locks, const std::vector<uint8_t>& _extension = {})
-	{
-		using namespace md::automation::sysex;
-		std::vector<uint8_t> trigs, masks;
-		for(uint8_t track = 0; track < 16; ++track)
-		{
-			for(const auto shift : {24, 16, 8, 0})
-			{
-				trigs.push_back(static_cast<uint8_t>(_trigs[track] >> shift));
-				masks.push_back(static_cast<uint8_t>(_masks[track] >> shift));
-			}
-		}
-		auto locks = _locks;
-		locks.resize(64 * 32, 0xff);
-		uint8_t rows = 0;
-		for(const auto mask : _masks)
-			for(uint8_t parameter = 0; parameter < 24; ++parameter)
-				rows += (mask >> parameter) & 1u;
-		Message pattern{0xf0, 0x00, 0x20, 0x3c, 0x02, 0x00, 0x67, 0x03, 0x01, 18};
-		append7Bit(pattern, trigs);
-		append7Bit(pattern, masks);
-		append7Bit(pattern, std::vector<uint8_t>(16, 0));
-		pattern.insert(pattern.end(), {0, _length, 0, 0, 5, rows});
-		append7Bit(pattern, locks);
-		append7Bit(pattern, std::vector<uint8_t>(204, 0));
-		if(!_extension.empty())
-			append7Bit(pattern, _extension);
-		finishDump(pattern);
-		return pattern;
-	}
-
-	// A Monomachine pattern dump ($67) holding _decoded: run-length pass, then 7-bit groups, as the
-	// firmware sends it (bit 7 of a run byte: the count of the byte after it)
-	md::automation::sysex::Message makeMonomachinePattern(const uint8_t _slot, const std::vector<uint8_t>& _decoded)
-	{
-		std::vector<uint8_t> rle;
-		for(size_t position = 0; position < _decoded.size();)
-		{
-			size_t count = 1;
-			while(count < 0x7f && position + count < _decoded.size() && _decoded[position + count] == _decoded[position])
-				++count;
-			if(count == 1 && _decoded[position] < 0x80)
-				rle.push_back(_decoded[position]);
-			else
-				rle.insert(rle.end(), {static_cast<uint8_t>(0x80 | count), _decoded[position]});
-			position += count;
-		}
-		md::automation::sysex::Message pattern{0xf0, 0x00, 0x20, 0x3c, 0x03, 0x00, 0x67, 0x05, 0x01, _slot};
-		append7Bit(pattern, rle);
-		finishDump(pattern);
-		return pattern;
-	}
-
-	// Decoded Monomachine pattern payload (MCL's MNMPattern): 13 kinds of masks, 6 tracks each, 8 bytes
-	// big-endian, the swing amount, the lock masks, the notes, then the length, double tempo and Kit;
-	// the count of lock rows at 1366, the 62 rows of 64 steps from 1367; 6520 bytes in all.
-	constexpr size_t g_mmTrigKinds[] = {0, 1, 2, 6};		// amp, filter, LFO, the trig itself
-	constexpr size_t g_mmLockMasks = 628;
-	constexpr size_t g_mmNotes = 676;
-	constexpr size_t g_mmRows = 1367;
-
 	void testMachineAssignment()
 	{
 		using md::automation::sysex::Message;
@@ -624,34 +478,6 @@ namespace
 		}
 		require(globalCount > 0, "real backup contained no Global dumps");
 		require(kitCount > 0, "real backup contained no Kit dumps");
-	}
-
-	// Factory-like Globals: Machinedrum OS 1.63 (CTRL IN on, clock internal, both
-	// outputs on) and Monomachine OS 1.32b (both inputs off).
-	md::automation::sysex::Message machinedrumGlobal()
-	{
-		md::automation::sysex::Message global{0xf0, 0x00, 0x20, 0x3c, 0x02, 0x00,
-			0x50, 0x06, 0x01, 0x00};
-		global.resize(0xc0, 0x06);
-		global[0xad] = 0;
-		global[0xb2] = 0x60;
-		finishDump(global);
-		return global;
-	}
-
-	std::vector<uint8_t> monomachineGlobalData()
-	{
-		std::vector<uint8_t> data(264, 0);
-		const uint8_t channels[] = {8, 0, 6, 6, 7};
-		std::copy(std::begin(channels), std::end(channels), data.begin());
-		data[5] = 0x70;
-		data[9] = 2;
-		data[10] = data[11] = 1;
-		for(uint8_t i = 0; i < 6; ++i)
-			data[18 + i] = static_cast<uint8_t>(9 + i);
-		data[100] = 0x91;
-		data.back() = 0x80;
-		return data;
 	}
 
 }
