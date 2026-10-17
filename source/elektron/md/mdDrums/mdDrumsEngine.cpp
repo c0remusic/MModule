@@ -325,6 +325,12 @@ namespace mdDrums
 			m_state->userMachines[static_cast<size_t>(_index)].reset();
 	}
 
+	std::shared_ptr<const md::mds::Package> Engine::userMachine(const int _index) const
+	{
+		return _index >= 0 && _index < static_cast<int>(m_state->userMachines.size())
+			? m_state->userMachines[static_cast<size_t>(_index)] : nullptr;
+	}
+
 	std::optional<std::array<uint8_t, 8>> Engine::machineDefaults(const uint8_t _id) const
 	{
 		if(md::engine::isUserMachine(_id))

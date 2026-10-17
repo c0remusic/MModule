@@ -10,6 +10,7 @@
 #include "mdDrumsController.h"
 #include "mdDrumsDevice.h"
 #include "mdDrumsHostDriver.h"
+#include "mdDrumsTestMachine.h"
 #include "mdDrumsTestSupport.h"
 
 #include "synthLib/plugin.h"
@@ -567,6 +568,75 @@ namespace
 	}
 }
 
+namespace
+{
+	// User Machines (tickets 07 and 14 of the User Machines map): installed into a Processor's Library and its Device,
+	// played on a Track; a set opened where none is installed plays its own copy; two instances hold two Machines at the
+	// same number; a Kit of the Bank takes the Library's; a Track on a number the Device lacks takes the Library's
+	void userMachines(const double _rate)
+	{
+		const auto saw = mdDrums::test::sawPackage();
+		const auto other = mdDrums::test::sawPackage(60);
+		constexpr int index = 4;	// USR-05
+		const auto id = mdDrums::Engine::FirstUserMachine + index;
+		const auto holds = [&](mdDrums::Processor& _processor, const std::vector<uint8_t>& _package)
+		{
+			const auto package = device(_processor).userMachine(index);
+			return package && package->bytes == _package;
+		};
+
+		juce::MemoryBlock set;
+		{
+			mdDrums::Processor a(true);
+			require(prepare(a, _rate, g_block), "no Device for the User Machines");
+			require(a.installUserMachine(index, {0x01, 0x02}).size() > 0, "a file that is no User Machine was installed");
+			require(a.installUserMachine(index, saw).empty(), "the test's User Machine was not installed");
+			require(a.getLibrary()->get(index) && holds(a, saw), "the Library or the Device lacks USR-05");
+			automate(a, "Machine", 0, id);
+			automate(a, "Level", 0, 100);
+			automate(a, "DEL", 0, 0);
+			automate(a, "REV", 0, 0);
+			const auto hit = play(a, 36, 0, _rate);
+			require(hit.peak > 0.01f, "USR-05 is silent on Track 1");
+			static_cast<juce::AudioProcessor&>(a).getStateInformation(set);
+			std::printf("User Machine: USR-05 installed and played on Track 1, peak %.4f; the set holds %zu bytes\n",
+				hit.peak, set.getSize());
+		}
+		{
+			// A set opened where USR-05 is not installed: its own copy plays, the Library stays empty
+			const auto b = restoredFrom(set);
+			require(prepare(*b, _rate, g_block), "no Device to open the set");
+			require(!b->getLibrary()->get(index) && holds(*b, saw), "the set did not bring its User Machine");
+			require(device(*b).kit().machine(0) == id, "the set's Kit lost USR-05");
+			require(play(*b, 36, 0, _rate).peak > 0.01f, "the set's User Machine is silent where it is not installed");
+
+			// A Kit of the Bank plays the Library's USR-05, which differs
+			require(b->getLibrary()->install(index, other).empty(), "the other User Machine was not installed");
+			require(holds(*b, saw), "installing into the Library changed what the instance plays");
+			b->controller().loadKit(device(*b).kit(), 0);
+			block(*b);
+			require(holds(*b, other), "a Kit of the Bank did not take the Library's User Machine");
+		}
+		{
+			// Two instances, two Machines at USR-05: each its own
+			mdDrums::Processor c(true), d(true);
+			require(prepare(c, _rate, g_block) && prepare(d, _rate, g_block), "no Devices for two instances");
+			require(c.installUserMachine(index, saw).empty() && d.installUserMachine(index, other).empty(),
+				"two User Machines were not installed");
+			require(holds(c, saw) && holds(d, other), "two instances do not each hold their own USR-05");
+
+			// A Track chosen on a number the Device lacks takes the Library's
+			require(d.getLibrary()->install(5, saw).empty(), "USR-06 was not installed into the Library");
+			require(!device(d).userMachine(5), "the Device took USR-06 before a Track chose it");
+			d.takeUserMachineIfAbsent(5);
+			require(device(d).userMachine(5) && device(d).userMachine(5)->bytes == saw,
+				"a Track on USR-06 did not take the Library's");
+		}
+		std::puts("User Machines: a set brings its own, two instances hold their own, a Kit of the Bank and a Track take"
+			" the Library's");
+	}
+}
+
 int main()
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
@@ -582,6 +652,8 @@ int main()
 				std::cout << "mdDrumsProcessorTest: SKIP (no Machinedrum UW OS 1.63 flash image found)\n";
 				return 77;
 			}
+			if(rate == 44100.0)
+				userMachines(rate);
 			juce::AudioProcessor& host = processor;
 
 			// The parameters, frozen from the port's first push: per Track Machine, 24, 5 LFO, Level, Mute, Solo, Out

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mdDrumsBank.h"
+#include "mdDrumsLibrary.h"
 #include "mdDrumsTelemetry.h"
 
 #include "MachineRunner.h"
@@ -69,8 +70,22 @@ namespace mdDrums
 		// The Kits' Bank (ticket 10 of the editor map), "Bank.syx" in the plug-in's data folder, made with the Device; none
 		// without one. A test Processor's is a file of its own in the temporary folder, removed with it.
 		Bank* getBank() const { return m_bank.get(); }
+		// The Library of User Machines (CONTEXT.md), "UserMachines" in the plug-in's data folder, made with the Bank
+		Library* getLibrary() const { return m_library.get(); }
+
+		// A User Machine's file (.syx or .mds) into the Library at _index (0-15, USR-01 to USR-16), then this instance's
+		// Device takes it, compiled ahead (rendering pauses for that). Empty when it went, else why not.
+		std::string installUserMachine(int _index, const std::vector<uint8_t>& _file);
+		// The Library's copies of the User Machines _kit plays into this instance's Device, where it holds another or
+		// none: what loading a Kit of the Bank does (ticket 07 of the User Machines map). A number the Library lacks
+		// keeps what the Device holds.
+		void takeUserMachines(const md::automation::sysex::MdKit& _kit);
+		// The Library's copy of one, where the Device holds none (a Machine chosen on a Track)
+		void takeUserMachineIfAbsent(int _index);
 
 	private:
+		// The Library's copy into the Device; false when there is none, or the Device has the same
+		bool installFromLibrary(int _index, bool _replace);
 		// Main, then the 15 Outs (messages::OutCount), off until the host enables them
 		static BusesProperties buses();
 		bool isBusesLayoutSupported(const BusesLayout& _layouts) const override;
@@ -83,6 +98,7 @@ namespace mdDrums
 		std::atomic<float> m_bpm{0.0f};
 		bool m_forTests = false;
 		std::unique_ptr<Bank> m_bank;
+		std::unique_ptr<Library> m_library;
 		std::vector<uint8_t> m_chosenFlash;		// loadFlashImage's, for createDevice, while it makes the Device
 	};
 }

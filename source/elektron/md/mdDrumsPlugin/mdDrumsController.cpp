@@ -257,6 +257,32 @@ namespace mdDrums
 				parameter->flushRealtimeValueToUi();
 		syncRelays();
 		followKitFiles();
+		followUserMachines();
+	}
+
+	void Controller::followUserMachines()
+	{
+		auto& processor = static_cast<Processor&>(getProcessor());
+		auto* library = processor.getLibrary();
+		if(!library)
+			return;
+		// The Library's files twice a second: another instance may install one
+		const auto now = juce::Time::getMillisecondCounterHiRes();
+		if(now - m_libraryFollowed >= 500.0)
+		{
+			m_libraryFollowed = now;
+			library->follow();
+		}
+		// A Track on a User Machine this instance holds no copy of takes the Library's (ticket 07 of the User Machines map)
+		for(uint8_t track = 0; track < TrackCount; ++track)
+		{
+			const auto* machine = getParameter("Machine", track);
+			if(!machine)
+				continue;
+			const auto id = static_cast<uint8_t>(machine->getUnnormalizedValue());
+			if(md::engine::isUserMachine(id))
+				processor.takeUserMachineIfAbsent(id - Engine::FirstUserMachine);
+		}
 	}
 
 	void Controller::followKitFiles()
@@ -461,6 +487,8 @@ namespace mdDrums
 			if(messages::isKitParameter(m_addresses[slot].page))
 				m_dirty[slot / 64].fetch_and(~(1ull << (slot % 64)), std::memory_order_acq_rel);
 
+		// A Kit of the Bank plays the Library's User Machines (ticket 07 of the User Machines map)
+		static_cast<Processor&>(getProcessor()).takeUserMachines(_kit);
 		sendToDevice(md::automation::sysex::mdKitDump(_kit, 0));
 		applyState({_kit, {}}, true);
 		tellHost();

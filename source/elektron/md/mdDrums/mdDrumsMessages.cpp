@@ -178,11 +178,47 @@ namespace mdDrums::messages
 		return std::nullopt;
 	}
 
+	Message userMachine(const UserMachine& _machine)
+	{
+		Message message(std::begin(g_header), std::end(g_header));
+		message.push_back(static_cast<uint8_t>(Command::UserMachine));
+		message.push_back(static_cast<uint8_t>(_machine.index & 0x0f));
+		const auto size = static_cast<uint32_t>(_machine.package.size());
+		message.push_back(static_cast<uint8_t>((size >> 14) & 0x7f));
+		message.push_back(static_cast<uint8_t>((size >> 7) & 0x7f));
+		message.push_back(static_cast<uint8_t>(size & 0x7f));
+		md::automation::sysex::codec::append7Bit(message, _machine.package.data(), _machine.package.size());
+		message.push_back(0xf7);
+		return message;
+	}
+
+	std::optional<UserMachine> parseUserMachine(const MessageView _message)
+	{
+		const auto data = g_commandAt + 1;
+		if(_message.size() < data + 5 || !std::equal(std::begin(g_header), std::end(g_header), _message.begin())
+			|| _message[g_commandAt] != static_cast<uint8_t>(Command::UserMachine) || _message.back() != 0xf7
+			|| _message[data] > 15)
+			return std::nullopt;
+		UserMachine machine;
+		machine.index = _message[data];
+		machine.package.resize(read21(_message, data + 1));
+		size_t position = data + 4;
+		if(!md::automation::sysex::codec::read7Bit(_message, position, machine.package.size(), machine.package.data())
+			|| position != _message.size() - 1)
+			return std::nullopt;
+		return machine;
+	}
+
 	std::vector<uint8_t> writeState(const State& _state)
 	{
 		auto bytes = md::automation::sysex::mdKitDump(_state.kit, 0);
 		const auto masks = mixer(_state.mixer);
 		bytes.insert(bytes.end(), masks.bytes.begin(), masks.bytes.begin() + masks.size);
+		for(const auto& machine : _state.userMachines)
+		{
+			const auto message = userMachine(machine);
+			bytes.insert(bytes.end(), message.begin(), message.end());
+		}
 		return bytes;
 	}
 
@@ -192,10 +228,38 @@ namespace mdDrums::messages
 		if(!_data || _size <= dumpSize)
 			return std::nullopt;
 		auto kit = md::automation::sysex::parseMdKit({_data, dumpSize});
-		const auto mixerMessage = parse({_data + dumpSize, _size - dumpSize});
-		if(!kit || !mixerMessage || mixerMessage->command != Command::Mixer)
+		if(!kit)
 			return std::nullopt;
-		return State{*kit, mixerMessage->mixer};
+		// The mixer message, then the User Machines', each up to its F7
+		State state{*kit, {}, {}};
+		size_t at = dumpSize;
+		bool first = true;
+		while(at < _size)
+		{
+			const auto* end = std::find(_data + at, _data + _size, uint8_t{0xf7});
+			if(end == _data + _size)
+				return std::nullopt;
+			const MessageView message{_data + at, static_cast<size_t>(end - (_data + at)) + 1};
+			if(first)
+			{
+				const auto mixerMessage = parse(message);
+				if(!mixerMessage || mixerMessage->command != Command::Mixer)
+					return std::nullopt;
+				state.mixer = mixerMessage->mixer;
+				first = false;
+			}
+			else
+			{
+				auto machine = parseUserMachine(message);
+				if(!machine)
+					return std::nullopt;
+				state.userMachines.push_back(std::move(*machine));
+			}
+			at += message.size();
+		}
+		if(first)
+			return std::nullopt;
+		return state;
 	}
 
 	std::optional<md::automation::sysex::MdKit> factoryKit(const std::vector<uint8_t>& _flashImage)

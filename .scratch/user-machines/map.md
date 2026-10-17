@@ -70,6 +70,8 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   latence inchangée.
 - [Machine jusqu'à 209, et USR dans le Kit](issues/13-machine-jusqu-a-209.md) : construit ; USR-01 à USR-16 aux
   numéros 194 à 209 dans le paramètre, `$5B` et le dump ; un numéro vide joue muet.
+- [La Library et l'état du set](issues/14-library-et-etat.md) : construit ; Library partagée dans le dossier de
+  données, copie par instance, l'état du set porte les Machines de son Kit.
 - [Lire les conversions Pitch et Decay dans l'OS X.20](issues/10-conversions-pitch-decay.md) : Pitch DEFAULT par une
   table de 128 (16 réglages par octave), Decay par la table d'OS 1.63 à `$24bf94` ; Unipolar à $7FFFFF à 127.
 - [La référence du son après « Booter X.20 »](issues/09-reference-du-son.md) : la spécification MDS et l'oreille pour

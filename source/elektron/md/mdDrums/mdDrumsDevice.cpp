@@ -48,9 +48,24 @@ namespace mdDrums
 #if SYNTHLIB_DEMO_MODE == 0
 	bool Device::getState(std::vector<uint8_t>& _state, synthLib::StateType)
 	{
-		// The Plugin layer has already written its version header: append
-		const auto state = messages::writeState({m_kit, m_mixer});
-		_state.insert(_state.end(), state.begin(), state.end());
+		// The Plugin layer has already written its version header: append. With the Kit, the User Machines it plays as
+		// this Device holds them, once each, so that the set sounds as saved where they are not installed
+		messages::State state{m_kit, m_mixer, {}};
+		uint16_t written = 0;
+		for(uint8_t track = 0; track < Engine::TrackCount; ++track)
+		{
+			const auto id = m_kit.machine(track);
+			if(!md::engine::isUserMachine(static_cast<uint8_t>(id)))
+				continue;
+			const auto index = static_cast<int>(id - Engine::FirstUserMachine);
+			const auto package = m_engine->userMachine(index);
+			if(!package || (written & (1u << index)))
+				continue;
+			written = static_cast<uint16_t>(written | 1u << index);
+			state.userMachines.push_back({static_cast<uint8_t>(index), package->bytes});
+		}
+		const auto bytes = messages::writeState(state);
+		_state.insert(_state.end(), bytes.begin(), bytes.end());
 		return true;
 	}
 
@@ -59,6 +74,18 @@ namespace mdDrums
 		const auto state = messages::parseState(_state.data(), _state.size());
 		if(!state)
 			return false;
+		// The set's own copies of its User Machines, before its Kit plays them; one this voice DSP cannot play is left out
+		for(const auto& machine : state->userMachines)
+		{
+			try
+			{
+				installUserMachine(machine.index,
+					std::make_shared<const md::mds::Package>(md::mds::parsePackage(machine.package)));
+			}
+			catch(const std::exception&)
+			{
+			}
+		}
 		m_kit = state->kit;
 		m_mixer = state->mixer;
 		applyKit();

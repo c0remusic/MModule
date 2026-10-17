@@ -93,6 +93,7 @@ namespace mdDrums
 		static constexpr uint8_t FirstUserMachine = md::engine::kFirstUserMachine;
 		void installUserMachine(int _index, std::shared_ptr<const md::mds::Package> _package);
 		void removeUserMachine(int _index);
+		std::shared_ptr<const md::mds::Package> userMachine(int _index) const;	// as installed, or none
 		// SYN1-8 as assigning _id gives them (sysex::applyKitChange): an OS machine's own, a User Machine's package's
 		// (0 past its parameters, and everywhere while its number holds none); none for an id that is neither
 		std::optional<std::array<uint8_t, 8>> machineDefaults(uint8_t _id) const;

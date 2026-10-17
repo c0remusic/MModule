@@ -29,6 +29,9 @@ namespace mdDrums::messages
 		// each (0 Main, 1-15 Out 01-15). Read too: the earlier form, an Out mask instead (Track n on Out n, 16 on 15)
 		Mixer = 0x04,
 		KitName = 0x05,		// the Kit's 16 name bytes, NUL-padded, 7 bits each (the Machinedrum names a Kit in its dump only)
+		// A User Machine a Kit plays, in the Device's state: its number (0-15, USR-01 to USR-16), the package's size
+		// (21 bits), then the package (MDS1), 7 bits to the byte as the Machinedrum's dumps pack them. Allocates.
+		UserMachine = 0x06,
 	};
 
 	// The Outs a Track can leave Main for: Live opens at most 16 output buses per plug-in, the track's own included
@@ -87,10 +90,21 @@ namespace mdDrums::messages
 	std::optional<Parsed> parse(MessageView _message);
 
 	// The Device's state: its Kit as a Kit dump ($52, slot 0), then its mixer message
+	struct UserMachine
+	{
+		uint8_t index = 0;				// 0-15, USR-01 to USR-16
+		std::vector<uint8_t> package;	// MDS1, as installed
+	};
+	Message userMachine(const UserMachine& _machine);
+	std::optional<UserMachine> parseUserMachine(MessageView _message);
+
+	// md-drums: then a UserMachine message for each User Machine the Kit plays and the Device holds, so that a set sounds
+	// as saved where they are not installed (none: the state as it was before User Machines)
 	struct State
 	{
 		md::automation::sysex::MdKit kit;
 		Mixer mixer;
+		std::vector<UserMachine> userMachines;
 	};
 	std::vector<uint8_t> writeState(const State& _state);
 	std::optional<State> parseState(const uint8_t* _data, size_t _size);

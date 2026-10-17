@@ -144,6 +144,70 @@ namespace mdDrums
 		return {};
 	}
 
+	std::string Processor::installUserMachine(const int _index, const std::vector<uint8_t>& _file)
+	{
+		if(!m_library)
+			return "MoDule needs its flash image before a User Machine";
+		if(auto error = m_library->install(_index, _file); !error.empty())
+			return error;
+		installFromLibrary(_index, true);
+		return {};
+	}
+
+	void Processor::takeUserMachines(const md::automation::sysex::MdKit& _kit)
+	{
+		uint16_t taken = 0;
+		for(uint8_t track = 0; track < Engine::TrackCount; ++track)
+		{
+			const auto id = static_cast<uint8_t>(_kit.machine(track));
+			if(!md::engine::isUserMachine(id))
+				continue;
+			const auto index = id - Engine::FirstUserMachine;
+			if(taken & (1u << index))
+				continue;
+			taken = static_cast<uint16_t>(taken | 1u << index);
+			installFromLibrary(index, true);
+		}
+	}
+
+	void Processor::takeUserMachineIfAbsent(const int _index)
+	{
+		// Without the Device's lock first: the Controller's timer asks this of every Track, and both copies change on the
+		// message thread only
+		if(!m_library || !m_library->get(_index))
+			return;
+		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
+		if(!device || device->userMachine(_index))
+			return;
+		installFromLibrary(_index, false);
+	}
+
+	bool Processor::installFromLibrary(const int _index, const bool _replace)
+	{
+		const auto package = m_library ? m_library->get(_index) : nullptr;
+		if(!package)
+			return false;
+		// Under the Device's lock, which pauses rendering for the time the voice DSP takes it (a few ms)
+		return getPlugin().withDeviceLocked([&](synthLib::Device* _device)
+		{
+			auto* device = dynamic_cast<Device*>(_device);
+			if(!device)
+				return false;
+			const auto held = device->userMachine(_index);
+			if(held && (!_replace || held->bytes == package->bytes))
+				return false;
+			try
+			{
+				device->installUserMachine(_index, package);
+				return true;
+			}
+			catch(const std::exception&)
+			{
+				return false;
+			}
+		});
+	}
+
 	void Processor::onDeviceCreationFailed(const synthLib::DeviceException& _e)
 	{
 		// The editor's status line says it and chooses the file (StatusView); the stack's box would ask for a reload
@@ -168,6 +232,8 @@ namespace mdDrums
 				: std::filesystem::u8path(getDataFolder());
 			m_bank = std::make_unique<Bank>(folder / "Bank.syx", messages::factoryKits(flash));
 			m_bank->read();
+			m_library = std::make_unique<Library>(folder / "UserMachines");
+			m_library->read();
 		}
 
 		synthLib::DeviceCreateParams params;

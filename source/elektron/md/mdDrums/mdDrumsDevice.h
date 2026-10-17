@@ -76,6 +76,15 @@ namespace mdDrums
 		// The OS's machines: their names, SYN1-8 names and defaults
 		const std::vector<md::engine::MachineInfo>& machines() const { return m_engine->machines(); }
 
+		// This Device's own copy of a User Machine (0-15, USR-01 to USR-16), installed and compiled now (Engine::
+		// installUserMachine). Never while process runs: the caller holds the Device (Plugin::withDeviceLocked). Throws,
+		// installing nothing, on a package the voice DSP cannot play.
+		void installUserMachine(int _index, std::shared_ptr<const md::mds::Package> _package)
+		{
+			m_engine->installUserMachine(_index, std::move(_package));
+		}
+		std::shared_ptr<const md::mds::Package> userMachine(int _index) const { return m_engine->userMachine(_index); }
+
 	protected:
 		// Nothing: process itself puts what the Device says back into its _midiOut (reportMachines)
 		void readMidiOut(std::vector<synthLib::SMidiEvent>&) override {}

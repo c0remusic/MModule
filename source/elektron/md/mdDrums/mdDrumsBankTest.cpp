@@ -5,8 +5,12 @@
 // follows a Slot another one wrote. Every factory Kit, and a new one, seeds the LFO RND generator.
 
 #include "mdDrumsBank.h"
+#include "mdDrumsLibrary.h"
 #include "mdDrumsMessages.h"
 
+#include "MdsPackage.h"
+
+#include "mdDrumsTestMachine.h"
 #include "mdDrumsTestSupport.h"
 
 #include <algorithm>
@@ -124,6 +128,27 @@ int main()
 			"two Slots written at once were not both kept");
 		std::printf("one write: Slots 41 \"%s\" and 43 \"%s\", 42 left empty\n", third.slot(40)->displayName().c_str(),
 			third.slot(42)->displayName().c_str());
+
+		// The Library of User Machines (ticket 14 of the User Machines map), shared as the Bank is: a User Machine one
+		// Library installs another follows, the file the package as installed; one it removes, the other loses; a file
+		// that is no User Machine, refused
+		{
+			mdDrums::Library mine(folder.path() / "UserMachines"), theirs(folder.path() / "UserMachines");
+			mine.read();
+			theirs.read();
+			const auto saw = mdDrums::test::sawPackage();
+			require(!mine.install(2, {0xf0, 0x7f, 0xf7}).empty() && !mine.get(2), "a file that is no User Machine went in");
+			require(mine.install(2, saw).empty() && mine.get(2), "the Library did not take a User Machine");
+			require(readFile(mine.file(2)) == saw, "USR-03's file is not the package as installed");
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			require(theirs.follow() && theirs.get(2) && theirs.get(2)->bytes == saw,
+				"a Library does not follow another's install");
+			require(!theirs.follow(), "a Library read the files again with nothing written");
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			require(mine.remove(2) && !mine.get(2), "the Library did not remove USR-03");
+			require(theirs.follow() && !theirs.get(2), "a Library does not follow another's removal");
+			std::printf("the Library: a User Machine installed and removed by one Library, followed by another\n");
+		}
 
 		// The folder goes, a failure to remove it a failure of the test (TempFolder removes it after one too)
 		std::filesystem::remove_all(folder.path());

@@ -109,6 +109,8 @@ namespace mdDrums
 		// parameter that follows its relay, it does not learn; a Kit, a state and a machine's parameters it reads
 		// again, once (ticket 34).
 		void syncRelays();
+		// The Library followed, and a Track's User Machine taken from it where this instance holds no copy
+		void followUserMachines();
 
 		struct Address
 		{
@@ -166,5 +168,6 @@ namespace mdDrums
 		KitFiles m_kitFiles;
 		md::automation::sysex::MdKit m_kitFilesKit;	// what m_kitFilesText was made from
 		std::string m_kitFilesText;
+		double m_libraryFollowed = 0.0;	// when followUserMachines last read the Library's files, in ms
 	};
 }
