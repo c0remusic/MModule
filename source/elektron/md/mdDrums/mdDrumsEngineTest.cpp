@@ -21,6 +21,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <iterator>
 #include <string>
 #include <vector>
@@ -532,6 +533,120 @@ namespace
 			shortest, longest, stray);
 	}
 
+	// A Sample written into the voice DSP of an engine that plays (ticket 05 of the Samples map): what it costs, and what a
+	// voice does meanwhile. The test's own Sample, a 441 Hz sine at half scale for one second at 44.1 kHz, is coded to
+	// 12 bits through the OS's table in the flash image (fw::loadRomBankFromFlash's) and written above the factory bank,
+	// then ROM-33's directory entry points at it between two blocks: the next Hit of ROM-33, silent before, plays it,
+	// although the voice code was compiled before the write (P data, which the JIT never compiles). The whole free room,
+	// $18FC12 to $1FFFFF, is written and timed, at once and a block's share at a time. A voice that plays ROM-01 while its
+	// words are overwritten carries on without a fault.
+	void sampleWrite(const std::vector<uint8_t>& _flash, const md::fw::FlashOs& _os, const md::fw::RomBank& _bank)
+	{
+		constexpr uint32_t kFree = 0x18fc12, kEnd = 0x200000;
+		constexpr uint32_t kRom33Entry = md::fw::RomBank::DirectoryAddr + 4 * 48;	// ROM-33 to -48 at entries 48 to 63
+		constexpr uint8_t kRom01 = 128, kRom33 = 176;
+		constexpr int kBlocks = 200;
+
+		// The Sample's codes: two 12-bit codes a word, the first in the high half, through the OS's table of each 16-bit
+		// value read as unsigned (flash $7a0000)
+		const auto code = [&](const int16_t _v)
+		{
+			const auto at = 0x7a0000 + 2 * static_cast<size_t>(static_cast<uint16_t>(_v));
+			return static_cast<uint32_t>((_flash[at] << 8 | _flash[at + 1]) & 0xfff);
+		};
+		std::vector<uint32_t> words(22050);
+		for(size_t w = 0; w < words.size(); ++w)
+		{
+			const auto s = [&](const size_t _k)
+			{
+				return static_cast<int16_t>(std::lround(16383.0 * std::sin(2.0 * 3.14159265358979 * 441.0 * static_cast<double>(_k) / 44100.0)));
+			};
+			words[w] = code(s(2 * w)) << 12 | code(s(2 * w + 1));
+		}
+		const uint32_t entry[4] = {kFree, static_cast<uint32_t>(2 * words.size()), 0xffffff, 1u << 18};
+
+		// Track 1 on _machine, its whole Sample once (PTCH 64, DEC and HOLD 127, END 127), struck at block 2; its voice's
+		// peak from then on, and between two blocks _between(block) runs
+		const int whole[8] = {64, 127, 127, 0, 0, 127, 0, 0};
+		const auto play = [&](const uint8_t _machine, const std::function<void(md::engine::Engine&, int)>& _between)
+		{
+			md::engine::Engine raw(_os.firmware, _os.osImage);
+			raw.loadRomBank(_bank);
+			mdDrums::applyEngineDefaults(raw.host());
+			raw.host().setMachine(0, _machine);
+			for(int p = 0; p < 8; ++p)
+				raw.host().setParam(0, p, whole[p]);
+			md::engine::Engine::Output out;
+			int32_t peak = 0;
+			for(int b = 0; b < kBlocks; ++b)
+			{
+				if(b == 2)
+					raw.host().trigger(0, 127);
+				_between(raw, b);
+				require(raw.render(out), "the engine faulted");
+				for(const auto s : raw.voiceBlock()[0])
+					peak = std::max(peak, std::abs(s));
+			}
+			return peak;
+		};
+		const auto none = [](md::engine::Engine&, int) {};
+
+		// ROM-33 is silent; with the Sample written and its entry pointed at it before its Hit, it plays it
+		const auto empty = play(kRom33, none);
+		const auto written = play(kRom33, [&](md::engine::Engine& _e, const int _b)
+		{
+			if(_b != 1)
+				return;
+			_e.voices().writeP(kFree, words.data(), words.size());
+			_e.voices().writeP(kRom33Entry, entry, 4);
+		});
+		std::printf("Sample write: ROM-33 empty peaks %d, with the test's Sample written between two blocks %d (of %d)\n",
+			empty, written, 1 << 23);
+		require(empty == 0, "ROM-33 sounds before its Sample is written");
+		require(written > (1 << 20), "ROM-33 does not play the Sample written into the running voice DSP");
+
+		// The whole free room: at once, and in a block's share of words at a time
+		std::vector<uint32_t> room(kEnd - kFree, 0x800800);
+		double onceMs = 0;
+		play(kRom01, [&](md::engine::Engine& _e, const int _b)
+		{
+			if(_b != 3)
+				return;
+			const auto start = std::chrono::steady_clock::now();
+			_e.voices().writeP(kFree, room.data(), room.size());
+			onceMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+		});
+		constexpr size_t kChunk = 4096;
+		double chunkWorstUs = 0;
+		play(kRom01, [&](md::engine::Engine& _e, const int _b)
+		{
+			const auto at = static_cast<size_t>(_b) * kChunk;
+			if(at >= room.size())
+				return;
+			const auto start = std::chrono::steady_clock::now();
+			_e.voices().writeP(kFree + static_cast<uint32_t>(at), room.data() + at, std::min(kChunk, room.size() - at));
+			chunkWorstUs = std::max(chunkWorstUs,
+				std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count());
+		});
+		std::printf("Sample write: the free room, %zu words, in %.3f ms at once; %zu words a block, worst %.1f us"
+			" (a 32-sample block lasts %.0f us)\n", room.size(), onceMs, kChunk, chunkWorstUs, 32e6 / 44100.0);
+
+		// ROM-01's voice while its own words are overwritten, a block's share at a time from its Hit on: no fault (play
+		// requires every block to render), and its sound changes
+		const auto romFirst = _bank.directory[0].words[0];
+		const auto plain = play(kRom01, none);
+		const auto overwritten = play(kRom01, [&](md::engine::Engine& _e, const int _b)
+		{
+			if(_b < 3 || static_cast<size_t>(_b - 3) * 64 >= words.size())
+				return;
+			const auto at = static_cast<size_t>(_b - 3) * 64;
+			_e.voices().writeP(romFirst + static_cast<uint32_t>(at), words.data() + at, std::min<size_t>(64, words.size() - at));
+		});
+		std::printf("Sample write: ROM-01 peaks %d undisturbed, %d with its words overwritten while it plays\n", plain,
+			overwritten);
+		require(plain > 0 && overwritten != plain, "overwriting a playing Sample changed nothing");
+	}
+
 	// User Machines (ticket 12 of the User Machines map): the test's sawtooth, packaged as MDX X.20 packages are, at
 	// USR-02 on Track 3 of the engine (md::engine::Engine, as mdEngineFirmwareTest compares it): its voice gives the bare
 	// host's samples (md::mds::BareHost, mdsPlay's), from its Hit, its code relocated and its parameters converted, and the
@@ -717,6 +832,7 @@ int main()
 		coldFireBytePush(os);
 		conversions(os);
 		userMachines(os, bank);
+		sampleWrite(_flash, os, bank);
 
 		// Track 1 on its own output: it leaves the main mix and sounds there alone.
 		{

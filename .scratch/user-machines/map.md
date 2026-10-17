@@ -89,10 +89,10 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 - Les drapeaux TONAL et CONTINUOUS RETRIGGER : ce que MoDule en fait (les modes d'accord d'X.20 sont hors périmètre).
 - NEIGHBOUR et STEREO PAIR (les 9 NFX et les 4 SYN-F) : le descripteur de quatre tampons qu'X.20 tient à Y:`$7F0` et
   fait tourner Track après Track, que le harnais du DSP voix devra tenir ; le rôle stéréo à Y+9. Refusés d'ici là.
-- L'éditeur : le navigateur de Machines (la catégorie de MDM1, le sprite 32x24), les noms de SYN1-8 tirés de MDM1,
-  l'installation par lâcher et par le Menu.
+- L'installation par lâcher : avec « Où lâcher » de la carte des Samples. Le sprite 32x24 de MDM1 : où le montrer,
+  si l'éditeur le montre.
 - Le fondu ANTI-CLICK qu'X.20 fait avant TRIG : le faire ou non, OS 1.63 n'en a pas.
-- Le nom et les paramètres d'une Machine utilisateur dans le fichier `.kit` de md-drums-seq et sur Push.
+- Le nom et les paramètres d'une Machine utilisateur sur Push.
 - SAMPLE_INFO et SAMPLE_READ, pour qu'une Machine utilisateur lise les Samples (lien avec la carte des Samples).
 
 ## Out of scope

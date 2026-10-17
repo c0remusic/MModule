@@ -45,18 +45,20 @@ Windows (macOS construit par la CI, pas vérifié à la main). Pas de tag.
   documenté, échecs rapportés, à mesurer ; JUCE ne lit que WAV et AIFF sous Windows tel que construit ; 20,85 s libres
   à 44,1 kHz pour tous les Samples ensemble ; le vrai UW prend 4 à 48 kHz, mono, 12 bits, boucles d'au moins 151
   échantillons.
+- [Quelles Machines reçoivent un Sample](issues/02-machines-qui-recoivent.md) : les 48 ; retirer remet celui d'usine
+  ou rend muette.
+- [Où vivent les Samples](issues/03-ou-vivent-les-samples.md) : bibliothèque partagée dans le dossier de données,
+  l'état du set embarque ceux de son Kit, chaque instance sa copie.
+- [Ce qu'un fichier devient](issues/04-conversion-d-un-fichier.md) : WAV, AIFF, FLAC ; mono par somme ; rate natif
+  de 4 à 48 kHz, au-dessus 44,1 ; boucle `smpl` d'au moins 151 ; gain tel quel ; trop long refusé.
+- [Écrire un Sample dans le DSP voix en marche](issues/05-ecrire-un-sample-dans-le-dsp.md) : par tranches de 4 096
+  mots entre deux blocs (13 µs), l'entrée de répertoire en dernier ; le JIT ne gêne pas ; la place sûre s'arrête sous
+  ce que lisent les E12 (19,4 s).
 
 ## Not yet specified
 
-- Les tranches de construction : l'API du moteur pour charger un Sample, la conversion, le stockage, le lâcher dans
-  l'éditeur, les tests, l'essai dans Live. Elles sortent une fois tranchés les tickets 03, 04, 05 et 06.
-- Un set ouvert sur un autre PC sans le fichier d'un Sample. Tranché pour les Machines utilisateur le 2026-10-17
-  ([Où vivent les Machines utilisateur installées](../user-machines/issues/07-ou-vivent-les-machines.md)) et voulu
-  pareil ici par l'utilisateur : une bibliothèque partagée par les instances, et l'état du set qui embarque les
-  Samples que son Kit joue, chaque instance jouant sa copie.
 - Ce que voit l'hôte quand un Sample change : set marqué modifié, undo de Live.
 - Le nom d'un Sample dans le fichier `.kit` de md-drums-seq et sur Push.
-- Plusieurs instances : chacune ses Samples, ou partagés entre elles.
 
 ## Out of scope
 
