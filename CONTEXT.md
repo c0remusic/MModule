@@ -1,4 +1,4 @@
-# MD Drums
+# MoDule
 
 The Elektron Machinedrum's sixteen synthesis tracks as a plug-in, played and automated from a host, edited in one
 window like Overbridge.
@@ -7,9 +7,10 @@ window like Overbridge.
 
 ### Plug-ins
 
-**MD Drums**:
-The plug-in this repository builds: the Machinedrum's engines run without its OS.
-_Avoid_: the plug-in (when Gearmulator MD could be meant), mdDrumsPlugin
+**MoDule**:
+The plug-in this repository builds: the Machinedrum's engines run without its OS. Called MD Drums up to 0.1.1;
+the code keeps that name (`mdDrums`, `mdDrumsPlugin`).
+_Avoid_: MD Drums (in what users read), the plug-in (when Gearmulator MD could be meant)
 
 **Gearmulator MD**:
 The full-machine plug-in inherited from md-mm, which runs the whole firmware; not what this repository ships.

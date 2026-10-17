@@ -44,6 +44,11 @@ namespace mdDrums
 		// Where the flash image is looked for, by the Device and by the Hit screen's preview: the data folder's roms,
 		// then the plug-in's own folder, as the stack gives them (UTF-8)
 		std::vector<std::filesystem::path> romFolders() const;
+
+		// The Bank and the flash image an earlier MD Drums kept in its data folder (Documents/c0remusic/MD Drums), copied
+		// into _to where _to lacks them: MoDule's data folder took the new name. Nothing else moves; false when a copy
+		// failed
+		static bool migrateData(const std::filesystem::path& _from, const std::filesystem::path& _to);
 		// Whether a Device plays, rather than the stack's silent stand-in when no flash image was found
 		bool hasDevice();
 		// A flash image the user chose in the editor (ticket 35): checked, the Device made again from it (with the Kit the

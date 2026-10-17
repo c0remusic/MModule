@@ -1,0 +1,5 @@
+#!/bin/sh
+# MoDule's package: before installing, remove the bundles MD Drums (0.1.1 and earlier) installed, the same plug-in
+# under its old name, so that hosts do not find it twice
+rm -rf "/Library/Audio/Plug-Ins/VST3/MD Drums.vst3" "/Library/Audio/Plug-Ins/Components/MD Drums.component"
+exit 0

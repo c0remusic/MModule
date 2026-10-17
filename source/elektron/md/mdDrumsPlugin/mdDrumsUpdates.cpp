@@ -1,6 +1,7 @@
 #include "mdDrumsUpdates.h"
 
 #include <algorithm>
+#include <array>
 #include <mutex>
 #include <string_view>
 #include <vector>
@@ -11,7 +12,8 @@ namespace mdDrums::updates
 	{
 		// The repository's release list, which the check reads
 		constexpr const char* g_listUrl = "https://api.github.com/repos/c0remusic/MModule/releases?per_page=30";
-		constexpr std::string_view g_tagPrefix = "md-drums-v";
+		// MoDule's tags, then MD Drums' before the name changed (0.1.1 and earlier)
+		constexpr std::array<std::string_view, 2> g_tagPrefixes{"module-v", "md-drums-v"};
 
 		// What the process's read found, beyond the life of the Check that ran it
 		std::mutex g_mutex;
@@ -88,9 +90,11 @@ namespace mdDrums::updates
 			if(static_cast<bool>(entry["draft"]))
 				continue;
 			const auto tag = entry["tag_name"].toString().toStdString();
-			if(tag.rfind(g_tagPrefix, 0) != 0)
+			const auto prefix = std::find_if(g_tagPrefixes.begin(), g_tagPrefixes.end(),
+				[&](const std::string_view _prefix) { return tag.rfind(_prefix, 0) == 0; });
+			if(prefix == g_tagPrefixes.end())
 				continue;
-			const auto version = tag.substr(g_tagPrefix.size());
+			const auto version = tag.substr(prefix->size());
 			if(!isVersion(version))
 				continue;
 			if(!best || compare(version, best->version) > 0)
@@ -99,7 +103,7 @@ namespace mdDrums::updates
 		return best;
 	}
 
-	Check::Check() : juce::Thread("MD Drums update check")
+	Check::Check() : juce::Thread("MoDule update check")
 	{
 	}
 

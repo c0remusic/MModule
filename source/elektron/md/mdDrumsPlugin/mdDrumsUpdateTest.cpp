@@ -23,6 +23,8 @@ namespace
 		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/md-drums-v0.1.0"},
 		{"tag_name": "md-drums-v0.1.10", "draft": false, "prerelease": true,
 		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/md-drums-v0.1.10"},
+		{"tag_name": "module-v0.1.11", "draft": false, "prerelease": true,
+		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/module-v0.1.11"},
 		{"tag_name": "md-drums-v0.1.9", "draft": false, "prerelease": false,
 		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/md-drums-v0.1.9"},
 		{"tag_name": "md-drums-v0.3.0", "draft": true,
@@ -47,9 +49,9 @@ int main()
 		const auto newest = mdDrums::updates::newest(juce::JSON::parse(g_list));
 		require(newest.has_value(), "no release found in the list");
 		std::printf("newest in the list: %s at %s\n", newest->version.c_str(), newest->url.c_str());
-		require(newest->version == "0.1.10"
-			&& newest->url == "https://github.com/c0remusic/MModule/releases/tag/md-drums-v0.1.10",
-			"the newest is not md-drums-v0.1.10, a pre-release, past a draft, another product's tag and markup");
+		require(newest->version == "0.1.11"
+			&& newest->url == "https://github.com/c0remusic/MModule/releases/tag/module-v0.1.11",
+			"the newest is not module-v0.1.11, past md-drums-v0.1.10, a draft, another product's tag and markup");
 
 		require(!mdDrums::updates::newest(juce::JSON::parse("[]")).has_value(), "an empty list gave a release");
 		require(!mdDrums::updates::newest(juce::JSON::parse("{\"message\": \"API rate limit exceeded\"}")).has_value(),

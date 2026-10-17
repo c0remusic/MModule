@@ -1,6 +1,6 @@
-name: MD Drums macOS universal build
+name: MoDule macOS universal build
 
-# MD Drums (mdDrumsPlugin) for macOS, Apple Silicon and Intel in one binary, as VST3 and AU: an installer package and a
+# MoDule (mdDrumsPlugin) for macOS, Apple Silicon and Intel in one binary, as VST3 and AU: an installer package and a
 # zip, both signed ad hoc and not notarized. The runner has no Machinedrum flash image, so nothing here hears it play.
 # Run it by hand; the artifact goes to a release as an untested build.
 
@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   build:
-    name: MD Drums macOS universal VST3 and AU
+    name: MoDule macOS universal VST3 and AU
     runs-on: macos-14
     timeout-minutes: 150
 
@@ -59,12 +59,12 @@ jobs:
         run: |
           set -euo pipefail
           products="build/products/Release"
-          for bundle in "${products}/VST3/MD Drums.vst3" "${products}/AU/MD Drums.component"; do
+          for bundle in "${products}/VST3/MoDule.vst3" "${products}/AU/MoDule.component"; do
             test -d "${bundle}"
             rm -f "${bundle}/Contents/Resources/moduleinfo.json"
             codesign --force --deep --sign - "${bundle}"
             codesign --verify --deep --strict "${bundle}"
-            archs="$(lipo -archs "${bundle}/Contents/MacOS/MD Drums")"
+            archs="$(lipo -archs "${bundle}/Contents/MacOS/MoDule")"
             echo "${bundle}: ${archs}"
             [[ " ${archs} " == *" arm64 "* && " ${archs} " == *" x86_64 "* ]]
           done
@@ -75,15 +75,15 @@ jobs:
         run: |
           set -euo pipefail
           products="build/products/Release"
-          name="MD-Drums-${VERSION}-preview-macOS-universal"
+          name="MoDule-${VERSION}-preview-macOS-universal"
           out="${RUNNER_TEMP}/out"
           mkdir -p "${out}"
 
           # The installer: both bundles into /Library/Audio/Plug-Ins, never relocated to another copy
           root="${RUNNER_TEMP}/pkgroot"
           mkdir -p "${root}/Library/Audio/Plug-Ins/VST3" "${root}/Library/Audio/Plug-Ins/Components"
-          ditto "${products}/VST3/MD Drums.vst3" "${root}/Library/Audio/Plug-Ins/VST3/MD Drums.vst3"
-          ditto "${products}/AU/MD Drums.component" "${root}/Library/Audio/Plug-Ins/Components/MD Drums.component"
+          ditto "${products}/VST3/MoDule.vst3" "${root}/Library/Audio/Plug-Ins/VST3/MoDule.vst3"
+          ditto "${products}/AU/MoDule.component" "${root}/Library/Audio/Plug-Ins/Components/MoDule.component"
           plist="${RUNNER_TEMP}/components.plist"
           pkgbuild --analyze --root "${root}" "${plist}"
           # plutil cannot walk a plist whose root is an array; PlistBuddy can. The analysis does not always write the key:
@@ -97,15 +97,20 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print" "${plist}"
           echo "${i} bundles, none relocatable"
           test "${i}" -ge 2
-          pkgbuild --root "${root}" --component-plist "${plist}" \
+          # Before installing, the bundles MD Drums (0.1.1 and earlier) left: the same plug-in under its old name
+          scripts="${RUNNER_TEMP}/pkgscripts"
+          mkdir -p "${scripts}"
+          cp scripts/macos/preinstall "${scripts}/preinstall"
+          chmod +x "${scripts}/preinstall"
+          pkgbuild --root "${root}" --component-plist "${plist}" --scripts "${scripts}" \
             --identifier com.c0remusic.mddrums --version "${VERSION}" --install-location / \
             "${out}/${name}.pkg"
 
           # The zip: the bundles, the README and the licences
           stage="${RUNNER_TEMP}/${name}"
           mkdir -p "${stage}"
-          ditto "${products}/VST3/MD Drums.vst3" "${stage}/MD Drums.vst3"
-          ditto "${products}/AU/MD Drums.component" "${stage}/MD Drums.component"
+          ditto "${products}/VST3/MoDule.vst3" "${stage}/MoDule.vst3"
+          ditto "${products}/AU/MoDule.component" "${stage}/MoDule.component"
           cp scripts/macos/md-drums-README.txt "${stage}/README.txt"
           cp NOTICE.md LICENSE.md "${stage}/"
           cp source/elektron/md/mdEngine/LICENSE "${stage}/LICENSE-AGPL.txt"
@@ -119,5 +124,5 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: MD-Drums-${{ inputs.version }}-macOS-universal-${{ github.sha }}
+          name: MoDule-${{ inputs.version }}-macOS-universal-${{ github.sha }}
           path: ${{ runner.temp }}/out/*

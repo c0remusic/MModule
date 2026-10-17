@@ -131,7 +131,7 @@ namespace mdDrums
 		}
 
 		if(m_newer)
-			return {"MD Drums " + m_newer->version + " is out", Action::OpenRelease};
+			return {"MoDule " + m_newer->version + " is out", Action::OpenRelease};
 		return {{}, Action::None};
 	}
 

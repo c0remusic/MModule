@@ -546,9 +546,9 @@ namespace
 		std::printf("%s by %s %s, %s, %s, class hash %08x\n", description.name.toRawUTF8(),
 			description.manufacturerName.toRawUTF8(), description.version.toRawUTF8(), description.category.toRawUTF8(),
 			description.isInstrument ? "instrument" : "effect", static_cast<unsigned>(description.uniqueId));
-		require(description.name == "MD Drums" && description.manufacturerName == "c0remusic" && description.isInstrument,
-			"the VST3 is not MD Drums, an instrument by c0remusic");
-		require(description.uniqueId == g_classHash, "the VST3 class ID changed: Live sets would no longer find MD Drums");
+		require(description.name == "MoDule" && description.manufacturerName == "c0remusic" && description.isInstrument,
+			"the VST3 is not MoDule, an instrument by c0remusic");
+		require(description.uniqueId == g_classHash, "the VST3 class ID changed: sets made with MD Drums would no longer find MoDule");
 
 		{
 			const auto start = Clock::now();
@@ -950,7 +950,7 @@ int main(const int _argc, char* _argv[])
 	setvbuf(stdout, nullptr, _IONBF, 0);
 	if(_argc < 2)
 	{
-		std::cerr << "usage: mdDrumsVst3HostTest <MD Drums.vst3>\n";
+		std::cerr << "usage: mdDrumsVst3HostTest <MoDule.vst3>\n";
 		return 2;
 	}
 	const auto* const flash = std::getenv("GEARMULATOR_MD_FIRMWARE_BIN");

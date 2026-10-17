@@ -1,4 +1,4 @@
-MD Drums (preview) - Windows x64, VST3
+MoDule (preview) - Windows x64, VST3
 ======================================
 
 The Elektron Machinedrum's synthesis engines as a VST3 instrument, edited like
@@ -19,18 +19,18 @@ Requirements
 - Windows 10 or 11, x64, and a VST3 host.
 - Your own Machinedrum UW firmware: the 8 MB flash image with OS 1.63, the
   same one Gearmulator MD uses (an OS update in .syx won't do). Elektron owns
-  it, so it doesn't come with MD Drums, which is meant for people who own the
+  it, so it doesn't come with MoDule, which is meant for people who own the
   hardware; please don't ask for it.
 
 
 Install
 -------
 
-1. Run the installer, or copy the zip's "MD Drums.vst3" folder to
+1. Run the installer, or copy the zip's "MoDule.vst3" folder to
    C:\Program Files\Common Files\VST3\ yourself. The installer isn't signed:
    if SmartScreen says it protected your PC, click "More info", then
    "Run anyway".
-2. Rescan plug-ins in your host and load "MD Drums" (c0remusic) as an
+2. Rescan plug-ins in your host and load "MoDule" (c0remusic) as an
    instrument.
 3. Give it the flash image: click "No Machinedrum flash image: choose the
    file" in its top bar (or right-click the editor and choose "Load

@@ -1,4 +1,4 @@
-MD Drums (preview) - macOS universal (Apple Silicon and Intel), VST3 and AU
+MoDule (preview) - macOS universal (Apple Silicon and Intel), VST3 and AU
 ==========================================================================
 
 The Elektron Machinedrum's synthesis engines as a VST3 and AU instrument,
@@ -21,7 +21,7 @@ Requirements
 - macOS 11 or later, and a VST3 or AU host.
 - Your own Machinedrum UW firmware: the 8 MB flash image with OS 1.63, the
   same one Gearmulator MD uses (an OS update in .syx won't do). Elektron owns
-  it, so it doesn't come with MD Drums, which is meant for people who own the
+  it, so it doesn't come with MoDule, which is meant for people who own the
   hardware; please don't ask for it.
 
 
@@ -37,16 +37,16 @@ only way through: right-click > Open no longer gets past Gatekeeper.
 
 Or by hand, from this zip:
 
-1. Copy "MD Drums.vst3" to ~/Library/Audio/Plug-Ins/VST3/ and, for AU hosts,
-   "MD Drums.component" to ~/Library/Audio/Plug-Ins/Components/
+1. Copy "MoDule.vst3" to ~/Library/Audio/Plug-Ins/VST3/ and, for AU hosts,
+   "MoDule.component" to ~/Library/Audio/Plug-Ins/Components/
 2. The bundles are signed ad hoc, not notarized: macOS blocks them until you
    remove the quarantine flag, in Terminal:
-     xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"MD Drums.vst3"
-     xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/"MD Drums.component"
+     xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"MoDule.vst3"
+     xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/"MoDule.component"
 
 Then, either way:
 
-3. Rescan plug-ins in your host and load "MD Drums" (c0remusic).
+3. Rescan plug-ins in your host and load "MoDule" (c0remusic).
 4. Give it the flash image: click "No Machinedrum flash image: choose the
    file" in its top bar (or right-click the editor and choose "Load
    Machinedrum flash image...") and pick your file, whatever its name. MD

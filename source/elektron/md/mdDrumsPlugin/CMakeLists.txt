@@ -38,7 +38,7 @@ set(SOURCES
 )
 
 set(ASSETS parameterDescriptions_mddrums.json)
-addSkin("MD Drums" "MD Drums" "skins/mdDrums" "mdDrums.rml")
+addSkin("MoDule" "MoDule" "skins/mdDrums" "mdDrums.rml")
 buildSkinHeader()
 
 juce_add_binary_data(mdDrumsPlugin_BinaryData SOURCES ${ASSETS} ${ASSETS_SKINS})
@@ -55,7 +55,7 @@ juce_add_plugin(mdDrumsPlugin
 	PLUGIN_CODE Mddr
 	PRODUCTS_FOLDER "${GEARMULATOR_JUCE_PRODUCTS_ROOT}/$<CONFIG>"
 	FORMATS ${juce_formats}
-	PRODUCT_NAME "MD Drums"
+	PRODUCT_NAME "MoDule"
 	VST3_AUTO_MANIFEST TRUE
 	BUNDLE_ID "local.c0remusic.mddrums"
 	LV2URI "urn:c0remusic:mddrums"
@@ -68,7 +68,7 @@ source_group("source" FILES ${SOURCES})
 removeJuceDependencies(mdDrumsPlugin)
 # What createJucePlugin (source/juce.cmake) defines for the stack, with MD Drums' identity
 target_compile_definitions(mdDrumsPlugin PUBLIC
-	PluginName="MD Drums"
+	PluginName="MoDule"
 	PluginVersionMajor=${CMAKE_PROJECT_VERSION_MAJOR}
 	PluginVersionMinor=${CMAKE_PROJECT_VERSION_MINOR}
 	PluginVersionPatch=${CMAKE_PROJECT_VERSION_PATCH}

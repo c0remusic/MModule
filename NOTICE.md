@@ -1,13 +1,13 @@
 # Licence notice
 
-MModule, the repository of MD Drums, is built from Gearmulator (The Usual Suspects, GNU GPL v3, `LICENSE.md`) and,
+MModule, the repository of MoDule, is built from Gearmulator (The Usual Suspects, GNU GPL v3, `LICENSE.md`) and,
 since 2026-10-06, from Machinemodule's engine (sd88me, GNU AGPL v3, `source/elektron/md/mdEngine/LICENSE`). Its history
-is gearmulator-md-drums' (c0remusic), filtered on 2026-10-17 to MD Drums and what builds and tests it.
+is gearmulator-md-drums' (c0remusic), filtered on 2026-10-17 to MoDule and what builds and tests it.
 
 The GNU GPL v3 and the GNU AGPL v3 may be combined (section 13 of each). The combined work, the plug-in built from
 this repository, is distributed under the GNU AGPL v3; each part keeps its own licence and copyright notices.
 
-MD Drums' skin bundles four faces of Inter 4.1 (The Inter Project Authors, SIL Open Font License 1.1,
+MoDule's skin bundles four faces of Inter 4.1 (The Inter Project Authors, SIL Open Font License 1.1,
 `source/elektron/md/mdDrumsPlugin/skins/mdDrums/Inter-OFL.txt`), reduced to Latin-1 with tabular digits and a legacy
 kerning table by `.scratch/md-drums-editor/tools/make_inter.py`. The font keeps its own licence.
 

@@ -10,6 +10,7 @@
 // ReSharper disable once CppUnusedIncludeDirective
 #include "BinaryData.h"
 #include "jucePluginLib/processorPropertiesInit.h"
+#include "jucePluginLib/tools.h"
 
 #include "baseLib/binarystream.h"
 #include "baseLib/filesystem.h"
@@ -64,7 +65,25 @@ namespace mdDrums
 		// A test's editor asks GitHub nothing
 		if(_forTests)
 			getConfig().setValue(StatusView::CheckKey, false);
+		else
+			migrateData(std::filesystem::u8path(pluginLib::Tools::getPublicDataFolder(getProperties().vendor,
+				"MD Drums")), std::filesystem::u8path(getDataFolder()));
 		getController();
+	}
+
+	bool Processor::migrateData(const std::filesystem::path& _from, const std::filesystem::path& _to)
+	{
+		bool copied = true;
+		const auto flash = std::filesystem::path("roms") / Engine::FlashImageName;
+		for(const auto& name : {std::filesystem::path("Bank.syx"), flash})
+		{
+			std::error_code error;
+			if(!std::filesystem::exists(_from / name, error) || std::filesystem::exists(_to / name, error))
+				continue;
+			std::filesystem::create_directories((_to / name).parent_path(), error);
+			copied &= std::filesystem::copy_file(_from / name, _to / name, error) && !error;
+		}
+		return copied;
 	}
 
 	Processor::~Processor()
@@ -114,12 +133,12 @@ namespace mdDrums
 		const auto flash = std::move(m_chosenFlash);
 		m_chosenFlash.clear();
 		if(getPlugin().getDevice() == before || !hasDevice())
-			return "MD Drums could not start from that file" + (error.empty() ? std::string() : ": " + error);
+			return "MoDule could not start from that file" + (error.empty() ? std::string() : ": " + error);
 		controller().followDevice();
 
 		const auto target = getPublicRomFolder() + Engine::FlashImageName;
 		if(!baseLib::filesystem::writeFileAtomic(target, flash.data(), flash.size()))
-			return "MD Drums plays it, but could not keep it as " + target;
+			return "MoDule plays it, but could not keep it as " + target;
 		return {};
 	}
 
@@ -138,8 +157,7 @@ namespace mdDrums
 			flash = Engine::findFlashImage(romFolders());
 		if(flash.empty())
 			throw synthLib::DeviceException(synthLib::DeviceError::FirmwareMissing,
-				std::string("MD Drums needs the Machinedrum UW's 8 MB flash image with OS 1.63, ") + Engine::FlashImageName
-				+ ".");
+				"MoDule needs the Machinedrum UW's 8 MB flash image with OS 1.63.");
 
 		if(!m_bank)
 		{

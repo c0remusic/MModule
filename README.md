@@ -1,12 +1,14 @@
-# MD Drums
+# MoDule
+
+Called MD Drums up to 0.1.1: same plug-in, same sets, and its Bank and flash image come along.
 
 The Elektron Machinedrum's own synthesis engines as a VST3 instrument, edited like Overbridge and played from your DAW.
 
-![MD Drums in Ableton Live 12: the Track tab, factory Kit 1 playing](docs/images/md-drums-track.png)
+![MoDule in Ableton Live 12: the Track tab, factory Kit 1 playing](docs/images/md-drums-track.png)
 
 **[Download the preview](https://github.com/c0remusic/MModule/releases)** · [Report a bug](https://github.com/c0remusic/MModule/issues)
 
-MD Drums runs the code of the Machinedrum's OS 1.63 machines on emulated DSPs: the voice DSP for the 16 tracks, and
+MoDule runs the code of the Machinedrum's OS 1.63 machines on emulated DSPs: the voice DSP for the 16 tracks, and
 the mixer DSP for the master effects. The Machinedrum's OS and sequencer stay out, so it uses about a tenth of the CPU
 of a full-machine emulation and loads in about a second. Your DAW plays the tracks with notes, and every parameter
 can be automated.
@@ -28,7 +30,7 @@ can be automated.
 ## You need
 
 - Your own Machinedrum UW firmware: the 8 MB flash image with OS 1.63, the same one Gearmulator MD uses (an OS update
-  in `.syx` won't do). Elektron owns it, so it doesn't come with MD Drums, which is meant for people who own the
+  in `.syx` won't do). Elektron owns it, so it doesn't come with MoDule, which is meant for people who own the
   hardware; please don't ask for it. Load it from the plug-in: its top bar asks for it, or right-click the editor and
   choose "Load Machinedrum flash image...".
 - **Windows** x64 and a VST3 host. Tested in Ableton Live 12.
@@ -52,5 +54,5 @@ The combined work is distributed under the GNU AGPL v3 (see [NOTICE.md](NOTICE.m
 - [gearmulator-md-mm](https://github.com/c0remusic/gearmulator-md-mm), where the full-machine Machinedrum and
   Monomachine plug-ins live.
 
-MD Drums is not affiliated with Elektron, nor with The Usual Suspects. "Elektron" and "Machinedrum" are trademarks of
+MoDule is not affiliated with Elektron, nor with The Usual Suspects. "Elektron" and "Machinedrum" are trademarks of
 Elektron Music Machines MAQ AB, used only to name the hardware.

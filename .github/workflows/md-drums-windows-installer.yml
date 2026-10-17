@@ -1,4 +1,4 @@
-name: MD Drums Windows installer
+name: MoDule Windows installer
 
 # Wraps a release's Windows zip in an Inno Setup installer (scripts/windows/md-drums.iss) and attaches it to that
 # release. The plug-in inside is the zip's, built and gated on a PC with the flash image; the runner only packages.
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The release's version (md-drums-vX.Y.Z), e.g. 0.1.1"
+        description: "The release's version (module-vX.Y.Z), e.g. 0.1.2"
         required: true
 
 permissions:
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   installer:
-    name: Installer for MD Drums ${{ inputs.version }}
+    name: Installer for MoDule ${{ inputs.version }}
     runs-on: windows-latest
     timeout-minutes: 20
 
@@ -29,7 +29,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
         run: |
-          gh release download "md-drums-v$env:VERSION" --pattern "*-Windows-x64.zip" --dir dist
+          gh release download "module-v$env:VERSION" --pattern "*-Windows-x64.zip" --dir dist
           Expand-Archive -Path (Get-ChildItem dist\*.zip).FullName -DestinationPath stage
           Get-ChildItem -Recurse stage | Select-Object FullName, Length | Format-Table -AutoSize
 
@@ -53,4 +53,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
-        run: gh release upload "md-drums-v$env:VERSION" (Get-ChildItem dist\*-setup.exe).FullName
+        run: gh release upload "module-v$env:VERSION" (Get-ChildItem dist\*-setup.exe).FullName

@@ -9,7 +9,7 @@
 	<body id="Root" class="mdd" style="width: 1296dp; height: 824dp;">
 		<!-- ===== Top bar ===== -->
 		<div id="rule_55" class="a rule full" style="top: 55dp;"/>
-		<div id="logo" class="a c1 w3 bar logo">MD<span>Drums</span><span id="version" class="version"></span></div>
+		<div id="logo" class="a c1 w3 bar logo">MoDule<span id="version" class="version"></span></div>
 		<button id="tab_track" class="a c4 w1 bar tab" tabgroup="view" tabbutton="0" isToggle="1"><span>Track</span></button>
 		<button id="tab_mix" class="a c5 w1 bar tab" tabgroup="view" tabbutton="1" isToggle="1"><span>Mix</span></button>
 		<button id="tab_master" class="a c6 w1 bar tab" tabgroup="view" tabbutton="2" isToggle="1"><span>Master</span></button>

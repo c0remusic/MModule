@@ -531,12 +531,45 @@ namespace
 	}
 }
 
+namespace
+{
+	void migration()
+	{
+		const auto root = std::filesystem::temp_directory_path()
+			/ ("MoDuleMigration_" + juce::Uuid().toString().toStdString());
+		const auto from = root / "MD Drums", to = root / "MoDule";
+		const auto write = [](const std::filesystem::path& _file, const std::string& _text)
+		{
+			std::filesystem::create_directories(_file.parent_path());
+			std::ofstream(_file, std::ios::binary) << _text;
+		};
+		const auto read = [](const std::filesystem::path& _file)
+		{
+			std::ifstream in(_file, std::ios::binary);
+			return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+		};
+		const auto flash = std::filesystem::path("roms") / mdDrums::Engine::FlashImageName;
+		write(from / "Bank.syx", "the old Bank");
+		write(from / flash, "the old flash image");
+		require(mdDrums::Processor::migrateData(from, to), "the migration failed");
+		require(read(to / "Bank.syx") == "the old Bank" && read(to / flash) == "the old flash image",
+			"the Bank and the flash image did not come along");
+		write(to / "Bank.syx", "the new Bank");
+		require(mdDrums::Processor::migrateData(from, to) && read(to / "Bank.syx") == "the new Bank",
+			"the migration overwrote the new Bank");
+		std::error_code error;
+		std::filesystem::remove_all(root, error);
+		std::puts("migration: the Bank and the flash image come along once, nothing overwritten");
+	}
+}
+
 int main()
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
 	juce::ScopedJuceInitialiser_GUI juce;
 	try
 	{
+		migration();
 		for(const double rate : {44100.0, 48000.0})
 		{
 			mdDrums::Processor processor(true);
