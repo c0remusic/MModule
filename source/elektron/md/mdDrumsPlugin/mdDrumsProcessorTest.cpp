@@ -6,10 +6,13 @@
 
 #include "mdDrumsProcessor.h"
 
+#include <juce_audio_formats/juce_audio_formats.h>
+
 #include "mdDrumsAllocationCounter.h"	// a relay set by the host must not allocate (the audio thread sets it)
 #include "mdDrumsController.h"
 #include "mdDrumsDevice.h"
 #include "mdDrumsHostDriver.h"
+#include "mdDrumsSampleFile.h"
 #include "mdDrumsTestMachine.h"
 #include "mdDrumsTestSupport.h"
 
@@ -27,6 +30,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace
@@ -570,6 +574,128 @@ namespace
 
 namespace
 {
+	// A test file written by JUCE's _format: _seconds of a 441 Hz sine at half scale on _channels channels at _rate, 16 bits
+	juce::File writeTone(juce::AudioFormat& _format, const juce::File& _file, const double _rate, const int _channels,
+		const double _seconds, const juce::StringPairArray& _metadata = {})
+	{
+		_file.deleteFile();
+		auto out = _file.createOutputStream();
+		require(out != nullptr, "cannot write " + _file.getFullPathName().toStdString());
+		std::unique_ptr<juce::AudioFormatWriter> writer(_format.createWriterFor(out.get(), _rate,
+			static_cast<unsigned int>(_channels), 16, _metadata, 0));
+		require(writer != nullptr, "no " + _format.getFormatName().toStdString() + " writer");
+		out.release();	// the writer owns it
+		const auto n = static_cast<int>(_rate * _seconds);
+		juce::AudioBuffer<float> buffer(_channels, n);
+		for(int c = 0; c < _channels; ++c)
+			for(int i = 0; i < n; ++i)
+				buffer.setSample(c, i, 0.5f * static_cast<float>(std::sin(2.0 * 3.14159265358979 * 441.0 * i / _rate)));
+		require(writer->writeFromAudioSampleBuffer(buffer, 0, n), "the test file was not written");
+		return _file;
+	}
+
+	// A file becomes a Sample (ticket 09 of the Samples map, as ticket 04 decided): WAV, AIFF and FLAC read the same, a
+	// stereo file is the mean of its channels, a rate above 48 kHz comes down to 44.1, a WAV's smpl loop of 151 samples
+	// or more ends the Sample, a shorter one is dropped; too slow, too long or no audio file refused with why. One
+	// loaded into a Processor plays on ROM-33.
+	void sampleFiles(const double _rate)
+	{
+		const auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("MoDuleSampleFilesTest");
+		folder.deleteRecursively();
+		require(folder.createDirectory().wasOk(), "no folder for the test's files");
+		juce::WavAudioFormat wav;
+		juce::AiffAudioFormat aiff;
+		juce::FlacAudioFormat flac;
+		const auto read = [](const juce::File& _file)
+		{
+			auto result = mdDrums::readSampleFile(_file);
+			const auto* error = std::get_if<std::string>(&result);
+			require(!error, _file.getFileName().toStdString() + " was not read: " + (error ? *error : std::string()));
+			return std::get<mdDrums::SampleAudio>(result);
+		};
+		const auto peakOf = [](const std::vector<float>& _s)
+		{
+			float p = 0;
+			for(const auto v : _s)
+				p = std::max(p, std::abs(v));
+			return p;
+		};
+
+		const auto mono = read(writeTone(wav, folder.getChildFile("mono.wav"), 44100.0, 1, 1.0));
+		require(mono.rate == 44100.0 && mono.mono.size() == 44100 && mono.loopStart < 0, "a mono WAV did not read as it is");
+		const auto stereo = read(writeTone(wav, folder.getChildFile("stereo.wav"), 22050.0, 2, 1.0));
+		require(stereo.rate == 22050.0 && stereo.mono.size() == 22050 && std::abs(peakOf(stereo.mono) - 0.5f) < 0.01f,
+			"a stereo WAV is not the mean of its channels at its own rate");
+		const auto fast = read(writeTone(wav, folder.getChildFile("fast.wav"), 96000.0, 1, 1.0));
+		require(fast.rate == 44100.0 && std::abs(static_cast<int>(fast.mono.size()) - 44100) <= 2
+			&& std::abs(peakOf(fast.mono) - 0.5f) < 0.02f, "a 96 kHz WAV did not come down to 44.1 kHz");
+		const auto fromAiff = read(writeTone(aiff, folder.getChildFile("mono.aif"), 44100.0, 1, 1.0));
+		const auto fromFlac = read(writeTone(flac, folder.getChildFile("mono.flac"), 44100.0, 1, 1.0));
+		float aiffOff = 0, flacOff = 0;
+		for(size_t i = 0; i < mono.mono.size(); ++i)
+		{
+			aiffOff = std::max(aiffOff, std::abs(fromAiff.mono[i] - mono.mono[i]));
+			flacOff = std::max(flacOff, std::abs(fromFlac.mono[i] - mono.mono[i]));
+		}
+		require(fromAiff.mono.size() == mono.mono.size() && aiffOff < 1e-4f, "an AIFF does not read as the same WAV");
+		require(fromFlac.mono.size() == mono.mono.size() && flacOff < 1e-4f, "a FLAC does not read as the same WAV");
+
+		juce::StringPairArray loop;
+		loop.set("NumSampleLoops", "1");
+		loop.set("Loop0Identifier", "0");
+		loop.set("Loop0Type", "0");
+		loop.set("Loop0Start", "1000");
+		loop.set("Loop0End", "5000");
+		const auto looped = read(writeTone(wav, folder.getChildFile("loop.wav"), 44100.0, 1, 1.0, loop));
+		loop.set("Loop0End", "1100");
+		const auto shortLoop = read(writeTone(wav, folder.getChildFile("short.wav"), 44100.0, 1, 1.0, loop));
+		require(looped.loopStart == 1000 && looped.loopEnd == 5000, "a WAV's smpl loop was not read");
+
+		// To Samples, with the factory bank's 12-bit table
+		mdDrums::Processor processor(true);
+		require(prepare(processor, _rate, g_block), "no Device for the Samples");
+		const auto& codes = device(processor).sampleCodes();
+		const auto room = device(processor).sampleRoom();
+		const auto made = [&](const mdDrums::SampleAudio& _audio, const size_t _room)
+		{
+			return mdDrums::makeSample(_audio, codes, _room);
+		};
+		const auto sample = std::get<mdDrums::Sample>(made(mono, room));
+		require(sample.length == 44100 && sample.words.size() == 22050 && sample.rate == mdDrums::Sample::Unity
+			&& sample.loop == mdDrums::Sample::NoLoop, "a 44.1 kHz WAV is not a Sample of its samples at unity rate");
+		const auto half = std::get<mdDrums::Sample>(made(stereo, room));
+		require(half.rate == mdDrums::Sample::Unity / 2, "a 22.05 kHz Sample does not play at half the rate");
+		const auto withLoop = std::get<mdDrums::Sample>(made(looped, room));
+		const auto withoutLoop = std::get<mdDrums::Sample>(made(shortLoop, room));
+		require(withLoop.loop == 1000 && withLoop.length == 5001, "a loop of 4,001 samples does not end the Sample");
+		require(withoutLoop.loop == mdDrums::Sample::NoLoop && withoutLoop.length == 44100,
+			"a loop of 101 samples was kept");
+		const auto slow = made(read(writeTone(wav, folder.getChildFile("slow.wav"), 3000.0, 1, 1.0)), room);
+		const auto* slowError = std::get_if<std::string>(&slow);
+		const auto tooLong = made(mono, sample.words.size() - 1);
+		const auto* longError = std::get_if<std::string>(&tooLong);
+		std::printf("Sample files: a 3 kHz file \"%s\"; a 1 s file with 0.99 s of room \"%s\"\n",
+			slowError ? slowError->c_str() : "", longError ? longError->c_str() : "");
+		require(slowError && slowError->find("4 to 48 kHz") != std::string::npos, "a 3 kHz file was not refused");
+		require(longError && longError->find("left") != std::string::npos, "a file longer than the room was not refused");
+		const auto text = folder.getChildFile("notes.txt");
+		require(text.replaceWithText("not audio"), "the test's text file was not written");
+		const auto notAudio = mdDrums::readSampleFile(text);
+		require(std::holds_alternative<std::string>(notAudio), "a text file read as audio");
+
+		// One loaded into the Processor plays on ROM-33, silent before
+		automate(processor, "Machine", 0, 176);
+		automate(processor, "Level", 0, 100);
+		const auto silent = play(processor, 36, 0, _rate);
+		const auto error = processor.loadSampleFile(32, folder.getChildFile("mono.wav").getFullPathName().toStdString());
+		require(error.empty(), "the Processor did not load a WAV onto ROM-33: " + error);
+		const auto sounds = play(processor, 36, 0, _rate);
+		std::printf("Sample files: WAV, AIFF and FLAC alike, stereo by mean, 96 kHz to 44.1, smpl loop of 4,001 kept and"
+			" of 101 dropped; ROM-33 peaks %.4f before the WAV, %.4f after\n", silent.peak, sounds.peak);
+		require(silent.peak < g_silence && sounds.peak > 0.01f, "ROM-33 does not play the WAV loaded into the Processor");
+		folder.deleteRecursively();
+	}
+
 	// User Machines (tickets 07 and 14 of the User Machines map): installed into a Processor's Library and its Device,
 	// played on a Track; a set opened where none is installed plays its own copy; two instances hold two Machines at the
 	// same number; a Kit of the Bank takes the Library's; a Track on a number the Device lacks takes the Library's
@@ -653,7 +779,10 @@ int main()
 				return 77;
 			}
 			if(rate == 44100.0)
+			{
 				userMachines(rate);
+				sampleFiles(rate);
+			}
 			juce::AudioProcessor& host = processor;
 
 			// The parameters, frozen from the port's first push: per Track Machine, 24, 5 LFO, Level, Mute, Solo, Out

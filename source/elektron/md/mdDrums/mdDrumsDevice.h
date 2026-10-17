@@ -92,6 +92,8 @@ namespace mdDrums
 		// Device. False, changing nothing, when the user's Samples would not fit together.
 		bool setSample(int _rom, std::shared_ptr<const Sample> _sample) { return m_engine->setSample(_rom, std::move(_sample)); }
 		std::shared_ptr<const Sample> sample(int _rom) const { return m_engine->sample(_rom); }
+		size_t sampleRoom() const { return m_engine->sampleRoom(); }
+		const std::vector<uint16_t>& sampleCodes() const { return m_engine->sampleCodes(); }
 
 	protected:
 		// Nothing: process itself puts what the Device says back into its _midiOut (reportMachines)

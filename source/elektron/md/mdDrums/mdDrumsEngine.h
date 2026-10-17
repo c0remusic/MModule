@@ -106,6 +106,8 @@ namespace mdDrums
 		bool setSample(int _rom, std::shared_ptr<const Sample> _sample);
 		std::shared_ptr<const Sample> sample(int _rom) const;
 		bool samplesWritten() const;
+		size_t sampleRoom() const;							// words left for the user's Samples
+		const std::vector<uint16_t>& sampleCodes() const;	// the OS's 12-bit table (makeSample)
 		void writeSamples();	// what setSample left, at once: for an engine before its first block
 		void setParam(int _track, int _param, int _value);	// 0-127
 		// What _track's voice plays of its 24 parameters, as the engine's last tick left them: after the OS's smoothing

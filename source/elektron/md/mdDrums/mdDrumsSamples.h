@@ -54,6 +54,8 @@ namespace mdDrums
 		const std::shared_ptr<const Sample>& get(int _rom) const { return m_samples[static_cast<size_t>(_rom)]; }
 		// Words left above the user's Samples
 		size_t room() const;
+		// The OS's 12-bit code of each 16-bit value (RomBank::codes), which a user's Sample is coded with (makeSample)
+		const std::vector<uint16_t>& codes() const { return m_codes; }
 		// Nothing is left to write
 		bool written() const { return m_phase == Phase::Idle; }
 
@@ -67,6 +69,7 @@ namespace mdDrums
 		std::array<uint32_t, 4> entry(int _rom) const;	// the entry ROM _rom ends with: the user's, the factory's or none
 
 		std::array<std::array<uint32_t, 4>, RomCount> m_factory{};
+		std::vector<uint16_t> m_codes;
 		std::array<std::shared_ptr<const Sample>, RomCount> m_samples{};
 		std::array<uint32_t, RomCount> m_address{};	// where each user's Sample lies
 

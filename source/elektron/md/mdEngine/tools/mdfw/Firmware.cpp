@@ -196,6 +196,9 @@ RomBank loadRomBankFromFlash(const std::vector<uint8_t>& flash)
     if (flash.size() < kTableEnd) return bank;
     const auto w16 = [&](const size_t o) -> uint32_t { return o + 1 < flash.size() ? (uint32_t(flash[o]) << 8) | flash[o + 1] : 0xffff; };
     const auto lohi = [&](const size_t o) { return w16(o) | (w16(o + 2) << 16); };
+    bank.codes.resize(0x10000);
+    for (size_t v = 0; v < bank.codes.size(); ++v)
+        bank.codes[v] = uint16_t(w16(kTable + 2 * v) & 0xfff);
     if (w16(kBank) != 0xabcd) return bank;
     const uint32_t count = w16(kBank + 2);
     if (count == 0 || count > RomBank::SlotCount) return bank;

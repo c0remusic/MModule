@@ -57,6 +57,8 @@ Windows (macOS construit par la CI, pas vérifié à la main). Pas de tag.
 - [Un Sample joué par le moteur](issues/08-charger-un-sample-dans-le-moteur.md) : construit ; les Samples de
   l'utilisateur à la suite au-dessus de la banque d'usine, écrits 4 096 mots par bloc, l'entrée de répertoire en
   dernier.
+- [Un fichier converti en Sample](issues/09-convertir-un-fichier.md) : construit ; WAV, AIFF et FLAC, mono par la
+  moyenne des canaux, rate du fichier jusqu'à 48 kHz, boucle `smpl`, codes de 12 bits par la table de l'OS.
 
 ## Not yet specified
 

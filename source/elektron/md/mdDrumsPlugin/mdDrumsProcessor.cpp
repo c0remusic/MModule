@@ -2,6 +2,7 @@
 
 #include "mdDrumsController.h"
 #include "mdDrumsEditor.h"
+#include "mdDrumsSampleFile.h"
 #include "mdDrumsStatusView.h"
 
 #include "mdDrumsDevice.h"
@@ -180,6 +181,32 @@ namespace mdDrums
 		if(!device || device->userMachine(_index))
 			return;
 		installFromLibrary(_index, false);
+	}
+
+	std::string Processor::loadSampleFile(const int _rom, const std::filesystem::path& _file)
+	{
+		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
+		if(!device)
+			return "MoDule needs its flash image before a Sample";
+		if(_rom < 0 || _rom >= Samples::RomCount)
+			return "No ROM Machine " + std::to_string(_rom + 1);
+		auto audio = readSampleFile(juce::File(juce::String::fromUTF8(_file.u8string().c_str())));
+		if(const auto* error = std::get_if<std::string>(&audio))
+			return *error;
+		// The room it may take: what is left, and what the Sample it replaces frees
+		const auto held = device->sample(_rom);
+		auto made = makeSample(std::get<SampleAudio>(audio), device->sampleCodes(),
+			device->sampleRoom() + (held ? held->words.size() : 0));
+		if(const auto* error = std::get_if<std::string>(&made))
+			return *error;
+		const auto sample = std::make_shared<const Sample>(std::move(std::get<Sample>(made)));
+		// Under the Device's lock only to hand it over: the audio thread writes it over the next blocks
+		const auto set = getPlugin().withDeviceLocked([&](synthLib::Device* _device)
+		{
+			auto* d = dynamic_cast<Device*>(_device);
+			return d && d->setSample(_rom, sample);
+		});
+		return set ? std::string() : "The Samples have no room left for it";
 	}
 
 	bool Processor::installFromLibrary(const int _index, const bool _replace)

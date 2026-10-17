@@ -312,6 +312,16 @@ namespace mdDrums
 		return m_state->samples.written();
 	}
 
+	size_t Engine::sampleRoom() const
+	{
+		return m_state->samples.room();
+	}
+
+	const std::vector<uint16_t>& Engine::sampleCodes() const
+	{
+		return m_state->samples.codes();
+	}
+
 	void Engine::writeSamples()
 	{
 		m_state->samples.write(m_state->engine.voices(), Samples::End - Samples::Base);

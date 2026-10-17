@@ -83,7 +83,7 @@ target_compile_definitions(juce_plugin_modules PUBLIC
 	JUCE_WIN_PER_MONITOR_DPI_AWARE=1
 	JUCE_USE_OGGVORBIS=0
 	JUCE_USE_MP3AUDIOFORMAT=0
-	JUCE_USE_FLAC=0
+	JUCE_USE_FLAC=1     # MoDule: a user's Sample may be a FLAC file (the Samples map's ticket 04)
 	JUCE_USE_WINDOWS_MEDIA_FORMAT=0
 	JUCE_MODULE_AVAILABLE_juce_core=1
 	JUCE_MODULE_AVAILABLE_juce_audio_basics=1

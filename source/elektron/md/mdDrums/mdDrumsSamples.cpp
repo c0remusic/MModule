@@ -12,7 +12,7 @@ namespace mdDrums
 		constexpr std::array<uint32_t, 4> g_none{0, 0, Sample::NoLoop, 0};
 	}
 
-	Samples::Samples(const md::fw::RomBank& _factory)
+	Samples::Samples(const md::fw::RomBank& _factory) : m_codes(_factory.codes)
 	{
 		m_factory.fill(g_none);
 		for(const auto& e : _factory.directory)

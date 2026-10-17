@@ -83,6 +83,11 @@ namespace mdDrums
 		// The Library's copy of one, where the Device holds none (a Machine chosen on a Track)
 		void takeUserMachineIfAbsent(int _index);
 
+		// An audio file (WAV, AIFF or FLAC) made a Sample for ROM-01 to ROM-48 (_rom 0-47) as a Machinedrum UW takes one
+		// (readSampleFile, makeSample), then this instance's Device plays it from the next blocks on. Empty when it went,
+		// else why not.
+		std::string loadSampleFile(int _rom, const std::filesystem::path& _file);
+
 	private:
 		// The Library's copy into the Device; false when there is none, or the Device has the same
 		bool installFromLibrary(int _index, bool _replace);

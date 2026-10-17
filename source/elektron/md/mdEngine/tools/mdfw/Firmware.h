@@ -85,6 +85,9 @@ struct RomBank {
     std::vector<Entry> directory;   // one per ROM slot, filled or empty
     std::vector<uint32_t> data;     // from DataAddr
     uint32_t samples = 0;           // ROM slots that hold a sample
+    // md-drums: the OS's 12-bit code of each 16-bit sample value read as unsigned (65536, flash $7a0000), which a
+    // user's Sample is coded with too; empty when the image holds no table
+    std::vector<uint16_t> codes;
 };
 RomBank loadRomBankFromFlash(const std::vector<uint8_t>& flash);
 
