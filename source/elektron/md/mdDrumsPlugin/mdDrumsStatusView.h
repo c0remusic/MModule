@@ -26,7 +26,7 @@ namespace mdDrums
 	//   opens a file chooser (chooseFlashImage);
 	// - a note that plays nothing, for a few seconds: Tracks are C1 to D#2 in Live (notes 36-51);
 	// - a newer release on GitHub: a click opens its page. The check runs when an editor opens, at most once a day,
-	//   unless the settings menu turns it off; the config keeps when it last tried and what it found.
+	//   unless the menu turns it off; the config keeps when it last tried and what it found.
 	// The editor's frame follows them RefreshHz times a second, on its clock, and touches the document only when the line
 	// changes.
 	class StatusView
@@ -49,7 +49,7 @@ namespace mdDrums
 		// The line as it stands, for the tests
 		std::string text() const;
 
-		// Whether the update check runs, and turning it on or off (the settings menu)
+		// Whether the update check runs, and turning it on or off (the menu)
 		static bool checksForUpdates(const juce::PropertiesFile& _config);
 
 	private:

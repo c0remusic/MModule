@@ -130,9 +130,15 @@ namespace mdDrums
 	public:
 		explicit EditorState(Processor& _processor);
 
+		// The window's sizes the menu offers, on TUS's own "scale" setting
+		static constexpr std::array<int, 4> WindowSizes{75, 100, 125, 150};
+
+		// MD Drums' menu, from the top bar's Menu and from a right-click outside a control: the window's size, the
+		// flash image, "Prepare Push list" (ticket 11 of the editor map) for Live in Configure mode, the update check and
+		// TUS's settings. A right-click on a control opens that control's own menu (MIDI learn) as before.
+		void openMenu(const Rml::Event& _event) override;
+
 	private:
 		jucePluginEditorLib::Editor* createEditor(const jucePluginEditorLib::Skin& _skin) override;
-		// The settings menu's "Prepare Push list" (ticket 11 of the editor map), for Live in Configure mode
-		void initContextMenu(juceRmlUi::Menu& _menu) override;
 	};
 }

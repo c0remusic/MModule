@@ -50,9 +50,9 @@ body.mdd { background-color: #1b1c1e; color: #f2f2f2; font-family: Inter; font-s
 /* The open tab's mark: 2 px of accent under its text only, over the bar's rule */
 .tab:checked span { border-bottom-color: #6fd1c4; }
 /* 14 px text on a 24 px row: a 22 px line puts its baseline on the 4 px step, as the mockup's 2-3 px of padding did */
-.size { top: 16dp; height: 24dp; line-height: 22dp; font-size: 14dp; cursor: pointer; }
-.size .label { color: #8e9197; margin-right: 8dp; }
-.size:hover .label { color: #a7aaaf; }
+.menu { top: 16dp; height: 24dp; line-height: 22dp; font-size: 14dp; cursor: pointer; }
+.menu .label { color: #a7aaaf; }
+.menu:hover .label, .menu:hover vglyph.down { color: #f2f2f2; }
 .mainlabel { top: 16dp; height: 16dp; }
 .meter { top: 32dp; height: 8dp; }
 .meter .bar1, .meter .bar2 { position: absolute; left: 0dp; width: 64dp; height: 2dp; background-color: #6e7177; }

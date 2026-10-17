@@ -15,7 +15,8 @@
 		<button id="tab_master" class="a c6 w1 bar tab" tabgroup="view" tabbutton="2" isToggle="1"><span>Master</span></button>
 		<!-- What the user must know now (ticket 35): no flash image, a note that plays nothing, a newer release -->
 		<div id="status" class="a c7 w5 bar status"></div>
-		<div id="size" class="a c12 w3 size inset"><span class="label">Size</span><span id="size_value">100%</span></div>
+		<!-- MD Drums' menu (EditorState::openMenu): the window's size, the flash image, Push, updates, the settings -->
+		<div id="menu" class="a c12 w3 menu inset"><span class="label">Menu</span><vglyph class="down" shape="down"/></div>
 		<div id="main_label" class="a c16 w1 label mainlabel">Main</div>
 		<div id="main_meter" class="a c16 w1 meter"><div class="bar1"><div id="main_fill_l" class="fill"/></div><div class="bar2"><div id="main_fill_r" class="fill"/></div></div>
 

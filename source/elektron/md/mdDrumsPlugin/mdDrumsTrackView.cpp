@@ -99,7 +99,7 @@ namespace mdDrums
 		}
 		m_editor.addClick("track_prev", [this](Rml::Event&) { stepTrack(-1); });
 		m_editor.addClick("track_next", [this](Rml::Event&) { stepTrack(1); });
-		m_editor.addClick("size", [this](Rml::Event&) { stepSize(); });
+		m_editor.addClick("menu", [this](Rml::Event& _event) { m_editor.openMenu(_event); });
 
 		// The overlays: a tab closes them; the machine's name, the LFO's target and the kit row open and close theirs
 		for(const auto* tab : {"tab_track", "tab_mix", "tab_master"})
@@ -156,8 +156,6 @@ namespace mdDrums
 			m_editor.addClick("lfomenu_param" + std::to_string(p), [this](Rml::Event&) { setOverlay(Overlay::None); });
 		m_editor.addClick("kit", [this](Rml::Event&) { toggleOverlay(Overlay::Kits); });
 		m_editor.addClick("kits_done", [this](Rml::Event&) { setOverlay(Overlay::None); });
-
-		updateSize();
 	}
 
 	TrackView::~TrackView() = default;
@@ -190,19 +188,6 @@ namespace mdDrums
 	void TrackView::stepTrack(const int _delta) const
 	{
 		showTrack(static_cast<uint8_t>((m_part + Controller::TrackCount + _delta) % Controller::TrackCount));
-	}
-
-	void TrackView::stepSize() const
-	{
-		auto& config = m_editor.getProcessor().getConfig();
-		const auto current = juce::roundToInt(config.getDoubleValue("scale", 100));
-		const auto next = std::upper_bound(Scales.begin(), Scales.end(), current);
-		const auto scale = next == Scales.end() ? Scales.front() : *next;
-		config.setValue("scale", scale);
-		// As TUS's own settings page does: the window resizes and keeps the setting
-		if(const auto* state = m_editor.getProcessor().getEditorState())
-			state->evSetGuiScale(scale);
-		updateSize();
 	}
 
 	bool TrackView::escape()
@@ -528,13 +513,6 @@ namespace mdDrums
 			cell->SetClass("off", name.empty());
 			cell->SetInnerRML(name.empty() ? "—" : name);
 		}
-	}
-
-	void TrackView::updateSize() const
-	{
-		const auto scale = juce::roundToInt(m_editor.getProcessor().getConfig().getDoubleValue("scale", 100));
-		if(auto* value = find("size_value"))
-			value->SetInnerRML(std::to_string(scale) + "%");
 	}
 
 	Rml::Element* TrackView::find(const std::string& _id) const

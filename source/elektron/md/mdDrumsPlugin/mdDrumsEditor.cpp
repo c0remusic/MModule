@@ -214,29 +214,50 @@ namespace mdDrums
 		return new Editor(m_processor, _skin);
 	}
 
-	void EditorState::initContextMenu(juceRmlUi::Menu& _menu)
+	void EditorState::openMenu(const Rml::Event& _event)
 	{
-		jucePluginEditorLib::PluginEditorState::initContextMenu(_menu);
-		_menu.addSeparator();
-		_menu.addEntry("Prepare Push list: a page per Track (Live in Configure mode)", [this]
+		if(getEditor()->openContextMenuForParameter(_event))
+			return;
+
+		auto& config = m_processor.getConfig();
+		const auto current = juce::roundToInt(config.getDoubleValue("scale", 100));
+		juceRmlUi::Menu sizes;
+		for(const auto size : WindowSizes)
 		{
-			static_cast<Controller&>(m_processor.getController()).preparePushList();
-		});
-		_menu.addEntry("Prepare Push list: Track shown and master (Live in Configure mode)", [this]
-		{
-			static_cast<Controller&>(m_processor.getController()).preparePushRelays();
-		});
-		_menu.addSeparator();
-		_menu.addEntry("Load Machinedrum flash image...", [this]
+			sizes.addEntry(std::to_string(size) + "%", size == current, [this, &config, size]
+			{
+				// As TUS's own settings page does: the window resizes and keeps the setting
+				config.setValue("scale", size);
+				evSetGuiScale(size);
+			});
+		}
+
+		juceRmlUi::Menu menu;
+		menu.addSubMenu("Window size", std::move(sizes));
+		menu.addEntry("Load Machinedrum flash image...", [this]
 		{
 			if(auto* editor = dynamic_cast<Editor*>(getEditor()))
 				if(auto* status = editor->getStatusView())
 					status->chooseFlashImage();
 		});
-		auto& config = m_processor.getConfig();
-		_menu.addEntry("Check for updates once a day", StatusView::checksForUpdates(config), [&config]
+		menu.addSeparator();
+		menu.addEntry("Prepare Push list: a page per Track (Live in Configure mode)", [this]
+		{
+			static_cast<Controller&>(m_processor.getController()).preparePushList();
+		});
+		menu.addEntry("Prepare Push list: Track shown and master (Live in Configure mode)", [this]
+		{
+			static_cast<Controller&>(m_processor.getController()).preparePushRelays();
+		});
+		menu.addSeparator();
+		menu.addEntry("Check for updates once a day", StatusView::checksForUpdates(config), [&config]
 		{
 			config.setValue(StatusView::CheckKey, !StatusView::checksForUpdates(config));
 		});
+		menu.addEntry("Settings...", [this]
+		{
+			juce::MessageManager::callAsync([this] { getEditor()->showSettings(true); });
+		});
+		menu.runModal(_event, 16);
 	}
 }

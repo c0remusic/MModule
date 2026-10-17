@@ -27,9 +27,9 @@ namespace mdDrums
 	// and closed (the machine browser, the LFO's target menu, the Kits, the Links and Chokes menu; Esc closes them, the
 	// browser as Cancel), and the browser's "Listen while choosing", with which a machine chosen plays the Track; playing
 	// the Track (the play key and Space, at the head band's velocity, which a drag sets) and stepping its machine (the
-	// wheel or the arrows on its name, the arrows in the browser: ticket 23); and the Size control, which steps the
-	// window through 75, 100, 125 and 150 % on TUS's own "scale" setting. The editor's frame draws the Track shown, its
-	// machine, every Track's Out and the open LFO menu where they changed (step); its clicks and keys write at once.
+	// wheel or the arrows on its name, the arrows in the browser: ticket 23); and the top bar's Menu, which opens the
+	// editor's menu (EditorState::openMenu). The editor's frame draws the Track shown, its machine, every Track's Out and
+	// the open LFO menu where they changed (step); its clicks and keys write at once.
 	class TrackView
 	{
 	public:
@@ -42,7 +42,6 @@ namespace mdDrums
 			Links		// the Track's Links and Chokes, over the Hit screen (LinksView)
 		};
 
-		static constexpr std::array<int, 4> Scales{75, 100, 125, 150};
 		static constexpr int RowHeight = 40;
 		static constexpr int ListTop = 176;
 		static constexpr uint8_t ListenVelocity = 100;
@@ -58,7 +57,6 @@ namespace mdDrums
 
 		void showTrack(uint8_t _track) const;
 		void stepTrack(int _delta) const;
-		void stepSize() const;
 
 		Overlay getOverlay() const { return m_overlay; }
 		void setOverlay(Overlay _overlay);
@@ -105,7 +103,6 @@ namespace mdDrums
 		void setStripOut(uint8_t _track, int _out);
 		static uint8_t naturalOut(uint8_t _track);
 		void updateLfoMenu() const;
-		void updateSize() const;
 		Rml::Element* find(const std::string& _id) const;
 		static int value(const pluginLib::Parameter* _parameter);
 

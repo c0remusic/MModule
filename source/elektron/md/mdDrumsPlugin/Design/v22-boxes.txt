@@ -6,7 +6,8 @@ logo 16 0 224 56
 tab_track 256 0 64 56
 tab_mix 336 0 64 56
 tab_master 416 0 64 56
-size 896 16 224 24
+# The mockup's Size control became the menu (2026-10-17), in its box; the window's size is in the menu
+menu 896 16 224 24
 main_label 1216 16 64 16
 main_meter 1216 32 64 8
 rule_55 0 55 1296 1
