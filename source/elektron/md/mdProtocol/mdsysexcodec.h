@@ -57,23 +57,6 @@ namespace md::automation::sysex::codec
 		_bytes[3] = static_cast<uint8_t>(_value);
 	}
 
-	inline uint64_t readBigEndian64(const uint8_t* _bytes)
-	{
-		uint64_t value = 0;
-		for(size_t i = 0; i < 8; ++i)
-			value = (value << 8) | _bytes[i];
-		return value;
-	}
-
-	inline void writeBigEndian64(uint8_t* _bytes, uint64_t _value)
-	{
-		for(size_t i = 8; i-- > 0;)
-		{
-			_bytes[i] = static_cast<uint8_t>(_value & 0xff);
-			_value >>= 8;
-		}
-	}
-
 	// A Kit name as the firmware stores it: ASCII up to a zero or the end of its field, anything else shown as '?',
 	// trailing spaces removed
 	std::string kitName(const uint8_t* _name, size_t _size);
