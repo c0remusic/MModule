@@ -87,6 +87,12 @@ namespace mdDrums
 		}
 		std::shared_ptr<const md::mds::Package> userMachine(int _index) const { return m_engine->userMachine(_index); }
 
+		// This Device's own copy of a user's Sample on ROM-01 to ROM-48 (_rom 0-47), or none for the factory's (Engine::
+		// setSample): written into the voice DSP over the next blocks. Never while process runs: the caller holds the
+		// Device. False, changing nothing, when the user's Samples would not fit together.
+		bool setSample(int _rom, std::shared_ptr<const Sample> _sample) { return m_engine->setSample(_rom, std::move(_sample)); }
+		std::shared_ptr<const Sample> sample(int _rom) const { return m_engine->sample(_rom); }
+
 	protected:
 		// Nothing: process itself puts what the Device says back into its _midiOut (reportMachines)
 		void readMidiOut(std::vector<synthLib::SMidiEvent>&) override {}

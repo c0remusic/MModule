@@ -13,6 +13,8 @@
 #include "MachineRunner.h"
 #include "TrackFx.h"
 
+#include "mdDrumsSamples.h"
+
 #include "mdProtocol/mdlfosettings.h"
 
 namespace md::fw
@@ -97,6 +99,14 @@ namespace mdDrums
 		// SYN1-8 as assigning _id gives them (sysex::applyKitChange): an OS machine's own, a User Machine's package's
 		// (0 past its parameters, and everywhere while its number holds none); none for an id that is neither
 		std::optional<std::array<uint8_t, 8>> machineDefaults(uint8_t _id) const;
+		// A user's Sample on ROM-01 to ROM-48 (_rom 0-47), or none to take the factory's back (silence on ROM-33 to -48):
+		// written into the voice DSP from the next block on, a share of words a block (Samples), unless writeSamples
+		// writes it at once. False, changing nothing, when the user's Samples would not fit together. Never while render
+		// runs.
+		bool setSample(int _rom, std::shared_ptr<const Sample> _sample);
+		std::shared_ptr<const Sample> sample(int _rom) const;
+		bool samplesWritten() const;
+		void writeSamples();	// what setSample left, at once: for an engine before its first block
 		void setParam(int _track, int _param, int _value);	// 0-127
 		// What _track's voice plays of its 24 parameters, as the engine's last tick left them: after the OS's smoothing
 		// and the LFOs, a parameter's value << 7 (0 to $3fff)

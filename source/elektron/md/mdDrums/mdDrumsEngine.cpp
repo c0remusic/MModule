@@ -47,7 +47,8 @@ namespace mdDrums
 	// effects.
 	struct Engine::State
 	{
-		State(const md::fw::FlashOs& _os, const bool _master) : engine(_os.firmware, _os.osImage)
+		State(const md::fw::FlashOs& _os, const md::fw::RomBank& _bank, const bool _master)
+			: engine(_os.firmware, _os.osImage), samples(_bank)
 		{
 			engine.mixOn = false;
 			if(_master)
@@ -70,6 +71,7 @@ namespace mdDrums
 
 		md::engine::Engine engine;
 		std::array<std::shared_ptr<const md::mds::Package>, 16> userMachines{};	// as installed, for their defaults
+		Samples samples;
 		md::engine::Engine::Output out;
 		size_t used = BlockSize;	// samples of the output block already handed out
 
@@ -94,6 +96,7 @@ namespace mdDrums
 	void Engine::State::renderBlock()
 	{
 		using namespace md::engine::d56;
+		samples.write(engine.voices());
 		if(!engine.render(out))
 			throw std::runtime_error("Machinedrum engine fault: " + engine.fault());
 		const auto start = blockStart;
@@ -286,13 +289,33 @@ namespace mdDrums
 	}
 
 	Engine::Engine(const md::fw::FlashOs& _os, const md::fw::RomBank& _bank, const bool _master)
-		: m_state(std::make_unique<State>(_os, _master))
+		: m_state(std::make_unique<State>(_os, _bank, _master))
 	{
 		m_state->engine.loadRomBank(_bank);
 		applyEngineDefaults(m_state->engine.host());
 	}
 
 	Engine::~Engine() = default;
+
+	bool Engine::setSample(const int _rom, std::shared_ptr<const Sample> _sample)
+	{
+		return m_state->samples.set(_rom, std::move(_sample));
+	}
+
+	std::shared_ptr<const Sample> Engine::sample(const int _rom) const
+	{
+		return _rom >= 0 && _rom < Samples::RomCount ? m_state->samples.get(_rom) : nullptr;
+	}
+
+	bool Engine::samplesWritten() const
+	{
+		return m_state->samples.written();
+	}
+
+	void Engine::writeSamples()
+	{
+		m_state->samples.write(m_state->engine.voices(), Samples::End - Samples::Base);
+	}
 
 	static_assert(Engine::MasterDelay == md::engine::MasterEngine::MainDelay);
 	static_assert(Engine::MasterCount == md::engine::HostModel<>::kMasterParams);

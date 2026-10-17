@@ -54,6 +54,9 @@ Windows (macOS construit par la CI, pas vérifié à la main). Pas de tag.
 - [Écrire un Sample dans le DSP voix en marche](issues/05-ecrire-un-sample-dans-le-dsp.md) : par tranches de 4 096
   mots entre deux blocs (13 µs), l'entrée de répertoire en dernier ; le JIT ne gêne pas ; la place sûre s'arrête sous
   ce que lisent les E12 (19,4 s).
+- [Un Sample joué par le moteur](issues/08-charger-un-sample-dans-le-moteur.md) : construit ; les Samples de
+  l'utilisateur à la suite au-dessus de la banque d'usine, écrits 4 096 mots par bloc, l'entrée de répertoire en
+  dernier.
 
 ## Not yet specified
 

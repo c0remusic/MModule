@@ -5,6 +5,8 @@
 // plays Links, Chokes and Mute as the Machinedrum does, and User Machines as MDX X.20 does.
 
 #include "mdDrumsEngine.h"
+#include "mdDrumsHitPreview.h"
+#include "mdDrumsMessages.h"
 
 #include "Firmware.h"
 #include "MdEngine.h"
@@ -533,6 +535,150 @@ namespace
 			shortest, longest, stray);
 	}
 
+	// The test's own Sample: a sine of _hz at half scale for _seconds at 44.1 kHz, coded to 12 bits through the OS's table
+	// in the flash image (flash $7a0000, each 16-bit value read as unsigned), two codes a word, the first in the high half
+	mdDrums::Sample testSample(const std::vector<uint8_t>& _flash, const double _hz, const double _seconds)
+	{
+		const auto code = [&](const int16_t _v)
+		{
+			const auto at = 0x7a0000 + 2 * static_cast<size_t>(static_cast<uint16_t>(_v));
+			return static_cast<uint32_t>((_flash[at] << 8 | _flash[at + 1]) & 0xfff);
+		};
+		const auto value = [&](const size_t _k)
+		{
+			return static_cast<int16_t>(std::lround(16383.0 * std::sin(2.0 * 3.14159265358979 * _hz * static_cast<double>(_k) / 44100.0)));
+		};
+		mdDrums::Sample sample;
+		sample.words.resize(static_cast<size_t>(_seconds * 44100.0 / 2.0));
+		for(size_t w = 0; w < sample.words.size(); ++w)
+			sample.words[w] = code(value(2 * w)) << 12 | code(value(2 * w + 1));
+		sample.length = static_cast<uint32_t>(2 * sample.words.size());
+		return sample;
+	}
+
+	// A user's Sample on the engine (ticket 08 of the Samples map): mdDrums::Engine writes it into the voice DSP a share
+	// of words a block (Samples::WordsPerBlock), the directory entry last, and the ROM Machine plays it from then on:
+	// ROM-33, silent before, and ROM-05 in place of the factory's, which comes back when it is taken away; ROM-33 is
+	// silent again. A Sample that does not fit changes nothing. The Hit preview plays the instance's Samples.
+	void userSamples(const std::vector<uint8_t>& _flash, const md::fw::FlashOs& _os, const md::fw::RomBank& _bank)
+	{
+		constexpr uint8_t kRom05 = 132, kRom33 = 176;
+		constexpr int kBefore = 16;	// blocks before every take's Hit, whatever the writes took
+		const auto sine = std::make_shared<const mdDrums::Sample>(testSample(_flash, 441.0, 1.0));
+		const int whole[8] = {64, 127, 127, 0, 0, 127, 0, 0};
+
+		// Track 1 on _machine, alone on its Out, its whole Sample once; _change, then kBefore blocks, the Samples written
+		// within them; Out 01 from the Hit for 2 s
+		const auto take = [&](const uint8_t _machine, const std::function<void(mdDrums::Engine&)>& _change, int* _blocks = nullptr)
+		{
+			mdDrums::Engine engine(_os, _bank, false);
+			engine.setMachine(0, _machine);
+			for(int p = 0; p < 8; ++p)
+				engine.setParam(0, p, whole[p]);
+			engine.setLevel(0, 100);
+			engine.setSeparateOutputs(1);
+			std::vector<std::vector<float>> buffers(mdDrums::Engine::OutputCount, std::vector<float>(mdDrums::Engine::BlockSize));
+			std::array<float*, mdDrums::Engine::OutputCount> outputs{};
+			for(int i = 0; i < mdDrums::Engine::OutputCount; ++i)
+				outputs[i] = buffers[i].data();
+			_change(engine);
+			int blocks = -1;
+			for(int b = 0; b < kBefore; ++b)
+			{
+				if(blocks < 0 && engine.samplesWritten())
+					blocks = b;
+				engine.render(outputs.data(), mdDrums::Engine::BlockSize);
+			}
+			require(engine.samplesWritten(), "the Samples were not written within the blocks before the Hit");
+			if(_blocks)
+				*_blocks = blocks;
+			engine.trigger(0, 127);
+			std::vector<float> own;
+			for(int b = 0; b < 2 * 44100 / mdDrums::Engine::BlockSize; ++b)
+			{
+				engine.render(outputs.data(), mdDrums::Engine::BlockSize);
+				own.insert(own.end(), buffers[2].begin(), buffers[2].end());
+			}
+			return own;
+		};
+		const auto peakOf = [](const std::vector<float>& _s)
+		{
+			float p = 0;
+			for(const auto v : _s)
+				p = std::max(p, std::abs(v));
+			return p;
+		};
+		const auto none = [](mdDrums::Engine&) {};
+
+		int blocks = 0;
+		const auto rom33 = take(kRom33, [&](mdDrums::Engine& _e) { require(_e.setSample(32, sine), "ROM-33 refused a Sample"); },
+			&blocks);
+		const auto empty33 = take(kRom33, none);
+		const auto expected = static_cast<int>((sine->words.size() + mdDrums::Samples::WordsPerBlock - 1)
+			/ mdDrums::Samples::WordsPerBlock);
+		std::printf("user Samples: ROM-33 empty %.4f, with the test's Sample %.4f, written in %d blocks (%zu words, %zu a"
+			" block)\n", peakOf(empty33), peakOf(rom33), blocks, sine->words.size(), mdDrums::Samples::WordsPerBlock);
+		require(peakOf(empty33) == 0.0f && peakOf(rom33) > 0.01f, "ROM-33 does not play the user's Sample");
+		require(blocks >= expected && blocks <= expected + 1, "a Sample took more blocks than its share a block allows");
+
+		const auto factory05 = take(kRom05, none);
+		const auto user05 = take(kRom05, [&](mdDrums::Engine& _e) { _e.setSample(4, sine); });
+		const auto back05 = take(kRom05, [&](mdDrums::Engine& _e)
+		{
+			_e.setSample(4, sine);
+			_e.writeSamples();
+			_e.setSample(4, nullptr);
+		});
+		const auto back33 = take(kRom33, [&](mdDrums::Engine& _e)
+		{
+			_e.setSample(32, sine);
+			_e.writeSamples();
+			_e.setSample(32, nullptr);
+		});
+		std::printf("user Samples: ROM-05 factory %.4f, the user's %.4f, the factory's again %.4f; ROM-33 taken away %.4f\n",
+			peakOf(factory05), peakOf(user05), peakOf(back05), peakOf(back33));
+		require(user05 != factory05, "ROM-05 plays its factory Sample with the user's set");
+		require(back05 == factory05, "ROM-05 does not play its factory Sample once the user's is taken away");
+		require(peakOf(back33) == 0.0f, "ROM-33 sounds once its Sample is taken away");
+
+		// Too big together: refused, ROM-33 keeps its Sample
+		{
+			mdDrums::Engine engine(_os, _bank, false);
+			require(engine.setSample(32, sine), "ROM-33 refused a Sample");
+			auto big = std::make_shared<mdDrums::Sample>();
+			big->words.resize(mdDrums::Samples::End - mdDrums::Samples::Base - sine->words.size() + 1);
+			big->length = static_cast<uint32_t>(2 * big->words.size());
+			require(!engine.setSample(33, big) && !engine.sample(33) && engine.sample(32) == sine,
+				"a Sample that does not fit was taken");
+		}
+
+		// The Hit preview with the instance's Samples
+		{
+			mdDrums::HitPreview::Request request;
+			request.kit = *mdDrums::messages::factoryKit(_flash);
+			request.kit.machines[0] = kRom33;
+			for(int p = 0; p < 8; ++p)
+				request.kit.parameters[0][static_cast<size_t>(p)] = static_cast<uint8_t>(whole[p]);
+			request.velocity = 127;
+			const auto preview = [&](const bool _withSample)
+			{
+				request.samples[32] = _withSample ? sine : nullptr;
+				mdDrums::Engine engine(_os, _bank, false);
+				mdDrums::Telemetry::Capture capture;
+				mdDrums::HitPreview::render(engine, request, capture);
+				int p = 0;
+				for(int c = 0; c < capture.count; ++c)
+					for(const auto v : capture.columns[static_cast<size_t>(c)])
+						p = std::max(p, std::abs(static_cast<int>(v)));
+				return p;
+			};
+			const auto with = preview(true), without = preview(false);
+			std::printf("user Samples: the Hit preview of ROM-33 peaks %d with the instance's Sample, %d without\n", with,
+				without);
+			require(with > 300 && without == 0, "the Hit preview does not play the instance's Sample");
+		}
+	}
+
 	// A Sample written into the voice DSP of an engine that plays (ticket 05 of the Samples map): what it costs, and what a
 	// voice does meanwhile. The test's own Sample, a 441 Hz sine at half scale for one second at 44.1 kHz, is coded to
 	// 12 bits through the OS's table in the flash image (fw::loadRomBankFromFlash's) and written above the factory bank,
@@ -547,22 +693,7 @@ namespace
 		constexpr uint8_t kRom01 = 128, kRom33 = 176;
 		constexpr int kBlocks = 200;
 
-		// The Sample's codes: two 12-bit codes a word, the first in the high half, through the OS's table of each 16-bit
-		// value read as unsigned (flash $7a0000)
-		const auto code = [&](const int16_t _v)
-		{
-			const auto at = 0x7a0000 + 2 * static_cast<size_t>(static_cast<uint16_t>(_v));
-			return static_cast<uint32_t>((_flash[at] << 8 | _flash[at + 1]) & 0xfff);
-		};
-		std::vector<uint32_t> words(22050);
-		for(size_t w = 0; w < words.size(); ++w)
-		{
-			const auto s = [&](const size_t _k)
-			{
-				return static_cast<int16_t>(std::lround(16383.0 * std::sin(2.0 * 3.14159265358979 * 441.0 * static_cast<double>(_k) / 44100.0)));
-			};
-			words[w] = code(s(2 * w)) << 12 | code(s(2 * w + 1));
-		}
+		const auto words = testSample(_flash, 441.0, 1.0).words;
 		const uint32_t entry[4] = {kFree, static_cast<uint32_t>(2 * words.size()), 0xffffff, 1u << 18};
 
 		// Track 1 on _machine, its whole Sample once (PTCH 64, DEC and HOLD 127, END 127), struck at block 2; its voice's
@@ -833,6 +964,7 @@ int main()
 		conversions(os);
 		userMachines(os, bank);
 		sampleWrite(_flash, os, bank);
+		userSamples(_flash, os, bank);
 
 		// Track 1 on its own output: it leaves the main mix and sounds there alone.
 		{

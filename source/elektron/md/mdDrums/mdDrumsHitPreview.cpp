@@ -13,6 +13,11 @@ namespace mdDrums
 	void HitPreview::render(Engine& _engine, const Request& _request, Telemetry::Capture& _capture)
 	{
 		const int track = std::min<int>(_request.track, Engine::TrackCount - 1);
+		// The instance's Samples, written at once before the first block
+		for(int rom = 0; rom < Samples::RomCount; ++rom)
+			if(const auto& sample = _request.samples[static_cast<size_t>(rom)])
+				_engine.setSample(rom, sample);
+		_engine.writeSamples();
 		applyKit(_engine, _request.kit);
 		// Struck before the first block, as a Device's first note at its first sample: its capture starts CaptureDelay
 		// samples later, as the Device's does

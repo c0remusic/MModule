@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mdDrumsSamples.h"
 #include "mdDrumsTelemetry.h"
 
 #include "mdProtocol/mdkit.h"
@@ -44,6 +45,7 @@ namespace mdDrums
 			md::automation::sysex::MdKit kit;
 			uint8_t track = 0;
 			uint8_t velocity = 100;
+			std::array<std::shared_ptr<const Sample>, Samples::RomCount> samples{};	// the instance's, as its Device has them
 		};
 
 		struct Result
