@@ -104,11 +104,20 @@ namespace mdDrums
 		SampleLibrary* getSampleLibrary() const { return m_samples.get(); }
 		// What choosing a file in the Menu or dropping it on the editor does (ticket 16 of the User Machines map, 06 of the
 		// Samples map), _track (0-15) then playing it:
-		// - a User Machine (.syx, .mds) goes into the Library at the number _track plays, or else the first free one
-		//   (none: refused), and into this instance's Device;
+		// - a User Machine (.syx, .mds) goes into the Library at the number that holds the same package, or else the
+		//   first free one (none: refused), never over another one, and into this instance's Device;
 		// - an audio file (WAV, AIFF, FLAC) becomes the Sample of the ROM Machine _track plays, or else of the first of
 		//   ROM-33 to ROM-48 without a user's Sample (loadSampleFile).
 		// The line the editor shows: what went where, or why not.
+		enum class ImportKind
+		{
+			None,
+			Audio,			// WAV, AIFF, FLAC
+			UserMachine		// .syx, .mds
+		};
+		// What a file is to importFile, by its extension: what the editor's drop targets take
+		static ImportKind importKind(const std::filesystem::path& _file);
+
 		struct Import
 		{
 			bool ok = false;

@@ -4,17 +4,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <memory>
 
 namespace mdDrums
 {
-	namespace
-	{
-		// Longer than every Sample together can be at the lowest rate: refused before reading it all
-		constexpr double MaxSeconds = 240.0;
-	}
-
-	std::variant<SampleAudio, std::string> readSampleFile(const juce::File& _file)
+	std::variant<SampleAudio, std::string> readSampleFile(const juce::File& _file, const size_t _maxSamples)
 	{
 		const auto name = _file.getFileName().toStdString();
 		juce::AudioFormatManager formats;
@@ -26,8 +21,16 @@ namespace mdDrums
 		const auto channels = static_cast<int>(reader->numChannels);
 		if(length <= 0 || channels <= 0 || reader->sampleRate <= 0.0)
 			return name + " holds no audio";
-		if(static_cast<double>(length) / reader->sampleRate > MaxSeconds)
-			return name + " is too long for a Sample";
+		// Too long for the room, said before the file is decoded: the samples it would have at its rate, or at 44.1 kHz
+		const auto rate = reader->sampleRate > SampleAudio::MaxRate + 0.5 ? 44100.0 : reader->sampleRate;
+		const auto samples = static_cast<double>(length) * rate / reader->sampleRate;
+		if(samples > static_cast<double>(_maxSamples))
+		{
+			char text[96];
+			std::snprintf(text, sizeof(text), " lasts %.1f s: the Samples have %.1f s left at its rate",
+				static_cast<double>(length) / reader->sampleRate, std::floor(10.0 * static_cast<double>(_maxSamples) / rate) / 10.0);
+			return name + text;
+		}
 
 		juce::AudioBuffer<float> buffer(channels, static_cast<int>(length));
 		if(!reader->read(&buffer, 0, static_cast<int>(length), 0, true, true))

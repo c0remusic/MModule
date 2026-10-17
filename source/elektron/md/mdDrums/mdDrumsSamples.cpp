@@ -50,7 +50,11 @@ namespace mdDrums
 		if(_rom < 0 || _rom >= RomCount)
 			return false;
 		const auto at = static_cast<size_t>(_rom);
-		const auto now = m_samples[at] ? m_samples[at]->words.size() : 0;
+		// The same Sample again changes nothing: no rewrite, during which its Machine would play nothing
+		const auto& held = m_samples[at];
+		if(held == _sample || (held && _sample && *held == *_sample))
+			return true;
+		const auto now = held ? held->words.size() : 0;
 		if(_sample && _sample->words.size() > room() + now)
 			return false;
 
@@ -83,7 +87,7 @@ namespace mdDrums
 			m_offset = 0;
 			m_phase = Phase::Words;
 		}
-		while(m_phase == Phase::Words && _words > 0)
+		while(m_phase == Phase::Words)
 		{
 			if(m_rom >= RomCount)
 			{
@@ -92,12 +96,15 @@ namespace mdDrums
 			}
 			const auto& s = m_samples[static_cast<size_t>(m_rom)];
 			const auto left = s ? s->words.size() - m_offset : 0;
+			// A ROM with nothing left is passed whatever the budget, so that a budget spent exactly still ends the write
 			if(left == 0)
 			{
 				++m_rom;
 				m_offset = 0;
 				continue;
 			}
+			if(_words == 0)
+				break;
 			const auto n = std::min(left, _words);
 			_voices.writeP(m_address[static_cast<size_t>(m_rom)] + static_cast<uint32_t>(m_offset), s->words.data() + m_offset, n);
 			m_offset += n;

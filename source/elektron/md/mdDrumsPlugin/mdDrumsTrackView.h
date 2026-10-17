@@ -2,8 +2,14 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
+
+namespace md::mds
+{
+	struct Package;
+}
 
 namespace pluginLib
 {
@@ -124,7 +130,8 @@ namespace mdDrums
 		// What the document shows, -1 for not yet: the shown Track's machine and Out, every strip's Out, the LFO menu's
 		// Track, target Track and that Track's machine
 		int m_machineShown = -1;
-		const void* m_packageShown = nullptr;	// the User Machine's package drawn, compared by address only
+		// The User Machine's package drawn, held so that a new one can never take its address
+		std::shared_ptr<const md::mds::Package> m_packageShown;
 		uint32_t m_userCellsShown = ~0u;		// followUserCells's, all lit until the first frame dims what is empty
 		double m_userCellsNextMs = 0.0;
 		int m_outShown = -1;

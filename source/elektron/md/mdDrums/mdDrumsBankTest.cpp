@@ -163,7 +163,9 @@ int main()
 			sample->length = 5;
 			sample->loop = 1;
 			sample->rate = mdDrums::Sample::Unity / 2;
-			sample->name = "kick.wav";
+			// A name in UTF-8 beyond ASCII, and words beyond what the length plays: both come back as they were
+			sample->name = "kick \xc3\xa9t\xc3\xa9.wav";
+			sample->words.push_back(0xfedcba);
 			require(mine.put(4, sample) && mine.get(4), "the library did not keep a Sample");
 			const auto parsed = mdDrums::messages::parseSample(readFile(mine.file(4)));
 			require(parsed && parsed->rom == 4 && *parsed->sample == *sample, "ROM-05's file is not the Sample's message");

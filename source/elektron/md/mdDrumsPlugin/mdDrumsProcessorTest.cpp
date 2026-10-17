@@ -670,6 +670,11 @@ namespace
 		require(withLoop.loop == 1000 && withLoop.length == 5001, "a loop of 4,001 samples does not end the Sample");
 		require(withoutLoop.loop == mdDrums::Sample::NoLoop && withoutLoop.length == 44100,
 			"a loop of 101 samples was kept");
+		// Longer than the room it is given: refused before it is decoded
+		const auto unread = mdDrums::readSampleFile(folder.getChildFile("mono.wav"), 44099);
+		const auto* unreadError = std::get_if<std::string>(&unread);
+		require(unreadError && unreadError->find("left") != std::string::npos,
+			"a file longer than the room it was given was read");
 		const auto slow = made(read(writeTone(wav, folder.getChildFile("slow.wav"), 3000.0, 1, 1.0)), room);
 		const auto* slowError = std::get_if<std::string>(&slow);
 		const auto tooLong = made(mono, sample.words.size() - 1);
@@ -817,11 +822,23 @@ namespace
 		const auto user = processor.importFile(saw.getFullPathName().toStdString(), 2);
 		require(user.ok && user.machine == mdDrums::Engine::FirstUserMachine && machineOf(2) == user.machine
 			&& device(processor).userMachine(0), "a User Machine on Track 3 did not go to USR-01: " + user.text);
+		// The same package again goes to the number that holds it; another never replaces it, on a Track playing it too
+		const auto again = processor.importFile(saw.getFullPathName().toStdString(), 5);
+		require(again.ok && again.machine == mdDrums::Engine::FirstUserMachine, "the same package was not given its number");
+		const auto writePackage = [&](const int _n)
+		{
+			const auto file = folder.getChildFile("saw" + juce::String(_n) + ".mds");
+			const auto bytes = mdDrums::test::sawPackage(static_cast<uint8_t>(_n));
+			require(file.replaceWithData(bytes.data(), bytes.size()), "a test package was not written");
+			return file.getFullPathName().toStdString();
+		};
+		const auto another = processor.importFile(writePackage(1), 2);
+		require(another.ok && another.machine == mdDrums::Engine::FirstUserMachine + 1 && device(processor).userMachine(0),
+			"another package on a Track playing USR-01 did not go to USR-02: " + another.text);
 		// No Track (-1): installed only
-		for(int i = 1; i < mdDrums::Library::Size; ++i)
-			require(processor.importFile(saw.getFullPathName().toStdString(), -1).ok, "USR-" + std::to_string(i + 1)
-				+ " was not installed");
-		const auto full = processor.importFile(saw.getFullPathName().toStdString(), 4);
+		for(int i = 2; i < mdDrums::Library::Size; ++i)
+			require(processor.importFile(writePackage(i), -1).ok, "USR-" + std::to_string(i + 1) + " was not installed");
+		const auto full = processor.importFile(writePackage(99), 4);
 		require(!full.ok && full.text.find("taken") != std::string::npos, "a 17th User Machine was not refused");
 		const auto other = processor.importFile(text.getFullPathName().toStdString(), 0);
 		require(!other.ok && machineOf(0) == 176, "a text file was not refused");

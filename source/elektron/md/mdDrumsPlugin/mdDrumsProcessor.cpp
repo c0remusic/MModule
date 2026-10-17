@@ -197,13 +197,13 @@ namespace mdDrums
 			return "MoDule needs its flash image before a Sample";
 		if(_rom < 0 || _rom >= Samples::RomCount)
 			return "No ROM Machine " + std::to_string(_rom + 1);
-		auto audio = readSampleFile(juce::File(juce::String::fromUTF8(_file.u8string().c_str())));
+		// The room it may take: what is left, and what the Sample it replaces frees; a file longer is refused unread
+		const auto held = device->sample(_rom);
+		const auto room = device->sampleRoom() + (held ? held->words.size() : 0);
+		auto audio = readSampleFile(juce::File(juce::String::fromUTF8(_file.u8string().c_str())), 2 * room);
 		if(const auto* error = std::get_if<std::string>(&audio))
 			return *error;
-		// The room it may take: what is left, and what the Sample it replaces frees
-		const auto held = device->sample(_rom);
-		auto made = makeSample(std::get<SampleAudio>(audio), device->sampleCodes(),
-			device->sampleRoom() + (held ? held->words.size() : 0));
+		auto made = makeSample(std::get<SampleAudio>(audio), device->sampleCodes(), room);
 		if(const auto* error = std::get_if<std::string>(&made))
 			return *error;
 		auto& s = std::get<Sample>(made);
@@ -248,11 +248,22 @@ namespace mdDrums
 		}
 	}
 
-	Processor::Import Processor::importFile(const std::filesystem::path& _file, const int _track)
+	Processor::ImportKind Processor::importKind(const std::filesystem::path& _file)
 	{
 		auto extension = _file.extension().u8string();
 		std::transform(extension.begin(), extension.end(), extension.begin(),
 			[](const char _c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(_c))); });
+		if(extension == ".syx" || extension == ".mds")
+			return ImportKind::UserMachine;
+		// What JUCE reads as built (source/juce.cmake): WAV (.wav, .bwf), AIFF, FLAC
+		if(extension == ".wav" || extension == ".bwf" || extension == ".aif" || extension == ".aiff" || extension == ".flac")
+			return ImportKind::Audio;
+		return ImportKind::None;
+	}
+
+	Processor::Import Processor::importFile(const std::filesystem::path& _file, const int _track)
+	{
+		const auto kind = importKind(_file);
 		const auto name = _file.filename().u8string();
 		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
 		if(!device)
@@ -267,27 +278,39 @@ namespace mdDrums
 		};
 		const auto onTrack = machine ? ", Track " + std::to_string(_track + 1) : std::string();
 
-		if(extension == ".syx" || extension == ".mds")
+		if(kind == ImportKind::UserMachine)
 		{
-			// The number the Track plays, else the first free one
-			int index = md::engine::isUserMachine(playing) ? playing - Engine::FirstUserMachine : -1;
+			// The number that holds the same package already, else the first free one: an install never replaces another
+			// Machine in the Library, which other instances and the Bank's Kits take from
+			std::ifstream in(_file, std::ios::binary);
+			const std::vector<uint8_t> bytes{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+			std::vector<uint8_t> package;
+			try
+			{
+				package = !bytes.empty() && bytes.front() == 0xf0 ? md::mds::packageFromSysex(bytes) : bytes;
+			}
+			catch(const std::exception&)
+			{
+			}
+			int index = -1;
+			for(int i = 0; i < Library::Size && index < 0 && m_library; ++i)
+				if(const auto held = m_library->get(i); held && !package.empty() && held->bytes == package)
+					index = i;
 			for(int i = 0; i < Library::Size && index < 0 && m_library; ++i)
 				if(!m_library->get(i))
 					index = i;
 			if(index < 0)
 				return {false, -1, "The 16 User Machines are taken: " + name + " was not installed"};
-			std::ifstream in(_file, std::ios::binary);
-			const std::vector<uint8_t> bytes{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 			if(auto error = installUserMachine(index, bytes); !error.empty())
 				return {false, -1, name + ": " + error};
 			const auto id = Engine::FirstUserMachine + index;
 			play(id);
-			const auto package = m_library->get(index);
+			const auto installed = m_library->get(index);
 			char number[8];
 			std::snprintf(number, sizeof(number), "USR-%02d", index + 1);
-			return {true, id, (package ? package->displayName() : name) + " installed as " + number + onTrack};
+			return {true, id, (installed ? installed->displayName() : name) + " installed as " + number + onTrack};
 		}
-		if(extension == ".wav" || extension == ".wave" || extension == ".aif" || extension == ".aiff" || extension == ".flac")
+		if(kind == ImportKind::Audio)
 		{
 			// The ROM the Track plays, else the first of ROM-33 to ROM-48 without a user's Sample
 			int rom = Samples::romOf(playing);
@@ -339,6 +362,11 @@ namespace mdDrums
 		const auto package = m_library ? m_library->get(_index) : nullptr;
 		if(!package)
 			return false;
+		// Nothing to do, without the lock: a click on the browser's cell for a User Machine already held (a User Machine
+		// changes on the message thread only)
+		if(const auto* d = dynamic_cast<const Device*>(getPlugin().getDevice()))
+			if(const auto held = d->userMachine(_index); held && (!_replace || held->bytes == package->bytes))
+				return false;
 		// Under the Device's lock, which pauses rendering for the time the voice DSP takes it (a few ms)
 		return getPlugin().withDeviceLocked([&](synthLib::Device* _device)
 		{

@@ -1283,7 +1283,8 @@ namespace
 		// A WAV dropped on the editor (ticket 06 of the Samples map, DropView): Track 1 plays it on ROM-33, the line says
 		// so within its box; the files a drop takes, by their extension
 		require(mdDrums::DropView::takes("a.WAV") && mdDrums::DropView::takes("b.flac") && mdDrums::DropView::takes("c.mds")
-			&& !mdDrums::DropView::takes("d.mp3") && !mdDrums::DropView::takes("e"), "a drop takes the wrong files");
+			&& !mdDrums::DropView::takes("d.mp3") && !mdDrums::DropView::takes("e") && mdDrums::DropView::takes("f.bwf")
+			&& !mdDrums::DropView::takes("g.wave"), "a drop takes the wrong files");
 
 		// The drops' journal (ticket 07 of the Samples map): with MD_DROP_LOG naming a file, a line per new list a drag
 		// hands over, a hover repeating it writing nothing more

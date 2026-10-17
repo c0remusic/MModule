@@ -223,10 +223,11 @@ namespace mdDrums::messages
 		put28(s.length);
 		put28(s.loop);
 		put28(s.rate);
+		put28(static_cast<uint32_t>(s.words.size()));
+		// The name's bytes as they are (UTF-8), 7 bits to the byte as the words
 		const auto name = s.name.substr(0, 127);
 		message.push_back(static_cast<uint8_t>(name.size()));
-		for(const auto c : name)
-			message.push_back(static_cast<uint8_t>(c & 0x7f));
+		md::automation::sysex::codec::append7Bit(message, reinterpret_cast<const uint8_t*>(name.data()), name.size());
 		// The words, three bytes each, high first, 7 bits to the byte as the Machinedrum's dumps pack them
 		std::vector<uint8_t> words;
 		words.reserve(3 * s.words.size());
@@ -244,7 +245,7 @@ namespace mdDrums::messages
 	std::optional<SampleMessage> parseSample(const MessageView _message)
 	{
 		const auto data = g_commandAt + 1;
-		if(_message.size() < data + 15 || !std::equal(std::begin(g_header), std::end(g_header), _message.begin())
+		if(_message.size() < data + 19 || !std::equal(std::begin(g_header), std::end(g_header), _message.begin())
 			|| _message[g_commandAt] != static_cast<uint8_t>(Command::Sample) || _message.back() != 0xf7
 			|| _message[data] >= Samples::RomCount)
 			return std::nullopt;
@@ -259,14 +260,14 @@ namespace mdDrums::messages
 		s->length = read28(data + 1);
 		s->loop = read28(data + 5);
 		s->rate = read28(data + 9);
-		const size_t nameSize = _message[data + 13];
-		size_t position = data + 14;
-		if(position + nameSize >= _message.size())
+		const auto wordCount = static_cast<size_t>(read28(data + 13));
+		if(wordCount > Samples::End - Samples::Base)
 			return std::nullopt;
-		s->name.assign(_message.begin() + static_cast<std::ptrdiff_t>(position),
-			_message.begin() + static_cast<std::ptrdiff_t>(position + nameSize));
-		position += nameSize;
-		const auto wordCount = (static_cast<size_t>(s->length) + 1) / 2;
+		const size_t nameSize = _message[data + 17];
+		size_t position = data + 18;
+		s->name.resize(nameSize);
+		if(!md::automation::sysex::codec::read7Bit(_message, position, nameSize, reinterpret_cast<uint8_t*>(s->name.data())))
+			return std::nullopt;
 		std::vector<uint8_t> words(3 * wordCount);
 		if(!md::automation::sysex::codec::read7Bit(_message, position, words.size(), words.data())
 			|| position != _message.size() - 1)

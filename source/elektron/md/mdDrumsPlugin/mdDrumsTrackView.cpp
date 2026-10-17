@@ -436,10 +436,10 @@ namespace mdDrums
 		// A User Machine's names are its package's, which an install changes under the same number
 		const auto package = md::engine::isUserMachine(static_cast<uint8_t>(machine))
 			? m_editor.processor().userMachine(machine - Engine::FirstUserMachine) : nullptr;
-		if(machine == m_machineShown && package.get() == m_packageShown)
+		if(machine == m_machineShown && package == m_packageShown)
 			return false;
 		m_machineShown = machine;
-		m_packageShown = package.get();
+		m_packageShown = package;
 		updateMachine();
 		return true;
 	}

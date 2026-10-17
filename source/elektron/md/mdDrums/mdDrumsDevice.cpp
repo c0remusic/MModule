@@ -97,12 +97,21 @@ namespace mdDrums
 			{
 			}
 		}
-		// The set's Samples: what it plays sounds as saved, the factory's where it saved none
+		// The set's Samples: what it plays sounds as saved, the factory's where it saved none. What changes is taken away
+		// first, so that the room a set's Sample needs is not held by one it replaces; an unchanged one is not rewritten
 		std::array<std::shared_ptr<const Sample>, Samples::RomCount> samples{};
 		for(const auto& s : state->samples)
 			samples[s.rom] = s.sample;
 		for(int rom = 0; rom < Samples::RomCount; ++rom)
-			m_engine->setSample(rom, samples[static_cast<size_t>(rom)]);
+		{
+			const auto& wanted = samples[static_cast<size_t>(rom)];
+			const auto held = m_engine->sample(rom);
+			if(held && !(wanted && *held == *wanted))
+				m_engine->setSample(rom, nullptr);
+		}
+		for(int rom = 0; rom < Samples::RomCount; ++rom)
+			if(const auto& wanted = samples[static_cast<size_t>(rom)])
+				m_engine->setSample(rom, wanted);
 		m_kit = state->kit;
 		m_mixer = state->mixer;
 		applyKit();

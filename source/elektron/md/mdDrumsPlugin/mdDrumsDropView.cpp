@@ -1,12 +1,11 @@
 #include "mdDrumsDropView.h"
 
 #include "mdDrumsEditor.h"
+#include "mdDrumsProcessor.h"
 #include "mdDrumsStatusView.h"
 
 #include "mdLib/mdenv.h"
 
-#include <algorithm>
-#include <cctype>
 #include <filesystem>
 #include <fstream>
 
@@ -48,13 +47,7 @@ namespace mdDrums
 
 	bool DropView::takes(const std::string& _file)
 	{
-		auto extension = std::filesystem::u8path(_file).extension().u8string();
-		std::transform(extension.begin(), extension.end(), extension.begin(),
-			[](const char _c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(_c))); });
-		for(const auto* known : {".wav", ".wave", ".aif", ".aiff", ".flac", ".syx", ".mds"})
-			if(extension == known)
-				return true;
-		return false;
+		return Processor::importKind(std::filesystem::u8path(_file)) != Processor::ImportKind::None;
 	}
 
 	void DropView::journal(const char* _what, const std::vector<std::string>& _files)

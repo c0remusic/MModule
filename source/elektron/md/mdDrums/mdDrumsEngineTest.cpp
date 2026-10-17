@@ -621,6 +621,23 @@ namespace
 		require(peakOf(empty33) == 0.0f && peakOf(rom33) > 0.01f, "ROM-33 does not play the user's Sample");
 		require(blocks >= expected && blocks <= expected + 1, "a Sample took more blocks than its share a block allows");
 
+		// The same Sample again (an equal copy) writes nothing, during which its Machine would play nothing; a Sample that
+		// fills the whole room is written by one writeSamples, its budget spent exactly
+		{
+			mdDrums::Engine engine(_os, _bank, false);
+			engine.setSample(32, sine);
+			engine.writeSamples();
+			require(engine.samplesWritten(), "writeSamples left a Sample unwritten");
+			require(engine.setSample(32, std::make_shared<const mdDrums::Sample>(*sine)) && engine.samplesWritten(),
+				"an equal Sample was written again");
+			auto whole = std::make_shared<mdDrums::Sample>();
+			whole->words.assign(mdDrums::Samples::End - mdDrums::Samples::Base, 0x800800);
+			whole->length = static_cast<uint32_t>(2 * whole->words.size());
+			require(engine.setSample(32, nullptr) && engine.setSample(33, whole), "a Sample of the whole room was refused");
+			engine.writeSamples();
+			require(engine.samplesWritten(), "a Sample of the whole room was not written by one writeSamples");
+		}
+
 		const auto factory05 = take(kRom05, none);
 		const auto user05 = take(kRom05, [&](mdDrums::Engine& _e) { _e.setSample(4, sine); });
 		const auto back05 = take(kRom05, [&](mdDrums::Engine& _e)

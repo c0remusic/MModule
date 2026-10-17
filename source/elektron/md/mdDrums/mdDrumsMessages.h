@@ -36,8 +36,9 @@ namespace mdDrums::messages
 		// (21 bits), then the package (MDS1), 7 bits to the byte as the Machinedrum's dumps pack them. Allocates.
 		UserMachine = 0x06,
 		// A user's Sample, in the Device's state and the library's files: its ROM (0-47, ROM-01 to ROM-48), its length,
-		// loop and rate (four 7-bit bytes each, high first), its name (a length byte, then 7-bit characters), then its
-		// words, three bytes each, high first, 7 bits to the byte as the Machinedrum's dumps pack them. Allocates.
+		// loop, rate and word count (four 7-bit bytes each, high first), its name (a length byte, then its UTF-8 bytes),
+		// then its words, three bytes each, high first; the name and the words 7 bits to the byte as the Machinedrum's
+		// dumps pack them. Allocates.
 		Sample = 0x07,
 	};
 

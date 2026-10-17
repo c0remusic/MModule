@@ -266,6 +266,27 @@ namespace
 			"the state did not bring back the Kit and the mixer");
 		std::printf("state: %zu bytes, Kit and mixer restored\n", state.size());
 
+		// A set's Sample takes the room of the ones it replaces (ticket 10 of the Samples map): a Device holding 15 s on
+		// ROM-48 opens a set whose Kit plays 10 s on ROM-33, more than the room together
+		{
+			const auto sample = [](const double _seconds)
+			{
+				auto s = std::make_shared<mdDrums::Sample>();
+				s->words.assign(static_cast<size_t>(_seconds * 44100.0 / 2.0), 0x800800);
+				s->length = static_cast<uint32_t>(2 * s->words.size());
+				return std::shared_ptr<const mdDrums::Sample>(std::move(s));
+			};
+			const auto held = sample(15.0), saved = sample(10.0);
+			require(restored.device->setSample(47, held), "15 s did not fit on ROM-48");
+			auto kit = restored.device->kit();
+			kit.machines[0] = 176;	// ROM-33
+			const auto bytes = mdDrums::messages::writeState({kit, restored.device->mixer(), {}, {{32, saved}}});
+			require(restored.device->setState(bytes, synthLib::StateTypeGlobal), "the set with a Sample was refused");
+			require(restored.device->sample(32) && *restored.device->sample(32) == *saved && !restored.device->sample(47),
+				"a set's Sample did not take the room of the one it replaces");
+			std::printf("state: a set's 10 s Sample replaces the Device's 15 s\n");
+		}
+
 		// A Kit dump from the editor: the Device plays that Kit
 		auto dumped = restored.device->kit();
 		dumped.levels[2] = 77;
