@@ -47,7 +47,6 @@ namespace md::engine
 
 		// Scratch as the DSP's X:$000-$0ff, for stage-by-stage comparison with the DSP.
 		const std::array<int32_t, 256>& scratch() const { return m_x; }
-		const std::array<int32_t, 256>& scratchY() const { return m_y; }
 		void resetScratch() { m_x.fill(0); m_y.fill(0); }
 		// md-drums: the EQ's coefficient words of the last block (Y:$50-$54 in the order eq() computes them: -r^2 and
 		// rk - 1/2 of its poles, then its zeros' three taps scaled by its 24-step division), for MD Drums' editor

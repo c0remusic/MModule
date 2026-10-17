@@ -15,7 +15,6 @@ namespace mdDrums
 		enum Shape : uint8_t { Triangle, Saw, Square, Ramp, Exponential, Random, ShapeCount };
 		// The type's bits: TRIG restarts the phase at a Hit of the LFO's Track; HOLD changes the output at its Hits only
 		static constexpr uint8_t Trig = 1, Hold = 2;
-		static constexpr int32_t FullScale = 0x4000;
 		static constexpr int32_t PhaseCount = 0x8000;
 		static constexpr uint16_t MaxWord = 0x3fff;
 

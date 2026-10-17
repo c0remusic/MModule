@@ -57,9 +57,6 @@ namespace md::engine
 		void poke16(uint32_t _addr, uint16_t _v);
 		void poke32(uint32_t _addr, uint32_t _v);
 
-		uint64_t lastInstructions() const { return m_lastInstructions; }
-		const std::string& faultReason() const { return m_fault; }
-
 	private:
 		void parseMachineTable();
 
@@ -67,7 +64,5 @@ namespace md::engine
 		std::unique_ptr<MachineCpu> m_cpu;
 		std::vector<MachineInfo> m_machines;
 		std::array<int, 256> m_index{};
-		uint64_t m_lastInstructions = 0;
-		std::string m_fault;
 	};
 }

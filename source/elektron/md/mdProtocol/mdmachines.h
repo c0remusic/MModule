@@ -9,13 +9,9 @@
 
 namespace md::machines
 {
-	// No machine known for a track yet (no Kit dump seen, nothing assigned).
-	constexpr uint16_t g_unknown = 0xffff;
-
 	struct Family
 	{
 		std::string_view name;       // as on the machine, e.g. "TRX"
-		std::string_view synthesis;  // kind of sound source, shown next to the machine name
 	};
 
 	struct Machine
@@ -37,10 +33,4 @@ namespace md::machines
 	// is not in the firmware's machine table.
 	using ParameterNames = std::array<std::string_view, 8>;
 	const ParameterNames* parameterNames(MachineModel _model, uint16_t _id);
-
-	// A Machinedrum track parameter, 0 to 23 (the order of its CCs, lock rows and LFO destinations), as
-	// the editor names it: the machine's name on the synthesis page (P1 to P8 while the machine is
-	// unknown, empty for one it does not use), then AMD, AMF, EQF, EQG, BASE, WDTH, Q, SRR, DIST, VOL, PAN,
-	// DEL, REV, LFOS, LFOD, LFOM. Empty past 23.
-	std::string_view machinedrumParameterName(uint16_t _machine, uint8_t _index);
 }

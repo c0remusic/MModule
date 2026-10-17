@@ -141,7 +141,6 @@ namespace md::engine
 
 	int64_t MachineRunner::call(const uint32_t _address, const std::initializer_list<uint32_t> _args)
 	{
-		m_fault.clear();
 		auto& cpu = *m_cpu;
 		uint32_t sp = kStackTop;
 		// C calling convention: arguments pushed right to left, then the return address (md-drums: from the list itself,
@@ -155,17 +154,16 @@ namespace md::engine
 		while(cpu.getPC() != kReturnSentinel)
 		{
 			cpu.exec();
-			if(++n > kMaxInstructions) { m_fault = "instruction budget exceeded"; return -1; }
+			if(++n > kMaxInstructions) return -1;	// instruction budget exceeded
 		}
-		m_lastInstructions = n;
-		if(cpu.m_badAccesses) { m_fault = "access outside main RAM / internal SRAM"; return -1; }
+		if(cpu.m_badAccesses) return -1;	// access outside main RAM / internal SRAM
 		return cpu.getDReg(0);
 	}
 
 	int MachineRunner::compute(const uint8_t _machineId, const uint16_t* _params, uint32_t* _out, const int _outCapacity, const bool _trigger)
 	{
 		const auto* m = machine(_machineId);
-		if(!m) { m_fault = "unknown machine"; return -1; }
+		if(!m) return -1;	// unknown machine
 		for(uint32_t k = 0; k < 24; ++k)
 			poke16(kParams + 2 * k, k < 8 ? _params[k] : 0);
 		for(uint32_t k = 0; k < 32; ++k)

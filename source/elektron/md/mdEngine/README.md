@@ -73,7 +73,9 @@ later versions can be compared file by file. Their documentation is in `.scratch
   instruction counts it read from `VoiceEngine`; and `engine/Engine.cpp`, an include of `MdEngine.h` kept for build
   scripts this repository does not have. `HostModel`'s features that never turn on here: the voice budget
   (`setMaxActiveVoices`, its voice stealing), the silence release (`setSilenceRelease`), and `setBlocksPerTick`,
-  the tick's 11 blocks now a constant (`kBlocksPerTick`).
+  the tick's 11 blocks now a constant (`kBlocksPerTick`). And what nothing reads: `TrackFx::scratchY`,
+  `MachineRunner::lastInstructions` and `faultReason`, the timings `voiceLoopUs`, `osCallsUs`, `fxUs` and `mixUs`,
+  and `EngineT::skipSettled`, the skip of a settled silent track's effects being always on.
 
 Machinemodule's own `dsp56300` fork is not used: its x64 JIT stops the voice DSP's init on Windows
 (`instruction budget exceeded at PC=$10008b`), and ours runs it.

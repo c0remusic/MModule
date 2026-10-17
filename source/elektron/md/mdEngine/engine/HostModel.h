@@ -129,7 +129,7 @@ namespace md::engine
 
 		// Optional stage timing (microseconds, accumulated): the OS tick + trigger updates, and the voice DSP.
 		bool timingOn = false;
-		double tickUs = 0, dspUs = 0, voiceLoopUs = 0, osCallsUs = 0;	// tickUs = voiceLoopUs (machine functions) + osCallsUs (smoothing, LFOs) + pokes
+		double tickUs = 0, dspUs = 0;	// tickUs: the machine functions, the smoothing, the LFOs and the pokes
 		void tick();
 		void updateVoice(int _track);	// machine function on the voice's current array -> voice slot
 		void updateMixer(int _track);	// the track's DSP1 words from its current array, level and velocity

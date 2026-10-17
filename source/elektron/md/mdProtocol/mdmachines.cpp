@@ -17,29 +17,12 @@ namespace md::machines
 
 		const std::vector<Family> g_mdFamilies =
 		{
-			{"GND", "générateur"},
-			{"TRX", "synthèse analogique modélisée"},
-			{"EFM", "synthèse FM"},
-			{"E12", "sample 12 bits intégré"},
-			{"P-I", "modélisation physique"},
-			{"INP", "entrée audio"},
-			{"MID", "piste MIDI, pas de son"},
-			{"CTR", "contrôle, pas de son"},
-			{"NFX", "effet de piste"},
-			{"ROM", "sample utilisateur (UW)"},
-			{"RAM", "enregistrement et relecture (UW)"},
-			{"USR", "machine utilisateur (MDX X.20)"},
+			{"GND"}, {"TRX"}, {"EFM"}, {"E12"}, {"P-I"}, {"INP"}, {"MID"}, {"CTR"}, {"NFX"}, {"ROM"}, {"RAM"}, {"USR"},
 		};
 
 		const std::vector<Family> g_mmFamilies =
 		{
-			{"GND", "générateur"},
-			{"SID", "synthèse SID 6581"},
-			{"SWAVE", "synthèse superwave"},
-			{"DPRO", "synthèse DigiPRO"},
-			{"FM+", "synthèse FM"},
-			{"VO", "synthèse vocale"},
-			{"FX", "effet sur un bus"},
+			{"GND"}, {"SID"}, {"SWAVE"}, {"DPRO"}, {"FM+"}, {"VO"}, {"FX"},
 		};
 
 		std::vector<Machine> createMdMachines()
@@ -262,22 +245,6 @@ namespace md::machines
 	{
 		const auto* machine = find(_model, _id);
 		return machine ? &families(_model)[machine->family] : nullptr;
-	}
-
-	std::string_view machinedrumParameterName(const uint16_t _machine, const uint8_t _index)
-	{
-		constexpr std::string_view names[24] = {
-			"P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8",
-			"AMD", "AMF", "EQF", "EQG", "BASE", "WDTH", "Q", "SRR",
-			"DIST", "VOL", "PAN", "DEL", "REV", "LFOS", "LFOD", "LFOM"};
-		if(_index >= 24)
-			return {};
-		if(_index < 8)
-		{
-			if(const auto* machine = parameterNames(MachineModel::Machinedrum, _machine))
-				return (*machine)[_index];
-		}
-		return names[_index];
 	}
 
 	const ParameterNames* parameterNames(const MachineModel _model, const uint16_t _id)

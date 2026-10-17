@@ -350,10 +350,8 @@ namespace md::engine
 			for(int p = 0; p < kParams; ++p)
 				m_os.poke8(kRaw + 24 * static_cast<uint32_t>(t) + static_cast<uint32_t>(p), target(t, p));
 
-		const auto tv0 = timingOn ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 		for(int t = 0; t < kTracks; ++t)
 			updateVoice(t);
-		const auto tv1 = timingOn ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 
 		// After the voice loop the OS smooths the parameters, runs the LFOs and builds the next tick's arrays.
 		m_os.call(kSmooth, {});
@@ -369,12 +367,6 @@ namespace md::engine
 			for(int k = 0; k < body.count; ++k)
 				m_masterWords.words[static_cast<size_t>(k)] = m_os.peek32(body.staging + 4 * static_cast<uint32_t>(k)) & 0xffffff;
 			m_masterPending = true;
-		}
-		if(timingOn)
-		{
-			const auto tv2 = std::chrono::steady_clock::now();
-			voiceLoopUs += std::chrono::duration<double, std::micro>(tv1 - tv0).count();
-			osCallsUs += std::chrono::duration<double, std::micro>(tv2 - tv1).count();
 		}
 		++m_tickCount;
 	}

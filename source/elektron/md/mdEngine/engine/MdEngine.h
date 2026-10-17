@@ -159,14 +159,14 @@ namespace md::engine
 			return ok;
 		}
 
-		// Optional stage timing (microseconds, accumulated): track effects, and the mix. The OS tick and the voice DSP
-		// are HostModel's (host().tickUs / dspUs).
 		uint32_t dryMute = 0;	// tracks kept out of the dry main mix (see Mixer::process); set by the caller between renders
 		// md-drums: false leaves Output::mix untouched, for a caller that mixes Output::tracks itself (mixer())
 		bool mixOn = true;
 		const Mixer& mixer() const { return m_mixer; }
+		// Optional stage timing (microseconds, accumulated): the master effects. The OS tick and the voice DSP are
+		// HostModel's (host().tickUs / dspUs).
 		bool timingOn = false;
-		double fxUs = 0, mixUs = 0, masterUs = 0;
+		double masterUs = 0;
 
 		// One track's effects: a settled silent track's chain gives the same again while its input stays silent and
 		// its state (which holds its params) stays the same, so it is skipped. Exact - see HANDOFF.md, "fixed
@@ -175,7 +175,7 @@ namespace md::engine
 		{
 			TrackFx::setParams(m_state[_t], m_host->mixerInput(_t).fx.data());
 			const bool silentIn = std::all_of(_src, _src + kBlock, [](int32_t s) { return s == 0; });
-			if(skipSettled && silentIn && m_settled[_t] && m_state[_t].y == m_settledState[_t].y)
+			if(silentIn && m_settled[_t] && m_state[_t].y == m_settledState[_t].y)
 			{
 				std::fill(_dst, _dst + kBlock, 0);
 				return;
@@ -200,8 +200,6 @@ namespace md::engine
 				if(m_host->takeMasterWords(words))
 					m_master->setWords(words.y, words.words.data(), words.count);
 			}
-			using Clock = std::chrono::steady_clock;
-			const auto tf0 = timingOn ? Clock::now() : Clock::time_point{};
 			for(int t = 0; t < kTracks; ++t)
 				fxTrack(t, m_voiceOut[t].data(), _out.tracks[t].data());
 			// md-drums: without the mixer (mixOn), each track's output is all there is
@@ -214,13 +212,7 @@ namespace md::engine
 				in[t] = _out.tracks[t].data();
 				mix[t] = m_host->mixerInput(t).mix;
 			}
-			const auto tf1 = timingOn ? Clock::now() : Clock::time_point{};
 			m_mixer.process(in.data(), mix.data(), _out.mix, dryMute);
-			if(timingOn)
-			{
-				fxUs += std::chrono::duration<double, std::micro>(tf1 - tf0).count();
-				mixUs += std::chrono::duration<double, std::micro>(Clock::now() - tf1).count();
-			}
 			return !m_master || processMaster(_out.mix.main, _out.mix.rev, _out.mix.del, _out.master);
 		}
 
@@ -228,8 +220,6 @@ namespace md::engine
 		{
 			return m_master && !m_master->faultReason().empty() ? m_master->faultReason() : m_voices->faultReason();
 		}
-
-		bool skipSettled = true;	// false: run every track's effects every block (for verifying the skip)
 
 	private:
 		void init()
