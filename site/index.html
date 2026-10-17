@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MD Drums</title>
+<meta name="description" content="The Elektron Machinedrum's synthesis engines as a VST3 and AU plug-in, edited like Overbridge and played from your DAW.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%231b1c1e'/%3E%3Crect x='2' y='4' width='3' height='8' fill='%236fd1c4'/%3E%3Crect x='7' y='6' width='7' height='1.5' fill='%23a7aaaf'/%3E%3Crect x='7' y='9' width='5' height='1.5' fill='%23a7aaaf'/%3E%3C/svg%3E">
+<style>
+	@font-face { font-family: Inter; src: url(fonts/Inter-Regular.ttf); font-weight: 400; font-display: swap; }
+	@font-face { font-family: Inter; src: url(fonts/Inter-Medium.ttf); font-weight: 500; font-display: swap; }
+	@font-face { font-family: Inter; src: url(fonts/Inter-SemiBold.ttf); font-weight: 600; font-display: swap; }
+
+	/* The editor's own colours (Design/HANDOFF.md) */
+	:root {
+		--bg: #1b1c1e;
+		--surface: #26272a;
+		--raised: #2f3034;
+		--ink: #f2f2f2;
+		--ink-dim: #a7aaaf;
+		--rule: #3c3e43;
+		--accent: #6fd1c4;
+		--row: 40px;
+	}
+
+	* { box-sizing: border-box; }
+	html { -webkit-text-size-adjust: 100%; }
+	body {
+		margin: 0;
+		background: var(--bg);
+		color: var(--ink);
+		font: 400 16px/24px Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+	}
+	a { color: var(--ink); text-decoration-color: var(--ink-dim); text-underline-offset: 3px; }
+	a:hover { color: var(--accent); text-decoration-color: var(--accent); }
+	:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+	p { margin: 0; }
+	.wrap { max-width: 1104px; margin: 0 auto; padding: 0 24px; }
+
+	/* The top bar, as the editor's: the name, then what to do */
+	.bar { display: flex; align-items: baseline; gap: 16px; padding: 24px 0; }
+	.name { font-weight: 600; font-size: 16px; letter-spacing: 0.5px; }
+	.name span { font-weight: 400; color: var(--ink-dim); }
+	.version { color: var(--ink-dim); font-size: 14px; }
+	.bar nav { margin-left: auto; display: flex; gap: 24px; font-size: 14px; }
+	.bar nav a { color: var(--ink-dim); text-decoration: none; }
+	.bar nav a:hover { color: var(--ink); }
+
+	/* The hero: the editor's Track list beside what MD Drums is */
+	.hero { display: grid; grid-template-columns: 240px 1fr; gap: 64px; padding: 24px 0 64px; align-items: start; }
+	.tracks { list-style: none; margin: 0; padding: 0; position: relative; }
+	.tracks li { position: relative; height: var(--row); display: flex; align-items: center; gap: 16px; padding-left: 16px; }
+	.tracks .n { width: 24px; font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+	.tracks .m { font-size: 14px; letter-spacing: 1px; color: var(--ink-dim); }
+	.tracks li.shown { background: var(--surface); }
+	.tracks li.shown::before { content: ""; position: absolute; left: 0; top: 8px; width: 4px; height: 24px; background: var(--accent); }
+	.tracks li.shown .n, .tracks li.shown .m { color: var(--ink); }
+	.tracks li.lit .n { color: var(--accent); }
+	.replay {
+		margin: 16px 0 0 16px; padding: 0; border: 0; background: none; font: inherit; font-size: 14px;
+		color: var(--ink-dim); cursor: pointer; text-decoration: underline; text-decoration-color: var(--rule);
+		text-underline-offset: 3px;
+	}
+	.replay:hover { color: var(--ink); }
+
+	.pitch { padding-top: 40px; max-width: 600px; }
+	h1 { font-size: 36px; line-height: 44px; font-weight: 600; margin: 0 0 24px; letter-spacing: -0.5px; }
+	.pitch .lede { color: var(--ink-dim); font-size: 18px; line-height: 28px; }
+	.get { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+	.button {
+		display: inline-block; padding: 10px 18px; border-radius: 6px; font-size: 14px; font-weight: 500; line-height: 20px;
+		background: var(--accent); color: #10201e; text-decoration: none;
+	}
+	.button:hover { background: var(--ink); color: var(--bg); }
+	.button.quiet { background: var(--raised); color: var(--ink); }
+	.button.quiet:hover { background: var(--rule); color: var(--ink); }
+	.need { margin-top: 24px; font-size: 14px; line-height: 20px; color: var(--ink-dim); }
+	.need a { color: var(--ink-dim); }
+
+	.shot { margin: 0; border-radius: 6px; overflow: hidden; background: var(--surface); }
+	.shot img { display: block; width: 100%; height: auto; }
+
+	section { padding-top: 80px; }
+	h2 { font-size: 21px; line-height: 28px; font-weight: 600; margin: 0 0 24px; }
+
+	/* Downloads as the rows of a table: what it is, its state, the files */
+	.files { border-top: 1px solid var(--rule); }
+	.file { display: grid; grid-template-columns: 200px 1fr; gap: 12px 24px; align-items: start; padding: 20px 0; border-bottom: 1px solid var(--rule); }
+	.file h3 { margin: 0; font-size: 16px; font-weight: 600; }
+	.file .what { font-size: 14px; color: var(--ink-dim); margin-top: 2px; }
+	.file .about { font-size: 14px; line-height: 20px; color: var(--ink-dim); max-width: 520px; }
+	.file .about b { color: var(--ink); font-weight: 500; }
+	.file .links { grid-column: 2; display: flex; flex-wrap: wrap; gap: 8px; }
+	.file .links:empty { display: none; }
+	.file.later h3, .file.later .what { color: var(--ink-dim); }
+	.note { margin-top: 16px; font-size: 14px; color: var(--ink-dim); }
+
+	.rom { margin-top: 24px; padding: 20px 24px; background: var(--surface); border-radius: 6px; font-size: 14px; line-height: 22px; color: var(--ink-dim); max-width: 760px; }
+	.rom b { color: var(--ink); font-weight: 500; }
+	.rom p { margin-top: 12px; }
+	code { font-size: 13px; color: var(--ink); background: var(--raised); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+
+	.install { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; }
+	.install h3 { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
+	.install ol { margin: 0; padding-left: 22px; color: var(--ink-dim); font-size: 15px; line-height: 24px; }
+	.install li { padding-left: 4px; margin-bottom: 10px; }
+	.install li::marker { color: var(--ink-dim); font-size: 14px; }
+	.install b { color: var(--ink); font-weight: 500; }
+	.install pre { margin: 8px 0 0; padding: 12px 14px; background: var(--surface); border-radius: 6px; overflow-x: auto; }
+	.install pre code { background: none; padding: 0; font-size: 13px; line-height: 20px; }
+
+	.lists { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; }
+	.lists ul { list-style: none; margin: 0; padding: 0; }
+	.lists li { padding: 12px 0; border-top: 1px solid var(--rule); color: var(--ink-dim); font-size: 15px; line-height: 22px; }
+	.lists li b { display: block; color: var(--ink); font-weight: 500; font-size: 16px; margin-bottom: 2px; }
+
+	.gallery { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+	.gallery figure { margin: 0; }
+	.gallery img { display: block; width: 100%; height: auto; border-radius: 6px; background: var(--surface); }
+	.gallery figcaption { padding-top: 8px; font-size: 14px; color: var(--ink-dim); }
+
+	footer { margin-top: 80px; padding: 24px 0 48px; border-top: 1px solid var(--rule); color: var(--ink-dim); font-size: 14px; line-height: 20px; }
+	footer p + p { margin-top: 8px; }
+	footer a { color: var(--ink-dim); }
+
+	@media (max-width: 900px) {
+		/* What MD Drums is and how to get it first; the Track list after it */
+		.hero { grid-template-columns: 1fr; gap: 40px; }
+		.hero > .pitch { order: -1; padding-top: 0; }
+		.tracks { display: grid; grid-template-columns: repeat(2, 1fr); }
+		.file { grid-template-columns: 1fr; gap: 8px; }
+		.file .links { grid-column: 1; }
+		.lists, .gallery, .install { grid-template-columns: 1fr; }
+	}
+	@media (max-width: 560px) {
+		.wrap { padding: 0 16px; }
+		.bar { flex-wrap: wrap; }
+		.bar nav { margin-left: 0; width: 100%; gap: 20px; }
+		.bar nav a { padding: 10px 0; }
+		.replay { padding: 10px 0; }
+		h1 { font-size: 28px; line-height: 36px; }
+		.pitch .lede { font-size: 16px; line-height: 24px; }
+		.tracks .m { letter-spacing: 0.5px; }
+		section { padding-top: 56px; }
+	}
+</style>
+</head>
+<body>
+<div class="wrap">
+	<header class="bar">
+		<div class="name">MD <span>Drums</span></div>
+		<div class="version" id="version"></div>
+		<nav aria-label="Site">
+			<a href="#download">Download</a>
+			<a href="#install">Install</a>
+			<a href="https://github.com/c0remusic/MModule">Source</a>
+			<a href="https://github.com/c0remusic/MModule/issues">Report a bug</a>
+		</nav>
+	</header>
+
+	<div class="hero">
+		<div>
+			<ol class="tracks" id="tracks" aria-label="MD Drums' 16 Tracks and the machines they start with">
+				<li class="shown"><span class="n">01</span><span class="m">TRX-BD</span></li>
+				<li><span class="n">02</span><span class="m">TRX-SD</span></li>
+				<li><span class="n">03</span><span class="m">TRX-XT</span></li>
+				<li><span class="n">04</span><span class="m">TRX-CP</span></li>
+				<li><span class="n">05</span><span class="m">TRX-RS</span></li>
+				<li><span class="n">06</span><span class="m">TRX-CB</span></li>
+				<li><span class="n">07</span><span class="m">TRX-CH</span></li>
+				<li><span class="n">08</span><span class="m">TRX-OH</span></li>
+				<li><span class="n">09</span><span class="m">TRX-CY</span></li>
+				<li><span class="n">10</span><span class="m">TRX-MA</span></li>
+				<li><span class="n">11</span><span class="m">TRX-CL</span></li>
+				<li><span class="n">12</span><span class="m">TRX-XC</span></li>
+				<li><span class="n">13</span><span class="m">TRX-B2</span></li>
+				<li><span class="n">14</span><span class="m">TRX-S2</span></li>
+				<li><span class="n">15</span><span class="m">EFM-BD</span></li>
+				<li><span class="n">16</span><span class="m">EFM-SD</span></li>
+			</ol>
+			<button class="replay" id="replay" type="button" hidden>Play the lights again</button>
+		</div>
+
+		<div class="pitch">
+			<h1>Machinedrum synthesis on emulated DSPs, as a plug-in</h1>
+			<p class="lede">MD Drums runs the code of the Elektron Machinedrum's OS 1.63 machines in any VST3 or AU host,
+				with the voice DSP playing the 16 tracks and the mixer DSP the master effects. Your DAW sends the notes and
+				can automate any of the 608 parameters, while one window edits the whole Kit the way Overbridge does.</p>
+			<div class="get">
+				<a class="button" id="get" href="#download">Download for Windows or macOS</a>
+				<a class="button quiet" href="https://github.com/c0remusic/MModule">Read the source</a>
+			</div>
+			<p class="need">You'll need your own Machinedrum UW flash image with OS 1.63; it doesn't come with MD Drums.
+				<a href="#rom">Why, and where it goes</a></p>
+		</div>
+	</div>
+
+	<figure class="shot">
+		<img src="images/md-drums-track.png" alt="MD Drums in Ableton Live 12: the Track tab, factory Kit 1 playing" width="1296" height="824">
+	</figure>
+
+	<section id="download">
+		<h2>Download</h2>
+		<div class="files">
+			<div class="file">
+				<div>
+					<h3>Windows</h3>
+					<div class="what">VST3, 64-bit</div>
+				</div>
+				<p class="about">Tested in Ableton Live 12 on Windows 11. Unzip and copy <code>MD Drums.vst3</code> to
+					<code>C:\Program Files\Common Files\VST3\</code>.</p>
+				<div class="links" id="windows">
+					<a class="button quiet" href="https://github.com/c0remusic/MModule/releases">All releases</a>
+				</div>
+			</div>
+			<div class="file">
+				<div>
+					<h3>macOS</h3>
+					<div class="what">VST3 and AU, Apple Silicon and Intel</div>
+				</div>
+				<p class="about"><b>Untested.</b> GitHub's macOS runner built it and signed it ad hoc, and nobody has
+					heard it play on a Mac yet. Apple hasn't notarized it, so macOS blocks it once:
+					<a href="#install">here's how to let it through</a>, Sequoia included.</p>
+				<div class="links" id="macos">
+					<a class="button quiet" href="https://github.com/c0remusic/MModule/releases">All releases</a>
+				</div>
+			</div>
+			<div class="file later">
+				<div>
+					<h3>md-drums-seq</h3>
+					<div class="what">Max for Live, not released yet</div>
+				</div>
+				<p class="about">A step sequencer for Live, written for MD Drums: Locks, conditions, ratchets,
+					micro-timing and swing, with each Track named after the machine your Kit puts on it.</p>
+				<div class="links"></div>
+			</div>
+		</div>
+		<p class="note" id="release-note">The buttons point to the latest release on GitHub.</p>
+
+	</section>
+
+	<section id="install">
+		<h2>Install</h2>
+		<div class="install">
+			<div>
+				<h3>Windows</h3>
+				<ol>
+					<li>Unzip the download.</li>
+					<li>Copy the <code>MD Drums.vst3</code> folder to <code>C:\Program Files\Common Files\VST3\</code>.</li>
+					<li>Rescan plug-ins in your DAW and load <b>MD Drums</b> (c0remusic) on an instrument track.</li>
+				</ol>
+			</div>
+			<div>
+				<h3>macOS</h3>
+				<ol>
+					<li>Open the <code>.pkg</code>. macOS refuses it the first time because Apple hasn't notarized it.</li>
+					<li>Open <b>System Settings</b>, then <b>Privacy &amp; Security</b>, scroll down to the message about
+						the package and click <b>Open Anyway</b>, then confirm with your password. On macOS 15 Sequoia this
+						is the only way: right-click, Open no longer gets past it.</li>
+					<li>Run the installer; it puts the VST3 and the AU in <code>/Library/Audio/Plug-Ins/</code>.</li>
+					<li>Rescan plug-ins in your DAW and load <b>MD Drums</b> (c0remusic).</li>
+				</ol>
+				<p class="note">With the zip instead, copy the bundles to <code>~/Library/Audio/Plug-Ins/VST3/</code> and
+					<code>~/Library/Audio/Plug-Ins/Components/</code>, then clear the quarantine flag in Terminal:</p>
+				<pre><code>xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"MD Drums.vst3"
+xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/"MD Drums.component"</code></pre>
+			</div>
+		</div>
+
+		<div class="rom" id="rom">
+			<b>Then give MD Drums your Machinedrum UW flash image with OS 1.63</b>, the 8 MB file
+			<code>elektron_sps1-1uw_os1.63.bin</code> that Gearmulator MD reads too. Elektron owns it, so it doesn't ship
+			with MD Drums, which is meant for people who own the hardware; please don't ask for the file.
+			<p>The simplest way is from the plug-in: load MD Drums, click
+				<b>No Machinedrum flash image: choose the file</b> in its top bar (or right-click the editor and choose
+				<b>Load Machinedrum flash image...</b>) and pick the file. MD Drums checks it, plays at once and copies it
+				into its own folder, so it finds it on its own next time.</p>
+			<p>Or put the file, with exactly that name, in <code>Documents/c0remusic/MD Drums/roms/</code>
+				(create the folders) before loading the plug-in: <code>C:\Users\you\Documents\c0remusic\MD Drums\roms\</code>
+				on Windows, <code>~/Documents/c0remusic/MD Drums/roms/</code> on macOS.</p>
+		</div>
+	</section>
+
+	<section class="lists">
+		<div>
+			<h2>What you get</h2>
+			<ul>
+				<li><b>16 tracks</b>with every machine OS 1.63 has; the ROM machines play the UW sample bank in your flash image.</li>
+				<li><b>The master effects</b>Rhythm Echo, Gate Box, EQ and Dynamix, running on the mixer DSP's own code.</li>
+				<li><b>An editor</b>with Track, Mix and Master tabs and a machine browser you can hear before you choose.</li>
+				<li><b>Kits</b>in a bank of 64 slots that starts with the 16 factory Kits and reads and writes <code>.syx</code> dumps.</li>
+				<li><b>16 outputs</b>Main, then Out 01 to Out 15; any track can go to any of them.</li>
+			</ul>
+		</div>
+		<div>
+			<h2>How it plays</h2>
+			<ul>
+				<li><b>Notes 36 to 51</b>play tracks 1 to 16 with their velocity, and every Hit lands 1.88 ms after its note, whatever the machine.</li>
+				<li><b>Locks</b>come from notes 64 to 87: each sets one parameter for a single Hit, its velocity giving the value.</li>
+				<li><b>Push 2</b>gets a page of eight per track, or relays that follow whichever track the editor shows.</li>
+			</ul>
+		</div>
+	</section>
+
+	<section class="gallery" aria-label="More of the editor">
+		<figure>
+			<img src="images/md-drums-mix.png" alt="The Mix tab" loading="lazy" width="1296" height="824">
+			<figcaption>The Mix tab</figcaption>
+		</figure>
+		<figure>
+			<img src="images/md-drums-master.png" alt="The Master tab" loading="lazy" width="1296" height="824">
+			<figcaption>The Master tab</figcaption>
+		</figure>
+	</section>
+
+	<footer>
+		<p>MD Drums is free software under the GNU AGPL v3. It grew out of <a href="https://github.com/dsp56300/gearmulator">Gearmulator</a>
+			by The Usual Suspects (GPL v3) and <a href="https://github.com/sd88me/mpc-vst-machinedrum">Machinemodule</a> by sd88me
+			(AGPL v3); <a href="https://github.com/c0remusic/MModule">the source and the licences</a> are on GitHub.</p>
+		<p>Not affiliated with Elektron, nor with The Usual Suspects. "Elektron" and "Machinedrum" are trademarks of
+			Elektron Music Machines MAQ AB, used only to name the hardware.</p>
+	</footer>
+</div>
+<script>
+	// The Hit lights, as the editor's: a struck Track's number lit for 140 ms. One bar of a beat at 120 bpm on load,
+	// again on request; nothing moves when the reader asks for reduced motion
+	(() => {
+		const rows = document.querySelectorAll("#tracks li");
+		const replay = document.getElementById("replay");
+		const still = window.matchMedia("(prefers-reduced-motion: reduce)");
+		// Sixteenth steps of a bar: track index per step (bass drum, snare, hats, clap, cowbell)
+		const bar = [[0, 6], [6], [6], [6], [1, 6], [6], [0, 6], [6], [0, 6], [6], [6], [5], [1, 3, 6], [6], [7], [6]];
+		let timers = [];
+		const play = () => {
+			timers.forEach(clearTimeout);
+			timers = [];
+			const step = 125;	// ms, sixteenths at 120 bpm
+			bar.forEach((tracks, i) => tracks.forEach(t => {
+				timers.push(setTimeout(() => rows[t].classList.add("lit"), i * step));
+				timers.push(setTimeout(() => rows[t].classList.remove("lit"), i * step + 140));
+			}));
+		};
+		if (still.matches)
+			return;
+		replay.hidden = false;
+		replay.addEventListener("click", play);
+		setTimeout(play, 400);
+	})();
+
+	// The latest md-drums-vX.Y.Z release and its files; the static links stay when GitHub's API cannot be reached
+	(async () => {
+		try {
+			const response = await fetch("https://api.github.com/repos/c0remusic/MModule/releases?per_page=20",
+				{ headers: { Accept: "application/vnd.github+json" } });
+			if (!response.ok)
+				return;
+			const releases = await response.json();
+			const release = releases.find(r => !r.draft && /^md-drums-v\d+\.\d+\.\d+$/.test(r.tag_name));
+			if (!release)
+				return;
+			const version = release.tag_name.replace("md-drums-v", "");
+			document.getElementById("version").textContent = version + (release.prerelease ? " preview" : "");
+			const add = (id, pattern, label, primary) => {
+				const asset = release.assets.find(a => pattern.test(a.name));
+				if (!asset)
+					return false;
+				const link = document.createElement("a");
+				link.className = primary ? "button" : "button quiet";
+				link.href = asset.browser_download_url;
+				link.textContent = label + ", " + (asset.size / 1048576).toFixed(1) + " MB";
+				const box = document.getElementById(id);
+				box.insertBefore(link, box.lastElementChild);
+				return true;
+			};
+			add("windows", /Windows.*\.zip$/i, "Download the zip", true);
+			const pkg = add("macos", /macOS.*\.pkg$/i, "Download the installer", true);
+			add("macos", /macOS.*\.zip$/i, "Download the zip", !pkg);
+			// The hero's button: straight to this reader's file, the other system's below
+			const mac = /Mac/i.test(navigator.platform || navigator.userAgent);
+			const windows = /Win/i.test(navigator.platform || navigator.userAgent);
+			const mine = mac ? release.assets.find(a => /macOS.*\.pkg$/i.test(a.name))
+				: windows ? release.assets.find(a => /Windows.*\.zip$/i.test(a.name)) : null;
+			if (mine) {
+				const get = document.getElementById("get");
+				get.href = mine.browser_download_url;
+				get.textContent = "Download " + version + " for " + (mac ? "macOS" : "Windows");
+			}
+			const date = new Date(release.published_at).toLocaleDateString("en-GB",
+				{ year: "numeric", month: "long", day: "numeric" });
+			const note = document.getElementById("release-note");
+			note.textContent = "";
+			const notes = document.createElement("a");
+			notes.href = release.html_url;
+			notes.textContent = "MD Drums " + version + ", released " + date;
+			note.append(notes, ": what's new and the checksums.");
+		} catch (error) {
+		}
+	})();
+</script>
+</body>
+</html>
