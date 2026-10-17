@@ -405,7 +405,7 @@ namespace jucePluginEditorLib
 		m_pluginDataModel->set("currentPart", std::to_string(_part));
 	}
 
-	void Editor::showDisclaimer() const
+	void Editor::showDisclaimer()
 	{
 		if(pluginLib::Tools::isHeadless())
 			return;
@@ -430,11 +430,13 @@ namespace jucePluginEditorLib
 				"I Agree"
 			);
 
-			juce::NativeMessageBox::showAsync(options, [this](int)
+			// Held: it closes with the editor, whose host may destroy it with the plug-in before the user answers
+			m_disclaimer = std::make_unique<juce::ScopedMessageBox>(juce::NativeMessageBox::showScopedAsync(options,
+				[this](int)
 			{
 				m_processor.getConfig().setValue("disclaimerSeen", true);
 				onDisclaimerFinished();
-			});
+			}));
 		}
 		else
 		{

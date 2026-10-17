@@ -68,6 +68,36 @@ namespace
 		juce::MessageManager::getInstance()->runDispatchLoopUntil(_milliseconds);
 	}
 
+	// The message boxes of this process on screen titled _title (a TaskDialog's window, class #32770); -1 where it cannot
+	// be told
+	int messageBoxes(const char* _title)
+	{
+#if JUCE_WINDOWS
+		struct Find
+		{
+			DWORD process;
+			const char* title;
+			int count;
+		} find{GetCurrentProcessId(), _title, 0};
+		EnumWindows([](HWND _window, LPARAM _find) -> BOOL
+		{
+			auto& f = *reinterpret_cast<Find*>(_find);
+			DWORD process = 0;
+			GetWindowThreadProcessId(_window, &process);
+			char kind[16] = {}, title[64] = {};
+			GetClassNameA(_window, kind, sizeof(kind));
+			GetWindowTextA(_window, title, sizeof(title));
+			if(process == f.process && IsWindowVisible(_window) && std::string(kind) == "#32770" && std::string(title) == f.title)
+				++f.count;
+			return TRUE;
+		}, reinterpret_cast<LPARAM>(&find));
+		return find.count;
+#else
+		(void)_title;
+		return -1;
+#endif
+	}
+
 	// The frozen IDs in the plug-in's order: the 34 Track parameters for each Track, then the master effects and the
 	// relays, which belong to no Track (parameterDescriptions_mddrums.json)
 	struct Frozen
@@ -901,6 +931,7 @@ namespace
 		}
 
 		// The editor through IPlugView in the host's window, an audio thread playing and the host automating meanwhile
+		int disclaimers = 0;
 		{
 			auto instance = load(formats, description, ids);
 			auto& plugin = *instance->plugin;
@@ -918,6 +949,7 @@ namespace
 			window.setVisible(true);
 			const auto opened = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
 			pump(1500);
+			disclaimers = messageBoxes(description.name.toRawUTF8());
 			window.setSize(editor->getWidth(), editor->getHeight());
 			pump(300);
 			const auto shown = colours(window);
@@ -985,6 +1017,14 @@ namespace
 			require(closed.mcyclesPerSecond < bound,
 				"the editor keeps working on the message thread once its window is closed");
 		}
+
+		// The disclaimer, which this run's fresh data folder shows with the first editor, closes with the plug-in: a box
+		// left open after the host destroyed the plug-in (a track deleted in Live) calls back into the destroyed editor
+		// when answered
+		pump(500);
+		const auto left = messageBoxes(description.name.toRawUTF8());
+		std::printf("Disclaimer: %d box(es) with the editor open, %d once the plug-in is gone\n", disclaimers, left);
+		require(left <= 0, "a message box of the plug-in stays open once the host destroyed it");
 	}
 }
 

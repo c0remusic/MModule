@@ -21,6 +21,7 @@
 namespace juce
 {
 	class FileChooser;
+	class ScopedMessageBox;
 	class TemporaryFile;
 	class File;
 }
@@ -135,7 +136,7 @@ namespace jucePluginEditorLib
 
 		virtual void setCurrentPart(uint8_t _part);
 
-		void showDisclaimer() const;
+		void showDisclaimer();
 
 		void copyCurrentPatchToClipboard() const;
 		bool replaceCurrentPatchFromClipboard() const;
@@ -268,5 +269,9 @@ namespace jucePluginEditorLib
 		std::unique_ptr<rmlPlugin::RmlPlugin> m_rmlPlugin;
 
 		std::unique_ptr<Settings> m_settings;
+
+		// The disclaimer's box, held so that it closes with the editor: one left open would call back into an editor the
+		// host destroyed with its plug-in (a track deleted). Last, so that it goes first.
+		std::unique_ptr<juce::ScopedMessageBox> m_disclaimer;
 	};
 }
