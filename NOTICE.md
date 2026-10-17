@@ -1,7 +1,8 @@
 # Licence notice
 
-gearmulator-md-drums is built from Gearmulator (The Usual Suspects, GNU GPL v3, `LICENSE.md`) and, since
-2026-10-06, from Machinemodule's engine (sd88me, GNU AGPL v3, `source/elektron/md/mdEngine/LICENSE`).
+MModule, the repository of MD Drums, is built from Gearmulator (The Usual Suspects, GNU GPL v3, `LICENSE.md`) and,
+since 2026-10-06, from Machinemodule's engine (sd88me, GNU AGPL v3, `source/elektron/md/mdEngine/LICENSE`). Its history
+is gearmulator-md-drums' (c0remusic), filtered on 2026-10-17 to MD Drums and what builds and tests it.
 
 The GNU GPL v3 and the GNU AGPL v3 may be combined (section 13 of each). The combined work, the plug-in built from
 this repository, is distributed under the GNU AGPL v3; each part keeps its own licence and copyright notices.

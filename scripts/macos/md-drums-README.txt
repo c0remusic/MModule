@@ -9,9 +9,9 @@ effects), without the Machinedrum's OS or sequencer.
 THIS MAC BUILD IS UNTESTED. It was built and signed ad hoc by GitHub's macOS
 runner, which has no Machinedrum flash image: nobody has heard it play on a
 Mac yet. Reports are welcome, working or not:
-https://github.com/c0remusic/gearmulator-md-drums/issues
+https://github.com/c0remusic/MModule/issues
 
-Source: https://github.com/c0remusic/gearmulator-md-drums
+Source: https://github.com/c0remusic/MModule
 Not affiliated with Elektron or with The Usual Suspects.
 
 

@@ -10,7 +10,7 @@ namespace mdDrums::updates
 	namespace
 	{
 		// The repository's release list, which the check reads
-		constexpr const char* g_listUrl = "https://api.github.com/repos/c0remusic/gearmulator-md-drums/releases?per_page=30";
+		constexpr const char* g_listUrl = "https://api.github.com/repos/c0remusic/MModule/releases?per_page=30";
 		constexpr std::string_view g_tagPrefix = "md-drums-v";
 
 		// What the process's read found, beyond the life of the Check that ran it

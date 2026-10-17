@@ -17,18 +17,18 @@ namespace
 			throw std::runtime_error(_message);
 	}
 
-	// Trimmed from api.github.com/repos/c0remusic/gearmulator-md-drums/releases, with what the check must skip
+	// Trimmed from api.github.com/repos/c0remusic/MModule/releases, with what the check must skip
 	constexpr const char* g_list = R"([
 		{"tag_name": "md-drums-v0.1.0", "draft": false, "prerelease": true,
-		 "html_url": "https://github.com/c0remusic/gearmulator-md-drums/releases/tag/md-drums-v0.1.0"},
+		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/md-drums-v0.1.0"},
 		{"tag_name": "md-drums-v0.1.10", "draft": false, "prerelease": true,
-		 "html_url": "https://github.com/c0remusic/gearmulator-md-drums/releases/tag/md-drums-v0.1.10"},
+		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/md-drums-v0.1.10"},
 		{"tag_name": "md-drums-v0.1.9", "draft": false, "prerelease": false,
-		 "html_url": "https://github.com/c0remusic/gearmulator-md-drums/releases/tag/md-drums-v0.1.9"},
+		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/md-drums-v0.1.9"},
 		{"tag_name": "md-drums-v0.3.0", "draft": true,
-		 "html_url": "https://github.com/c0remusic/gearmulator-md-drums/releases/tag/untagged-1"},
+		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/untagged-1"},
 		{"tag_name": "mdmm-v9.9.9", "draft": false,
-		 "html_url": "https://github.com/c0remusic/gearmulator-md-drums/releases/tag/mdmm-v9.9.9"},
+		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/mdmm-v9.9.9"},
 		{"tag_name": "md-drums-vnext", "draft": false, "html_url": "x"},
 		{"tag_name": "md-drums-v9.0<b>", "draft": false, "html_url": "x"}
 	])";
@@ -48,7 +48,7 @@ int main()
 		require(newest.has_value(), "no release found in the list");
 		std::printf("newest in the list: %s at %s\n", newest->version.c_str(), newest->url.c_str());
 		require(newest->version == "0.1.10"
-			&& newest->url == "https://github.com/c0remusic/gearmulator-md-drums/releases/tag/md-drums-v0.1.10",
+			&& newest->url == "https://github.com/c0remusic/MModule/releases/tag/md-drums-v0.1.10",
 			"the newest is not md-drums-v0.1.10, a pre-release, past a draft, another product's tag and markup");
 
 		require(!mdDrums::updates::newest(juce::JSON::parse("[]")).has_value(), "an empty list gave a release");
