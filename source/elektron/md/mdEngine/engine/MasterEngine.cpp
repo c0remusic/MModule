@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "dsp56kEmu/assembler.h"
+#include "dsp56kEmu/audio.h"
 #include "dsp56kEmu/dsp.h"
 #include "dsp56kEmu/jit.h"
 #include "dsp56kEmu/memory.h"
@@ -46,7 +47,20 @@ namespace md::engine
 	{
 		m_validator = std::make_unique<DefaultMemoryValidator>();
 		m_mem = std::make_unique<Memory>(*m_validator, kSizeP, kSizeXY, kBridge);
-		m_periphX = std::make_unique<Peripherals56303>();
+		// No ESSI audio rings (84 MB a DSP): the harness exchanges its blocks through the host port, and should the
+		// program start an ESSI port, silence comes in and what goes out is dropped, as for the voice DSP
+		m_periphX = std::make_unique<Peripherals56303>(false);
+		for(auto* essi : {&m_periphX->getEssi0(), &m_periphX->getEssi1()})
+		{
+			essi->setReadRxCallback([](uint64_t& _frameIndex, Audio::RxFrame& _frame)
+			{
+				_frame.resize(2);
+				_frame[0] = Audio::RxSlot{};
+				_frame[1] = Audio::RxSlot{};
+				++_frameIndex;
+			});
+			essi->setWriteTxCallback([](uint64_t& _frameIndex, const Audio::TxFrame&) { ++_frameIndex; });
+		}
 		m_periphY = std::make_unique<PeripheralsNop>();
 		m_dsp = std::make_unique<DSP>(*m_mem, m_periphX.get(), m_periphY.get());
 		{

@@ -55,7 +55,8 @@ namespace md::engine
 	{
 		m_validator = std::make_unique<DefaultMemoryValidator>();
 		m_mem = std::make_unique<Memory>(*m_validator, kSizeP, kSizeXY, kBridge);
-		m_periphX = std::make_unique<Peripherals56303>();
+		// md-drums: no ESSI audio rings (84 MB a DSP): the callbacks below stand in for the link and the ADC
+		m_periphX = std::make_unique<Peripherals56303>(false);
 		m_periphY = std::make_unique<PeripheralsNop>();
 		m_dsp = std::make_unique<DSP>(*m_mem, m_periphX.get(), m_periphY.get());
 		if constexpr(g_useJIT)
