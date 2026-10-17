@@ -23,7 +23,7 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   - la référence du son est X.20 lui-même, booté dans mdLib comme 1.63 l'est aujourd'hui (ticket « Booter X.20 dans
     mdLib ») ; si X.20 ne boote pas, la carte revient sur la question ;
   - les 8 Machines intégrées nouvelles d'X.20 (GND-SN-PRO, GND-SW, GND-PU, NFX-EV, NFX-CO, NFX-UC, INP-CA, INP-CB) :
-    un ticket de recherche dit ce que coûte de les extraire ; 0.1.2 ne les attend pas si c'est des mois ;
+    hors de cette carte et de 0.1.2 (voir Out of scope) ;
   - aucun contact des auteurs requis : rien n'est redistribué.
 - Domaine : `CONTEXT.md`. **User Machine** (Machine utilisateur) : Machine dont l'utilisateur installe le code,
   nommée par son numéro, « USR-05 » ; jamais « slot » (la place d'un Kit dans le Bank) ni « machine MDS ».
@@ -45,6 +45,12 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 
 <!-- une ligne par ticket résolu : [titre](issues/NN-slug.md) : gist -->
 
+- [Décoder l'OS X.20 et y trouver ses Machines intégrées](issues/01-decoder-l-os-x20.md) : le fichier se décode en
+  entier ; le DSP voix d'X.20 est celui de 1.63 plus les 8 et l'hôte des Machines utilisateur ; les 8 coûtent 3 à 5
+  semaines.
+- [Faire jouer TX8-BD sur un DSP56300 nu](issues/03-faire-jouer-tx8-bd.md) (construit, écoute en attente) : les 43
+  tournent, les 30 qui font du son sonnent ; le programme doit vivre en mémoire externe ; Pitch et Decay devinés.
+
 - [Le paramètre Machine et USR-01 à USR-16](issues/06-parametre-machine-et-usr.md) : Machine va jusqu'à 209, USR aux
   numéros d'X.20 ; l'automation de Machine des sets 0.1.x se décale, dit dans les notes ; USR vide joue muet.
 - [Où vivent les Machines utilisateur installées](issues/07-ou-vivent-les-machines.md) : dans la Library du dossier de
@@ -63,12 +69,13 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   l'installation par lâcher et par le Menu.
 - Où sonne un Hit d'une Machine utilisateur par rapport à `Engine::AlignedStart`.
 - Le fondu ANTI-CLICK qu'X.20 fait avant TRIG : le faire ou non, OS 1.63 n'en a pas.
-- Les 8 Machines intégrées d'X.20 : la suite dépend de « Décoder l'OS X.20 ».
 - Le nom et les paramètres d'une Machine utilisateur dans le fichier `.kit` de md-drums-seq et sur Push.
 - SAMPLE_INFO et SAMPLE_READ, pour qu'une Machine utilisateur lise les Samples (lien avec la carte des Samples).
 
 ## Out of scope
 
+- [Les 8 Machines intégrées d'X.20 dans 0.1.2 ?](issues/08-les-8-machines-integrees.md) : non ; 3 à 5 semaines
+  d'après « Décoder l'OS X.20 », sur une carte à part pour 0.1.3 (choix de l'utilisateur du 2026-10-17).
 - Le moteur d'X.20 hors Machines : LFO-B, enveloppe par Track, retrigs, accord A=440, INTERPOLATE, timing PRECISE,
   octaves tonales, Kit 65.1 : rétro-ingénierie d'un binaire compressé sans symboles, des mois (cadrage).
 - Le séquenceur d'X.20 : le séquenceur du firmware reste au repos, md-drums-seq séquence (cadrage).
