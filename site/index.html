@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MD Drums</title>
+<title>MoDule</title>
 <meta name="description" content="The Elektron Machinedrum's synthesis engines as a VST3 and AU plug-in, edited like Overbridge and played from your DAW.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%231b1c1e'/%3E%3Crect x='2' y='4' width='3' height='8' fill='%236fd1c4'/%3E%3Crect x='7' y='6' width='7' height='1.5' fill='%23a7aaaf'/%3E%3Crect x='7' y='9' width='5' height='1.5' fill='%23a7aaaf'/%3E%3C/svg%3E">
 <style>
@@ -45,7 +45,7 @@
 	.bar nav a { color: var(--ink-dim); text-decoration: none; }
 	.bar nav a:hover { color: var(--ink); }
 
-	/* The hero: what MD Drums is and the button to it */
+	/* The hero: what MoDule is and the button to it */
 	.hero { padding: 40px 0 56px; }
 	.pitch { max-width: 680px; }
 	h1 { font-size: 40px; line-height: 48px; font-weight: 600; margin: 0 0 24px; letter-spacing: -0.5px; }
@@ -103,6 +103,19 @@
 	.gallery img { display: block; width: 100%; height: auto; border-radius: 6px; background: var(--surface); }
 	.gallery figcaption { padding-top: 8px; font-size: 14px; color: var(--ink-dim); }
 
+	.seqshots figure { margin: 0 0 24px; }
+	.seqshots img { display: block; max-width: 100%; height: auto; border-radius: 6px; background: var(--surface); }
+	.seqshots figcaption { padding-top: 8px; font-size: 14px; color: var(--ink-dim); }
+
+	/* A screenshot opens at its full size: a link to the image, shown over the page where dialogs work */
+	.zoom { display: block; cursor: zoom-in; border-radius: 6px; }
+	.viewer { padding: 0; border: 0; margin: 0; width: 100vw; height: 100vh; max-width: none; max-height: none;
+		background: transparent; cursor: zoom-out; }
+	.viewer[open] { display: flex; align-items: center; justify-content: center; }
+	.viewer::backdrop { background: rgba(27, 28, 30, 0.94); }
+	.viewer img { display: block; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); width: auto; height: auto;
+		border-radius: 6px; }
+
 	footer { margin-top: 80px; padding: 24px 0 48px; border-top: 1px solid var(--rule); color: var(--ink-dim); font-size: 14px; line-height: 20px; }
 	footer p + p { margin-top: 8px; }
 	footer a { color: var(--ink-dim); }
@@ -126,20 +139,21 @@
 <body>
 <div class="wrap">
 	<header class="bar">
-		<div class="name">MD <span>Drums</span></div>
+		<div class="name">MoDule</div>
 		<div class="version" id="version"></div>
 		<nav aria-label="Site">
 			<a href="#download">Download</a>
 			<a href="#install">Install</a>
 			<a href="https://github.com/c0remusic/MModule">Source</a>
 			<a href="https://github.com/c0remusic/MModule/issues">Report a bug</a>
+			<a href="https://github.com/c0remusic/md-drums-seq">md-drums-seq</a>
 		</nav>
 	</header>
 
 	<div class="hero">
 		<div class="pitch">
 			<h1>Machinedrum synthesis on emulated DSPs, as a plug-in</h1>
-			<p class="lede">MD Drums runs the code of the Elektron Machinedrum's OS 1.63 machines in any VST3 or AU host,
+			<p class="lede">MoDule runs the code of the Elektron Machinedrum's OS 1.63 machines in any VST3 or AU host,
 				with the voice DSP playing the 16 tracks and the mixer DSP the master effects. Your DAW sends the notes and
 				can automate any of the 608 parameters, while one window edits the whole Kit the way Overbridge does.</p>
 			<div class="get">
@@ -147,12 +161,14 @@
 				<a class="button quiet" href="https://github.com/c0remusic/MModule">Read the source</a>
 			</div>
 			<p class="need">You'll need your own Machinedrum UW firmware, the 8 MB flash image with OS 1.63; it doesn't
-				come with MD Drums. <a href="#rom">Why, and how to load it</a></p>
+				come with MoDule. <a href="#rom">Why, and how to load it</a></p>
+			<p class="need">Up to 0.1.1 it was called MD Drums: the same plug-in, and your sets, Kits and firmware carry
+				over.</p>
 		</div>
 	</div>
 
 	<figure class="shot">
-		<img src="images/md-drums-track.png" alt="MD Drums in Ableton Live 12: the Track tab, factory Kit 1 playing" width="1296" height="824">
+		<a class="zoom" href="images/md-drums-track.png"><img src="images/md-drums-track.png" alt="MoDule's Track tab, factory Kit 1 playing" width="1296" height="824"></a>
 	</figure>
 
 	<section id="download">
@@ -181,14 +197,18 @@
 					<a class="button quiet" href="https://github.com/c0remusic/MModule/releases">All releases</a>
 				</div>
 			</div>
-			<div class="file later">
+			<div class="file">
 				<div>
 					<h3>md-drums-seq</h3>
-					<div class="what">Max for Live, not released yet</div>
+					<div class="what">Max for Live, Windows</div>
 				</div>
-				<p class="about">A step sequencer for Live, written for MD Drums: Locks, conditions, ratchets,
-					micro-timing and swing, with each Track named after the machine your Kit puts on it.</p>
-				<div class="links"></div>
+				<p class="about">A step sequencer for Live 12, written for MoDule: Locks, conditions, ratchets,
+					micro-timing and swing over 16 Patterns, with each Track named after the machine your Kit puts on it.
+					It can also print a Pattern into clips. <b>Windows only</b> for now; it needs Max for Live.</p>
+				<div class="links" id="seq">
+					<a class="button quiet" href="https://github.com/c0remusic/md-drums-seq#readme">How to use it</a>
+					<a class="button quiet" href="https://github.com/c0remusic/md-drums-seq/releases">All releases</a>
+				</div>
 			</div>
 		</div>
 		<p class="note" id="release-note">The buttons point to the latest release on GitHub.</p>
@@ -203,12 +223,12 @@
 				<ol>
 					<li>Run the installer. It isn't signed, so Windows SmartScreen may say it protected your PC: click
 						<b>More info</b>, then <b>Run anyway</b>.</li>
-					<li>Let it install; it puts <code>MD Drums.vst3</code> in <code>C:\Program Files\Common Files\VST3\</code>,
+					<li>Let it install; it puts <code>MoDule.vst3</code> in <code>C:\Program Files\Common Files\VST3\</code>,
 						where every VST3 host looks.</li>
-					<li>Rescan plug-ins in your DAW and load <b>MD Drums</b> (c0remusic) on an instrument track.</li>
+					<li>Rescan plug-ins in your DAW and load <b>MoDule</b> (c0remusic) on an instrument track.</li>
 				</ol>
-				<p class="note">With the zip instead, copy its <code>MD Drums.vst3</code> folder to that same place
-					yourself.</p>
+				<p class="note">With the zip instead, copy its <code>MoDule.vst3</code> folder to that same place
+					yourself. Up to 0.1.1 the files are called <code>MD Drums</code>.</p>
 			</div>
 			<div>
 				<h3>macOS</h3>
@@ -218,21 +238,25 @@
 						the package and click <b>Open Anyway</b>, then confirm with your password. On macOS 15 Sequoia this
 						is the only way: right-click, Open no longer gets past it.</li>
 					<li>Run the installer; it puts the VST3 and the AU in <code>/Library/Audio/Plug-Ins/</code>.</li>
-					<li>Rescan plug-ins in your DAW and load <b>MD Drums</b> (c0remusic).</li>
+					<li>Rescan plug-ins in your DAW and load <b>MoDule</b> (c0remusic).</li>
 				</ol>
 				<p class="note">With the zip instead, copy the bundles to <code>~/Library/Audio/Plug-Ins/VST3/</code> and
 					<code>~/Library/Audio/Plug-Ins/Components/</code>, then clear the quarantine flag in Terminal:</p>
-				<pre><code>xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"MD Drums.vst3"
-xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/"MD Drums.component"</code></pre>
+				<pre><code>xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/MoDule.vst3
+xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/MoDule.component</code></pre>
 			</div>
 		</div>
 
+		<p class="note" id="install-seq"><b>md-drums-seq</b>: unzip it and put its <code>md-drums-seq</code> folder in
+			Live's User Library, under <code>Presets/MIDI Effects/Max MIDI Effect/</code>, then restart Live. Put
+			<b>MD Drums Seq</b> on a MIDI track in front of MoDule.</p>
+
 		<div class="rom" id="rom">
-			<b>Then give MD Drums your Machinedrum UW firmware</b>: the 8 MB flash image with OS 1.63, the same one
-			Gearmulator MD reads (not an OS update in <code>.syx</code>). Elektron owns it, so it doesn't ship with MD Drums,
+			<b>Then give MoDule your Machinedrum UW firmware</b>: the 8 MB flash image with OS 1.63, the same one
+			Gearmulator MD reads (not an OS update in <code>.syx</code>). Elektron owns it, so it doesn't ship with MoDule,
 			which is meant for people who own the hardware; please don't ask for the file.
-			<p>Load MD Drums, click <b>No Machinedrum flash image: choose the file</b> in its top bar (or right-click the
-				editor and choose <b>Load Machinedrum flash image...</b>) and pick your file, whatever its name. MD Drums
+			<p>Load MoDule, click <b>No Machinedrum flash image: choose the file</b> in its top bar (or right-click the
+				editor and choose <b>Load Machinedrum flash image...</b>) and pick your file, whatever its name. MoDule
 				checks it, plays at once and keeps a copy in its own folder, so it finds it on its own next time.</p>
 		</div>
 	</section>
@@ -260,25 +284,58 @@ xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/"MD Drums.com
 
 	<section class="gallery" aria-label="More of the editor">
 		<figure>
-			<img src="images/md-drums-mix.png" alt="The Mix tab" loading="lazy" width="1296" height="824">
+			<a class="zoom" href="images/md-drums-mix.png"><img src="images/md-drums-mix.png" alt="The Mix tab" loading="lazy" width="1296" height="824"></a>
 			<figcaption>The Mix tab</figcaption>
 		</figure>
 		<figure>
-			<img src="images/md-drums-master.png" alt="The Master tab" loading="lazy" width="1296" height="824">
+			<a class="zoom" href="images/md-drums-master.png"><img src="images/md-drums-master.png" alt="The Master tab" loading="lazy" width="1296" height="824"></a>
 			<figcaption>The Master tab</figcaption>
 		</figure>
 	</section>
 
+	<section class="seqshots" aria-label="md-drums-seq">
+		<h2>md-drums-seq</h2>
+		<figure>
+			<a class="zoom" href="images/md-drums-seq-strip.png"><img src="images/md-drums-seq-strip.png" alt="md-drums-seq in Live's device chain, beside MoDule: Patterns, Tracks and the steps of Track 1" loading="lazy" width="1048" height="206"></a>
+			<figcaption>In Live's device chain: the Patterns, the Tracks named after their machines, the steps of the Track shown</figcaption>
+		</figure>
+		<figure>
+			<a class="zoom" href="images/md-drums-seq-edit.png"><img src="images/md-drums-seq-edit.png" alt="md-drums-seq's edit window: 16 Tracks by 32 steps with Locks, Conditions and ratchets, and the step panel" loading="lazy" width="1440" height="868"></a>
+			<figcaption>The edit window: Locks, Conditions, ratchets and micro-timing, and the step panel with the Kit's values</figcaption>
+		</figure>
+	</section>
+
 	<footer>
-		<p>MD Drums is free software under the GNU AGPL v3. It grew out of <a href="https://github.com/dsp56300/gearmulator">Gearmulator</a>
+		<p>MoDule is free software under the GNU AGPL v3. It grew out of <a href="https://github.com/dsp56300/gearmulator">Gearmulator</a>
 			by The Usual Suspects (GPL v3) and <a href="https://github.com/sd88me/mpc-vst-machinedrum">Machinemodule</a> by sd88me
 			(AGPL v3); <a href="https://github.com/c0remusic/MModule">the source and the licences</a> are on GitHub.</p>
+		<p>md-drums-seq is free software under the GNU GPL v3 or later; <a href="https://github.com/c0remusic/md-drums-seq">its
+			source</a> is on GitHub too.</p>
 		<p>Not affiliated with Elektron, nor with The Usual Suspects. "Elektron" and "Machinedrum" are trademarks of
 			Elektron Music Machines MAQ AB, used only to name the hardware.</p>
 	</footer>
 </div>
+<dialog class="viewer" id="viewer" aria-label="Screenshot at full size"><img alt=""></dialog>
 <script>
-	// The latest md-drums-vX.Y.Z release and its files; the static links stay when GitHub's API cannot be reached
+	// A screenshot's link opens it in the viewer; a click or Esc closes it. Without dialogs the link opens the image
+	(() => {
+		const viewer = document.getElementById("viewer");
+		if (typeof viewer.showModal !== "function")
+			return;
+		const big = viewer.querySelector("img");
+		for (const link of document.querySelectorAll("a.zoom")) {
+			link.addEventListener("click", event => {
+				event.preventDefault();
+				big.src = link.href;
+				big.alt = link.querySelector("img").alt;
+				viewer.showModal();
+			});
+		}
+		viewer.addEventListener("click", () => viewer.close());
+	})();
+</script>
+<script>
+	// The latest module-vX.Y.Z release (md-drums-vX.Y.Z up to 0.1.1) and its files; the static links stay when GitHub's API cannot be reached
 	(async () => {
 		try {
 			const response = await fetch("https://api.github.com/repos/c0remusic/MModule/releases?per_page=20",
@@ -286,10 +343,11 @@ xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/"MD Drums.com
 			if (!response.ok)
 				return;
 			const releases = await response.json();
-			const release = releases.find(r => !r.draft && /^md-drums-v\d+\.\d+\.\d+$/.test(r.tag_name));
+			const release = releases.find(r => !r.draft && /^(module|md-drums)-v\d+\.\d+\.\d+$/.test(r.tag_name));
 			if (!release)
 				return;
-			const version = release.tag_name.replace("md-drums-v", "");
+			const version = release.tag_name.replace(/^(module|md-drums)-v/, "");
+			const name = release.tag_name.startsWith("md-drums-v") ? "MD Drums" : "MoDule";
 			document.getElementById("version").textContent = version + (release.prerelease ? " preview" : "");
 			const add = (id, pattern, label, primary) => {
 				const asset = release.assets.find(a => pattern.test(a.name));
@@ -324,8 +382,30 @@ xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/"MD Drums.com
 			note.textContent = "";
 			const notes = document.createElement("a");
 			notes.href = release.html_url;
-			notes.textContent = "MD Drums " + version + ", released " + date;
+			notes.textContent = name + " " + version + ", released " + date;
 			note.append(notes, ": what's new and the checksums.");
+		} catch (error) {
+		}
+	})();
+
+	// md-drums-seq's latest vX.Y.Z release, from its own repository
+	(async () => {
+		try {
+			const response = await fetch("https://api.github.com/repos/c0remusic/md-drums-seq/releases?per_page=10",
+				{ headers: { Accept: "application/vnd.github+json" } });
+			if (!response.ok)
+				return;
+			const release = (await response.json()).find(r => !r.draft && /^v\d+\.\d+\.\d+$/.test(r.tag_name));
+			const asset = release && release.assets.find(a => /win64\.zip$/i.test(a.name));
+			if (!asset)
+				return;
+			const link = document.createElement("a");
+			link.className = "button";
+			link.href = asset.browser_download_url;
+			link.textContent = "Download " + release.tag_name.slice(1) + (release.prerelease ? " preview" : "") + ", "
+				+ (asset.size / 1048576).toFixed(1) + " MB";
+			const box = document.getElementById("seq");
+			box.insertBefore(link, box.firstElementChild);
 		} catch (error) {
 		}
 	})();

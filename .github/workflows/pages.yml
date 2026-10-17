@@ -35,7 +35,7 @@ jobs:
           set -euo pipefail
           mkdir -p _site/images _site/fonts
           cp site/index.html _site/
-          cp docs/images/md-drums-track.png docs/images/md-drums-mix.png docs/images/md-drums-master.png _site/images/
+          cp docs/images/*.png _site/images/
           skin=source/elektron/md/mdDrumsPlugin/skins/mdDrums
           cp "$skin/Inter-Regular.ttf" "$skin/Inter-Medium.ttf" "$skin/Inter-SemiBold.ttf" "$skin/Inter-OFL.txt" _site/fonts/
 
