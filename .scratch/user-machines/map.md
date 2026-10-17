@@ -48,6 +48,9 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 - [Décoder l'OS X.20 et y trouver ses Machines intégrées](issues/01-decoder-l-os-x20.md) : le fichier se décode en
   entier ; le DSP voix d'X.20 est celui de 1.63 plus les 8 et l'hôte des Machines utilisateur ; les 8 coûtent 3 à 5
   semaines.
+- [Mémoire libre et point d'appel dans le DSP voix d'OS 1.63](issues/04-memoire-du-dsp-voix.md) : 16 Machines
+  utilisateur tiennent dans le DSP voix, en place et en temps, par ses tables d'appel étendues comme X.20 ; un DSP à
+  part n'apporte que l'isolement.
 - [Faire jouer TX8-BD sur un DSP56300 nu](issues/03-faire-jouer-tx8-bd.md) (construit, écoute en attente) : les 43
   tournent, les 30 qui font du son sonnent ; le programme doit vivre en mémoire externe ; Pitch et Decay devinés.
 

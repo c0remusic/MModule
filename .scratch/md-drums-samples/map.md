@@ -31,6 +31,10 @@ Windows (macOS construit par la CI, pas vérifié à la main). Pas de tag.
     moteur du Device et celui de la prévisualisation du Hit (`mdDrumsHitPreview.cpp`) ;
   - le DSP voix lit son répertoire à P:$147e00 et ses Samples à partir de P:$150000, deux codes de 12 bits par mot,
     jusqu'à $200000 (`mdEngine/tools/mdfw/Firmware.*`).
+  - mesuré le 2026-10-17 pour la carte des Machines utilisateur
+    ([research/04](../user-machines/research/04-voice-dsp-memory.md)) : les Machines E12 lisent `$1F85B5-$1FFFFF`,
+    dans la place que cette carte comptait libre pour les Samples ; à reprendre par « Écrire un Sample dans le DSP
+    voix en marche ».
 
 ## Decisions so far
 
