@@ -1,0 +1,56 @@
+name: MD Drums Windows installer
+
+# Wraps a release's Windows zip in an Inno Setup installer (scripts/windows/md-drums.iss) and attaches it to that
+# release. The plug-in inside is the zip's, built and gated on a PC with the flash image; the runner only packages.
+# Not signed: SmartScreen warns once. Run it by hand after the zip is on the release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The release's version (md-drums-vX.Y.Z), e.g. 0.1.1"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    name: Installer for MD Drums ${{ inputs.version }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the release's zip
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh release download "md-drums-v$env:VERSION" --pattern "*-Windows-x64.zip" --dir dist
+          Expand-Archive -Path (Get-ChildItem dist\*.zip).FullName -DestinationPath stage
+          Get-ChildItem -Recurse stage | Select-Object FullName, Length | Format-Table -AutoSize
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build the installer
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          $stage = (Get-ChildItem stage -Directory | Select-Object -First 1).FullName
+          # The README as the repository has it now: the installer shows it once it is done
+          Copy-Item scripts\windows\md-drums-README.txt (Join-Path $stage "README.txt") -Force
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DVersion=$env:VERSION" "/DStage=$stage" "/Odist" scripts\windows\md-drums.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist\*.exe | ForEach-Object { "{0}  {1}" -f (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower(), $_.Name }
+
+      - name: Attach it to the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: gh release upload "md-drums-v$env:VERSION" (Get-ChildItem dist\*-setup.exe).FullName

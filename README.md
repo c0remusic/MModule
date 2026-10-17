@@ -27,9 +27,10 @@ can be automated.
 
 ## You need
 
-- Your own Machinedrum UW flash image with OS 1.63: the 8 MB file `elektron_sps1-1uw_os1.63.bin`, the same file
-  Gearmulator MD uses. It is Elektron's copyright and is not included. MD Drums is for people who own the hardware, so
-  please don't ask for the file.
+- Your own Machinedrum UW firmware: the 8 MB flash image with OS 1.63, the same one Gearmulator MD uses (an OS update
+  in `.syx` won't do). Elektron owns it, so it doesn't come with MD Drums, which is meant for people who own the
+  hardware; please don't ask for it. Load it from the plug-in: its top bar asks for it, or right-click the editor and
+  choose "Load Machinedrum flash image...".
 - **Windows** x64 and a VST3 host. Tested in Ableton Live 12.
 - **macOS**: a universal build (VST3 and AU), not tested yet.
 

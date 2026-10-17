@@ -19,10 +19,10 @@ Requirements
 ------------
 
 - macOS 11 or later, and a VST3 or AU host.
-- Your own Machinedrum UW flash image with OS 1.63, the 8 MB file named
-  elektron_sps1-1uw_os1.63.bin (the same file Gearmulator MD uses). It is
-  Elektron's copyright and is not included: this is for people who own the
-  hardware. Please do not ask for it.
+- Your own Machinedrum UW firmware: the 8 MB flash image with OS 1.63, the
+  same one Gearmulator MD uses (an OS update in .syx won't do). Elektron owns
+  it, so it doesn't come with MD Drums, which is meant for people who own the
+  hardware; please don't ask for it.
 
 
 Install
@@ -49,10 +49,9 @@ Then, either way:
 3. Rescan plug-ins in your host and load "MD Drums" (c0remusic).
 4. Give it the flash image: click "No Machinedrum flash image: choose the
    file" in its top bar (or right-click the editor and choose "Load
-   Machinedrum flash image...") and pick the file. MD Drums checks it, plays at
-   once and copies it into ~/Documents/c0remusic/MD Drums/roms/, where it finds
-   it on its own next time. You can also put the file there yourself, named
-   exactly elektron_sps1-1uw_os1.63.bin, before loading the plug-in.
+   Machinedrum flash image...") and pick your file, whatever its name. MD
+   Drums checks it, plays at once and keeps a copy in its own folder, so it
+   finds it on its own next time.
 
 
 Playing
