@@ -45,6 +45,12 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 
 <!-- une ligne par ticket résolu : [titre](issues/NN-slug.md) : gist -->
 
+- [Le paramètre Machine et USR-01 à USR-16](issues/06-parametre-machine-et-usr.md) : Machine va jusqu'à 209, USR aux
+  numéros d'X.20 ; l'automation de Machine des sets 0.1.x se décale, dit dans les notes ; USR vide joue muet.
+- [Où vivent les Machines utilisateur installées](issues/07-ou-vivent-les-machines.md) : dans la Library du dossier de
+  données et dans l'état du set ; le set sonne comme enregistré partout ; chaque instance joue sa copie ; même règle
+  pour les Samples.
+
 ## Not yet specified
 
 - Les tranches de construction : charger un paquet MDS1 dans le moteur, les imports 1, 6, 7 et 8, la conversion des

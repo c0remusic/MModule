@@ -35,6 +35,11 @@ A Machine whose code the user installs from a file made for MDX X.20; there are 
 by its number like the built-in Machines: "USR-05".
 _Avoid_: slot, USR slot (a Bank's place is a Slot), MDS machine (MDS is the kit the code is written with)
 
+**Library**:
+The User Machines installed on this computer, under their numbers, shared by every MoDule; a set keeps its own copy of
+those its Kit plays, so it sounds the same where they are not installed.
+_Avoid_: Machine Bank (X.20's word; a Bank holds Kits here), user library
+
 **Hit**:
 One trigger of a Track and the sound it makes.
 _Avoid_: note, trig (the firmware sequencer's word)

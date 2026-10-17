@@ -46,7 +46,10 @@ Windows (macOS construit par la CI, pas vérifié à la main). Pas de tag.
 
 - Les tranches de construction : l'API du moteur pour charger un Sample, la conversion, le stockage, le lâcher dans
   l'éditeur, les tests, l'essai dans Live. Elles sortent une fois tranchés les tickets 03, 04, 05 et 06.
-- Un set ouvert sur un autre PC sans le fichier d'un Sample.
+- Un set ouvert sur un autre PC sans le fichier d'un Sample. Tranché pour les Machines utilisateur le 2026-10-17
+  ([Où vivent les Machines utilisateur installées](../user-machines/issues/07-ou-vivent-les-machines.md)) et voulu
+  pareil ici par l'utilisateur : une bibliothèque partagée par les instances, et l'état du set qui embarque les
+  Samples que son Kit joue, chaque instance jouant sa copie.
 - Ce que voit l'hôte quand un Sample change : set marqué modifié, undo de Live.
 - Le nom d'un Sample dans le fichier `.kit` de md-drums-seq et sur Push.
 - Plusieurs instances : chacune ses Samples, ou partagés entre elles.
