@@ -63,6 +63,8 @@ Windows (macOS construit par la CI, pas vérifié à la main). Pas de tag.
   partagés dans le dossier de données, copie par instance, l'état du set porte les Samples de son Kit.
 - [Où lâcher](issues/06-ou-lacher.md) (prototype construit, jugement dans Live en attente) : sur le nom de la Machine et
   l'écran Hit ; la ROM de la Track, sinon la première ROM-33..48 libre ; la ligne d'état dit ce qui s'est passé.
+- [Un clip ou un pad lâchés](issues/07-clip-et-pad-laches.md) (journal construit, lâchers de l'utilisateur en
+  attente) : `MD_DROP_LOG` écrit ce que Live passe au plug-in.
 
 ## Not yet specified
 

@@ -1284,6 +1284,33 @@ namespace
 		// so within its box; the files a drop takes, by their extension
 		require(mdDrums::DropView::takes("a.WAV") && mdDrums::DropView::takes("b.flac") && mdDrums::DropView::takes("c.mds")
 			&& !mdDrums::DropView::takes("d.mp3") && !mdDrums::DropView::takes("e"), "a drop takes the wrong files");
+
+		// The drops' journal (ticket 07 of the Samples map): with MD_DROP_LOG naming a file, a line per new list a drag
+		// hands over, a hover repeating it writing nothing more
+		{
+			const auto journal = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("MoDuleDrops.log");
+			journal.deleteFile();
+			const auto set = [](const char* _value)
+			{
+#ifdef _WIN32
+				_putenv_s("MD_DROP_LOG", _value);
+#else
+				setenv("MD_DROP_LOG", _value, 1);
+#endif
+			};
+			set(journal.getFullPathName().toRawUTF8());
+			auto& drops = *_f.editor->getDropView();
+			drops.journal("over", {"C:/clip.wav"});
+			drops.journal("over", {"C:/clip.wav"});
+			drops.journal("over", {"C:/a.wav", "C:/b.wav"});
+			set("");
+			drops.journal("over", {"C:/unseen.wav"});
+			const auto lines = juce::StringArray::fromLines(journal.loadFileAsString().trim());
+			std::printf("drops' journal: %d lines, the first \"%s\"\n", lines.size(), lines[0].toRawUTF8());
+			require(lines.size() == 2 && lines[0] == "over 1 | C:/clip.wav" && lines[1] == "over 2 | C:/a.wav | C:/b.wav",
+				"the drops' journal does not hold a line per new list");
+			journal.deleteFile();
+		}
 		const auto file = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("MoDuleDrop.wav");
 		{
 			file.deleteFile();

@@ -27,11 +27,14 @@ namespace mdDrums
 		static bool takes(const std::string& _file);
 		// A drop, as the targets get it, for the tests: true when it went
 		bool drop(const std::string& _file);
+		// With MD_DROP_LOG naming a file, what a drag hands over appended to it (ticket 07 of the Samples map)
+		void journal(const char* _what, const std::vector<std::string>& _files);
 
 	private:
 		class Target;
 
 		Editor& m_editor;
 		std::vector<std::unique_ptr<Target>> m_targets;
+		std::string m_journalLast;
 	};
 }
