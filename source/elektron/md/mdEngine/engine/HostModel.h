@@ -13,7 +13,6 @@
 #include <array>
 #include <cstdint>
 #include <memory>
-#include <vector>
 
 #include "MachineRunner.h"
 #include "MdsPackage.h"
@@ -81,25 +80,6 @@ namespace md::engine
 		uint8_t machine(int _track) const { return m_machine[_track]; }
 		void setAccentAmount(int _amount) { m_accentAmount = std::clamp(_amount, 0, 127); }
 
-		// Caps how many tracks can be simultaneously active (most-recently-triggered N; a new distinct
-		// trigger past the cap steals the least-recently-triggered one, hard-cutting it to silence - not a
-		// real MD behavior, which always runs all 16 track slots, but a performance safety valve for patterns
-		// that never actually need all 16 at once). Default kTracks = disabled (every track its own voice, as
-		// on real hardware). 1-kTracks; out-of-range clamps.
-		// The voice budget, in units: most machines cost 1 and the ROM (sample) machines 2, after what one voice costs the
-		// voice DSP on the Force (measured: ROM +397 us, the others +213 us on average per 128-frame block).
-		void setMaxActiveVoices(int _n) { m_maxActive = std::clamp(_n, 1, kTracks * 2); }
-		static int voiceCost(const uint8_t _machine) { return (_machine >= 128 && _machine < 160) || (_machine >= 176 && _machine < 192) ? 2 : 1; }
-		int maxActiveVoices() const { return m_maxActive; }
-
-		// Silence release: a sounding voice whose DSP output stays within +-_threshold (24-bit) for _blocks blocks in a row is
-		// freed as a budget cut is (back to the empty machine; it stops costing DSP time and leaves the voice budget). Once
-		// triggered, a voice otherwise costs its full DSP time for good, even after decaying to digital silence. 128 (-96 dBFS)
-		// is below one LSB of the plugin's 16-bit output. Not the MD's behaviour (it runs every slot always): off by default,
-		// so the bit-exact tests are unchanged. The next trigger starts the voice afresh.
-		void setSilenceRelease(int _threshold, int _blocks) { m_releaseThreshold = _threshold; m_releaseBlocks = _blocks; }
-		uint32_t silenceReleases() const { return m_releases; }	// voices freed this way so far (stats)
-
 		// Track level (kit LEV, 0-127; smoothed by the OS's level slew $100029e, and set at once by every Hit, as the
 		// OS's trigger path does at $20b022), mute (the track's mix words 0, and its Hits dropped), output routing
 		// (DSP1's per-track route word; 6 = the main outputs, the MD's default).
@@ -141,8 +121,8 @@ namespace md::engine
 		void loadLfo(int _track, const uint8_t* _block);
 
 		// Control ticks: the MD runs its tick as fast as the ColdFire gets through it (~120 Hz measured in
-		// gearmulator-md-mm, varying with load). Default: one tick every 11 blocks of 32 samples (125.3 Hz).
-		void setBlocksPerTick(int _n) { m_blocksPerTick = _n; }
+		// gearmulator-md-mm, varying with load). Here one tick every 11 blocks of 32 samples (125.3 Hz).
+		static constexpr int kBlocksPerTick = 11;
 
 		// Render one 32-sample block of the 16 voices (runs a tick first when due).
 		bool renderBlock(typename TVoices::Block& _out);
@@ -157,7 +137,6 @@ namespace md::engine
 		const uint16_t* voiceParams(int _track) const;	// the per-voice 24-value array after smoothing and LFO
 
 	private:
-		void silenceVoice(int _track);	// forces a voice to the OS's empty machine (GND--), for voice stealing
 		void hit(int _track, int _velocity, bool _accent);	// one track's part of a trigger (the note handler's)
 		void applyChoke(int _track);	// the tick's mute-group step for a triggered track ($20b3a2)
 
@@ -174,15 +153,8 @@ namespace md::engine
 		std::array<MixerInput, kTracks> m_mixer{};
 		int m_accentAmount = 0;
 		std::array<uint16_t, kParams> m_scratch{};
-		int m_blocksPerTick = 11;
 		int m_blockCount = 0;
 		uint32_t m_tickCount = 0;
-		int m_maxActive = kTracks * 2;
-		std::array<bool, kTracks> m_silenceNext{};	// budget victims to silence on their next tick
-		std::vector<int> m_activeOrder;	// least- to most-recently-triggered
-		int m_releaseThreshold = -1, m_releaseBlocks = 0;	// silence release, off (see setSilenceRelease)
-		std::array<int, kTracks> m_quiet{};	// consecutive quiet blocks per sounding voice
-		uint32_t m_releases = 0;
 		std::array<uint8_t, kTracks> m_link{};
 		std::array<uint8_t, kTracks> m_choke{};
 		std::array<bool, kTracks> m_choked{};	// the OS's group-mute flag ($1001510), apart from the user mute

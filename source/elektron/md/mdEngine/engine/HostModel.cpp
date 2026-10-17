@@ -1,10 +1,8 @@
 #include "HostModel.h"
 
 #include <chrono>
-#include <cstdlib>
 
 #include <algorithm>
-#include <vector>
 #include <cmath>
 
 namespace md::engine
@@ -51,7 +49,6 @@ namespace md::engine
 		m_link.fill(kOff);
 		m_choke.fill(kOff);
 		m_cutBy.fill(kOff);
-		m_activeOrder.reserve(kTracks);	// no allocation when a trigger reorders it
 		for(size_t i = 0; i < m_decay.size(); ++i)
 			m_decay[i] = m_os.peek32(md::mds::DecayTableAddress + 4 * static_cast<uint32_t>(i));
 		// md-drums: the master bodies return to the caller instead of running into the tick's epilogue (which mdEngine
@@ -191,19 +188,6 @@ namespace md::engine
 	}
 
 	template<class TVoices>
-	void HostModel<TVoices>::silenceVoice(const int _track)
-	{
-		uint32_t out[32];
-		const uint16_t params[8] = {};	// GND-- (OS machine id 0) takes none
-		const int n = m_os.compute(0, params, out, 32);
-		if(n > 0)
-		{
-			out[0] = 1;	// trigger code for machine id 0: the voice goes idle (harness skip check) until retriggered
-			m_voices.setSlot(_track, out, std::min(n, TVoices::kSlotWords));
-		}
-	}
-
-	template<class TVoices>
 	void HostModel<TVoices>::setLink(const int _track, const int _target)
 	{
 		m_link[_track] = _target >= 0 && _target < kTracks ? static_cast<uint8_t>(_target) : kOff;
@@ -233,24 +217,6 @@ namespace md::engine
 	template<class TVoices>
 	void HostModel<TVoices>::hit(const int _track, const int _velocity, const bool _accent)
 	{
-		// Voice budget: the tracks that have sounded (and so keep costing DSP time until silenced) are kept in trigger
-		// order, and a trigger that would take their total cost past the budget cuts the least-recently-triggered ones.
-		{
-			auto it = std::find(m_activeOrder.begin(), m_activeOrder.end(), _track);
-			if(it != m_activeOrder.end())
-				m_activeOrder.erase(it);
-			const int self = voiceCost(m_pendingMachine[_track] >= 0 ? static_cast<uint8_t>(m_pendingMachine[_track]) : m_machine[_track]);
-			auto total = [&] { int c = self; for(const int t : m_activeOrder) c += voiceCost(m_machine[t]); return c; };
-			while(!m_activeOrder.empty() && total() > m_maxActive)
-			{
-				const int victim = m_activeOrder.front();
-				m_activeOrder.erase(m_activeOrder.begin());
-				m_trigger[victim] = false;	// cut before it ever sounded (triggered earlier in this same block)
-				m_silenceNext[victim] = true;	// written by the victim's next updateVoice (a write here would be overwritten by it)
-			}
-			m_activeOrder.push_back(_track);
-			m_quiet[static_cast<size_t>(_track)] = 0;
-		}
 		m_trigger[_track] = true;
 		m_velocity[_track] = static_cast<uint8_t>(std::clamp(_velocity, 1, 127));
 		m_accent[_track] = _accent;
@@ -297,17 +263,11 @@ namespace md::engine
 			m_os.call(kLfoApplyOne, {static_cast<uint32_t>(_track)});
 		}
 		const auto id = m_machine[_track];
-		if(m_silenceNext[_track] && !m_trigger[_track])
-		{
-			silenceVoice(_track);	// budget cut: the voice goes back to machine 0 and stops costing DSP time
-			m_silenceNext[_track] = false;
-		}
-		else if(isUserMachine(id))
+		if(isUserMachine(id))
 		{
 			// md-drums: a User Machine's words are its eight parameters, converted as its package says, from the voice's
 			// array after the smoothing and the LFOs (a setting between two steps falls between their words, as MDS allows);
 			// word 0 the trigger flag, the type its number's (id + 1), as the built-in Machines'
-			m_silenceNext[_track] = false;
 			uint32_t out[9] = {};
 			if(const auto& package = m_userMachines[id - kFirstUserMachine])
 			{
@@ -320,7 +280,6 @@ namespace md::engine
 		}
 		else if(isAudioMachine(id))
 		{
-			m_silenceNext[_track] = false;
 			uint32_t out[32];
 			const int n = m_os.compute(id, voiceParams(_track), out, 32, m_trigger[_track]);
 			if(n >= 0)	// n == 0 (TRX CP/MA/CL: no parameter words) still carries the trigger word
@@ -432,7 +391,7 @@ namespace md::engine
 				applyLocks(t);
 		m_lockPending.fill(0);
 		m_cutBy.fill(kOff);
-		if(m_blockCount++ % m_blocksPerTick == 0)
+		if(m_blockCount++ % kBlocksPerTick == 0)
 			tick();
 		else
 			for(int t = 0; t < kTracks; ++t)
@@ -446,24 +405,6 @@ namespace md::engine
 			tickUs += std::chrono::duration<double, std::micro>(t1 - t0).count();
 			dspUs += std::chrono::duration<double, std::micro>(t2 - t1).count();
 		}
-		if(ok && m_releaseThreshold >= 0)
-			for(size_t i = 0; i < m_activeOrder.size();)
-			{
-				const int t = m_activeOrder[i];
-				const auto& v = _out[static_cast<size_t>(t)];
-				const bool quiet = !m_trigger[t] && std::all_of(v.begin(), v.end(), [&](const int32_t s) { return s <= m_releaseThreshold && s >= -m_releaseThreshold; });
-				auto& q = m_quiet[static_cast<size_t>(t)];
-				q = quiet ? q + 1 : 0;
-				if(q >= m_releaseBlocks)
-				{
-					q = 0;
-					m_activeOrder.erase(m_activeOrder.begin() + static_cast<std::ptrdiff_t>(i));
-					m_silenceNext[t] = true;	// applied by its next updateVoice, as a budget cut
-					++m_releases;
-					continue;
-				}
-				++i;
-			}
 		return ok;
 	}
 
