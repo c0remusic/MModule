@@ -8,6 +8,9 @@
 #include "mdDrumsKitsView.h"
 #include "mdDrumsLfoView.h"
 #include "mdDrumsMessages.h"
+#include "mdDrumsProcessor.h"
+
+#include "MdsPackage.h"
 
 #include "jucePluginEditorLib/pluginEditorState.h"
 #include "jucePluginEditorLib/pluginProcessor.h"
@@ -19,6 +22,7 @@
 
 #include "RmlUi/Core/Context.h"
 #include "RmlUi/Core/Element.h"
+#include "RmlUi/Core/StringUtilities.h"
 
 #include <algorithm>
 #include <cmath>
@@ -385,9 +389,13 @@ namespace mdDrums
 	bool TrackView::followMachine()
 	{
 		const auto machine = value(m_machineParameters[m_part]);
-		if(machine == m_machineShown)
+		// A User Machine's names are its package's, which an install changes under the same number
+		const auto package = md::engine::isUserMachine(static_cast<uint8_t>(machine))
+			? m_editor.processor().userMachine(machine - Engine::FirstUserMachine) : nullptr;
+		if(machine == m_machineShown && package.get() == m_packageShown)
 			return false;
 		m_machineShown = machine;
+		m_packageShown = package.get();
 		updateMachine();
 		return true;
 	}
@@ -428,20 +436,29 @@ namespace mdDrums
 	void TrackView::updateMachine() const
 	{
 		const auto id = static_cast<uint16_t>(m_machineShown);
+		// A User Machine's names are its package's, as this instance holds it (ticket 17 of the User Machines map)
+		const auto package = md::engine::isUserMachine(static_cast<uint8_t>(id))
+			? m_editor.processor().userMachine(id - Engine::FirstUserMachine) : nullptr;
+		const auto isUser = md::engine::isUserMachine(static_cast<uint8_t>(id));
 
 		const auto* family = md::machines::familyOf(md::MachineModel::Machinedrum, id);
 		if(auto* code = find("family_code"))
 			code->SetInnerRML(family ? std::string(family->name) : std::string());
 		if(auto* text = find("family_text"))
-			text->SetInnerRML(family ? familyText(family->name) : "");
+		{
+			const auto said = isUser ? (package ? package->displayName() + " " + package->name : std::string("empty"))
+				: std::string(family ? familyText(family->name) : "");
+			text->SetInnerRML(Rml::StringUtilities::EncodeRml(said));
+		}
 		if(auto* kind = find("preview_kind"))
-			kind->SetInnerRML(family ? familyKind(family->name) : "");
+			kind->SetInnerRML(isUser ? "user" : family ? familyKind(family->name) : "");
 
 		// SYN1-8 by the machine's own names; a slot it does not use reads "—", dimmed, without a value
 		for(size_t i = 0; i < 8; ++i)
 		{
 			const auto suffix = std::string("_") + Engine::paramNames()[i];
-			const auto name = std::string(Engine::parameterName(id, i));
+			const auto name = isUser ? (package && i < package->parameters.size() ? package->parameters[i].name : std::string())
+				: std::string(Engine::parameterName(id, i));
 			const auto unused = name.empty();
 			if(auto* label = find("n" + suffix))
 			{

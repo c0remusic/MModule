@@ -35,6 +35,7 @@
 #include "mdDrumsMeterView.h"
 #include "mdDrumsProcessor.h"
 #include "mdDrumsStatusView.h"
+#include "mdDrumsTestMachine.h"
 #include "mdDrumsTestSupport.h"
 #include "mdDrumsTrackView.h"
 
@@ -1308,9 +1309,26 @@ namespace
 			"a WAV dropped did not put Track 1 on ROM-33");
 		require(line->GetScrollWidth() <= _f.box(*line).w + 0.5f, "the drop's line overflows its box");
 		_f.processor.removeSample(32);
+
+		// A User Machine dropped (ticket 17 of the User Machines map): Track 1 on USR-01, the head band says its package's
+		// category, code and name, SYN1 and SYN2 its parameters' names, the others unused
+		const auto mds = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("MoDuleDrop.mds");
+		const auto saw = mdDrums::test::sawPackage();
+		require(mds.replaceWithData(saw.data(), saw.size()), "the test's User Machine file was not written");
+		require(_f.editor->getDropView()->drop(mds.getFullPathName().toStdString()), "a User Machine dropped did not go");
+		look(1000.0 / mdDrums::StatusView::RefreshHz);
+		const auto label = [&](const char* _id) { return _f.text(_id); };
+		std::printf("names: %s on Track 1, \"%s\", SYN1 %s, SYN2 %s, SYN3 %s\n", _f.text("family_code").c_str(),
+			_f.text("family_text").c_str(), label("n_SYN1").c_str(), label("n_SYN2").c_str(), label("n_SYN3").c_str());
+		require(static_cast<int>(machine.getUnnormalizedValue()) == mdDrums::Engine::FirstUserMachine
+			&& _f.text("family_code") == "USR" && _f.text("family_text") == "TST-SW TEST SAW",
+			"the head band does not name the User Machine dropped");
+		require(label("n_SYN1") == "<span>PTCH</span>" && label("n_SYN2") == "<span>DEC</span>"
+			&& _f.find("n_SYN3")->IsClassSet("unused"), "SYN1-8 do not carry the package's names");
 		mdDrums::testSupport::uiSets(machine, before);
 		look(9000);
 		file.deleteFile();
+		mds.deleteFile();
 	}
 
 	struct Spread

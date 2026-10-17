@@ -85,6 +85,8 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   corrections d'émulateur reviennent sur `main`.
 - [Installer une Machine utilisateur par le Menu](issues/16-installer-par-le-menu.md) : construit ; Menu et lâcher
   par le même import, premier numéro libre, la Track montrée la joue, la ligne d'état le dit.
+- [Les noms d'une Machine utilisateur dans l'éditeur](issues/17-noms-mdm1.md) : construit ; bande de tête, SYN1-8 et
+  fichier `.kit` tirés du paquet que l'instance tient.
 
 ## Not yet specified
 

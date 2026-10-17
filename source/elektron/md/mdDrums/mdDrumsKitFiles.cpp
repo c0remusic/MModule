@@ -1,5 +1,8 @@
 #include "mdDrumsKitFiles.h"
 
+#include "HostModel.h"
+#include "MdsPackage.h"
+
 #include "mdProtocol/mdmachines.h"
 
 #include "baseLib/filesystem.h"
@@ -33,16 +36,31 @@ namespace mdDrums
 		return m_folder / name;
 	}
 
-	std::string KitFiles::text(const md::automation::sysex::MdKit& _kit)
+	std::string KitFiles::text(const md::automation::sysex::MdKit& _kit, const UserMachines& _userMachines)
 	{
 		constexpr auto model = md::MachineModel::Machinedrum;
+		// A name is one word in the file
+		const auto word = [](std::string _s)
+		{
+			std::replace(_s.begin(), _s.end(), ' ', '_');
+			return _s.empty() ? std::string("-") : _s;
+		};
 		std::string out;
 		out.reserve(3000);
 		out.append("md-drums-kit 1\nkit ").append(_kit.displayName()).append("\n");
 		for(uint8_t t = 0; t < md::automation::machinedrum::TrackCount; ++t)
 		{
 			const auto id = _kit.machine(t);
-			if(const auto* machine = md::machines::find(model, id))
+			const auto* package = md::engine::isUserMachine(static_cast<uint8_t>(id))
+				? _userMachines[id - md::engine::kFirstUserMachine].get() : nullptr;
+			if(package)
+			{
+				out += "track " + std::to_string(t + 1) + " " + std::to_string(id) + " " + word(package->displayName());
+				for(size_t p = 0; p < 8; ++p)
+					out += " " + word(p < package->parameters.size() ? package->parameters[p].name : std::string());
+				out += "\n";
+			}
+			else if(const auto* machine = md::machines::find(model, id))
 			{
 				out += "track " + std::to_string(t + 1) + " " + std::to_string(id) + " " + std::string(machine->name);
 				const auto* names = md::machines::parameterNames(model, id);

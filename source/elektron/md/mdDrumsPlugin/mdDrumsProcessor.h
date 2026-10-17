@@ -111,6 +111,9 @@ namespace mdDrums
 		};
 		Import importFile(const std::filesystem::path& _file, int _track);
 
+		// The User Machine this instance's Device holds at _index (0-15), for the editor's names; none without a Device
+		std::shared_ptr<const md::mds::Package> userMachine(int _index);
+
 		// The Samples this instance's Device plays, for the Hit preview; none without a Device. On the message thread.
 		std::array<std::shared_ptr<const Sample>, Samples::RomCount> samples();
 

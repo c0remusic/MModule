@@ -10,6 +10,9 @@
 #include "mdDrumsDevice.h"
 #include "mdDrumsKitFiles.h"
 #include "mdDrumsTelemetry.h"
+#include "mdDrumsTestMachine.h"
+
+#include "MdsPackage.h"
 
 #include "mdProtocol/mdautomation.h"
 #include "mdProtocol/mdkitchange.h"
@@ -758,6 +761,21 @@ namespace
 			require(text.find("\nvalues 1 ") != std::string::npos
 				&& text.find(" 99 ", text.find("\nvalues 1 ")) != std::string::npos,
 				"Track 1's FLTF is not in its values");
+
+			// A User Machine's names (ticket 17 of the User Machines map): MDM1's category and code, and its parameters',
+			// as the instance holds its package; a number it holds none of reads USR-NN, without names
+			auto withUser = kit;
+			withUser.machines[2] = mdDrums::Engine::FirstUserMachine + 4;	// USR-05
+			withUser.machines[3] = mdDrums::Engine::FirstUserMachine + 5;	// USR-06, held by no one
+			KitFiles::UserMachines machines{};
+			machines[4] = std::make_shared<const md::mds::Package>(md::mds::parsePackage(mdDrums::test::sawPackage()));
+			const auto userText = KitFiles::text(withUser, machines);
+			std::printf("kit file: %s", userText.substr(userText.find("track 3"), userText.find("\n", userText.find("track 3"))
+				- userText.find("track 3") + 1).c_str());
+			require(userText.find("\ntrack 3 198 TST-SW PTCH DEC - - - - - -\n") != std::string::npos,
+				"a User Machine's track line does not carry its package's names");
+			require(userText.find("\ntrack 4 199 USR-06 - - - - - - - -\n") != std::string::npos,
+				"a number without a package does not read USR-06 without names");
 
 			// A second device: its file at the next step; a change reaches both, not before StepMs
 			files.hello(0xfedcba, 100.0);

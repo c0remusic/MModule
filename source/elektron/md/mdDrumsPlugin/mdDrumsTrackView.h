@@ -123,6 +123,7 @@ namespace mdDrums
 		// What the document shows, -1 for not yet: the shown Track's machine and Out, every strip's Out, the LFO menu's
 		// Track, target Track and that Track's machine
 		int m_machineShown = -1;
+		const void* m_packageShown = nullptr;	// the User Machine's package drawn, compared by address only
 		int m_outShown = -1;
 		std::array<int, 16> m_outs{};
 		std::array<int, 3> m_menuKey{};

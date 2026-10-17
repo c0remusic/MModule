@@ -2,10 +2,17 @@
 
 #include "mdProtocol/mdkit.h"
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <string>
+
+namespace md::mds
+{
+	struct Package;
+}
 
 namespace mdDrums
 {
@@ -31,8 +38,10 @@ namespace mdDrums
 		static std::filesystem::path defaultFolder();
 		// A device's file: its id in six lowercase hexadecimal digits, then ".kit"
 		std::filesystem::path file(uint32_t _id) const;
-		// The file's text for _kit, version 1
-		static std::string text(const md::automation::sysex::MdKit& _kit);
+		// The file's text for _kit, version 1. A User Machine's names come from its package as the instance holds it
+		// (ticket 17 of the User Machines map): MDM1's category and code, and its parameters' names
+		using UserMachines = std::array<std::shared_ptr<const md::mds::Package>, 16>;
+		static std::string text(const md::automation::sysex::MdKit& _kit, const UserMachines& _userMachines = {});
 
 		// A hello from the device _id: a new one has its file at the next step
 		void hello(uint32_t _id, double _nowMs);

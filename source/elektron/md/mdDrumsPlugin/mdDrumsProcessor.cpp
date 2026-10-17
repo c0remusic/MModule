@@ -297,6 +297,13 @@ namespace mdDrums
 		return {false, -1, name + ": MoDule takes WAV, AIFF and FLAC files, and User Machines (.syx, .mds)"};
 	}
 
+	std::shared_ptr<const md::mds::Package> Processor::userMachine(const int _index)
+	{
+		// Read without the lock: a User Machine changes on the message thread only
+		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
+		return device ? device->userMachine(_index) : nullptr;
+	}
+
 	std::array<std::shared_ptr<const Sample>, Samples::RomCount> Processor::samples()
 	{
 		// Read without the lock: a Sample changes on the message thread only
