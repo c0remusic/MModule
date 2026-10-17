@@ -4,7 +4,7 @@ Called MD Drums up to 0.1.1: same plug-in, same sets, and its Bank and flash ima
 
 The Elektron Machinedrum's own synthesis engines as a VST3 instrument, edited like Overbridge and played from your DAW.
 
-![MoDule in Ableton Live 12: the Track tab, factory Kit 1 playing](docs/images/md-drums-track.png)
+![MoDule's Track tab, factory Kit 1 playing, Track 1's LFO on its PTCH](docs/images/md-drums-track.png)
 
 **[Download the preview](https://github.com/c0remusic/MModule/releases)** · [Report a bug](https://github.com/c0remusic/MModule/issues)
 

@@ -1408,6 +1408,73 @@ namespace
 		_f.showView("track");
 	}
 
+	// The site's screenshots: factory Kit 1 played by the processor for real, a groove of four seconds, Track 1's LFO
+	// moving its PTCH (its name underlined, the accent dot where the engine plays it), then the Track, Mix and Master
+	// tabs as the groove leaves them, right after a Hit of Track 1
+	void showcase(Fixture& _f, const std::string& _prefix)
+	{
+		constexpr double rate = 44100.0;
+		constexpr int block = 128;
+		auto& plugin = static_cast<juce::AudioProcessor&>(_f.processor);
+		plugin.prepareToPlay(rate, block);
+
+		// 120 BPM in 16ths; a Track per row, its steps and velocity
+		struct Row { int track; std::vector<int> steps; int velocity; };
+		const std::vector<Row> rows{
+			{0, {0, 4, 8, 11, 12}, 120}, {1, {4, 12}, 110}, {8, {0, 2, 4, 6, 8, 10, 12}, 90}, {9, {14}, 100},
+			{5, {12}, 100}, {6, {7, 15}, 90}, {3, {10}, 100}, {12, {3}, 110}, {13, {9}, 100}, {10, {0}, 80}};
+		constexpr double step = rate * 60.0 / 120.0 / 4.0;
+		constexpr int steps = 32;
+		struct Note { int64_t sample; int number; int velocity; };
+		std::vector<Note> notes;
+		for(int s = 0; s < steps; ++s)
+		{
+			for(const auto& row : rows)
+			{
+				if(std::find(row.steps.begin(), row.steps.end(), s % 16) != row.steps.end())
+					notes.push_back({static_cast<int64_t>(s * step), 36 + row.track, row.velocity});
+			}
+		}
+		// Up to just after the last bar's Hit of Track 1 on step 12: its Hit screen full, the meters lit
+		const auto samples = static_cast<int64_t>((16 + 12) * step + rate * 0.25);
+
+		juce::AudioBuffer<float> buffer(plugin.getTotalNumOutputChannels(), block);
+		juce::MidiBuffer midi;
+		size_t next = 0;
+		double untilFrame = 0.0;
+		for(int64_t position = 0; position < samples; position += block)
+		{
+			buffer.clear();
+			midi.clear();
+			for(; next < notes.size() && notes[next].sample < position + block; ++next)
+				midi.addEvent(juce::MidiMessage::noteOn(1, notes[next].number, static_cast<juce::uint8>(notes[next].velocity)),
+					static_cast<int>(notes[next].sample - position));
+			plugin.processBlock(buffer, midi);
+			// The display's ticks at 60 Hz of the audio's time
+			untilFrame -= block * 1000.0 / rate;
+			if(untilFrame <= 0.0)
+			{
+				_f.step(1000.0 / 60.0);
+				untilFrame += 1000.0 / 60.0;
+			}
+		}
+		// The site says which version it offers: the build's own number stays off the pictures
+		{
+			juceRmlUi::RmlInterfaces::ScopedAccess access(*_f.component);
+			_f.find("version")->SetInnerRML("");
+		}
+		for(const auto* view : {"track", "mix", "master"})
+		{
+			_f.showView(view);
+			for(int i = 0; i < 3; ++i)
+				_f.frame();
+			juce::FileOutputStream out{juce::File(juce::String(_prefix + view + ".png"))};
+			out.setPosition(0);
+			out.truncate();
+			juce::PNGImageFormat().writeImageToStream(_f.image, out);
+		}
+	}
+
 	void pictures(Fixture& _f, const std::string& _prefix)
 	{
 		const auto save = [&](const std::string& _name)
@@ -1444,12 +1511,25 @@ int main()
 			std::cout << "mdDrumsSkinTest: SKIP (no Machinedrum UW OS 1.63 flash image found)\n";
 			return 77;
 		}
+		// The site's screenshots instead of the checks: Track 1's LFO given depth before the editor opens, whose knobs
+		// take their values as they are made
+		const auto* shots = std::getenv("MD_DRUMS_SKIN_SHOWCASE");
+		const bool showcasing = shots && *shots;
+		if(showcasing)
+			uiSets(parameter(processor, "LFOD", 0), 80);
 		Fixture f(processor);
 		for(int i = 0; i < 4; ++i)
 			f.frame();
 		const auto size = f.component->getDocumentSize();
 		std::printf("document %dx%d, dp ratio %.2f\n", static_cast<int>(size.x), static_cast<int>(size.y), f.dp());
 		require(size.x == 1296 && size.y == 824, "the document is not 1296 x 824");
+
+		if(showcasing)
+		{
+			showcase(f, shots);
+			std::cout << "mdDrumsSkinTest: showcase written to " << shots << "track/mix/master.png\n";
+			return 0;
+		}
 
 		std::string failures;
 		for(const auto& [name, check] : std::vector<std::pair<std::string, void (*)(Fixture&)>>{
