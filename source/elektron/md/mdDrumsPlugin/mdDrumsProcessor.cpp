@@ -59,7 +59,9 @@ namespace mdDrums
 	}
 
 	Processor::Processor(const bool _forTests)
-		: jucePluginEditorLib::Processor(buses(), configOptions(_forTests), properties(), !_forTests,
+		// No MCP server: it would listen on every network interface, without authentication, for tools MoDule has no
+		// use for
+		: jucePluginEditorLib::Processor(buses(), configOptions(_forTests), properties(), false,
 			_forTests ? ConfigMode::Ephemeral : ConfigMode::Persistent), m_forTests(_forTests)
 	{
 		// A test's editor asks GitHub nothing

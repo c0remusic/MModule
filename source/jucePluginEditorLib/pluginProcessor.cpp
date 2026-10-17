@@ -85,6 +85,7 @@ namespace jucePluginEditorLib
 #endif
 		savePluginLoadPath();
 
+		m_allowMcpServer = _allowMcpServer;
 		if (_allowMcpServer && m_config.getBoolValue("enableMcpServer", false)
 			&& !isJuceHelperProcess())
 			startMcpServer();
@@ -285,7 +286,7 @@ namespace jucePluginEditorLib
 
 	void Processor::setMcpServerEnabled(const bool _enabled)
 	{
-		if (_enabled)
+		if (_enabled && m_allowMcpServer)
 			startMcpServer();
 		else
 			stopMcpServer();

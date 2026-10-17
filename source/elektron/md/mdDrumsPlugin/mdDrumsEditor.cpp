@@ -15,6 +15,10 @@
 #include "mdDrumsController.h"
 
 #include "skins.h"
+#include "jucePluginEditorLib/settingsDspAudio.h"
+#include "jucePluginEditorLib/settingsGui.h"
+#include "jucePluginEditorLib/settingsMidi.h"
+#include "jucePluginEditorLib/settingsMidiLearn.h"
 #include "juceRmlUi/rmlMenu.h"
 
 #include "juceRmlUi/juceRmlComponent.h"
@@ -42,6 +46,14 @@ namespace mdDrums
 	// The members' order does it: the frame's listener and timer go first, then TrackView (no frame steps without
 	// it), then the other views; the component goes with the base
 	Editor::~Editor() = default;
+
+	void Editor::registerSettings(std::vector<std::unique_ptr<jucePluginEditorLib::SettingsPlugin>>& _plugins)
+	{
+		_plugins.push_back(std::make_unique<jucePluginEditorLib::SettingsGui>(getProcessor()));
+		_plugins.push_back(std::make_unique<jucePluginEditorLib::SettingsMidi>(getProcessor()));
+		_plugins.push_back(std::make_unique<jucePluginEditorLib::SettingsMidiLearn>(getProcessor()));
+		_plugins.push_back(std::make_unique<jucePluginEditorLib::SettingsDspAudio>(getProcessor()));
+	}
 
 	void Editor::create()
 	{

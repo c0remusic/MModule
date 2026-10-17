@@ -157,7 +157,8 @@ namespace jucePluginEditorLib
 		juceRmlUi::Menu createExportFileTypeMenu(const std::function<void(pluginLib::FileType)>& _func) const;
 		virtual void createExportFileTypeMenu(juceRmlUi::Menu& _menu, const std::function<void(pluginLib::FileType)>& _func) const;
 
-		void registerSettings(std::vector<std::unique_ptr<SettingsPlugin>>& _plugins);
+		// The pages of the settings window; a product leaves out those it has no use for
+		virtual void registerSettings(std::vector<std::unique_ptr<SettingsPlugin>>& _plugins);
 
 		virtual std::unique_ptr<SettingsDeviceSpecific> createDeviceSpecificSettings(const std::string& _templateName, Rml::Element* _root) { return nullptr; }
 		// Resource identity can remain stable when a product's display name changes.

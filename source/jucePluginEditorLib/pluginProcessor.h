@@ -78,5 +78,6 @@ namespace jucePluginEditorLib
 		std::optional<bool> m_forceSoftwareRendererForSession;
 
 		std::unique_ptr<mcpServer::McpPluginServer> m_mcpServer;
+		bool m_allowMcpServer = true;	// false: setMcpServerEnabled starts nothing either
 	};
 }

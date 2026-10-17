@@ -63,6 +63,10 @@ namespace mdDrums
 
 		void onRmlContextCreated(juceRmlUi::RmlComponent& _rmlComponent, Rml::Context& _context) override;
 
+		// The settings window without the pages MoDule has no use for: Skin (one skin; its page also starts the MCP
+		// server) and DSP Bridge (no remote device serves MoDule)
+		void registerSettings(std::vector<std::unique_ptr<jucePluginEditorLib::SettingsPlugin>>& _plugins) override;
+
 		// MD Drums' own Processor, the only one that makes this editor, and its Controller
 		Processor& processor() const;
 		Controller& controller() const;
