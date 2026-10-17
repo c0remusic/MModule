@@ -223,6 +223,16 @@ namespace mdDrums
 		setDeviceSample(_rom, nullptr);
 	}
 
+	void Processor::takeSample(const int _rom)
+	{
+		const auto sample = m_samples ? m_samples->get(_rom) : nullptr;
+		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
+		if(!sample || !device)
+			return;
+		if(const auto held = device->sample(_rom); !(held && *held == *sample))
+			setDeviceSample(_rom, sample);
+	}
+
 	void Processor::takeSamples(const md::automation::sysex::MdKit& _kit)
 	{
 		if(!m_samples)

@@ -190,6 +190,13 @@ vknob { top: 84dp; width: 64dp; height: 64dp; drag: drag; cursor: pointer; }
 .mach:hover { color: #f2f2f2; }
 .mach:checked { color: #f2f2f2; border-bottom-color: #f2f2f2; }
 .fam.preview { top: 528dp; }
+/* The User Machines and ROM-33 to ROM-48 under the families (ticket 18 of the User Machines map), as the families' own
+   header, kind and cells moved down by 344 and 456 (multiples of 4); a number that holds nothing dimmed */
+.fam.lower { top: 592dp; }
+.kind.lower { top: 608dp; }
+.fam.lowest { top: 704dp; }
+.kind.lowest { top: 720dp; }
+.mach.empty { color: #6e7177; }
 .pvname { top: 552dp; height: 24dp; line-height: 24dp; }
 .pvname .big { margin-right: 8dp; }
 .pvauto { top: 584dp; height: 16dp; line-height: 14dp; font-size: 14dp; color: #a7aaaf; cursor: pointer; }

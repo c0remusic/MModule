@@ -83,6 +83,12 @@ namespace mdDrums
 		void takeUserMachines(const md::automation::sysex::MdKit& _kit);
 		// The Library's copy of one, where the Device holds none (a Machine chosen on a Track)
 		void takeUserMachineIfAbsent(int _index);
+		// The Library's copy of one, replacing the Device's: the browser's explicit choice (ticket 18 of the User Machines
+		// map); nothing when the Library holds none
+		void takeUserMachine(int _index) { installFromLibrary(_index, true); }
+		// The sample library's Sample for ROM _rom (0-47), replacing the Device's: the browser's explicit choice; nothing
+		// when the library holds none or the Device plays the same
+		void takeSample(int _rom);
 
 		// An audio file (WAV, AIFF or FLAC) made a Sample for ROM-01 to ROM-48 (_rom 0-47) as a Machinedrum UW takes one
 		// (readSampleFile, makeSample), kept in the sample library, then this instance's Device plays it from the next

@@ -1325,6 +1325,21 @@ namespace
 			"the head band does not name the User Machine dropped");
 		require(label("n_SYN1") == "<span>PTCH</span>" && label("n_SYN2") == "<span>DEC</span>"
 			&& _f.find("n_SYN3")->IsClassSet("unused"), "SYN1-8 do not carry the package's names");
+
+		// The browser (ticket 18 of the User Machines map): USR-01 lit, USR-02 and ROM-33 (its Sample taken away) dimmed,
+		// on the 4 px grid as the families above them
+		_f.editor->getTrackView()->setOverlay(mdDrums::TrackView::Overlay::Browser);
+		look(300);
+		const auto usr1 = _f.find("mach_194"), usr2 = _f.find("mach_195"), rom33 = _f.find("mach_176");
+		require(usr1 && usr2 && rom33, "the browser has no USR or ROM-33 cell");
+		std::printf("browser: USR-01 %s at %g, %g; USR-02 %s; ROM-33 %s at %g, %g\n", usr1->IsClassSet("empty") ? "dimmed" : "lit",
+			_f.box(*usr1).x, _f.box(*usr1).y, usr2->IsClassSet("empty") ? "dimmed" : "lit",
+			rom33->IsClassSet("empty") ? "dimmed" : "lit", _f.box(*rom33).x, _f.box(*rom33).y);
+		require(!usr1->IsClassSet("empty") && usr2->IsClassSet("empty") && rom33->IsClassSet("empty"),
+			"the browser does not dim the empty User Machines and ROM Machines");
+		require(_f.box(*usr1).x == 256 && _f.box(*usr1).y == 632 && _f.box(*rom33).y == 744,
+			"the USR and ROM 33-48 cells are not where the prototype puts them");
+		_f.editor->getTrackView()->setOverlay(mdDrums::TrackView::Overlay::None);
 		mdDrums::testSupport::uiSets(machine, before);
 		look(9000);
 		file.deleteFile();

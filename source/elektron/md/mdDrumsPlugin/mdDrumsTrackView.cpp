@@ -114,8 +114,14 @@ namespace mdDrums
 		// A machine chosen (its cell has set Machine by then: its own listener came first) shows in the head band and
 		// plays the Track when listening
 		for(const auto& machine : md::machines::machines(md::MachineModel::Machinedrum))
-			if(m_editor.addClick("mach_" + std::to_string(machine.id), [this](Rml::Event&)
+			if(m_editor.addClick("mach_" + std::to_string(machine.id), [this, id = machine.id](Rml::Event&)
 			{
+				// A User Machine or a ROM Machine chosen takes the Library's copy, or the sample library's: an explicit
+				// choice (ticket 18 of the User Machines map)
+				if(md::engine::isUserMachine(static_cast<uint8_t>(id)))
+					m_editor.processor().takeUserMachine(id - Engine::FirstUserMachine);
+				else if(const auto rom = Samples::romOf(static_cast<uint8_t>(id)); rom >= 0)
+					m_editor.processor().takeSample(rom);
 				followMachine();
 				if(isListening())
 					m_editor.controller().audition(m_part, ListenVelocity);
@@ -180,7 +186,45 @@ namespace mdDrums
 		wrote |= followMachine();
 		wrote |= followOuts();
 		wrote |= followLfoMenu();
+		wrote |= followUserCells(_frame);
 		return wrote;
+	}
+
+	bool TrackView::followUserCells(const Frame& _frame)
+	{
+		// Only where they show, and four times a second: the Library and the Samples change by a click, a drop or another
+		// instance
+		if(m_overlay != Overlay::Browser || !_frame.every(m_userCellsNextMs, 4))
+			return false;
+		// The browser's USR-01 to USR-16 lit where the Library holds one, ROM-33 to ROM-48 where this instance plays a
+		// user's Sample or the sample library holds one (ticket 18 of the User Machines map): bit n USR n + 1, bit 16 + n
+		// ROM 33 + n
+		auto& processor = m_editor.processor();
+		const auto* library = processor.getLibrary();
+		const auto* samples = processor.getSampleLibrary();
+		const auto played = processor.samples();
+		uint32_t filled = 0;
+		for(int i = 0; i < 16; ++i)
+		{
+			if(library && library->get(i))
+				filled |= 1u << i;
+			const auto rom = 32 + i;
+			if(played[static_cast<size_t>(rom)] || (samples && samples->get(rom)))
+				filled |= 1u << (16 + i);
+		}
+		if(filled == m_userCellsShown)
+			return false;
+		const auto changed = filled ^ m_userCellsShown;
+		m_userCellsShown = filled;
+		for(int bit = 0; bit < 32; ++bit)
+		{
+			if(!(changed & (1u << bit)))
+				continue;
+			const auto id = bit < 16 ? Engine::FirstUserMachine + bit : 176 + bit - 16;
+			if(auto* cell = find("mach_" + std::to_string(id)))
+				cell->SetClass("empty", !(filled & (1u << bit)));
+		}
+		return true;
 	}
 
 	void TrackView::showTrack(const uint8_t _track) const

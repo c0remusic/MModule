@@ -95,6 +95,7 @@ namespace mdDrums
 		bool followMachine();
 		bool followOuts();
 		bool followLfoMenu();
+		bool followUserCells(const Frame& _frame);
 		void updateMachine() const;
 		void updateOutput() const;
 		// A Mix strip's Out: a click moves the Track between Main and its natural Out (its own number, 16 to 15), the
@@ -124,6 +125,8 @@ namespace mdDrums
 		// Track, target Track and that Track's machine
 		int m_machineShown = -1;
 		const void* m_packageShown = nullptr;	// the User Machine's package drawn, compared by address only
+		uint32_t m_userCellsShown = ~0u;		// followUserCells's, all lit until the first frame dims what is empty
+		double m_userCellsNextMs = 0.0;
 		int m_outShown = -1;
 		std::array<int, 16> m_outs{};
 		std::array<int, 3> m_menuKey{};
