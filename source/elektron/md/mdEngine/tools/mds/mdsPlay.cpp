@@ -2,9 +2,11 @@
 // "User Machines from X.20 in MoDule" (.scratch/user-machines/, ticket 03). The host is what
 // docs/MDX_MachineDumpStandard.txt of jmamma/MDS describes: the package relocated into P, the imports patched, the
 // eight parameters converted into Y:(R6+1..8), INIT, then TRIG on each Hit and RENDER every block of 32 samples on
-// one Track (md::mds::BareHost). It writes a 24-bit mono WAV at 44.1 kHz and the cycles each routine took.
+// one Track (md::mds::BareHost). It writes a 24-bit mono WAV at 44.1 kHz and the cycles each routine took. Decay
+// parameters read OS 1.63's table from the flash image --flash names, or the law fitted to it without one.
 //
 //   mdsPlay <machine.syx|.mds> [-o out.wav] [--seconds 2] [--hits 1] [--every 0.5] [--set NAME=value]... [--info]
+//           [--flash image.bin]
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -17,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "Firmware.h"
 #include "MdsHost.h"
 #include "MdsPackage.h"
 
@@ -60,13 +63,13 @@ int main(const int _argc, char* _argv[])
 	if(_argc < 2)
 	{
 		std::fprintf(stderr, "usage: mdsPlay <machine.syx|.mds> [-o out.wav] [--seconds 2] [--hits 1] [--every 0.5] "
-			"[--set NAME=value]... [--info]\n");
+			"[--set NAME=value]... [--info] [--flash image.bin]\n");
 		return 2;
 	}
 	try
 	{
 		const std::string input = _argv[1];
-		std::string output;
+		std::string output, flash;
 		double seconds = 2.0, every = 0.5;
 		int hits = 1;
 		bool infoOnly = false, disasm = false;
@@ -86,6 +89,7 @@ int main(const int _argc, char* _argv[])
 			else if(a == "--every") every = std::stod(next());
 			else if(a == "--info") infoOnly = true;
 			else if(a == "--disasm") disasm = true;
+			else if(a == "--flash") flash = next();
 			else if(a == "--set")
 			{
 				const auto s = next();
@@ -132,7 +136,9 @@ int main(const int _argc, char* _argv[])
 		if(infoOnly)
 			return 0;
 
-		md::mds::BareHost host(package);
+		const auto decay = flash.empty() ? md::mds::approximateDecayTable()
+			: md::mds::decayTable(md::fw::loadFirmwareFromFlash(readFile(flash)).osImage);
+		md::mds::BareHost host(package, decay);
 		if(disasm)
 		{
 			host.disassemble();

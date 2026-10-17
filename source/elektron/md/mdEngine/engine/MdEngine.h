@@ -138,7 +138,8 @@ namespace md::engine
 				const auto state = m_voices->saveState();
 				uint32_t words[9] = {};
 				for(size_t p = 0; p < _package->parameters.size() && p < 8; ++p)
-					words[1 + p] = md::mds::convert(_package->parameters[p], _package->parameters[p].defaultValue);
+					words[1 + p] = md::mds::convert(_package->parameters[p], _package->parameters[p].defaultValue,
+						m_host->decayTable());
 				typename TVoices::Block block;
 				bool ok = true;
 				for(int b = 0; b < _blocks && ok; ++b)

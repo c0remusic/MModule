@@ -79,12 +79,22 @@ namespace md::mds
 	// The package a $74 dump carries; throws when the dump is incomplete or its checksums fail
 	std::vector<uint8_t> packageFromSysex(const std::vector<uint8_t>& _sysex);
 
-	// The word the host writes at Y:(R6+1+i) for a setting, as the documents give the conversions. Pitch and Decay
-	// are not specified there (X.20 computes them): these two are guesses until X.20 can be compared
-	uint32_t convert(const Parameter& _parameter, int _setting);
+	// OS 1.63's decay table, which X.20 reads for a User Machine's Decay (1.63 $24bf94, 512 words; research/10 of the
+	// User Machines map). OS data: taken from the user's OS image, never carried in this repository
+	using DecayTable = std::array<uint32_t, 512>;
+	constexpr uint32_t DecayTableAddress = 0x24bf94;
+	// The table from OS 1.63's decompressed section 0, which runs at $200000; throws when the image is too short
+	DecayTable decayTable(const std::vector<uint8_t>& _osImage);
+	// The law research/10 fitted to that table, with its coefficients as rounded there: within 126 LSB of it
+	// (mdDrumsEngineTest). For mdsPlay without a flash image
+	DecayTable approximateDecayTable();
+
+	// The word the host writes at Y:(R6+1+i) for a setting, as X.20 converts it (research/10): Pitch in its DEFAULT
+	// mode at TUNING 0, Decay from OS 1.63's table
+	uint32_t convert(const Parameter& _parameter, int _setting, const DecayTable& _decay);
 	// The same for a setting between two steps, as the smoothing and the LFOs give it: _value is the setting << 7
-	// (0 to $3fff), and the documents allow the DSP word to fall between two settings' words
-	uint32_t convertFine(const Parameter& _parameter, uint16_t _value);
+	// (0 to $3fff), which X.20 converts as it comes
+	uint32_t convertFine(const Parameter& _parameter, uint16_t _value, const DecayTable& _decay);
 
 	// A package from its parts, as an author's tools would make it: for tests, which carry no User Machine of anyone
 	// else. The content ID is left zero (parsePackage does not check it); the CRCs are right.

@@ -44,7 +44,7 @@ namespace md::mds
 		constexpr uint64_t kMaxInstructions = 10'000'000;
 	}
 
-	BareHost::BareHost(const Package& _package) : m_package(_package)
+	BareHost::BareHost(const Package& _package, const DecayTable& _decay) : m_package(_package), m_decay(_decay)
 	{
 		m_validator = std::make_unique<DefaultMemoryValidator>();
 		m_periphX = std::make_unique<PeripheralsNop>();
@@ -144,7 +144,8 @@ namespace md::mds
 
 	void BareHost::setParameter(const size_t _index, const int _setting)
 	{
-		m_dsp->memWrite(MemArea_Y, kTrack + 1 + static_cast<TWord>(_index), convert(m_package.parameters[_index], _setting));
+		m_dsp->memWrite(MemArea_Y, kTrack + 1 + static_cast<TWord>(_index), convert(m_package.parameters[_index], _setting,
+			m_decay));
 	}
 
 	void BareHost::disassemble() const

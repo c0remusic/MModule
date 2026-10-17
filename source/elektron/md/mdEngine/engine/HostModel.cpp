@@ -54,6 +54,8 @@ namespace md::engine
 		m_choke.fill(kOff);
 		m_cutBy.fill(kOff);
 		m_activeOrder.reserve(kTracks);	// no allocation when a trigger reorders it
+		for(size_t i = 0; i < m_decay.size(); ++i)
+			m_decay[i] = m_os.peek32(md::mds::DecayTableAddress + 4 * static_cast<uint32_t>(i));
 		// md-drums: the master bodies return to the caller instead of running into the tick's epilogue (which mdEngine
 		// never calls)
 		for(const auto& body : kMasterBodies)
@@ -343,7 +345,7 @@ namespace md::engine
 			{
 				const auto* params = voiceParams(_track);
 				for(size_t p = 0; p < package->parameters.size() && p < 8; ++p)
-					out[1 + p] = md::mds::convertFine(package->parameters[p], params[p]);
+					out[1 + p] = md::mds::convertFine(package->parameters[p], params[p], m_decay);
 			}
 			out[0] = m_trigger[_track] ? static_cast<uint32_t>(id) + 1 : 0;
 			m_voices.setSlot(_track, out, 9);

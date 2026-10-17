@@ -201,41 +201,65 @@ namespace md::mds
 		return package;
 	}
 
-	uint32_t convert(const Parameter& _parameter, const int _setting)
+	DecayTable decayTable(const std::vector<uint8_t>& _osImage)
 	{
-		return convertFine(_parameter, static_cast<uint16_t>(std::clamp(_setting, 0, 127) << 7));
+		constexpr size_t at = DecayTableAddress - 0x200000;
+		if(_osImage.size() < at + 4 * 512)
+			throw std::runtime_error("the OS image ends before its decay table");
+		DecayTable t{};
+		for(size_t i = 0; i < t.size(); ++i)
+			t[i] = be32(_osImage, at + 4 * i);
+		return t;
 	}
 
-	uint32_t convertFine(const Parameter& _parameter, const uint16_t _value)
+	DecayTable approximateDecayTable()
 	{
-		// A setting is _value / 128; at a whole setting each conversion gives the documents' word
-		const int v = std::clamp(static_cast<int>(_value), _parameter.min << 7, _parameter.max << 7);
-		const double setting = v / 128.0;
-		const auto q23 = [](const double _v)
+		// T[i] = 2^23 exp(-1/tau), tau = 2^(1.7541 + 0.033880 i) samples
+		DecayTable t{};
+		for(size_t i = 0; i < t.size(); ++i)
 		{
-			const auto w = static_cast<int32_t>(std::lround(std::clamp(_v, -1.0, 1.0 - 1.0 / 8388608.0) * 8388608.0));
-			return static_cast<uint32_t>(w) & 0xffffff;
-		};
+			const double tau = std::pow(2.0, 1.7541 + 0.033880 * static_cast<double>(i));
+			t[i] = static_cast<uint32_t>(std::min(std::lround(8388608.0 * std::exp(-1.0 / tau)), 0x7fffffl));
+		}
+		return t;
+	}
+
+	uint32_t convert(const Parameter& _parameter, const int _setting, const DecayTable& _decay)
+	{
+		return convertFine(_parameter, static_cast<uint16_t>(std::clamp(_setting, 0, 127) << 7), _decay);
+	}
+
+	uint32_t convertFine(const Parameter& _parameter, const uint16_t _value, const DecayTable& _decay)
+	{
+		// As X.20's $21aeba: v clamped to the parameter's range, then the low nibble's conversion (research/10, section 2)
+		const int v = std::clamp(static_cast<int>(_value), _parameter.min << 7, _parameter.max << 7);
 		switch(_parameter.conversion)
 		{
 		case Conversion::Raw14:			return static_cast<uint32_t>(v);							// 64 becomes 8192
-		case Conversion::UnipolarQ23:	return static_cast<uint32_t>(v) << 9;						// 64 becomes 0.5
+		case Conversion::UnipolarQ23:	// 64 becomes 0.5; 0 below one setting, $7fffff from 127
+			return v <= 0x7f ? 0u : v >= 0x3f80 ? 0x7fffffu : static_cast<uint32_t>(v) << 9;
 		case Conversion::SquaredQ23:	return static_cast<uint32_t>(static_cast<int64_t>(v) * v >> 5);	// 64 becomes 0.25
 		case Conversion::BipolarQ23:	return static_cast<uint32_t>((v - 8192) * 1024) & 0xffffff;	// 0 is -1, 64 zero
-		case Conversion::Boolean:		return v >= 64 ? 1u : 0u;
-		case Conversion::Index:			return static_cast<uint32_t>(((v + 64) >> 7) - _parameter.min);
+		case Conversion::Boolean:		return v != 0 ? 1u : 0u;
+		case Conversion::Index:			return static_cast<uint32_t>((v >> 7) - _parameter.min);
 		case Conversion::Pitch:
 			{
-				// Guess: the setting as a MIDI note at A=440 Hz; P = f * 2^21 / 44,100 (the documents' increment)
-				const double f = 440.0 * std::pow(2.0, (setting - 69.0) / 12.0);
-				return static_cast<uint32_t>(std::lround(f * 2097152.0 / 44100.0)) & 0xffffff;
+				// DEFAULT mode: L[(v >> 4) & 127] << (v >> 11), L's 128 entries 2048 * 2^(k / 127.5) as X.20's $21bd6c
+				// builds them in 24 fraction bits (the same at TUNING 0 and under the legacy tuning): 16 settings an octave
+				static const auto table = []
+				{
+					std::array<uint32_t, 128> l{};
+					uint64_t x = uint64_t(2048) << 24;
+					for(auto& e : l)
+					{
+						e = static_cast<uint32_t>((x + (1u << 23)) >> 24);
+						x = (x * 0x1016541 + (1u << 23)) >> 24;
+					}
+					return l;
+				}();
+				return table[static_cast<size_t>((v >> 4) & 127)] << (v >> 11);
 			}
-		case Conversion::Decay:
-			{
-				// Guess: 0 is 5 ms to -60 dB, 127 is 10 s, exponentially between
-				const double seconds = 0.005 * std::pow(2000.0, setting / 127.0);
-				return q23(std::exp(std::log(0.001) / (seconds * 44100.0)));
-			}
+		case Conversion::Decay:			return _decay[static_cast<size_t>(v >> 5)];			// four entries a setting
 		}
 		return 0;
 	}

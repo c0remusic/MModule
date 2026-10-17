@@ -55,7 +55,8 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   utilisateur tiennent dans le DSP voix, en place et en temps, par ses tables d'appel étendues comme X.20 ; un DSP à
   part n'apporte que l'isolement.
 - [Faire jouer TX8-BD sur un DSP56300 nu](issues/03-faire-jouer-tx8-bd.md) (construit, écoute en attente) : les 43
-  tournent, les 30 qui font du son sonnent ; le programme doit vivre en mémoire externe ; Pitch et Decay devinés.
+  tournent, les 30 qui font du son sonnent ; le programme doit vivre en mémoire externe ; Pitch et Decay devinés
+  alors, convertis depuis comme X.20.
 
 - [Le paramètre Machine et USR-01 à USR-16](issues/06-parametre-machine-et-usr.md) : Machine va jusqu'à 209, USR aux
   numéros d'X.20 ; l'automation de Machine des sets 0.1.x se décale, dit dans les notes ; USR vide joue muet.
@@ -72,6 +73,8 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   numéros 194 à 209 dans le paramètre, `$5B` et le dump ; un numéro vide joue muet.
 - [La Library et l'état du set](issues/14-library-et-etat.md) : construit ; Library partagée dans le dossier de
   données, copie par instance, l'état du set porte les Machines de son Kit.
+- [Les conversions d'X.20 dans MoDule](issues/15-conversions-x20.md) : construit ; Pitch DEFAULT par la table L,
+  Decay par la table d'OS 1.63 lue dans l'image de l'utilisateur, bords d'Unipolar, Boolean et Index d'X.20.
 - [Lire les conversions Pitch et Decay dans l'OS X.20](issues/10-conversions-pitch-decay.md) : Pitch DEFAULT par une
   table de 128 (16 réglages par octave), Decay par la table d'OS 1.63 à `$24bf94` ; Unipolar à $7FFFFF à 127.
 - [La référence du son après « Booter X.20 »](issues/09-reference-du-son.md) : la spécification MDS et l'oreille pour

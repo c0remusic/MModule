@@ -15,8 +15,8 @@
 namespace mdDrums::test
 {
 	// A User Machine of the test's own, written here in DSP56300 assembly since no one else's may be carried
-	// (.scratch/user-machines/map.md): a sawtooth that decays, PTCH (raw 14-bit) its increment, DEC (unipolar) its
-	// envelope's factor per sample. Its loop's end is an address in its own code, so the package relocates it.
+	// (.scratch/user-machines/map.md): a sawtooth that decays, PTCH (raw 14-bit) its increment, DEC (decay, OS 1.63's
+	// table) its envelope's factor per sample. Its loop's end is an address in its own code, so the package relocates it.
 	inline md::mds::Draft sawDraft()
 	{
 		struct Code
@@ -79,8 +79,8 @@ namespace mdDrums::test
 		ptch.conversion = md::mds::Conversion::Raw14;
 		md::mds::Parameter dec;
 		dec.name = "DEC";
-		dec.defaultValue = 127;
-		dec.conversion = md::mds::Conversion::UnipolarQ23;
+		dec.defaultValue = 40;	// about 22 ms to -60 dB
+		dec.conversion = md::mds::Conversion::Decay;
 		draft.parameters = {ptch, dec};
 		return draft;
 	}

@@ -48,6 +48,8 @@ namespace md::engine
 		// conversions that turn its eight parameters into the words its code reads at Y:(R6+1..8). The voice DSP holds the
 		// code (VoiceEngine::installUserMachine).
 		void setUserMachine(int _index, std::shared_ptr<const md::mds::Package> _package);
+		// md-drums: OS 1.63's decay table, which a User Machine's Decay parameters read, as the OS image holds it
+		const md::mds::DecayTable& decayTable() const { return m_decay; }
 		void setParam(int _track, int _param, int _value);	// 0-127, smoothed like the MD
 		int param(int _track, int _param) const { return m_raw[_track][_param]; }
 		// md-drums: a parameter lock (0-127) for the track's Hit in the block about to render. Where the tick's trigger
@@ -190,6 +192,7 @@ namespace md::engine
 		MasterWords m_masterWords;
 		bool m_masterPending = false;
 		std::array<std::shared_ptr<const md::mds::Package>, 16> m_userMachines{};
+		md::mds::DecayTable m_decay{};
 
 		// md-drums: locks (bit n = parameter n) waiting for a Hit in the block about to render, and those the track's
 		// last Hit plays; the smoothing target is the lock's value on a locked parameter, the Kit's elsewhere

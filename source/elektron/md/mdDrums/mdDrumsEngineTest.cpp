@@ -2,7 +2,7 @@
 // scales the velocity, plays the UW bank's samples, and renders all 16 tracks playing and the master effects within
 // 30 % of real time. It reports the note-to-sound latency and its jitter, sample-accurate (ticket 19) and not, mixes
 // and runs the master effects as the engine's own mixer and mixer DSP do, retriggers without a click of its own, and
-// plays Links, Chokes and Mute as the Machinedrum does.
+// plays Links, Chokes and Mute as the Machinedrum does, and User Machines as MDX X.20 does.
 
 #include "mdDrumsEngine.h"
 
@@ -451,6 +451,69 @@ namespace
 		require(worstRatio <= 1.5f, "a retrigger clicks with the sample-accurate delays");
 	}
 
+	// X.20's conversions (ticket 15 of the User Machines map, research/10): Pitch's 128 settings in the DEFAULT mode as
+	// research/10 computed them from X.20's table builder, Decay OS 1.63's table at four entries a setting (nine of its
+	// words checked against research/10's), the law fitted to it, and between two settings Unipolar 0 under one setting
+	// and $7fffff from 127, Boolean any nonzero word, Index truncated
+	void conversions(const md::fw::FlashOs& _os)
+	{
+		static constexpr uint32_t pitch[128] = {
+			2048, 2139, 2234, 2333, 2437, 2545, 2659, 2777, 2900, 3029, 3164, 3304, 3451, 3605, 3765, 3932,
+			4096, 4278, 4468, 4666, 4874, 5090, 5318, 5554, 5800, 6058, 6328, 6608, 6902, 7210, 7530, 7864,
+			8192, 8556, 8936, 9332, 9748, 10180, 10636, 11108, 11600, 12116, 12656, 13216, 13804, 14420, 15060, 15728,
+			16384, 17112, 17872, 18664, 19496, 20360, 21272, 22216, 23200, 24232, 25312, 26432, 27608, 28840, 30120, 31456,
+			32768, 34224, 35744, 37328, 38992, 40720, 42544, 44432, 46400, 48464, 50624, 52864, 55216, 57680, 60240, 62912,
+			65536, 68448, 71488, 74656, 77984, 81440, 85088, 88864, 92800, 96928, 101248, 105728, 110432, 115360, 120480,
+			125824, 131072, 136896, 142976, 149312, 155968, 162880, 170176, 177728, 185600, 193856, 202496, 211456, 220864,
+			230720, 240960, 251648, 262144, 273792, 285952, 298624, 311936, 325760, 340352, 355456, 371200, 387712, 404992,
+			422912, 441728, 461440, 481920, 503296};
+		const auto decay = md::mds::decayTable(_os.osImage);
+		md::mds::Parameter p;
+		const auto with = [&p](const md::mds::Conversion _c, const uint8_t _min = 0, const uint8_t _max = 127)
+		{
+			p.conversion = _c;
+			p.min = _min;
+			p.max = _max;
+		};
+
+		with(md::mds::Conversion::Pitch);
+		int pitchOff = 0;
+		for(int s = 0; s < 128; ++s)
+			pitchOff += md::mds::convert(p, s, decay) != pitch[s];
+		require(pitchOff == 0, std::to_string(pitchOff) + " Pitch settings are not X.20's");
+
+		with(md::mds::Conversion::Decay);
+		const std::pair<int, uint32_t> known[] = {{0, 0x5f29c2}, {16, 0x77d4a9}, {32, 0x7e22ba}, {48, 0x7f9536},
+			{64, 0x7fe836}, {80, 0x7ffab5}, {96, 0x7ffed2}, {112, 0x7fffbd}, {127, 0x7ffff0}};
+		for(const auto& [s, word] : known)
+			require(md::mds::convert(p, s, decay) == word, "Decay at " + std::to_string(s) + " is not OS 1.63's word");
+		bool rising = true;
+		for(int s = 1; s < 128; ++s)
+			rising = rising && md::mds::convert(p, s, decay) >= md::mds::convert(p, s - 1, decay);
+		require(rising, "Decay does not rise with its setting");
+		require(md::mds::convertFine(p, (10 << 7) + 40, decay) == decay[41], "Decay between two settings is not T[v >> 5]");
+		const auto shortest = md::mds::convert(p, 0, decay), longest = md::mds::convert(p, 127, decay);
+		const auto fitted = md::mds::approximateDecayTable();
+		uint32_t stray = 0;
+		for(size_t i = 0; i < decay.size(); ++i)
+			stray = std::max(stray, decay[i] > fitted[i] ? decay[i] - fitted[i] : fitted[i] - decay[i]);
+		require(stray <= 126, "the fitted Decay law strays " + std::to_string(stray) + " LSB from OS 1.63's table");
+
+		with(md::mds::Conversion::UnipolarQ23);
+		require(md::mds::convertFine(p, 0x7f, decay) == 0 && md::mds::convertFine(p, 0x80, decay) == 0x10000
+			&& md::mds::convertFine(p, 0x3f7f, decay) == 0x7efe00 && md::mds::convert(p, 127, decay) == 0x7fffff,
+			"Unipolar is not X.20's at its ends");
+		with(md::mds::Conversion::Boolean);
+		require(md::mds::convertFine(p, 0, decay) == 0 && md::mds::convertFine(p, 1, decay) == 1,
+			"Boolean is not any nonzero word");
+		with(md::mds::Conversion::Index, 2, 9);
+		require(md::mds::convertFine(p, (5 << 7) + 127, decay) == 3 && md::mds::convertFine(p, 0, decay) == 0,
+			"Index is not truncated from its minimum");
+		std::printf("conversions: Pitch's 128 settings X.20's (2048 to 503296), Decay OS 1.63's table (%06x to %06x, the"
+			" fitted law within %u LSB), Unipolar, Boolean and Index X.20's between settings\n",
+			shortest, longest, stray);
+	}
+
 	// User Machines (ticket 12 of the User Machines map): the test's sawtooth, packaged as MDX X.20 packages are, at
 	// USR-02 on Track 3 of the engine (md::engine::Engine, as mdEngineFirmwareTest compares it): its voice gives the bare
 	// host's samples (md::mds::BareHost, mdsPlay's), from its Hit, its code relocated and its parameters converted, and the
@@ -465,7 +528,7 @@ namespace
 		constexpr int blocks = 96;
 
 		// The bare host, from INIT and TRIG on
-		md::mds::BareHost bare(*package);
+		md::mds::BareHost bare(*package, md::mds::decayTable(_os.osImage));
 		for(size_t p = 0; p < package->parameters.size(); ++p)
 			bare.setParameter(p, package->parameters[p].defaultValue);
 		bare.init();
@@ -633,6 +696,7 @@ int main()
 		equivalence(_flash, os, bank);
 		retrigger(os, bank);
 		chokes(os, bank);
+		conversions(os);
 		userMachines(os, bank);
 
 		// Track 1 on its own output: it leaves the main mix and sounds there alone.

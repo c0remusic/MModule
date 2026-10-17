@@ -16,7 +16,8 @@ namespace md::mds
 	class BareHost
 	{
 	public:
-		explicit BareHost(const Package& _package);	// throws on an import it does not provide (the services)
+		// Throws on an import it does not provide (the services). _decay: the table Decay parameters read (decayTable)
+		BareHost(const Package& _package, const DecayTable& _decay);
 		~BareHost();
 
 		// The word at Y:(R6+1+_index), as the conversion of the parameter gives it
@@ -35,6 +36,7 @@ namespace md::mds
 		uint64_t call(uint32_t _stub, uint32_t _end);
 
 		const Package& m_package;
+		const DecayTable m_decay;
 		std::unique_ptr<dsp56k::DefaultMemoryValidator> m_validator;
 		std::unique_ptr<dsp56k::PeripheralsNop> m_periphX, m_periphY;
 		std::unique_ptr<dsp56k::Memory> m_mem;
