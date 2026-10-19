@@ -92,11 +92,9 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 
 ## Not yet specified
 
-- NEIGHBOUR (les 9 NFX et les 4 SYN-F, 13 des 43 du zip ; aucun ne pose STEREO PAIR,
-  [research/11](research/11-mdm1-flags.md)) : le descripteur de quatre tampons qu'X.20 tient à Y:`$7F0` et fait
-  tourner Track après Track, que le harnais du DSP voix devra tenir ; un voice sautée doit vider son tampon ; le délai
-  des Hits sample-accurate face à leurs sources ; l'aperçu du Hit, qui rend une Track seule. STEREO PAIR (rôle à Y+9)
-  après NEIGHBOUR. Refusés d'ici là, et un set qui en garde un le perd au prochain enregistrement.
+- STEREO PAIR (rôle à Y+9, aucune des 43 ne le pose, [research/11](research/11-mdm1-flags.md)) : après NEIGHBOUR,
+  que l'utilisateur a voulu le 2026-10-19 (tickets 19 à 23 : les tampons des voisins, le délai face aux Hits
+  sample-accurate, l'aperçu, la construction, garder un paquet que la build ne joue pas).
 - Le sprite 32x24 de MDM1 : où le montrer, si l'éditeur le montre.
 - Le fondu ANTI-CLICK qu'X.20 fait avant TRIG : le faire ou non, OS 1.63 n'en a pas. S'il se fait, il suit le
   drapeau CONTINUOUS RETRIGGER (31 des 43, research/11), qu'X.20 lit pour le sauter ; MoDule ne le lit pas d'ici là,
