@@ -137,7 +137,9 @@ a Lock without a Hit cannot name its Track.
   sample, `HostModel::clock`): as on the machine slaved to a clock, a slide steps on the transport's grid, a swung or
   micro-timed slide Hit's first step less than a clock after it, and stands still while the transport stops, as the
   OS's does when its sequencer stops (asked of MD Drums by the user through md-drums-seq). A clock in the slide Hit's
-  own block skips its Track, as the OS's update skips a track whose trig waits for its tick. The Track's next Hit ends
+  own block skips its Track, as the OS's update skips a track whose trig waits for its tick; on the firmware the
+  trig's own clock skips it or steps it as the control tick's phase falls, so this is one of the machine's two
+  outcomes (`mdSlideFirmwareTest`, which measures the firmware's stairs against the same ramp). The Track's next Hit ends
   the slide at once with its own Locks or the Kit's values, as every Hit does; a Hit the mute drops, or another
   Track's, leaves it running. A host that gives no transport plays no slide.
 - md-drums-seq sends, at one tick, with the last ratchet of a slide step, the Hit, then its Locks, then note 88 if it

@@ -73,7 +73,9 @@ namespace md::engine
 		// lock the track's next Hit plays on it
 		void slideTarget(int _track, int _param, int _value);
 		// md-drums: one clock of 24 ppqn of the transport, before the block about to render: every slide steps, but a
-		// track's whose Hit that block plays, as the OS's update skips a track whose trig waits for its tick ($2ae8c2).
+		// track's whose Hit that block plays, as the OS's update skips a track whose trig waits for its tick ($2ae8c2)
+		// (on the firmware the trig's own clock skips it or steps it as the control tick's phase falls:
+		// mdSlideFirmwareTest).
 		// Without clocks (the transport stopped) slides stand still, as the OS's do when its sequencer stops.
 		void clock();
 		// md-drums: the smoothing target the next tick gives a parameter: a lock's or a slide's value, the Kit's elsewhere

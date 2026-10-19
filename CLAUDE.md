@@ -67,10 +67,10 @@ $env:GEARMULATOR_MD_FIRMWARE_BIN = "$rom\elektron_sps1-1uw_os1.63.bin"
 $env:GEARMULATOR_MM_FIRMWARE_BIN = "$rom\elektron_sfx6-60_os1.32b.bin"
 cmake --build temp\cmake_vs22 --config Release -j 6 --target mdAutomationMidiTest mdKitDumpFirmwareTest mdTrigLatencyFirmwareTest mdEngineFirmwareTest mdDrumsEngineTest mdDrumsDeviceTest mdDrumsProcessorTest mdDrumsSkinTest mdDrumsScreensTest mdDrumsBankTest mdDrumsHitPreviewTest mdDrumsFirstHitTest mdDrumsVst3HostTest mdDrumsUpdateTest synthLibResamplerTimingTest synthLibOutputChannelsTest mdProtocolKitTest
 cd temp\cmake_vs22
-ctest -C Release -R "^(mdAutomationMidiTest|mdKitDumpFirmwareTest|mdEngineFirmwareTest|mdDrumsEngineTest|mdDrumsDeviceTest|mdDrumsProcessorTest|mdDrumsSkinTest|mdDrumsScreensTest|mdDrumsBankTest|mdDrumsHitPreviewTest|mdDrumsFirstHitTest|mdDrumsVst3HostTest|mdDrumsUpdateTest|synthLibResamplerTimingTest|synthLibOutputChannelsTest|mdProtocolKitTest)$"
+ctest -C Release -R "^(mdAutomationMidiTest|mdKitDumpFirmwareTest|mdEngineFirmwareTest|mdSlideFirmwareTest|mdDrumsEngineTest|mdDrumsDeviceTest|mdDrumsProcessorTest|mdDrumsSkinTest|mdDrumsScreensTest|mdDrumsBankTest|mdDrumsHitPreviewTest|mdDrumsFirstHitTest|mdDrumsVst3HostTest|mdDrumsUpdateTest|synthLibResamplerTimingTest|synthLibOutputChannelsTest|mdProtocolKitTest)$"
 ```
 
-Green is 20 passed out of 20: ctest adds the 4 fixture tests `mdEngineFirmwareTest` requires (`mdEngineFirmwareHits`, `mdEngineFirmwareRomBank`, `mdEngineFirmwareGroups` and `mdEngineFirmwareMaster` boot the firmware to record the hits, the voice DSP's UW bank, the Link and Choke scenarios and the master effect scenarios with the mixer DSP's memory, which `mdEngineFirmwareTest` compares the engine with).
+Green is 21 passed out of 21: ctest adds the 4 fixture tests `mdEngineFirmwareTest` requires (`mdEngineFirmwareHits`, `mdEngineFirmwareRomBank`, `mdEngineFirmwareGroups` and `mdEngineFirmwareMaster` boot the firmware to record the hits, the voice DSP's UW bank, the Link and Choke scenarios and the master effect scenarios with the mixer DSP's memory, which `mdEngineFirmwareTest` compares the engine with).
 
 The ROM is required. A firmware test exits 77 without its ROM and ctest reports it Skipped, which proves nothing:
 - The firmware tests read `GEARMULATOR_MD_FIRMWARE_BIN`; MoDule's tests find the flash image as `mdDrums::Engine::findFlashImage` says.

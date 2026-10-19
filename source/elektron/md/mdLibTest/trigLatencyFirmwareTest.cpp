@@ -486,6 +486,222 @@ namespace
 			}
 		}
 	}
+
+	// Slides as OS 1.63's own sequencer plays them (.scratch/slide/research-01-os-slide.md; MD Drums ports them, ADR
+	// 0003 amended 2026-10-19): on a booted machine in EXTENDED mode at its 125 BPM, Pattern A01 rewritten in RAM for
+	// each scenario to hold track 1's trigs, its Locks on FLTF and the Slide row, then played from the front panel
+	// twice through (a sequencer that starts sets up its first step's Locks and slides at none). Track 1's FLTF
+	// smoothing target ($1000ddc + 12), read after every block, takes the stairs the research derived: the slide step's
+	// Lock, then (end - start) x 128 / clocks, truncated toward zero, added at each 24-ppqn clock, each sum >> 7, a
+	// clock (882 samples) apart; then the next trig's value, its Lock or the Kit's. The trig's own clock steps the
+	// slide or skips it as the control tick's phase falls (MD Drums always skips it, HostModel::clock). Stopped
+	// mid-slide, it stands still. mdDrumsEngineTest checks MD Drums' port against the same ramp.
+	void slides(const char* _path)
+	{
+		using namespace md::automation;
+		const auto check = [](const bool _condition, const std::string& _message)
+		{
+			require(_condition, _message.c_str());
+		};
+		constexpr uint32_t target = 0x01000ddc + 12;	// track 1's FLTF in the smoothing targets
+		constexpr uint32_t tempoWord = 0x0100150c;		// BPM x 24
+		constexpr uint8_t kitValue = 64;
+		Bench bench(_path, 0);
+		bootUntilNotesPlay(bench);
+		auto& hardware = bench.hardware();
+		auto& uc = hardware.getUC();
+		const auto settle = [&](const uint32_t _blocks)
+		{
+			for(uint32_t block = 0; block < _blocks; ++block)
+				bench.process();
+		};
+		const auto tap = [&](const md::PanelControl _control)
+		{
+			const auto packet = md::panelPacket(md::MachineModel::Machinedrum, _control);
+			require(packet.has_value(), "unknown panel control");
+			require(hardware.trySendPanelEvent(packet->row, packet->mask), "panel press rejected");
+			settle(8);
+			require(hardware.trySendPanelEvent(packet->row, 0), "panel release rejected");
+			settle(25);
+		};
+		const auto cc = encodeParameterChange(md::MachineModel::Machinedrum, {machinedrum::Effects, 0, 4, kitValue}, 0);
+		require(cc.has_value(), "no CC for FLTF");
+		bench.note((*cc)[0], (*cc)[1], (*cc)[2], 0);
+		settle(8);
+		const auto extended = [&]
+		{
+			return hardware.getFrontPanelSnapshot().getModeLed(md::FrontPanel::ModeLed::Extended);
+		};
+		if(!extended())
+			tap(md::PanelControl::ClassicExtended);
+		require(extended(), "the machine is not in EXTENDED mode");
+		const uint32_t tempo = static_cast<uint32_t>(uc.read8(tempoWord)) << 24 | uc.read8(tempoWord + 1) << 16
+			| uc.read8(tempoWord + 2) << 8 | uc.read8(tempoWord + 3);
+		require(tempo == 125 * 24, "the machine is not at 125 BPM");
+		require(uc.read8(target) == kitValue, "the Kit's FLTF did not reach the smoothing target");
+
+		const auto layout = hardware.livePatternLayout();
+		require(layout.has_value(), "no pattern layout for this OS");
+		const auto main = layout->mainOf(0), tail = layout->tailOf(0);
+		require(uc.read8(main + 146) == 0, "Pattern A01 does not play at 1x");
+
+		struct Scenario
+		{
+			const char* name;
+			std::vector<uint8_t> trigs;		// track 1's steps (0-31)
+			std::vector<std::pair<uint8_t, uint8_t>> locks;	// step, FLTF
+			uint8_t slideStep;
+			int start, end, clocks;			// the ramp the research derives
+			bool stop;						// STOP after three stairs
+		};
+		const std::vector<Scenario> scenarios{
+			{"one step from 0 to 127", {0, 1}, {{0, 0}, {1, 127}}, 0, 0, 127, 6, false},
+			{"to the Kit's value", {0, 1}, {{0, 0}}, 0, 0, kitValue, 6, false},
+			{"two steps from 0 to 127", {0, 2}, {{0, 0}, {2, 127}}, 0, 0, 127, 12, false},
+			{"one step from 100 to 20", {0, 1}, {{0, 100}, {1, 20}}, 0, 100, 20, 6, false},
+			{"stopped", {0, 2}, {{0, 0}, {2, 127}}, 0, 0, 127, 12, true},
+		};
+		const auto ramp = [](const int _start, const int _end, const int _over, const int _clocks)
+		{
+			const int increment = (_end - _start) * 128 / _over;
+			int current = _start * 128;
+			for(int c = 0; c < _clocks && increment; ++c)
+			{
+				const int next = current + increment;
+				if(increment > 0 ? next > _end * 128 : next < _end * 128)
+					break;
+				current = next;
+			}
+			return current >> 7;
+		};
+
+		for(const auto& scenario : scenarios)
+		{
+			// Track 1 alone: its trigs, one lock row (FLTF), the Slide row for every track (EDIT ALL); no other trig,
+			// lock, accent or swing
+			std::vector<md::RamWrite> writes;
+			const auto put32 = [&](const uint32_t _address, const uint32_t _value)
+			{
+				for(uint32_t i = 0; i < 4; ++i)
+					writes.push_back({_address + i, static_cast<uint8_t>(_value >> (24 - 8 * i))});
+			};
+			uint32_t trigs = 0;
+			for(const auto step : scenario.trigs)
+				trigs |= 1u << step;
+			for(uint32_t track = 0; track < 16; ++track)
+			{
+				put32(main + 4 * track, track ? 0 : trigs);
+				put32(main + 64 + 4 * track, track ? 0 : 1u << 12);
+			}
+			put32(main + 128, 0);
+			put32(main + 132, 1u << scenario.slideStep);
+			put32(main + 136, 0);
+			writes.push_back({main + 149, 1});
+			for(uint32_t step = 0; step < 32; ++step)
+				writes.push_back({main + 150 + step, 0xff});
+			for(const auto& [step, value] : scenario.locks)
+				writes.push_back({main + 150 + step, value});
+			put32(tail + 0, 0);
+			put32(tail + 4, 1);
+			put32(tail + 8, 0);
+			require(hardware.writeRamIfUnchanged(writes), "the pattern's bytes were refused");
+			settle(16);
+
+			// Played from step 1, twice through: a sequencer that starts sets up its first step's Locks and slides at
+			// none, so the second time through plays them. Every change of the target there, its value and its frame.
+			const auto play = md::panelPacket(md::MachineModel::Machinedrum, md::PanelControl::Play);
+			require(play.has_value() && hardware.trySendPanelEvent(play->row, play->mask), "PLAY rejected");
+			const auto loopClocks = 6 * static_cast<int>(uc.read8(main + 145));
+			std::vector<std::pair<uint64_t, int>> changes;
+			int last = uc.read8(target);
+			const auto blocks = static_cast<uint32_t>((loopClocks + scenario.clocks + 8) * 882 / g_block + 8);
+			size_t from = SIZE_MAX;
+			const auto startFrame = bench.frame();
+			bool held = false;
+			for(uint32_t block = 0; block < blocks; ++block)
+			{
+				if(block == 8)
+					require(hardware.trySendPanelEvent(play->row, 0), "PLAY's release rejected");
+				bench.process();
+				const int value = uc.read8(target);
+				if(value != last)
+				{
+					changes.emplace_back(bench.frame(), value);
+					// The second time through starts at the slide step's first change
+					const auto secondTime = startFrame + static_cast<uint64_t>((loopClocks - 3) * 882);
+					if(from == SIZE_MAX && bench.frame() > secondTime)
+						from = changes.size() - 1;
+				}
+				last = value;
+				if(scenario.stop && from != SIZE_MAX && changes.size() == from + 3)
+				{
+					tap(md::PanelControl::Stop);
+					const auto stoppedAt = uc.read8(target);
+					settle(172);
+					check(uc.read8(target) == stoppedAt,
+						std::string(scenario.name) + ": the slide moved while stopped");
+					std::printf("slide %s: held at %d for a second after STOP\n", scenario.name, stoppedAt);
+					held = true;
+					break;
+				}
+			}
+			if(!scenario.stop)
+				tap(md::PanelControl::Stop);
+			settle(64);
+
+			std::string seen;
+			for(size_t i = 0; i < changes.size(); ++i)
+				seen += (i == from ? " |" : " ") + std::to_string(changes[i].second);
+			std::printf("slide %s:%s\n", scenario.name, seen.c_str());
+			check(from != SIZE_MAX, std::string(scenario.name) + ": nothing changed the second time through");
+			if(scenario.stop)
+			{
+				check(held, std::string(scenario.name) + ": never stopped mid-slide");
+				continue;
+			}
+			// The Lock, the clocks' stairs, then the next trig's value. The trig's own clock steps the slide too when
+			// the control tick arms it between the clock handler's trigs and its update (the update skips a track whose
+			// trig waits for the tick, $2ae8c2), which the tick's phase decides: the Lock and its first stair then
+			// change the target within one block, and the slide takes a stair more before the next trig
+			const auto stairs = [&](const int _first)
+			{
+				std::vector<int> values;
+				for(int c = _first; c < scenario.clocks + _first; ++c)
+				{
+					const auto value = ramp(scenario.start, scenario.end, scenario.clocks, c);
+					if(values.empty() || value != values.back())
+						values.push_back(value);
+				}
+				if(values.back() != scenario.end)
+					values.push_back(scenario.end);
+				return values;
+			};
+			std::vector<int> observed;
+			for(auto i = from; i < changes.size(); ++i)
+			{
+				observed.push_back(changes[i].second);
+				if(changes[i].second == scenario.end)
+					break;
+			}
+			const auto skipped = stairs(0), stepped = stairs(1);
+			const bool tickBefore = observed == stepped;
+			check(observed == skipped || tickBefore,
+				std::string(scenario.name) + ": the stairs are not the research's ramp");
+			// A clock apart, within the bench's blocks, but the last: the next trig's value comes at the control tick
+			// after the trig
+			std::string gaps;
+			for(size_t i = 1; i < observed.size(); ++i)
+			{
+				const auto gap = static_cast<int64_t>(changes[from + i].first - changes[from + i - 1].first);
+				gaps += " " + std::to_string(gap);
+				check(i + 1 == observed.size() || std::abs(gap - 882) <= static_cast<int64_t>(g_block),
+					std::string(scenario.name) + ": stair " + std::to_string(i) + " came " + std::to_string(gap)
+						+ " samples after the last");
+			}
+			std::printf("slide %s: the trig's own clock %s; samples between stairs%s\n", scenario.name,
+				tickBefore ? "stepped it" : "skipped it", gaps.c_str());
+		}
+	}
 }
 
 int main(int argc, char** argv)
@@ -520,6 +736,9 @@ int main(int argc, char** argv)
 		else if(argc > 4 && std::string(argv[1]) == "--dsp2")
 			dsp2(path, argv[2], static_cast<uint32_t>(std::stoul(argv[3], nullptr, 16)),
 				static_cast<uint32_t>(std::stoul(argv[4], nullptr, 16)));
+		// --slides: OS 1.63's own sequencer sliding Locks, against the ramp MD Drums ports.
+		else if(argc > 1 && std::string(argv[1]) == "--slides")
+			slides(path);
 		else
 			run(path);
 		return 0;

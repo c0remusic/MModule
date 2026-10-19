@@ -47,3 +47,7 @@ set_tests_properties(mdEngineFirmwareHits mdEngineFirmwareRomBank mdEngineFirmwa
 set_tests_properties(mdEngineFirmwareTest PROPERTIES
 	LABELS "FirmwareTest;AudioIo" SKIP_RETURN_CODE 77 TIMEOUT 120 FIXTURES_REQUIRED MdEngineHits)
 set_property(TARGET mdEngineFirmwareTest PROPERTY FOLDER "Elektron/test")
+
+# Slides as OS 1.63's own sequencer plays them, against the ramp MD Drums ports (mdDrumsEngineTest checks the port)
+add_test(NAME mdSlideFirmwareTest COMMAND mdTrigLatencyFirmwareTest --slides)
+set_tests_properties(mdSlideFirmwareTest PROPERTIES LABELS "FirmwareTest;AudioIo" SKIP_RETURN_CODE 77 TIMEOUT 300)

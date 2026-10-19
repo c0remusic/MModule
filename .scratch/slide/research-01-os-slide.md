@@ -291,7 +291,7 @@ path, and a binding Live play cannot give. [I]
 
 ## Open points
 
-- **Not verified on the firmware.** The oracle can: write a pattern with Locks and a Slide row into `mdLib`'s machine
+- **Not verified on the firmware** (done since: see "Measured on the firmware" below). The oracle can: write a pattern with Locks and a Slide row into `mdLib`'s machine
   (`Hardware::writeRamIfUnchanged` at the live pattern layout, or a `$67` dump), play it, and read $1000ddc, $2ae996
   and $10011cc at each tick. That settles the formula, the first increment's clock, the Kit's value as the end, and the
   freeze on stop. Until then everything above is static reading.
@@ -306,3 +306,34 @@ path, and a binding Live play cannot give. [I]
   run its clocks out unless md-drums-seq sends something on stop.
 - **Identities inferred, not traced:** $1001544 as EXTENDED mode, the timer's 2 µs unit, the scale names of the table
   at $247e4c, the states of $1001f34.
+
+## Measured on the firmware (2026-10-19)
+
+`mdSlideFirmwareTest` (`mdTrigLatencyFirmwareTest --slides`, in the gate) plays slides on the full firmware's own
+sequencer: Pattern A01 rewritten in RAM (track 1's trigs, one lock row on FLTF, the Slide row with its EDIT ALL word),
+PLAY from the front panel, track 1's FLTF smoothing target ($1000ddc + 12) read after every 256-sample block, at the
+boot's 125 BPM in EXTENDED mode. [M] for everything in this section.
+
+- **The formula holds**, value for value: 0 to 127 over one step at 1x gives 0 21 42 63 84 105, then 127 at the next
+  trig; over two steps (12 clocks) 0 10 21 31 42 52 63 74 84 95 105 116, then 127; 100 to 20 over one step 100 86 73
+  60 46 33, then 20. Each stair is a clock after the last (768 or 1024 samples at the block's resolution, 882 on
+  average). The slide step's Lock is the start; the running value ($2ae996) is value x 128 and the increment ($2afd4a)
+  the truncated quotient: 2709 for 16256 / 6, 1365 for 8192 / 6, 1354 for 16256 / 12.
+- **The Kit's value as the end**: a slide step whose next trig has no Lock on the parameter slides to the Kit's value
+  (64 here), and that trig puts the Kit's value back at once.
+- **The trig's own clock is a race.** On some passes the trig's clock skips the track and the first stair comes a
+  clock later (the start visible for a clock, five stairs in a step, the research's model); on others the control tick
+  arms the track between the clock handler's trigs and its update, and the update steps it at the trig's own clock
+  (the Lock and its first stair within one block, six stairs in a step, the last one increment short of the end:
+  0 to 64 shows 10 21 31 42 53 63, then 64). Which one happens follows the control tick's phase against the clocks.
+  MoDule's `HostModel::clock` always skips the clock in the Hit's block, the first case, within the machine's own
+  spread.
+- **Stopped mid-slide, it stands still**: after STOP the target held its value (21) for a second.
+- **Starting the sequencer**: the first pass after PLAY plays step 1 without its Locks and its slide (the setup runs
+  one step ahead, and there is no step before the first); from the second pass on they play. What a run staged stays
+  staged across STOP: the next PLAY's first step slides with the last run's staging.
+- **$1001544 is not EXTENDED mode**: it reads 0 with the EXTENDED LED lit and slides playing. Its identity stays open.
+
+The clock count's range, the transport and the clock's phase above were settled with md-drums-seq on 2026-10-19
+(ADR 0003, amended): note 114 for the clocks past 127; the host transport's MIDI clocks step MoDule's slides and stop
+them; md-drums-seq counts the clocks between the two Hits as they play.
