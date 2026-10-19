@@ -1,9 +1,9 @@
 // MD Drums' Device driven by MIDI bytes alone, through synthLib::Plugin as the plug-in drives it: it boots with factory
 // Kit 1, plays notes 36-51 and drops the others, takes the Machinedrum's CCs and SysEx from the editor and ignores the
 // host's, answers ASSIGN MACHINE with the 24 parameters it sets as CCs, plays Mute, Solo and Out, keeps its Kit and
-// mixer across a state round trip, plays Locks and accents (ADR 0003), and renders with notes and CCs without allocating. It
-// reports the note-to-sound latency at 44.1 and 48 kHz, and fills the Telemetry the editor reads (peaks, Hits) for at
-// most 1 % of one core. md-drums-seq's Kit files need no flash image: they are checked without one too.
+// mixer across a state round trip, plays Locks, accents and slides (ADR 0003), and renders with notes and CCs without
+// allocating. It reports the note-to-sound latency at 44.1 and 48 kHz, and fills the Telemetry the editor reads (peaks,
+// Hits) for at most 1 % of one core. md-drums-seq's Kit files need no flash image: they are checked without one too.
 // usage: mdDrumsDeviceTest [--measure], which also times the whole Device with and without its Telemetry
 
 #include "mdDrumsAllocationCounter.h"
@@ -81,10 +81,12 @@ namespace
 			plugin->addMidiEvent(event);
 		}
 
-		// One host block, its MIDI out kept
+		// One host block, its MIDI out kept; the host's transport plays at 120 BPM from the start while playing is set
 		void process()
 		{
-			plugin->process(inputs, outputs, Block, 120.0f, 0.0f, false);
+			plugin->process(inputs, outputs, Block, 120.0f, beats, playing);
+			if(playing)
+				beats += Block * 120.0 / (60.0 * rate());
 			std::vector<synthLib::SMidiEvent> out;
 			plugin->getMidiOut(out);
 			midiOut.insert(midiOut.end(), out.begin(), out.end());
@@ -131,6 +133,8 @@ namespace
 		synthLib::TAudioInputs inputs{};
 		std::vector<synthLib::SMidiEvent> midiOut;
 		float hostRate = 44100.0f;
+		bool playing = false;
+		double beats = 0;	// the transport's position
 	};
 
 	std::vector<uint8_t> cc(const uint8_t _page, const uint8_t _track, const uint8_t _index, const uint8_t _value)
@@ -704,13 +708,138 @@ namespace
 		std::printf("accents: on its Track's channel, with the last channel-1 Hit, on its Link, dropped without its Hit\n");
 	}
 
-	// A note on that plays nothing (outside 36-51 and 64-88) counts in the Telemetry, which the editor says (ticket 35);
-	// a Hit and a Lock do not
+	// Slides (ADR 0003, amended 2026-10-19): note 89 slides the Hit it goes with, its velocity the 24-ppqn clocks to the
+	// Track's next Hit, notes 90-113 give what that next Hit locks, and note 114 adds 127 clocks per velocity step past
+	// 127 (mdDrumsEngineTest checks the ramp itself). As md-drums-seq sends them, after the Hit and its Locks at the same
+	// sample, on channel 1 with the last channel-1 Hit; on the Track's channel before its Hit; dropped without a Hit in
+	// their block. The host's transport plays at 120 BPM, its clocks 918.75 samples apart from the take's start, and FLTF
+	// locked at 0 slides to 127 over 6 clocks (a step at 1x): the Hit plays as the one locked alone through the first
+	// host block, before the first clock after it, then the slide moves it; without a target it slides to the Kit's 20;
+	// with the transport stopped it stands still.
+	void slides(const std::vector<uint8_t>& _flash)
+	{
+		constexpr uint32_t Blocks = 40;
+		constexpr uint8_t Track3 = 38, Track5 = 40;
+		const auto take = [&](const std::function<void(Take&)>& _send, const bool _playing = true)
+		{
+			Take t(_flash);
+			t.assignAtNextHit();
+			t.rig.playing = _playing;
+			_send(t);
+			return t.record(Blocks);
+		};
+		const auto note = [](Take& _t, const int _note, const uint8_t _velocity, const uint8_t _channel = 0)
+		{
+			_t.rig.send(MidiEventSource::Host, {static_cast<uint8_t>(0x90 | _channel), static_cast<uint8_t>(_note),
+				_velocity}, Take::Offset);
+		};
+		const auto slide = [&](Take& _t, const uint8_t _clocks, const uint8_t _channel = 0)
+		{
+			note(_t, mdDrums::Device::SlideNote, _clocks, _channel);
+		};
+		const auto target = [&](Take& _t, const uint8_t _param, const uint8_t _value, const uint8_t _channel = 0)
+		{
+			note(_t, mdDrums::Device::FirstSlideTargetNote + _param, lockVelocity(_value), _channel);
+		};
+
+		const auto slid = take([&](Take& _t) { _t.hit(); _t.lock(Fltf, 0); slide(_t, 6); target(_t, Fltf, 127); });
+		const auto locked = take([&](Take& _t) { _t.hit(); _t.lock(Fltf, 0); });
+		const auto toKit = take([&](Take& _t) { _t.hit(); _t.lock(Fltf, 0); slide(_t, 6); });
+		const auto stopped = take([&](Take& _t) { _t.hit(); _t.lock(Fltf, 0); slide(_t, 6); target(_t, Fltf, 127); },
+			false);
+		const auto lockedStopped = take([&](Take& _t) { _t.hit(); _t.lock(Fltf, 0); }, false);
+		// The first host block, 512 frames left then right, ends before the first clock's step can sound
+		const auto same = [](const std::vector<float>& _a, const std::vector<float>& _b)
+		{
+			return std::equal(_a.begin(), _a.begin() + 2 * Rig::Block, _b.begin());
+		};
+		const auto apart = [](const std::vector<float>& _a, const std::vector<float>& _b)
+		{
+			float result = 0;
+			for(size_t i = 0; i < _a.size(); ++i)
+				result = std::max(result, std::abs(_a[i] - _b[i]));
+			return result;
+		};
+		std::printf("slides: FLTF 0 to 127 over 6 clocks, at most %.4f from the Hit locked alone (peak %.4f), to the "
+			"Kit's 20 at most %.4f\n", apart(slid, locked), peak(locked), apart(toKit, locked));
+		require(peak(locked) > 0.01f, "the Locked Hit is silent");
+		require(same(slid, locked) && same(toKit, locked), "a slide changed its Hit before its first clock");
+		require(slid != locked && toKit != locked && slid != toKit, "a slide did not move its parameter to its target");
+		require(stopped == lockedStopped, "a slide moved with the host's transport stopped");
+
+		// Past 127 clocks: 1 + 127 x 1 = 128, slower than 6; note 114 without note 89 slides nothing
+		const auto longer = take([&](Take& _t)
+		{
+			_t.hit();
+			_t.lock(Fltf, 0);
+			slide(_t, 1);
+			target(_t, Fltf, 127);
+			note(_t, mdDrums::Device::SlideExtensionNote, 1);
+		});
+		const auto extensionAlone = take([&](Take& _t)
+		{
+			_t.hit();
+			_t.lock(Fltf, 0);
+			target(_t, Fltf, 127);
+			note(_t, mdDrums::Device::SlideExtensionNote, 1);
+		});
+		require(longer != locked && longer != slid, "note 114 did not lengthen the slide");
+		require(apart(longer, locked) < apart(slid, locked), "a slide over 128 clocks moved more than one over 6");
+		require(extensionAlone == locked, "note 114 without note 89 slid its Hit");
+
+		// On Track 3's channel before its Hit, as on channel 1 after it, another channel's Hit between them
+		const auto byChannel = take([&](Take& _t)
+		{
+			_t.lock(Fltf, 0, 2);
+			slide(_t, 6, 2);
+			target(_t, Fltf, 127, 2);
+			_t.hit(Track3);
+			_t.hit(Track5, Take::Offset, 4);
+		});
+		const auto byHit = take([&](Take& _t)
+		{
+			_t.hit(Track3);
+			_t.hit(Track5, Take::Offset, 4);
+			_t.lock(Fltf, 0);
+			slide(_t, 6);
+			target(_t, Fltf, 127);
+		});
+		const auto locked3 = take([&](Take& _t) { _t.lock(Fltf, 0, 2); _t.hit(Track3); _t.hit(Track5, Take::Offset, 4); });
+		require(byChannel != locked3, "a slide on Track 3's channel did not slide its Hit");
+		require(byHit == byChannel, "a slide on channel 1 did not go with the last channel-1 Hit");
+
+		// Dropped without a Hit in its block: the Hit two host blocks later plays its Lock alone
+		const auto later = [&](const bool _slide)
+		{
+			return take([&](Take& _t)
+			{
+				if(_slide)
+				{
+					slide(_t, 6);
+					target(_t, Fltf, 127);
+				}
+				_t.rig.process();
+				_t.rig.process();
+				_t.hit();
+				_t.lock(Fltf, 0);
+			});
+		};
+		require(later(true) == later(false), "a slide without its Hit reached a later Hit");
+		std::printf("slides: past 127 clocks with note 114, still with the transport stopped, on its Track's channel, with"
+			" the last channel-1 Hit, dropped without its Hit\n");
+	}
+
+	// A note on that plays nothing (outside 36-51 and 64-114) counts in the Telemetry, which the editor says (ticket 35);
+	// a Hit, a Lock, an accent and a slide do not
 	void unplayed(const std::vector<uint8_t>& _flash)
 	{
 		Rig rig(_flash, 44100.0f);
 		rig.send(MidiEventSource::Host, {0x90, 36, 100});
 		rig.send(MidiEventSource::Host, {0x90, 81, 1});
+		rig.send(MidiEventSource::Host, {0x90, 88, 1});
+		rig.send(MidiEventSource::Host, {0x90, 89, 6});
+		rig.send(MidiEventSource::Host, {0x90, 113, 1});
+		rig.send(MidiEventSource::Host, {0x90, 114, 1});
 		rig.send(MidiEventSource::Host, {0x90, 60, 100});
 		rig.send(MidiEventSource::Host, {0x80, 60, 0});
 		rig.process();
@@ -1088,6 +1217,7 @@ int main(const int _argc, char** _argv)
 		assignAndLfo(_flash);
 		locks(_flash);
 		accents(_flash);
+		slides(_flash);
 		unplayed(_flash);
 		hello(_flash);
 		allocations(_flash);

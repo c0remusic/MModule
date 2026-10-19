@@ -119,6 +119,16 @@ namespace mdDrums
 		// An accent (ADR 0003, amended 2026-10-17) for _track's Hit in the next block, as a Lock goes with it: that Hit and
 		// its Link's play at velocity 128 + 2 x _amount (0-127), the accent amount from then on; dropped without the Hit
 		void accent(int _track, int _amount);
+		// A slide (ADR 0003, amended 2026-10-19) for _track's Hit in the next block, as a Lock goes with it: every
+		// parameter that Hit locks glides to its slideTarget, or to the Kit's value without one, over _clocks (1-127)
+		// plus 127 x extendSlide's clocks of 24 ppqn, a step at each clock(), as OS 1.63's sequencer slides a locked step;
+		// the track's next Hit ends it. Dropped without the Hit (md::engine::HostModel::slide).
+		void slide(int _track, int _clocks);
+		void extendSlide(int _track, int _times127);
+		void slideTarget(int _track, int _param, int _value);	// 0-127: the Lock of the track's next Hit
+		// One clock of 24 ppqn of the host's transport, from the next block: slides step at the clocks, and stand still
+		// without them
+		void clock();
 		void setLevel(int _track, int _level);				// 0-127
 		// A muted track is silent and drops its Hits, firing neither its Link nor its Choke
 		void setMute(int _track, bool _mute);

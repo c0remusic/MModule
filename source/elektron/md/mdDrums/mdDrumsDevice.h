@@ -18,8 +18,9 @@ namespace mdDrums
 {
 	// MD Drums' synthLib::Device: a Machinedrum seen through its MIDI (ADR 0002), the engines without the OS behind it.
 	// It takes notes 36-51 on any channel from anyone, Locks as notes 64-87 on their Track's channel or, on channel 1,
-	// for the Hit just before them at the same sample (ADR 0003, amended), and from the editor (source Editor) the
-	// Machinedrum's CCs on channels 1 to 4 (24 parameters, level, mute), ASSIGN MACHINE ($5B), the master effects
+	// for the Hit just before them at the same sample (ADR 0003, amended), an accent and a slide the same way (notes 88
+	// to 114), and from the editor (source Editor) the Machinedrum's CCs on channels 1 to 4 (24 parameters, level,
+	// mute), ASSIGN MACHINE ($5B), the master effects
 	// ($5D-$60), SET LFO PARAM ($62), SET TRIG GROUP and SET MUTE GROUP ($65, $66) and Kit dumps ($52), plus MD Drums' own
 	// messages (Solo, Out, tempo, mixer). What the host sends besides notes is ignored. It renders synchronously, cutting
 	// its block at each event's offset, and holds everything the sound depends on: its state is its Kit and its mixer.
@@ -30,6 +31,12 @@ namespace mdDrums
 		static constexpr int FirstLockNote = 64;	// SYN1 to LFOM, the engine's parameter order; velocity: lockValue()
 		// After the Locks: accents the Hit it goes with, as a Lock goes with it; velocity: the accent amount, lockValue()
 		static constexpr int AccentNote = 88;
+		// Then slides the Hit it goes with (ADR 0003, amended 2026-10-19): velocity the 24-ppqn clocks to its Track's next
+		// Hit (Engine::slide); from FirstSlideTargetNote, in the Locks' order, what that next Hit locks, lockValue(); and
+		// past 127 clocks, SlideExtensionNote's velocity times 127 more. The host transport's clocks step the slides.
+		static constexpr int SlideNote = 89;
+		static constexpr int FirstSlideTargetNote = 90;
+		static constexpr int SlideExtensionNote = 114;
 		// md-drums-seq's hello (KitFiles): note-ons 124 to 127 in that order, on any channel, each velocity 1 + six
 		// bits of the device's id, the most significant first (helloVelocity); another note-on between them cancels
 		// it. They play nothing.

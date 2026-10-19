@@ -59,6 +59,25 @@ namespace md::engine
 		// and its Link's play at velocity 128 + 2 x _amount, the accent amount (0-127) from then on. Taken where the
 		// block's locks are, so the Hit's trigger may come before it; with no Hit of its track in that block, dropped.
 		void accent(int _track, int _amount);
+		// md-drums: a slide for the track's Hit in the block about to render, as the sequencer's slide trig: every
+		// parameter that Hit locks glides from its lock to the track's next Hit's (slideTarget), or to the Kit's value
+		// without one, over _clocks clocks of 24 ppqn (1-127, extendSlide for more) to that next Hit. OS 1.63's own ramp
+		// (the clock handler at $239762: setup $23b25a, update $23ac2c): increment = (end - start) x 128 / clocks,
+		// truncated, added at each clock(), the smoothing target taking the sum >> 7 until the next sum would pass the
+		// end; the track's next Hit ends it, its own locks or the Kit's values at once. Taken where the block's locks
+		// are; with no Hit of its track in that block, dropped.
+		void slide(int _track, int _clocks);
+		// md-drums: 127 x _times127 (0-127) clocks more for the slide of the track's Hit in the block about to render
+		void extendSlide(int _track, int _times127);
+		// md-drums: the value (0-127) _param slides to in the slide of the track's Hit in the block about to render: the
+		// lock the track's next Hit plays on it
+		void slideTarget(int _track, int _param, int _value);
+		// md-drums: one clock of 24 ppqn of the transport, before the block about to render: every slide steps, but a
+		// track's whose Hit that block plays, as the OS's update skips a track whose trig waits for its tick ($2ae8c2).
+		// Without clocks (the transport stopped) slides stand still, as the OS's do when its sequencer stops.
+		void clock();
+		// md-drums: the smoothing target the next tick gives a parameter: a lock's or a slide's value, the Kit's elsewhere
+		uint8_t target(int _track, int _param) const;
 		void setTempo(double _bpm);							// tempo factor for tempo-synced LFOs and E12/ROM retrig
 		// velocity 1-127; accent: the sequencer's accented step (velocity becomes 128 + 2 x accent amount). A muted track
 		// drops its Hit, as the OS's note handler does ($20ccf6), and so fires neither its Link nor its Choke.
@@ -171,7 +190,6 @@ namespace md::engine
 		// md-drums: locks (bit n = parameter n) waiting for a Hit in the block about to render, and those the track's
 		// last Hit plays; the smoothing target is the lock's value on a locked parameter, the Kit's elsewhere
 		void applyLocks(int _track);
-		uint8_t target(int _track, int _param) const;
 		std::array<uint32_t, kTracks> m_lockPending{};
 		void applyAccents();
 		uint32_t m_accentPending = 0;	// bit n: track n's Hit in the block about to render is accented
@@ -179,5 +197,21 @@ namespace md::engine
 		std::array<uint32_t, kTracks> m_locked{};
 		std::array<std::array<uint8_t, kParams>, kTracks> m_lockPendingValue{};
 		std::array<std::array<uint8_t, kParams>, kTracks> m_lockValue{};
+
+		// md-drums: slides. A sliding parameter is a locked one whose lock value the clocks move (target() reads it), as
+		// the OS's update writes the smoothing target only; the next Hit's applyLocks ends it.
+		void armSlide(int _track);		// after the Hit's locks, as the trigger path arms the waiting increment
+		std::array<uint8_t, kTracks> m_slidePending{};	// the clocks of a slide waiting for a Hit; 0: none
+		std::array<uint8_t, kTracks> m_slideExtension{};	// its clocks past them, in 127s
+		std::array<uint32_t, kTracks> m_slideTargetPending{};
+		std::array<std::array<uint8_t, kParams>, kTracks> m_slideTargetValue{};
+		std::array<uint32_t, kTracks> m_sliding{};		// bit n: parameter n slides
+		struct Slide
+		{
+			int32_t current = 0;	// value << 7, as the OS keeps it ($2ae996)
+			int32_t increment = 0;
+			int32_t end = 0;
+		};
+		std::array<std::array<Slide, kParams>, kTracks> m_slides{};
 	};
 }

@@ -2,7 +2,7 @@
 // scales the velocity, plays the UW bank's samples, and renders all 16 tracks playing and the master effects within
 // 30 % of real time. It reports the note-to-sound latency and its jitter, sample-accurate (ticket 19) and not, mixes
 // and runs the master effects as the engine's own mixer and mixer DSP do, retriggers without a click of its own, and
-// plays Links, Chokes and Mute as the Machinedrum does, and User Machines as MDX X.20 does.
+// plays Links, Chokes, Mute and slides as the Machinedrum does, and User Machines as MDX X.20 does.
 
 #include "mdDrumsEngine.h"
 #include "mdDrumsHitPreview.h"
@@ -422,6 +422,158 @@ namespace
 			require(differ == 0, "a Choke changed its target before it cut it");
 			require(c.lower ? silent > cut : silent == cut, "a Choke did not cut its target where the Hit sounds");
 		}
+	}
+
+	// Slides (ADR 0003, amended 2026-10-19; .scratch/slide/research-01-os-slide.md), on the engine's host: a Hit's locked
+	// parameter glides as OS 1.63's sequencer slides a locked step, its smoothing target stepping at each 24-ppqn clock of
+	// the transport by (end - start) x 128 / clocks, truncated, and stopping before the next sum passes the end; a clock
+	// in the Hit's own block skips its track; the track's next Hit ends the slide with its own Lock or the Kit's value,
+	// at once; without clocks it stands still. The research's worked ramp anchors it: one step at 1x (6 clocks) from 0
+	// to 127 steps 0, 21, 42, 63, 84, 105.
+	void slides(const md::fw::FlashOs& _os, const md::fw::RomBank& _bank)
+	{
+		static constexpr int fltf = 12, fltw = 13, kitValue = 64;
+		using Host = md::engine::HostModel<>;
+		// Track 1's FLTF target after each block from the Hit's (block 0), _hit before the first, a clock before every
+		// _every-th block (0: none) from the Hit's own, _during before each block
+		const auto run = [&](const std::function<void(Host&)>& _hit, const int _blocks, const int _every,
+			const std::function<void(Host&, int)>& _during = {})
+		{
+			md::engine::Engine raw(_os.firmware, _os.osImage);
+			raw.loadRomBank(_bank);
+			mdDrums::applyEngineDefaults(raw.host());
+			auto& host = raw.host();
+			host.setParam(0, fltf, kitValue);
+			host.setParam(0, fltw, kitValue);
+			_hit(host);
+			md::engine::Engine::Output out;
+			std::vector<int> targets;
+			for(int b = 0; b < _blocks; ++b)
+			{
+				if(_every && b % _every == 0)
+					host.clock();
+				if(_during)
+					_during(host, b);
+				require(raw.render(out), "the engine faulted");
+				targets.push_back(host.target(0, fltf));
+			}
+			return targets;
+		};
+		// The OS's ramp after _clocks clocks of a slide from _start to _end over _over clocks
+		const auto ramp = [](const int _start, const int _end, const int _over, const int _clocks)
+		{
+			const int increment = (_end - _start) * 128 / _over;
+			int current = _start * 128;
+			for(int c = 0; c < _clocks && increment; ++c)
+			{
+				const int next = current + increment;
+				if(increment > 0 ? next > _end * 128 : next < _end * 128)
+					break;
+				current = next;
+			}
+			return current >> 7;
+		};
+		// Block by block: the clock in the Hit's block skipped, one more at every _every-th block
+		const auto expect = [&](const std::vector<int>& _targets, const int _every, const int _start, const int _end,
+			const int _over, const char* _name)
+		{
+			for(size_t b = 0; b < _targets.size(); ++b)
+			{
+				const auto expected = ramp(_start, _end, _over, static_cast<int>(b) / _every);
+				require(_targets[b] == expected, std::string(_name) + ": the target at block " + std::to_string(b)
+					+ " is " + std::to_string(_targets[b]) + ", the OS's ramp " + std::to_string(expected));
+			}
+		};
+		const auto slideHit = [](const int _from, const int _clocks, const int _to)
+		{
+			return [=](Host& _h)
+			{
+				_h.lock(0, fltf, _from);
+				_h.slide(0, _clocks);
+				if(_to >= 0)
+					_h.slideTarget(0, fltf, _to);
+				_h.trigger(0, 100);
+			};
+		};
+
+		// One step at 1x from 0 to 127, a clock every 28 blocks (896 samples, about 123 BPM); another Track's Hit, and a
+		// Hit of its own the mute drops, leave it running; an unlocked parameter does not slide
+		const auto rising = run(slideHit(0, 6, 127), 260, 28, [&](Host& _h, const int _b)
+		{
+			require(_h.target(0, fltw) == kitValue, "an unlocked parameter slid");
+			if(_b == 50)
+				_h.trigger(1, 100);
+			if(_b == 100)
+			{
+				_h.setMute(0, true);
+				_h.trigger(0, 100);
+				_h.setMute(0, false);
+			}
+		});
+		const std::vector<int> worked{0, 21, 42, 63, 84, 105, 126};
+		for(size_t c = 0; c < worked.size(); ++c)
+			require(ramp(0, 127, 6, static_cast<int>(c)) == worked[c], "the reference ramp is not the research's");
+		require(rising[27] == 0 && rising[28] == 21, "the clock in the Hit's block was not skipped");
+		expect(rising, 28, 0, 127, 6, "0 to 127 over 6 clocks");
+		require(rising.back() == 126, "a slide not ended did not hold one increment short of its end");
+
+		// The next Hit ends it, at once: the Kit's value without a Lock, its own Lock with one
+		const auto ended = [&](const bool _locked)
+		{
+			return run(slideHit(0, 6, 127), 200, 28, [&](Host& _h, const int _b)
+			{
+				if(_b != 120)
+					return;
+				if(_locked)
+					_h.lock(0, fltf, 127);
+				_h.trigger(0, 100);
+			});
+		};
+		const auto toKit = ended(false), toLock = ended(true);
+		require(toKit[119] == 84 && toKit[120] == kitValue && toKit.back() == kitValue,
+			"the next Hit did not play the Kit's value at once");
+		require(toLock[120] == 127 && toLock.back() == 127, "the next Hit did not play its Lock at once");
+
+		// Falling, with clocks twice as close; without a target, to the Kit's value
+		expect(run(slideHit(100, 3, 20), 80, 14), 14, 100, 20, 3, "100 to 20 over 3 clocks");
+		expect(run(slideHit(0, 4, -1), 200, 28), 28, 0, kitValue, 4, "0 to the Kit's value over 4 clocks");
+
+		// Past 127 clocks (note 114): 3 + 127 x 3 = 384 clocks, 64 steps at 1x, a clock a block
+		const auto longer = run([](Host& _h)
+		{
+			_h.lock(0, fltf, 0);
+			_h.slide(0, 3);
+			_h.extendSlide(0, 3);
+			_h.slideTarget(0, fltf, 127);
+			_h.trigger(0, 100);
+		}, 420, 1);
+		expect(longer, 1, 0, 127, 384, "0 to 127 over 384 clocks");
+		require(longer[192] == ramp(0, 127, 384, 192) && longer[192] > 60 && longer[192] < 66,
+			"a slide of 384 clocks was not halfway after 192");
+
+		// Without clocks, the transport stopped: it stands still
+		const auto stopped = run(slideHit(0, 6, 127), 200, 0);
+		require(std::all_of(stopped.begin(), stopped.end(), [](const int _t) { return _t == 0; }),
+			"a slide moved without clocks");
+
+		// A slide without its Track's Hit in its block is dropped: the Lock of a later Hit holds
+		const auto dropped = run([](Host& _h)
+		{
+			_h.slide(0, 6);
+			_h.extendSlide(0, 1);
+			_h.slideTarget(0, fltf, 127);
+			_h.trigger(1, 100);
+		}, 200, 28, [](Host& _h, const int _b)
+		{
+			if(_b != 1)
+				return;
+			_h.lock(0, fltf, 0);
+			_h.trigger(0, 100);
+		});
+		require(dropped[0] == kitValue && dropped[1] == 0 && dropped.back() == 0, "a slide without its Hit was kept");
+		std::printf("slides: OS 1.63's ramp at the transport's clocks, 0 to 127 over 6 clocks held at %d, over 384 at %d"
+			" after 192; the next Hit ends them at once; still without clocks; dropped without their Hit\n",
+			rising.back(), longer[192]);
 	}
 
 	// A sustained sound (E12-RC, HOLD and DEC at 127) retriggered at each of the 32 places of a block: the delays change
@@ -977,6 +1129,7 @@ int main()
 		equivalence(_flash, os, bank);
 		retrigger(os, bank);
 		chokes(os, bank);
+		slides(os, bank);
 		coldFireBytePush(os);
 		conversions(os);
 		userMachines(os, bank);

@@ -220,6 +220,14 @@ namespace mdDrums
 				applySysex(_event);
 			return;
 		}
+		// The host's transport as the stack's MIDI clock gives it (synthLib::MidiClock): its 24-ppqn clocks step the
+		// slides, which stand still while it stops; a host's own clock messages are ignored, as its other MIDI is
+		if(_event.a == synthLib::M_TIMINGCLOCK)
+		{
+			if(_event.source == synthLib::MidiEventSource::Internal)
+				m_engine->clock();
+			return;
+		}
 		const auto status = _event.a & 0xf0;
 		if(status == synthLib::M_NOTEON && _event.c > 0)
 		{
@@ -231,9 +239,9 @@ namespace mdDrums
 			m_helloNotes = 0;
 			const auto track = static_cast<int>(_event.b) - FirstNote;
 			const auto param = static_cast<int>(_event.b) - FirstLockNote;
-			// A Lock's or an accent's Track. Channels 2-16 name their Track. Channel 1 names the last channel-1 Hit just
-			// before at the same sample: Live gives a Max for Live device's notes channel 1, and a printed Track 1 plays
-			// there among the other Tracks' channels (ADR 0003, amended); without one, Track 1
+			// A Lock's, an accent's or a slide's Track. Channels 2-16 name their Track. Channel 1 names the last channel-1
+			// Hit just before at the same sample: Live gives a Max for Live device's notes channel 1, and a printed Track 1
+			// plays there among the other Tracks' channels (ADR 0003, amended); without one, Track 1
 			const auto channel = _event.a & 0x0f;
 			const auto boundTrack = channel == 0 && m_lastHitPosition == m_position ? m_lastHitTrack : channel;
 			if(param >= 0 && param < Engine::ParamCount)
@@ -244,6 +252,22 @@ namespace mdDrums
 			if(_event.b == AccentNote)
 			{
 				m_engine->accent(boundTrack, messages::lockValue(_event.c));
+				return;
+			}
+			if(_event.b == SlideNote)
+			{
+				m_engine->slide(boundTrack, _event.c);
+				return;
+			}
+			const auto slideParam = static_cast<int>(_event.b) - FirstSlideTargetNote;
+			if(slideParam >= 0 && slideParam < Engine::ParamCount)
+			{
+				m_engine->slideTarget(boundTrack, slideParam, messages::lockValue(_event.c));
+				return;
+			}
+			if(_event.b == SlideExtensionNote)
+			{
+				m_engine->extendSlide(boundTrack, _event.c);
 				return;
 			}
 			if(track < 0 || track >= Engine::TrackCount)

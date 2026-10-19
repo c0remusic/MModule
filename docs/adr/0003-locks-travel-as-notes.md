@@ -106,3 +106,42 @@ accent ($20cf8c).
 - md-drums-seq sends, at one tick and for every ratchet of an accented step, the Hit, then its Locks, then note 88.
   `mdDrumsDeviceTest` checks that order, both rules of channel 1, the Link, the drop, and the loudness on the Track's
   Out: at amount 64 the Hit plays about twice as loud as at velocity 127.
+
+## Amendment (2026-10-19): note 89 slides its Hit, notes 90-114 give the next Hit's Locks and the clocks past 127
+
+The Machinedrum's sequencer slides a locked step: on a step with its trig, its Locks and the Slide row, every parameter
+the step locks glides to the value of the Track's next trig, over the time between the two, at the tempo. md-drums-seq
+gives its Patterns a Slide row shared by the 16 Tracks. OS 1.63 has no slide routine that MD Drums could call as it
+calls the smoothing and the LFOs: the slide is inline code in the sequencer's clock handler, fed from the Pattern one
+step ahead (`.scratch/slide/research-01-os-slide.md`). Its arithmetic is ported instead, and the sequencer, which knows
+the next Hit, sends what the OS computes it from. The user agreed to this contract, (a) of the research, on 2026-10-19;
+(b), a Lock per clock without a Hit, was ruled out: on channel 1, where Live play puts a Max for Live device's notes,
+a Lock without a Hit cannot name its Track.
+
+- Note 89, after the Hit's Locks, slides that Hit. Its velocity is the clocks of 24 ppqn to the Track's next Hit as
+  they play (the steps between the two times the step's clocks, 6 at 1x, swing and micro-timing included, rounded to
+  the nearest clock), 1-127.
+- Notes 90-113, for parameters 0-23 in the Locks' order, give the value the Track's next Hit locks on a parameter this
+  Hit locks, on the Locks' scale (`messages::lockValue`). A parameter locked without one slides to the Kit's value, as
+  OS 1.63 does; a parameter this Hit does not lock never slides.
+- Note 114, only past 127 clocks, adds 127 clocks per step of its velocity: clocks = velocity of 89 + 127 x velocity of
+  114. md-drums-seq's longest slide is 64 steps at 1/8x, 3072 clocks. Without note 89 it slides nothing.
+- They bind to their Hit as a Lock does (channels 2-16 name their Track; on channel 1 the last channel-1 Hit just
+  before them at the same sample, else Track 1), are taken where the block's Locks are (`HostModel::slide`,
+  `extendSlide`, `slideTarget`), and are dropped without a Hit of their Track in the block. Their note-offs do nothing.
+  No Hit waits for them.
+- The engine runs the OS's ramp ($23b25a, $23ac2c): increment = (end - start) x 128 / clocks, truncated toward zero,
+  added at each clock, the smoothing target taking the sum >> 7 and the OS's smoothing chasing it at its ticks; it
+  stops before a sum would pass the end. The clocks are the host transport's, which the plug-in stack turns into MIDI
+  clocks on the host's 24-ppqn grid (`synthLib::MidiClock`; the Device takes them from the stack only, at their
+  sample, `HostModel::clock`): as on the machine slaved to a clock, a slide steps on the transport's grid, a swung or
+  micro-timed slide Hit's first step less than a clock after it, and stands still while the transport stops, as the
+  OS's does when its sequencer stops (asked of MD Drums by the user through md-drums-seq). A clock in the slide Hit's
+  own block skips its Track, as the OS's update skips a track whose trig waits for its tick. The Track's next Hit ends
+  the slide at once with its own Locks or the Kit's values, as every Hit does; a Hit the mute drops, or another
+  Track's, leaves it running. A host that gives no transport plays no slide.
+- md-drums-seq sends, at one tick, with the last ratchet of a slide step, the Hit, then its Locks, then note 88 if it
+  is accented, then note 89, the target notes and note 114. `mdDrumsEngineTest` checks the ramp against the research's
+  worked one (0 to 127 over 6 clocks: 0, 21, 42, 63, 84, 105, a clock apart) and the OS's arithmetic block by block,
+  the skipped clock, 384 clocks, the stop; `mdDrumsDeviceTest` the notes' binding, note 114, the drop and the
+  transport stopped.

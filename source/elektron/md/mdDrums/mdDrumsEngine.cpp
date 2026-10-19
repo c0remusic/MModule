@@ -417,6 +417,26 @@ namespace mdDrums
 		m_state->engine.host().accent(_track, _amount);
 	}
 
+	void Engine::slide(const int _track, const int _clocks)
+	{
+		m_state->engine.host().slide(_track, _clocks);
+	}
+
+	void Engine::extendSlide(const int _track, const int _times127)
+	{
+		m_state->engine.host().extendSlide(_track, _times127);
+	}
+
+	void Engine::slideTarget(const int _track, const int _param, const int _value)
+	{
+		m_state->engine.host().slideTarget(_track, _param, _value);
+	}
+
+	void Engine::clock()
+	{
+		m_state->engine.host().clock();
+	}
+
 	void Engine::setLevel(const int _track, const int _level)
 	{
 		m_state->engine.host().setLevel(_track, _level);

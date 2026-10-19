@@ -49,7 +49,11 @@ later versions can be compared file by file. Their documentation is in `.scratch
   into the smoothing target, the smoothed array and the voice array, held as the target until the track's next Hit,
   which puts the Kit's values back the same way. A lock with no Hit of its track in its block is dropped. Not
   compared with the firmware's sequencer. An accent from outside (`accent`, the ADR's 2026-10-17 amendment) is taken
-  at the same place: the block's struck track and its Link play accented, at the amount it carries.
+  at the same place: the block's struck track and its Link play accented, at the amount it carries. A slide from
+  outside (`slide`, `extendSlide`, `slideTarget`, the ADR's 2026-10-19 amendment) too: the Hit's locked parameters
+  run OS 1.63's slide ramp (its clock handler's setup at $23b25a and update at $23ac2c, ported), a step of the lock
+  value at each 24-ppqn clock of the host's transport (`clock`), until the track's next Hit; `target` is public for
+  the test that checks it. Not compared with the firmware's sequencer either.
 - `engine/MdEngine.h`, `engine/VoiceEngine.*`, `engine/MachineRunner.h`: `EngineT::warmUpVoices` compiles every audio
   machine's voice code ahead. The voice DSP's JIT compiles a machine's code the first time a voice runs it, 1.5 to
   8 ms in one 32-sample block, which an audio thread at 128 samples cannot afford. Each machine but RAM-R and RAM-P

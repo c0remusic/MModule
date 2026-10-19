@@ -158,6 +158,85 @@ namespace md::engine
 			m_os.poke16(kWork + kTrackStride * track + 2 * param, static_cast<uint16_t>(value << 7));
 			m_os.poke16(kVoiceParams + kTrackStride * track + 2 * param, static_cast<uint16_t>(value << 7));
 		}
+		armSlide(_track);
+	}
+
+	template<class TVoices>
+	void HostModel<TVoices>::slide(const int _track, const int _clocks)
+	{
+		if(_track < 0 || _track >= kTracks)
+			return;
+		m_slidePending[_track] = static_cast<uint8_t>(std::clamp(_clocks, 1, 127));
+	}
+
+	template<class TVoices>
+	void HostModel<TVoices>::extendSlide(const int _track, const int _times127)
+	{
+		if(_track < 0 || _track >= kTracks)
+			return;
+		m_slideExtension[_track] = static_cast<uint8_t>(std::clamp(_times127, 0, 127));
+	}
+
+	template<class TVoices>
+	void HostModel<TVoices>::slideTarget(const int _track, const int _param, const int _value)
+	{
+		if(_track < 0 || _track >= kTracks || _param < 0 || _param >= kParams)
+			return;
+		m_slideTargetPending[_track] |= 1u << _param;
+		m_slideTargetValue[_track][_param] = static_cast<uint8_t>(std::clamp(_value, 0, 127));
+	}
+
+	template<class TVoices>
+	void HostModel<TVoices>::armSlide(const int _track)
+	{
+		// The trigger path gives every parameter with a lock state the increment waiting for it, 0 unless this Hit slides
+		// ($20b078-$20b1d0): the track's last slide ends here. The setup's increment ($23b49c-$23b708): from the Hit's
+		// lock to the next Hit's, or the Kit's value, over the clocks between them, divs.l truncating toward zero.
+		m_sliding[_track] = 0;
+		if(!m_slidePending[_track])
+			return;
+		const int clocks = m_slidePending[_track] + 127 * m_slideExtension[_track];
+		for(int p = 0; p < kParams; ++p)
+		{
+			if(!((m_locked[_track] >> p) & 1))
+				continue;
+			const int32_t start = m_lockValue[_track][p] << 7;
+			const int32_t end = ((m_slideTargetPending[_track] >> p) & 1 ? m_slideTargetValue[_track][p]
+				: m_raw[_track][p]) << 7;
+			const int32_t increment = (end - start) / clocks;
+			if(!increment)
+				continue;
+			m_slides[_track][p] = {start, increment, end};
+			m_sliding[_track] |= 1u << p;
+		}
+	}
+
+	template<class TVoices>
+	void HostModel<TVoices>::clock()
+	{
+		// The update ($23ac2c-$23add2), on every clock while the sequencer plays: past its end a slide stops, the target
+		// where the last clock left it; else the smoothing target takes the new value >> 7, which the OS's smoothing
+		// chases at its ticks. A track whose trig waits for the tick ($2ae8c2) is skipped: here one struck in the block
+		// about to render, which its Hit arms or ends.
+		for(int t = 0; t < kTracks; ++t)
+		{
+			if(m_trigger[t])
+				continue;
+			for(int p = 0; p < kParams && m_sliding[t]; ++p)
+			{
+				if(!((m_sliding[t] >> p) & 1))
+					continue;
+				auto& s = m_slides[t][p];
+				const int32_t next = s.current + s.increment;
+				if(s.increment > 0 ? next > s.end : next < s.end)
+				{
+					m_sliding[t] &= ~(1u << p);
+					continue;
+				}
+				s.current = next;
+				m_lockValue[t][p] = static_cast<uint8_t>(next >> 7);
+			}
+		}
 	}
 
 	template<class TVoices>
@@ -404,11 +483,15 @@ namespace md::engine
 		// Ticks on a fixed block schedule; a trigger between ticks updates just its voice, so it starts on this
 		// block rather than waiting for the next tick.
 		const auto t0 = timingOn ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-		// md-drums: the block's Hits take their locks before any voice is updated, whichever came first; the rest drop
+		// md-drums: the block's Hits take their locks and slides before any voice is updated, whichever came first; the
+		// rest drop
 		for(int t = 0; t < kTracks; ++t)
 			if(m_trigger[t])
 				applyLocks(t);
 		m_lockPending.fill(0);
+		m_slidePending.fill(0);
+		m_slideExtension.fill(0);
+		m_slideTargetPending.fill(0);
 		applyAccents();
 		m_cutBy.fill(kOff);
 		if(m_blockCount++ % kBlocksPerTick == 0)
