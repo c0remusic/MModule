@@ -87,8 +87,8 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   par le même import, premier numéro libre, la Track montrée la joue, la ligne d'état le dit.
 - [Les noms d'une Machine utilisateur dans l'éditeur](issues/17-noms-mdm1.md) : construit ; bande de tête, SYN1-8 et
   fichier `.kit` tirés du paquet que l'instance tient.
-- [USR-01 à USR-16 dans le navigateur](issues/18-navigateur-usr.md) (prototype construit, jugement en attente) : sous
-  les familles, USR et ROM 33-48, vides grisées ; un clic prend la copie de la Library.
+- [USR-01 à USR-16 dans le navigateur](issues/18-navigateur-usr.md) : accepté tel que prototypé ; sous les familles,
+  USR et ROM 33-48, vides grisées ; un clic prend la copie de la Library.
 
 ## Not yet specified
 

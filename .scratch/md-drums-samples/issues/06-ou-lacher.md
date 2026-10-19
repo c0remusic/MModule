@@ -1,7 +1,7 @@
 # Où lâcher, et ce que montre l'éditeur
 
 Type: prototype
-Status: construit, attend le jugement de l'utilisateur dans Live
+Status: resolved
 Assignee: c0remusic (session du 2026-10-17)
 Blocked by: 01, 02
 
@@ -28,3 +28,8 @@ Construit le 2026-10-17, à juger dans Live :
 - Retirer un Sample : `Processor::removeSample` existe, sans geste dans l'éditeur pour l'instant.
 - À juger : ces deux cibles suffisent-elles, ou faut-il les cellules ROM du navigateur (avec « USR-01 à USR-16 dans
   le navigateur ») ; un geste pour retirer ; le nom du fichier visible ailleurs que dans la ligne d'état.
+
+## Décision
+
+Le 2026-10-19, l'utilisateur accepte le prototype tel quel (« ok go pour tout ») : les deux cibles, la ROM de la Track ou
+la première ROM-33..48 libre, la ligne d'état.

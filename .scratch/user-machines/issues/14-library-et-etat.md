@@ -36,3 +36,9 @@ Construit le 2026-10-17 :
 - Reste au brouillard : l'éditeur (installer par le Menu ou un lâcher, le navigateur, les noms de MDM1), et remplacer
   la copie d'une instance quand l'utilisateur choisit la Machine dans le navigateur (aujourd'hui seulement si
   l'instance n'en a pas).
+
+## Amendement (2026-10-19)
+
+L'état du set porte désormais toutes les Machines utilisateur que l'instance tient, pas seulement celles que son Kit
+joue : l'automation du paramètre Machine peut y mener plus tard dans le set (décision de l'utilisateur, même règle que
+pour les Samples).

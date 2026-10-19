@@ -704,7 +704,7 @@ namespace
 	// The user's Samples kept (ticket 10 of the Samples map): a WAV loaded into a Processor goes into its sample library
 	// and plays on ROM-33, and the set carries it; a set opened where the library is empty plays its own copy and leaves
 	// the library empty; a Kit of the Bank plays the library's Sample, which differs; taking it away plays the factory's
-	// silence again; two instances hold two Samples on ROM-33; a set whose Kit plays no user's Sample carries none
+	// silence again; two instances hold two Samples on ROM-33; a set carries the instance's Samples its Kit does not play
 	void keptSamples(const double _rate)
 	{
 		constexpr int rom = 32;	// ROM-33
@@ -772,12 +772,13 @@ namespace
 			require(c.loadSampleFile(rom, low).empty() && d.loadSampleFile(rom, high).empty(), "two Samples were not loaded");
 			require(holds(c, "low.wav") && holds(d, "high.wav"), "two instances do not each hold their own ROM-33");
 
-			// A set whose Kit plays no user's Sample carries none
+			// A set carries every Sample its instance holds, the ones its Kit does not play too: the Machine parameter's
+			// automation may reach them later (the user, 2026-10-19)
 			juce::MemoryBlock plain;
 			static_cast<juce::AudioProcessor&>(c).getStateInformation(plain);
 			const auto e = restoredFrom(plain);
 			require(prepare(*e, _rate, g_block), "no Device to open the plain set");
-			require(holds(*e, nullptr), "a set whose Kit plays no user's Sample carried one");
+			require(holds(*e, "low.wav"), "a set whose Kit plays no user's Sample did not carry the instance's");
 		}
 		std::printf("kept Samples: a set brings its own (ROM-33 peaks %.4f), a Kit of the Bank takes the library's, two"
 			" instances hold their own, taken away it is silent again\n", played);

@@ -37,3 +37,9 @@ Construit le 2026-10-17 :
   retrait d'une autre ; un fichier qui n'est pas un Sample ignoré).
 - Reste au lâcher (« Où lâcher ») : choisir une Machine ROM dans le navigateur prend-il le Sample de la bibliothèque,
   comme un USR ; et ce que l'éditeur montre du nom.
+
+## Amendement (2026-10-19)
+
+L'état du set porte désormais tous les Samples que l'instance tient, pas seulement ceux des Machines ROM que son Kit
+joue : l'automation du paramètre Machine peut mener une Track sur n'importe laquelle plus tard dans le set. Décidé par
+l'utilisateur sur la question de la revue de code (« ok go pour tout »). Même règle pour les Machines utilisateur.

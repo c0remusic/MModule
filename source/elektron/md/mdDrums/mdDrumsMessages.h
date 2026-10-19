@@ -114,9 +114,9 @@ namespace mdDrums::messages
 	Message sample(const SampleMessage& _message);
 	std::optional<SampleMessage> parseSample(MessageView _message);
 
-	// md-drums: then a UserMachine message for each User Machine the Kit plays and the Device holds, and a Sample message
-	// for each user's Sample on a ROM Machine the Kit plays, so that a set sounds as saved where they are not installed
-	// (none: the state as it was before them)
+	// md-drums: then a UserMachine message for each User Machine the Device holds, and a Sample message for each user's
+	// Sample it holds, whether the Kit plays them or not (automation may reach any), so that a set sounds as saved where
+	// they are not installed (none: the state as it was before them)
 	struct State
 	{
 		md::automation::sysex::MdKit kit;

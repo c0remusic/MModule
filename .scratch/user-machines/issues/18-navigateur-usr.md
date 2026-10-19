@@ -1,7 +1,7 @@
 # USR-01 à USR-16 dans le navigateur
 
 Type: prototype
-Status: construit, attend le jugement de l'utilisateur
+Status: resolved
 Assignee: c0remusic (session du 2026-10-17)
 Blocked by: 
 
@@ -30,3 +30,8 @@ Construit le 2026-10-17, à juger : [capture du navigateur](../18-navigateur.png
 - Pas fait : les noms MDM1 dans les cases (elles disent le numéro, comme les ROM), le sprite 32x24.
 - À juger : la place (sous les familles, ou ailleurs : un onglet, une colonne) ; numéros ou noms dans les cases ;
   le gris des cases vides.
+
+## Décision
+
+Le 2026-10-19, l'utilisateur accepte le prototype tel quel (« ok go pour tout ») : les deux familles sous les autres,
+les numéros dans les cases, le gris des cases vides.

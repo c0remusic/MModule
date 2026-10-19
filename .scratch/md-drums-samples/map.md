@@ -60,9 +60,9 @@ Windows (macOS construit par la CI, pas vérifié à la main). Pas de tag.
 - [Un fichier converti en Sample](issues/09-convertir-un-fichier.md) : construit ; WAV, AIFF et FLAC, mono par la
   moyenne des canaux, rate du fichier jusqu'à 48 kHz, boucle `smpl`, codes de 12 bits par la table de l'OS.
 - [La bibliothèque des Samples et l'état du set](issues/10-bibliotheque-et-etat.md) : construit ; `ROM-NN.smp`
-  partagés dans le dossier de données, copie par instance, l'état du set porte les Samples de son Kit.
-- [Où lâcher](issues/06-ou-lacher.md) (prototype construit, jugement dans Live en attente) : sur le nom de la Machine et
-  l'écran Hit ; la ROM de la Track, sinon la première ROM-33..48 libre ; la ligne d'état dit ce qui s'est passé.
+  partagés dans le dossier de données, copie par instance, l'état du set porte tous les Samples de l'instance.
+- [Où lâcher](issues/06-ou-lacher.md) : accepté tel que prototypé ; sur le nom de la Machine et l'écran Hit ; la ROM
+  de la Track, sinon la première ROM-33..48 libre ; la ligne d'état dit ce qui s'est passé.
 - [Un clip ou un pad lâchés](issues/07-clip-et-pad-laches.md) (journal construit, lâchers de l'utilisateur en
   attente) : `MD_DROP_LOG` écrit ce que Live passe au plug-in.
 

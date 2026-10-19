@@ -48,33 +48,16 @@ namespace mdDrums
 #if SYNTHLIB_DEMO_MODE == 0
 	bool Device::getState(std::vector<uint8_t>& _state, synthLib::StateType)
 	{
-		// The Plugin layer has already written its version header: append. With the Kit, the User Machines it plays as
-		// this Device holds them, once each, so that the set sounds as saved where they are not installed
+		// The Plugin layer has already written its version header: append. With the Kit, every User Machine and every user's
+		// Sample this Device holds, whether the Kit plays it or not: the Machine parameter's automation may reach any of
+		// them later in the set, which then sounds as saved where they are not installed (the user, 2026-10-19)
 		messages::State state{m_kit, m_mixer, {}};
-		uint16_t written = 0;
-		for(uint8_t track = 0; track < Engine::TrackCount; ++track)
-		{
-			const auto id = m_kit.machine(track);
-			if(!md::engine::isUserMachine(static_cast<uint8_t>(id)))
-				continue;
-			const auto index = static_cast<int>(id - Engine::FirstUserMachine);
-			const auto package = m_engine->userMachine(index);
-			if(!package || (written & (1u << index)))
-				continue;
-			written = static_cast<uint16_t>(written | 1u << index);
-			state.userMachines.push_back({static_cast<uint8_t>(index), package->bytes});
-		}
-		// And the user's Samples on the ROM Machines it plays, once each (ticket 10 of the Samples map)
-		uint64_t samplesWritten = 0;
-		for(uint8_t track = 0; track < Engine::TrackCount; ++track)
-		{
-			const auto rom = Samples::romOf(static_cast<uint8_t>(m_kit.machine(track)));
-			if(rom < 0 || (samplesWritten & (uint64_t{1} << rom)))
-				continue;
-			samplesWritten |= uint64_t{1} << rom;
+		for(int index = 0; index < 16; ++index)
+			if(const auto package = m_engine->userMachine(index))
+				state.userMachines.push_back({static_cast<uint8_t>(index), package->bytes});
+		for(int rom = 0; rom < Samples::RomCount; ++rom)
 			if(auto sample = m_engine->sample(rom))
 				state.samples.push_back({static_cast<uint8_t>(rom), std::move(sample)});
-		}
 		const auto bytes = messages::writeState(state);
 		_state.insert(_state.end(), bytes.begin(), bytes.end());
 		return true;
