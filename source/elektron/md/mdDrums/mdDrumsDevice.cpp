@@ -53,8 +53,12 @@ namespace mdDrums
 		// them later in the set, which then sounds as saved where they are not installed (the user, 2026-10-19)
 		messages::State state{m_kit, m_mixer, {}};
 		for(int index = 0; index < 16; ++index)
+		{
 			if(const auto package = m_engine->userMachine(index))
 				state.userMachines.push_back({static_cast<uint8_t>(index), package->bytes});
+			else if(const auto& kept = m_kept[static_cast<size_t>(index)])
+				state.userMachines.push_back({static_cast<uint8_t>(index), kept->package});
+		}
 		for(int rom = 0; rom < Samples::RomCount; ++rom)
 			if(auto sample = m_engine->sample(rom))
 				state.samples.push_back({static_cast<uint8_t>(rom), std::move(sample)});
@@ -68,16 +72,25 @@ namespace mdDrums
 		const auto state = messages::parseState(_state.data(), _state.size());
 		if(!state)
 			return false;
-		// The set's own copies of its User Machines, before its Kit plays them; one this voice DSP cannot play is left out
+		// The set's own copies of its User Machines, before its Kit plays them; one this voice DSP cannot play is kept as
+		// saved, for the next state, and its number plays the empty machine (ticket 23 of the User Machines map)
+		m_kept = {};
 		for(const auto& machine : state->userMachines)
 		{
+			const auto index = static_cast<size_t>(machine.index);
+			if(index >= m_kept.size())
+				continue;
+			std::string name;
 			try
 			{
-				installUserMachine(machine.index,
-					std::make_shared<const md::mds::Package>(md::mds::parsePackage(machine.package)));
+				auto package = std::make_shared<const md::mds::Package>(md::mds::parsePackage(machine.package));
+				name = package->displayName();
+				installUserMachine(machine.index, std::move(package));
 			}
-			catch(const std::exception&)
+			catch(const std::exception& _e)
 			{
+				m_engine->removeUserMachine(machine.index);
+				m_kept[index] = Kept{machine.package, name, _e.what()};
 			}
 		}
 		// The set's Samples: what it plays sounds as saved, the factory's where it saved none. What changes is taken away

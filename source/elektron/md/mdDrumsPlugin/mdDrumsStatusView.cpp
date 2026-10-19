@@ -139,6 +139,15 @@ namespace mdDrums
 				+ noteName(Device::FirstNote + Engine::TrackCount - 1), Action::None};
 		}
 
+		// A User Machine the set holds that this build does not play, kept in the set for one that does (ticket 23 of the
+		// User Machines map)
+		if(const auto [index, kept] = m_editor.processor().keptUserMachine(); kept)
+		{
+			char number[8];
+			std::snprintf(number, sizeof(number), "USR-%02d", index + 1);
+			return {std::string(number) + " " + (kept->name.empty() ? std::string("in this set") : kept->name)
+				+ " plays nothing here: " + kept->reason + ". The set keeps it.", Action::None};
+		}
 		if(m_newer)
 			return {"MoDule " + m_newer->version + " is out", Action::OpenRelease};
 		return {{}, Action::None};

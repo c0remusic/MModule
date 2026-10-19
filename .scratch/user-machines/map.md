@@ -89,6 +89,11 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   fichier `.kit` tirés du paquet que l'instance tient.
 - [USR-01 à USR-16 dans le navigateur](issues/18-navigateur-usr.md) : accepté tel que prototypé ; sous les familles,
   USR et ROM 33-48, vides grisées ; un clic prend la copie de la Library.
+- [Les tampons des voisins](issues/19-tampons-des-voisins.md) : quatre tampons comme X.20 (Y:`$100`, `$120`, `$7A0`,
+  `$7C0`), le programme voix d'OS 1.63 patché à P:`$9B-$A7`, 32 zéros pour une voix sautée ; l'aperçu ne porte aucune
+  Machine utilisateur aujourd'hui.
+- [Garder ce qui ne joue pas](issues/23-garder-ce-qui-ne-joue-pas.md) : construit ; le set garde le paquet refusé, son
+  numéro joue la Machine vide, la ligne d'état le dit.
 
 ## Not yet specified
 

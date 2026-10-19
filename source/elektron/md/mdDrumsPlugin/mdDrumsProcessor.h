@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mdDrumsBank.h"
+#include "mdDrumsDevice.h"
 #include "mdDrumsLibrary.h"
 #include "mdDrumsSampleLibrary.h"
 #include "mdDrumsTelemetry.h"
@@ -14,6 +15,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace mdDrums
@@ -133,6 +135,9 @@ namespace mdDrums
 
 		// The User Machine this instance's Device holds at _index (0-15), for the editor's names; none without a Device
 		std::shared_ptr<const md::mds::Package> userMachine(int _index);
+		// The first User Machine the set holds that this build does not play (Device::keptUserMachine), for the status
+		// line: its number (0-15) and what it is, or -1 and none; valid until the next state restored
+		std::pair<int, const Device::Kept*> keptUserMachine();
 
 		// The Samples this instance's Device plays, for the Hit preview; none without a Device. On the message thread.
 		std::array<std::shared_ptr<const Sample>, Samples::RomCount> samples();

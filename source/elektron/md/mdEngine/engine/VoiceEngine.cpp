@@ -242,7 +242,8 @@ namespace md::engine
 	void VoiceEngine::checkUserMachine(const md::mds::Package& _package)
 	{
 		if(_package.flags & (md::mds::FlagNeighbour | md::mds::FlagStereoPair))
-			throw std::runtime_error(_package.displayName() + " processes other Tracks (NEIGHBOUR), which MoDule does not play yet");
+			throw std::runtime_error(_package.displayName() + " processes other Tracks ("
+				+ (_package.flags & md::mds::FlagStereoPair ? "STEREO PAIR" : "NEIGHBOUR") + "), which MoDule does not play yet");
 		for(const auto& im : _package.imports)
 		{
 			if(im.symbol != 1 && im.symbol != 6 && im.symbol != 7 && im.symbol != 8)

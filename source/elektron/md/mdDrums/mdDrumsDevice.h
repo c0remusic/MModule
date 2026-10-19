@@ -8,6 +8,9 @@
 
 #include <array>
 #include <memory>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace md::automation::sysex
 {
@@ -91,8 +94,19 @@ namespace mdDrums
 		void installUserMachine(int _index, std::shared_ptr<const md::mds::Package> _package)
 		{
 			m_engine->installUserMachine(_index, std::move(_package));
+			m_kept[static_cast<size_t>(_index)].reset();
 		}
 		std::shared_ptr<const md::mds::Package> userMachine(int _index) const { return m_engine->userMachine(_index); }
+		// A User Machine a set holds that this voice DSP does not play (ticket 23 of the User Machines map): its package
+		// as the set saved it, which the state keeps for a build that plays it, while its number plays the empty machine;
+		// what it is and why it does not play. A state restored or a User Machine installed at its number lets it go.
+		struct Kept
+		{
+			std::vector<uint8_t> package;
+			std::string name;
+			std::string reason;
+		};
+		const std::optional<Kept>& keptUserMachine(const int _index) const { return m_kept[static_cast<size_t>(_index)]; }
 
 		// This Device's own copy of a user's Sample on ROM-01 to ROM-48 (_rom 0-47), or none for the factory's (Engine::
 		// setSample): written into the voice DSP over the next blocks. Never while process runs: the caller holds the
@@ -142,6 +156,7 @@ namespace mdDrums
 		// The last channel-1 Hit note's Track and the sample it came at: a Lock on channel 1 at that sample goes with it
 		int m_lastHitTrack = 0;
 		int64_t m_lastHitPosition = -1;
+		std::array<std::optional<Kept>, 16> m_kept{};
 		// md-drums-seq's hello under way: the notes taken so far and their bits
 		int m_helloNotes = 0;
 		uint32_t m_helloId = 0;

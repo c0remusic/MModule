@@ -348,6 +348,16 @@ namespace mdDrums
 		return device ? device->userMachine(_index) : nullptr;
 	}
 
+	std::pair<int, const Device::Kept*> Processor::keptUserMachine()
+	{
+		// Read without the lock: a state is restored on the message thread
+		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
+		for(int index = 0; device && index < Library::Size; ++index)
+			if(const auto& kept = device->keptUserMachine(index))
+				return {index, &*kept};
+		return {-1, nullptr};
+	}
+
 	std::array<std::shared_ptr<const Sample>, Samples::RomCount> Processor::samples()
 	{
 		// Read without the lock: a Sample changes on the message thread only

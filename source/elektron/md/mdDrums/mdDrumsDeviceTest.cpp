@@ -829,6 +829,51 @@ namespace
 			" the last channel-1 Hit, dropped without its Hit\n");
 	}
 
+	// A User Machine a set holds that the voice DSP does not play (ticket 23 of the User Machines map): a NEIGHBOUR package
+	// in a state is kept as saved, its number playing the empty machine (a playable one installed there before goes),
+	// and the next state holds it again; a User Machine installed at its number lets it go
+	void keptUserMachines(const std::vector<uint8_t>& _flash)
+	{
+		constexpr int index = 4;	// USR-05
+		Rig rig(_flash, 44100.0f, false);
+		auto& device = *rig.device;
+		auto draft = mdDrums::test::sawDraft();
+		draft.flags = md::mds::FlagNeighbour;
+		draft.name = "TEST NEIGHBOUR";
+		const auto neighbour = md::mds::buildPackage(draft);
+		const auto saw = std::make_shared<const md::mds::Package>(md::mds::parsePackage(mdDrums::test::sawPackage()));
+		device.installUserMachine(index, saw);
+
+		const auto stateWith = [&](const std::vector<uint8_t>& _package)
+		{
+			mdDrums::messages::State state{device.kit(), {}, {{static_cast<uint8_t>(index), _package}}, {}};
+			return mdDrums::messages::writeState(state);
+		};
+		const auto saved = [&]
+		{
+			std::vector<uint8_t> bytes;
+			require(device.getState(bytes, synthLib::StateTypeGlobal), "no state");
+			const auto state = mdDrums::messages::parseState(bytes.data(), bytes.size());
+			require(state.has_value(), "the state does not parse");
+			return state->userMachines;
+		};
+		require(device.setState(stateWith(neighbour), synthLib::StateTypeGlobal), "the state was refused");
+		const auto& kept = device.keptUserMachine(index);
+		require(!device.userMachine(index) && kept && kept->package == neighbour
+			&& kept->reason.find("NEIGHBOUR") != std::string::npos,
+			"a NEIGHBOUR package in a state was not kept, or the User Machine there before still plays");
+		const auto keptName = kept ? kept->name : std::string();
+		const auto again = saved();
+		require(again.size() == 1 && again[0].index == index && again[0].package == neighbour,
+			"the next state did not hold the kept package");
+		device.installUserMachine(index, saw);
+		const auto replaced = saved();
+		require(!device.keptUserMachine(index) && replaced.size() == 1 && replaced[0].package == saw->bytes,
+			"a User Machine installed at a kept one's number did not let it go");
+		std::printf("kept User Machines: \"%s\" kept as saved, its number playing the empty machine; let go when another"
+			" was installed\n", keptName.c_str());
+	}
+
 	// A note on that plays nothing (outside 36-51 and 64-114) counts in the Telemetry, which the editor says (ticket 35);
 	// a Hit, a Lock, an accent and a slide do not
 	void unplayed(const std::vector<uint8_t>& _flash)
@@ -1218,6 +1263,7 @@ int main(const int _argc, char** _argv)
 		locks(_flash);
 		accents(_flash);
 		slides(_flash);
+		keptUserMachines(_flash);
 		unplayed(_flash);
 		hello(_flash);
 		allocations(_flash);
