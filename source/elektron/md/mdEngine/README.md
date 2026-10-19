@@ -47,7 +47,7 @@ later versions can be compared file by file. Their documentation is in `.scratch
 - `engine/HostModel.*`: parameter locks from outside (`lock`, md-drums' ADR 0003), which upstream leaves out with the
   sequencer. A Hit's locks go where the tick's trigger path applies the OS's own, with a pending machine: straight
   into the smoothing target, the smoothed array and the voice array, held as the target until the track's next Hit,
-  which puts the Kit's values back the same way, or until `setParam` writes the Kit's new value there, as the OS's
+  which puts the Kit's values back the same way, or until `knob` (a CC) writes the Kit's new value there, as the OS's
   knob path does. A lock with no Hit of its track in its block is dropped. Not
   compared with the firmware's sequencer. An accent from outside (`accent`, the ADR's 2026-10-17 amendment) is taken
   at the same place: the block's struck track and its Link play accented, at the amount it carries. A slide from

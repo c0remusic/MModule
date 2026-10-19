@@ -220,10 +220,13 @@ namespace mdDrums
 
 	void Processor::removeSample(const int _rom)
 	{
+		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
+		const bool held = device && device->sample(_rom);
 		if(m_samples)
 			m_samples->remove(_rom);
 		setDeviceSample(_rom, nullptr);
-		markStateChanged();
+		if(held)
+			markStateChanged();
 	}
 
 	void Processor::markStateChanged()

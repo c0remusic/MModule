@@ -506,9 +506,11 @@ namespace mdDrums
 
 	void Controller::renameKit(const std::string& _name)
 	{
+		const auto before = m_kitBase.name;
 		m_kitBase.setName(_name);
 		sendToDevice(messages::kitName(m_kitBase.name));
-		static_cast<Processor&>(getProcessor()).markStateChanged();
+		if(m_kitBase.name != before)
+			static_cast<Processor&>(getProcessor()).markStateChanged();
 	}
 
 	void Controller::setLink(const uint8_t _track, const uint8_t _target)
@@ -528,10 +530,12 @@ namespace mdDrums
 		if(_track >= TrackCount)
 			return;
 		const sysex::KitChange change{_kind, _track, 0, _target < TrackCount && _target != _track ? _target : Off};
+		const auto before = std::make_pair(m_kitBase.links[_track], m_kitBase.chokes[_track]);
 		sysex::applyKitChange(change, m_kitBase);
 		if(const auto message = sysex::encodeKitChange(change))
 			sendToDevice(*message);
-		static_cast<Processor&>(getProcessor()).markStateChanged();
+		if(std::make_pair(m_kitBase.links[_track], m_kitBase.chokes[_track]) != before)
+			static_cast<Processor&>(getProcessor()).markStateChanged();
 	}
 
 	void Controller::sendToDevice(const std::vector<uint8_t>& _sysex)

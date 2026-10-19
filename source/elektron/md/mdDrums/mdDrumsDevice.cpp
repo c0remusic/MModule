@@ -328,7 +328,8 @@ namespace mdDrums
 		{
 			const auto parameter = static_cast<uint8_t>(change->page * 8 + change->index);
 			m_kit.parameters[track][parameter] = change->value;
-			m_engine->setParam(track, parameter, change->value);
+			// A knob or the host's automation: over a Lock or a slide too, as the OS's CC path
+			m_engine->knob(track, parameter, change->value);
 		}
 		else if(change->page == machinedrum::Level)
 		{

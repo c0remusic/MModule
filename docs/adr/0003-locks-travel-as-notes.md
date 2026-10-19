@@ -145,7 +145,9 @@ a Lock without a Hit cannot name its Track.
 - A knob, a CC or the host's automation of a parameter a Lock or a slide holds sets its target at once, as the OS's
   knob path does (measured by `mdSlideFirmwareTest`): over a Lock until the Track's next Hit, which plays the Kit's
   value, now the new one; over a slide until its next clock, from which the slide goes on. Before this, a Lock held
-  its value against any knob until the next Hit.
+  its value against any knob until the next Hit. The Kit's values set otherwise (a Kit loaded, ASSIGN MACHINE, a
+  state restored) still wait for the next Hit over a Lock (`HostModel::knob` against `setParam`): only the CC path was
+  measured.
 - md-drums-seq sends, at one tick, with the last ratchet of a slide step, the Hit, then its Locks, then note 88 if it
   is accented, then note 89, the target notes and note 114. `mdDrumsEngineTest` checks the ramp against the research's
   worked one (0 to 127 over 6 clocks: 0, 21, 42, 63, 84, 105, a clock apart) and the OS's arithmetic block by block,

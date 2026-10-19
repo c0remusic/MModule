@@ -920,7 +920,8 @@ namespace
 	// The set marked modified (ticket 11 of the Samples map): what the user changes of the state outside the host
 	// parameters asks the host to mark the set modified (JUCE's VST3 wrapper calls IComponentHandler2::setDirty), and
 	// nothing else does: a Link, a Choke and the Kit's name, a Sample loaded and removed, a User Machine installed, once
-	// each; not the same User Machine again, a host parameter automated, a state restored
+	// each; not the same Link, name or User Machine again, a ROM without a Sample emptied, a host parameter automated, a
+	// state restored
 	void setMarkedModified(const double _rate)
 	{
 		struct Marks final : juce::AudioProcessorListener
@@ -957,14 +958,20 @@ namespace
 		auto& controller = processor.controller();
 		controller.setLink(0, 2);
 		counted("a Link", 1);
+		controller.setLink(0, 2);
+		counted("the same Link again", 1);
 		controller.setChoke(1, 3);
 		counted("a Choke", 2);
 		controller.renameKit("MARKED");
 		counted("the Kit's name", 3);
+		controller.renameKit("MARKED");
+		counted("the same name again", 3);
 		require(processor.loadSampleFile(32, tone).empty(), "the WAV was not loaded onto ROM-33");
 		counted("a Sample loaded", 4);
 		processor.removeSample(32);
 		counted("a Sample removed", 5);
+		processor.removeSample(32);
+		counted("a ROM without a Sample emptied", 5);
 		const auto saw = mdDrums::test::sawPackage();
 		require(processor.installUserMachine(6, saw).empty(), "the test's User Machine was not installed");
 		counted("a User Machine installed", 6);

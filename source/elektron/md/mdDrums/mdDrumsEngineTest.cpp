@@ -536,24 +536,36 @@ namespace
 		require(toLock[120] == 127 && toLock.back() == 127, "the next Hit did not play its Lock at once");
 
 		// A knob or a CC sets the target at once, as the OS's do (mdSlideFirmwareTest): over a Lock until the next Hit,
-		// which plays the Kit's new value; over a slide until its next clock, from which the slide goes on
-		const auto overLock = run([](Host& _h)
+		// which plays the Kit's new value; over a slide until its next clock, from which the slide goes on. The Kit's
+		// value set otherwise (a Kit loaded, ASSIGN MACHINE) leaves the Lock playing until the next Hit.
+		const auto overLock = [&](const bool _knob)
 		{
-			_h.lock(0, fltf, 0);
-			_h.trigger(0, 100);
-		}, 200, 28, [](Host& _h, const int _b)
-		{
-			if(_b == 50)
-				_h.setParam(0, fltf, 100);
-			if(_b == 150)
+			return run([](Host& _h)
+			{
+				_h.lock(0, fltf, 0);
 				_h.trigger(0, 100);
-		});
-		require(overLock[49] == 0 && overLock[50] == 100 && overLock[149] == 100 && overLock.back() == 100,
+			}, 200, 28, [&](Host& _h, const int _b)
+			{
+				if(_b == 50)
+				{
+					if(_knob)
+						_h.knob(0, fltf, 100);
+					else
+						_h.setParam(0, fltf, 100);
+				}
+				if(_b == 150)
+					_h.trigger(0, 100);
+			});
+		};
+		const auto turned = overLock(true), kitSet = overLock(false);
+		require(turned[49] == 0 && turned[50] == 100 && turned[149] == 100 && turned.back() == 100,
 			"a knob did not set a locked parameter's target at once");
+		require(kitSet[50] == 0 && kitSet[149] == 0 && kitSet[150] == 100 && kitSet.back() == 100,
+			"the Kit's value set as a Kit loads did not wait for the next Hit over a Lock");
 		const auto overSlide = run(slideHit(0, 12, 127), 400, 28, [](Host& _h, const int _b)
 		{
 			if(_b == 70)
-				_h.setParam(0, fltf, 100);
+				_h.knob(0, fltf, 100);
 		});
 		require(overSlide[69] == ramp(0, 127, 12, 2) && overSlide[70] == 100 && overSlide[83] == 100
 			&& overSlide[84] == ramp(0, 127, 12, 3) && overSlide.back() == ramp(0, 127, 12, 13),

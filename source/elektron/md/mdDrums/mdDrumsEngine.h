@@ -110,6 +110,9 @@ namespace mdDrums
 		const std::vector<uint16_t>& sampleCodes() const;	// the OS's 12-bit table (makeSample)
 		void writeSamples();	// what setSample left, at once: for an engine before its first block
 		void setParam(int _track, int _param, int _value);	// 0-127
+		// A knob turned or a CC (0-127): the Kit's value, and over a Lock or a slide the value played at once, as the OS's
+		// CC path (md::engine::HostModel::knob)
+		void knob(int _track, int _param, int _value);
 		// What _track's voice plays of its 24 parameters, as the engine's last tick left them: after the OS's smoothing
 		// and the LFOs, a parameter's value << 7 (0 to $3fff)
 		std::array<uint16_t, ParamCount> played(int _track) const;

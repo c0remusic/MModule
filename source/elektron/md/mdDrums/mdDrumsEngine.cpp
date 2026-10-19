@@ -407,6 +407,11 @@ namespace mdDrums
 		m_state->engine.host().setParam(_track, _param, _value);
 	}
 
+	void Engine::knob(const int _track, const int _param, const int _value)
+	{
+		m_state->engine.host().knob(_track, _param, _value);
+	}
+
 	void Engine::lock(const int _track, const int _param, const int _value)
 	{
 		m_state->engine.host().lock(_track, _param, _value);
