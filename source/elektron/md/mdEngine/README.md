@@ -97,9 +97,10 @@ DSP's directory and the 261,138 words of samples that the firmware's boot leaves
 image alone). ROM-01, -02 and -22 (44.1 kHz with an odd length, 32 kHz, 44.1 kHz looped), played whole, correlate at
 1.000000 with gain 1.0000; residuals -77.5, -104.0 and -79.5 dB.
 
-Known difference: a voice keeps its noise generator's state between hits, and the engine stops rendering a voice
-that has died away while the firmware keeps it running, so a noise-based machine's second hit on a track does not
-repeat the firmware's sample for sample.
+Known difference, as upstream measured it: a voice keeps its noise generator's state between hits, and upstream's
+engine stopped rendering a voice that had died away while the firmware keeps it running, so a noise-based machine's
+second hit on a track did not repeat the firmware's sample for sample. That silence release is not in this engine
+(above), which renders every voice the firmware would; the second hit was not compared again since.
 
 Links and Chokes (2026-10-08, with `mdEngineFirmwareGroups`): factory Kit 1's Choke (TRX-CH cutting TRX-OH), a
 choked track struck again, a Link at velocity 80, a muted track struck and a Choke onto a lower track give the

@@ -404,6 +404,14 @@ namespace md::engine
 				m_voices.setSlot(_track, out, std::clamp(n, 1, static_cast<int>(TVoices::kSlotWords)));
 			}
 		}
+		else if(m_trigger[_track])
+		{
+			// md-drums: a MID or CTR machine plays nothing on the voice DSP, whose dispatch tables give their types GND--'s
+			// INIT, update and RENDER ($10008E, $10008F): its Hit gives the voice that type, and the machine the voice
+			// played before stops instead of ringing on, which nothing told it before
+			const uint32_t out[1] = {static_cast<uint32_t>(id) + 1};
+			m_voices.setSlot(_track, out, 1);
+		}
 		updateMixer(_track);
 		if(m_trigger[_track])
 			applyChoke(_track);

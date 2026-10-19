@@ -465,7 +465,9 @@ Tests (for ticket 22):
 - Whether any 1.63 built-in reads X0, X1 or R2 at RENDER. §5's sweep settles it, and decides between the in-place ring
   and the stub.
 - What 1.63's own OS sends the voice DSP when a Track takes a MID or CTR machine. MoDule sends nothing, so the previous
-  machine plays on, in the mix too (§3.3). This bears on every listener, not only NEIGHBOUR.
+  machine plays on, in the mix too (§3.3). This bears on every listener, not only NEIGHBOUR. (Settled since: the voice
+  program's dispatch tables give every MID and CTR type, 97 to 124, GND--'s null INIT, update and RENDER, $10008E and
+  $10008F [M]; HostModel now gives the voice that type at the Hit, and the Track falls silent, `mdDrumsEngineTest`.)
 - RAM-R and RAM-P render from X:`$700`, which the harness never feeds. What their buffer holds as a neighbour was not
   checked.
 - How X.20's 68k side computes the 5-bit offset and the fade count of §1.5. Read only on the voice DSP.

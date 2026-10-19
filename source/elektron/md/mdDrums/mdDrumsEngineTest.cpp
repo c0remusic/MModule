@@ -615,6 +615,37 @@ namespace
 			rising.back(), longer[192]);
 	}
 
+	// A Track that takes a MID or a CTR machine stops sounding at the Hit that brings it: their types play GND--'s null
+	// machine on the voice DSP, which the Hit now gives the voice. E12-RC held (HOLD and DEC at 127) rings until then.
+	void nonAudioSilence(const md::fw::FlashOs& _os, const md::fw::RomBank& _bank)
+	{
+		for(const char* name : {"MID01", "CTRAL"})
+		{
+			mdDrums::Engine engine(_os, _bank, false);
+			engine.setMachine(0, machineId(engine.machines(), "E12RC"));
+			engine.setParam(0, 1, 127);
+			engine.setParam(0, 2, 127);
+			engine.setSeparateOutputs(1);
+			constexpr size_t half = 22050;
+			std::vector<float> own(2 * half);
+			std::array<float*, mdDrums::Engine::OutputCount> outputs{};
+			outputs[2] = own.data();
+			engine.trigger(0, 127);
+			engine.render(outputs.data(), half);
+			engine.setMachine(0, machineId(engine.machines(), name));
+			engine.trigger(0, 127);
+			outputs[2] = own.data() + half;
+			engine.render(outputs.data(), half);
+			float before = 0, after = 0;
+			for(size_t i = half / 2; i < half; ++i)
+				before = std::max(before, std::abs(own[i]));
+			for(size_t i = half + 4410; i < own.size(); ++i)
+				after = std::max(after, std::abs(own[i]));
+			std::printf("E12-RC held on Track 1, then %s at a Hit: %.4f before, %.7f from 0.1 s after\n", name, before, after);
+			require(before > 0.01f && after < 1e-5f, std::string("a Track on ") + name + " still sounds its machine before");
+		}
+	}
+
 	// A sustained sound (E12-RC, HOLD and DEC at 127) retriggered at each of the 32 places of a block: the delays change
 	// at the Hit, which drops or doubles a few samples of the old tail. Threshold set before measuring: within 128
 	// samples from the new Hit's trigger, no sample step steeper than 1.5 times the steepest one of the same retrigger
@@ -1347,6 +1378,7 @@ int main()
 		}
 		equivalence(_flash, os, bank);
 		retrigger(os, bank);
+		nonAudioSilence(os, bank);
 		chokes(os, bank);
 		slides(os, bank);
 		coldFireBytePush(os);
