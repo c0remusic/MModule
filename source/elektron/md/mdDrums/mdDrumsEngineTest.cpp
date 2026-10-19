@@ -23,6 +23,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iterator>
 #include <string>
@@ -1123,6 +1125,52 @@ namespace
 		}
 	}
 
+	// By hand: the user's own NEIGHBOUR User Machines (X.20 B's NFX and SYN-F) where MD_X20_MACHINES names a folder of
+	// .syx or .mds files, as the ROM is read, never carried. Each one on Track 6 over Tracks 1 to 5 struck: no voice DSP
+	// fault, and what its own output peaks at. Nothing without the variable.
+	void userNeighbours(const md::fw::FlashOs& _os, const md::fw::RomBank& _bank)
+	{
+		const auto* folder = std::getenv("MD_X20_MACHINES");
+		if(!folder || !*folder || !std::filesystem::is_directory(folder))
+			return;
+		for(const auto& entry : std::filesystem::recursive_directory_iterator(folder))
+		{
+			const auto extension = entry.path().extension().u8string();
+			if(!entry.is_regular_file() || (extension != ".syx" && extension != ".mds"))
+				continue;
+			std::ifstream in(entry.path(), std::ios::binary);
+			const std::vector<uint8_t> bytes{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+			std::shared_ptr<const md::mds::Package> package;
+			try
+			{
+				package = std::make_shared<const md::mds::Package>(md::mds::parsePackage(
+					!bytes.empty() && bytes.front() == 0xf0 ? md::mds::packageFromSysex(bytes) : bytes));
+			}
+			catch(const std::exception&)
+			{
+				continue;
+			}
+			if(!(package->flags & md::mds::FlagNeighbour))
+				continue;
+			mdDrums::Engine engine(_os, _bank, false);
+			engine.installUserMachine(0, package);
+			engine.setMachine(5, mdDrums::Engine::FirstUserMachine);
+			engine.setSeparateOutputs(1u << 5);
+			std::vector<float> own(88200);
+			std::array<float*, mdDrums::Engine::OutputCount> outputs{};
+			outputs[2 + 5] = own.data();
+			for(int t = 0; t <= 5; ++t)
+				engine.trigger(t, 127);
+			engine.render(outputs.data(), own.size());
+			float peak = 0;
+			for(const auto s : own)
+				peak = std::max(peak, std::abs(s));
+			std::printf("the user's %s (%s) on Track 6 over Tracks 1-5: its own output peaks at %.4f (%.1f dBFS)\n",
+				package->displayName().c_str(), entry.path().filename().u8string().c_str(), peak,
+				20.0 * std::log10(std::max(peak, 1e-9f)));
+		}
+	}
+
 	void userMachines(const md::fw::FlashOs& _os, const md::fw::RomBank& _bank)
 	{
 		const auto package = std::make_shared<const md::mds::Package>(md::mds::parsePackage(md::mds::buildPackage(mdDrums::test::sawDraft())));
@@ -1305,6 +1353,7 @@ int main()
 		conversions(os);
 		userMachines(os, bank);
 		neighbours(os, bank);
+		userNeighbours(os, bank);
 		sampleWrite(_flash, os, bank);
 		userSamples(_flash, os, bank);
 
