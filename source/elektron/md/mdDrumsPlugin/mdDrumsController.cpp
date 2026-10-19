@@ -292,17 +292,25 @@ namespace mdDrums
 			m_kitFiles.hello(id, now);
 		if(!m_kitFiles.due(now))
 			return;
-		// The text again only for another Kit, or another User Machine of this instance's
+		// The text again only for another Kit, or another User Machine or Sample of this instance's
 		auto kit = playedKit();
 		KitFiles::UserMachines userMachines{};
+		KitFiles::SampleNames samples{};
 		if(const auto* device = dynamic_cast<const Device*>(static_cast<Processor&>(getProcessor()).getPlugin().getDevice()))
+		{
 			for(int i = 0; i < Library::Size; ++i)
 				userMachines[static_cast<size_t>(i)] = device->userMachine(i);
-		if(m_kitFilesText.empty() || kit != m_kitFilesKit || userMachines != m_kitFilesUserMachines)
+			for(int rom = 0; rom < Samples::RomCount; ++rom)
+				if(const auto sample = device->sample(rom))
+					samples[static_cast<size_t>(rom)] = sample->name;
+		}
+		if(m_kitFilesText.empty() || kit != m_kitFilesKit || userMachines != m_kitFilesUserMachines
+			|| samples != m_kitFilesSamples)
 		{
-			m_kitFilesText = KitFiles::text(kit, userMachines);
+			m_kitFilesText = KitFiles::text(kit, userMachines, samples);
 			m_kitFilesKit = std::move(kit);
 			m_kitFilesUserMachines = std::move(userMachines);
+			m_kitFilesSamples = std::move(samples);
 		}
 		m_kitFiles.step(m_kitFilesText, now);
 	}

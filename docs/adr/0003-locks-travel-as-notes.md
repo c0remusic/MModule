@@ -78,7 +78,9 @@ Four note-ons 124, 125, 126 and 127, in that order, on any channel, each velocit
 most significant first), are the device's hello; any other note-on between them cancels it, note-offs do not. They
 trigger nothing, lock nothing, and are no note that plays nothing. The Device publishes the id (`Telemetry::hello`);
 the Controller's timer writes `<temp>/md-drums-seq/<id>.kit` (`KitFiles`): the Kit played's name, each Track's
-Machine id, name and SYN1-8 names, and its 24 Kit values in the Locks' order, version 1, one record per line. The
+Machine id, name and SYN1-8 names, and its 24 Kit values in the Locks' order, version 1, one record per line (a User
+Machine is named after its package, a ROM Machine playing a user's Sample after the Sample's file without its
+extension, one word; agreed with md-drums-seq on 2026-10-19, which shows the name whole and needs it not empty). The
 file is written at once for a new id and again when the Kit played changes, at most four times a second, whole
 (renamed over itself); it goes fifteen seconds after its device's last hello, and with the plug-in. Notes 36-51 and
 64-87 are unchanged. `mdDrumsDeviceTest` checks the hello and the files on a clock of its own, `mdDrumsProcessorTest`

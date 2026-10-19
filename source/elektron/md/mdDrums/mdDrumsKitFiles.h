@@ -1,5 +1,7 @@
 #pragma once
 
+#include "mdDrumsSamples.h"
+
 #include "mdProtocol/mdkit.h"
 
 #include <array>
@@ -39,9 +41,13 @@ namespace mdDrums
 		// A device's file: its id in six lowercase hexadecimal digits, then ".kit"
 		std::filesystem::path file(uint32_t _id) const;
 		// The file's text for _kit, version 1. A User Machine's names come from its package as the instance holds it
-		// (ticket 17 of the User Machines map): MDM1's category and code, and its parameters' names
+		// (ticket 17 of the User Machines map): MDM1's category and code, and its parameters' names. A ROM Machine
+		// playing a user's Sample is named after the Sample's file, without its extension, as one word (agreed with
+		// md-drums-seq on 2026-10-19); one playing the factory's keeps its ROM-NN.
 		using UserMachines = std::array<std::shared_ptr<const md::mds::Package>, 16>;
-		static std::string text(const md::automation::sysex::MdKit& _kit, const UserMachines& _userMachines = {});
+		using SampleNames = std::array<std::string, Samples::RomCount>;	// empty: the factory's
+		static std::string text(const md::automation::sysex::MdKit& _kit, const UserMachines& _userMachines = {},
+			const SampleNames& _samples = {});
 
 		// A hello from the device _id: a new one has its file at the next step
 		void hello(uint32_t _id, double _nowMs);

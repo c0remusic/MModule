@@ -36,7 +36,8 @@ namespace mdDrums
 		return m_folder / name;
 	}
 
-	std::string KitFiles::text(const md::automation::sysex::MdKit& _kit, const UserMachines& _userMachines)
+	std::string KitFiles::text(const md::automation::sysex::MdKit& _kit, const UserMachines& _userMachines,
+		const SampleNames& _samples)
 	{
 		constexpr auto model = md::MachineModel::Machinedrum;
 		// A name is one word in the file
@@ -62,7 +63,16 @@ namespace mdDrums
 			}
 			else if(const auto* machine = md::machines::find(model, id))
 			{
-				out += "track " + std::to_string(t + 1) + " " + std::to_string(id) + " " + std::string(machine->name);
+				// A ROM Machine playing a user's Sample: the file's name without its extension
+				std::string name(machine->name);
+				if(const auto rom = Samples::romOf(static_cast<uint8_t>(id)); rom >= 0)
+				{
+					const auto& file = _samples[static_cast<size_t>(rom)];
+					const auto dot = file.rfind('.');
+					if(const auto stem = file.substr(0, dot == 0 ? file.size() : dot); !stem.empty())
+						name = word(stem);
+				}
+				out += "track " + std::to_string(t + 1) + " " + std::to_string(id) + " " + name;
 				const auto* names = md::machines::parameterNames(model, id);
 				for(size_t p = 0; p < 8; ++p)
 				{

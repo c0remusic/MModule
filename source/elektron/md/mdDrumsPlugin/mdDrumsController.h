@@ -168,6 +168,7 @@ namespace mdDrums
 		KitFiles m_kitFiles;
 		md::automation::sysex::MdKit m_kitFilesKit;	// what m_kitFilesText was made from
 		KitFiles::UserMachines m_kitFilesUserMachines{};
+		KitFiles::SampleNames m_kitFilesSamples{};
 		std::string m_kitFilesText;
 		double m_libraryFollowed = 0.0;	// when followUserMachines last read the Library's files, in ms
 	};

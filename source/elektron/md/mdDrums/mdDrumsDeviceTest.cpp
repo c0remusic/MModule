@@ -972,6 +972,19 @@ namespace
 			require(userText.find("\ntrack 4 199 USR-06 - - - - - - - -\n") != std::string::npos,
 				"a number without a package does not read USR-06 without names");
 
+			// A ROM Machine playing a user's Sample, named after its file without the extension, as one word (agreed
+			// with md-drums-seq on 2026-10-19); one playing the factory's keeps ROM-NN
+			auto withSamples = kit;
+			withSamples.machines[4] = 176;	// ROM-33
+			withSamples.machines[5] = 177;	// ROM-34
+			KitFiles::SampleNames names{};
+			names[32] = "Kick 808 long.wav";
+			const auto sampleText = KitFiles::text(withSamples, {}, names);
+			require(sampleText.find("\ntrack 5 176 Kick_808_long ") != std::string::npos,
+				"a ROM Machine playing a user's Sample is not named after its file");
+			require(sampleText.find("\ntrack 6 177 ROM-34 ") != std::string::npos,
+				"a ROM Machine playing the factory's Sample lost its ROM-NN");
+
 			// A second device: its file at the next step; a change reaches both, not before StepMs
 			files.hello(0xfedcba, 100.0);
 			require(files.due(100.0), "a second device's file is not due at once");
