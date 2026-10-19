@@ -158,7 +158,8 @@ namespace mdDrums
 			return "MoDule needs its flash image before a User Machine";
 		if(auto error = m_library->install(_index, _file); !error.empty())
 			return error;
-		installFromLibrary(_index, true);
+		if(installFromLibrary(_index, true))
+			markStateChanged();
 		return {};
 	}
 
@@ -211,6 +212,7 @@ namespace mdDrums
 		const auto sample = std::make_shared<const Sample>(std::move(s));
 		if(!setDeviceSample(_rom, sample))
 			return "The Samples have no room left for it";
+		markStateChanged();
 		if(m_samples && !m_samples->put(_rom, sample))
 			return "MoDule plays it, but could not keep it in " + m_samples->file(_rom).u8string();
 		return {};
@@ -221,6 +223,12 @@ namespace mdDrums
 		if(m_samples)
 			m_samples->remove(_rom);
 		setDeviceSample(_rom, nullptr);
+		markStateChanged();
+	}
+
+	void Processor::markStateChanged()
+	{
+		updateHostDisplay(juce::AudioProcessorListener::ChangeDetails().withNonParameterStateChanged(true));
 	}
 
 	void Processor::takeSample(const int _rom)

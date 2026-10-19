@@ -65,10 +65,12 @@ Windows (macOS construit par la CI, pas vérifié à la main). Pas de tag.
   de la Track, sinon la première ROM-33..48 libre ; la ligne d'état dit ce qui s'est passé.
 - [Un clip ou un pad lâchés](issues/07-clip-et-pad-laches.md) (journal construit, lâchers de l'utilisateur en
   attente) : `MD_DROP_LOG` écrit ce que Live passe au plug-in.
+- [Le set marqué modifié](issues/11-set-marque-modifie.md) (prototype construit, jugement dans Live en attente) : un
+  Sample, une Machine utilisateur, un Link, un Choke ou le nom du Kit demandent à l'hôte de marquer le set modifié
+  (`setDirty`) ; que Live l'entende reste à voir ; l'undo de Live ne voit que les paramètres.
 
 ## Not yet specified
 
-- Ce que voit l'hôte quand un Sample change : set marqué modifié, undo de Live.
 - Le nom d'un Sample dans le fichier `.kit` de md-drums-seq et sur Push.
 
 ## Out of scope

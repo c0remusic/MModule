@@ -96,6 +96,11 @@ namespace mdDrums
 		std::string loadSampleFile(int _rom, const std::filesystem::path& _file);
 		// ROM _rom back to the factory's Sample (silence on ROM-33 to ROM-48), in the library and this instance's Device
 		void removeSample(int _rom);
+		// What the user changed of the set's state outside the host parameters (a Sample, a User Machine, a Kit's Links,
+		// Chokes or name): the host is asked to mark the set modified (VST3 IComponentHandler2::setDirty), and told
+		// nothing else; ticket 11 of the Samples map. Never at load, as nothing is told at load (ticket 34 of the editor
+		// map). On the message thread.
+		void markStateChanged();
 		// The library's Samples on the ROM Machines _kit plays into this instance's Device, where it holds another or the
 		// factory's: what loading a Kit of the Bank does (ticket 10 of the Samples map). A ROM the library lacks keeps
 		// what the Device plays.

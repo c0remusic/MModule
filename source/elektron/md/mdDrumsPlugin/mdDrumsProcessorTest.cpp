@@ -915,6 +915,68 @@ namespace
 	}
 }
 
+namespace
+{
+	// The set marked modified (ticket 11 of the Samples map): what the user changes of the state outside the host
+	// parameters asks the host to mark the set modified (JUCE's VST3 wrapper calls IComponentHandler2::setDirty), and
+	// nothing else does: a Link, a Choke and the Kit's name, a Sample loaded and removed, a User Machine installed, once
+	// each; not the same User Machine again, a host parameter automated, a state restored
+	void setMarkedModified(const double _rate)
+	{
+		struct Marks final : juce::AudioProcessorListener
+		{
+			int count = 0;
+			void audioProcessorChanged(juce::AudioProcessor*, const ChangeDetails& _details) override
+			{
+				count += _details.nonParameterStateChanged ? 1 : 0;
+			}
+			void audioProcessorParameterChanged(juce::AudioProcessor*, int, float) override {}
+		};
+		const auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("MoDuleMarksTest");
+		folder.deleteRecursively();
+		require(folder.createDirectory().wasOk(), "no folder for the test's files");
+		juce::WavAudioFormat wav;
+		const auto tone = writeTone(wav, folder.getChildFile("tone.wav"), 44100.0, 1, 0.5).getFullPathName().toStdString();
+
+		mdDrums::Processor processor(true);
+		require(prepare(processor, _rate, g_block), "no Device for the marks");
+		juce::MemoryBlock state;
+		static_cast<juce::AudioProcessor&>(processor).getStateInformation(state);
+		Marks marks;
+		processor.addListener(&marks);
+		const auto counted = [&](const char* _what, const int _expected)
+		{
+			require(marks.count == _expected, std::string(_what) + ": " + std::to_string(marks.count)
+				+ " marks of a modified set, " + std::to_string(_expected) + " expected");
+		};
+
+		static_cast<juce::AudioProcessor&>(processor).setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+		block(processor);
+		automate(processor, "FLTF", 0, 30);
+		counted("a state restored and a parameter automated", 0);
+		auto& controller = processor.controller();
+		controller.setLink(0, 2);
+		counted("a Link", 1);
+		controller.setChoke(1, 3);
+		counted("a Choke", 2);
+		controller.renameKit("MARKED");
+		counted("the Kit's name", 3);
+		require(processor.loadSampleFile(32, tone).empty(), "the WAV was not loaded onto ROM-33");
+		counted("a Sample loaded", 4);
+		processor.removeSample(32);
+		counted("a Sample removed", 5);
+		const auto saw = mdDrums::test::sawPackage();
+		require(processor.installUserMachine(6, saw).empty(), "the test's User Machine was not installed");
+		counted("a User Machine installed", 6);
+		require(processor.installUserMachine(6, saw).empty(), "the test's User Machine was not installed again");
+		counted("the same User Machine again", 6);
+		processor.removeListener(&marks);
+		std::printf("the set marked modified: by a Link, a Choke, the Kit's name, a Sample loaded and removed, a User"
+			" Machine installed; not by the same one again, a parameter automated or a state restored\n");
+		folder.deleteRecursively();
+	}
+}
+
 int main()
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
@@ -936,6 +998,7 @@ int main()
 				sampleFiles(rate);
 				keptSamples(rate);
 				imports(rate);
+				setMarkedModified(rate);
 			}
 			juce::AudioProcessor& host = processor;
 

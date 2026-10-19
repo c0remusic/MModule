@@ -508,6 +508,7 @@ namespace mdDrums
 	{
 		m_kitBase.setName(_name);
 		sendToDevice(messages::kitName(m_kitBase.name));
+		static_cast<Processor&>(getProcessor()).markStateChanged();
 	}
 
 	void Controller::setLink(const uint8_t _track, const uint8_t _target)
@@ -530,6 +531,7 @@ namespace mdDrums
 		sysex::applyKitChange(change, m_kitBase);
 		if(const auto message = sysex::encodeKitChange(change))
 			sendToDevice(*message);
+		static_cast<Processor&>(getProcessor()).markStateChanged();
 	}
 
 	void Controller::sendToDevice(const std::vector<uint8_t>& _sysex)
