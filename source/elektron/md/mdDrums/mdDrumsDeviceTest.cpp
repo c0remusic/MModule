@@ -829,7 +829,7 @@ namespace
 			" the last channel-1 Hit, dropped without its Hit\n");
 	}
 
-	// A User Machine a set holds that the voice DSP does not play (ticket 23 of the User Machines map): a NEIGHBOUR package
+	// A User Machine a set holds that the voice DSP does not play (ticket 23 of the User Machines map): a STEREO PAIR package
 	// in a state is kept as saved, its number playing the empty machine (a playable one installed there before goes),
 	// and the next state holds it again; a User Machine installed at its number lets it go
 	void keptUserMachines(const std::vector<uint8_t>& _flash)
@@ -838,8 +838,8 @@ namespace
 		Rig rig(_flash, 44100.0f, false);
 		auto& device = *rig.device;
 		auto draft = mdDrums::test::sawDraft();
-		draft.flags = md::mds::FlagNeighbour;
-		draft.name = "TEST NEIGHBOUR";
+		draft.flags = md::mds::FlagNeighbour | md::mds::FlagStereoPair;
+		draft.name = "TEST PAIR";
 		const auto neighbour = md::mds::buildPackage(draft);
 		const auto saw = std::make_shared<const md::mds::Package>(md::mds::parsePackage(mdDrums::test::sawPackage()));
 		device.installUserMachine(index, saw);
@@ -860,8 +860,8 @@ namespace
 		require(device.setState(stateWith(neighbour), synthLib::StateTypeGlobal), "the state was refused");
 		const auto& kept = device.keptUserMachine(index);
 		require(!device.userMachine(index) && kept && kept->package == neighbour
-			&& kept->reason.find("NEIGHBOUR") != std::string::npos,
-			"a NEIGHBOUR package in a state was not kept, or the User Machine there before still plays");
+			&& kept->reason.find("STEREO PAIR") != std::string::npos,
+			"a STEREO PAIR package in a state was not kept, or the User Machine there before still plays");
 		const auto keptName = kept ? kept->name : std::string();
 		const auto again = saved();
 		require(again.size() == 1 && again[0].index == index && again[0].package == neighbour,

@@ -989,6 +989,68 @@ namespace
 	// host's samples (md::mds::BareHost, mdsPlay's), from its Hit, its code relocated and its parameters converted, and the
 	// other Tracks give what they give without it. mdDrums::Engine plays it with a Hit, compiled ahead, and stops when it is
 	// removed. A package the voice DSP cannot play is refused.
+	// NEIGHBOUR User Machines (ticket 22 of the User Machines map, research/12): the test's copier on a Track renders,
+	// word for word, the raw voice block of the Track it reads, as the MDS Standard has it: one, two or three back from
+	// the descriptor at Y:$7F0, four back from its own buffer before RENDER; a Track before the first in the block before
+	// (Track 1 one back is Track 16 of the last block). The Kit's Tracks all struck, some on GND-- or never struck, which
+	// read as zeros
+	void neighbours(const md::fw::FlashOs& _os, const md::fw::RomBank& _bank)
+	{
+		constexpr int blocks = 40;
+		using Voices = std::vector<std::array<int32_t, mdDrums::Engine::BlockSize>>;
+		const auto voice = [](const Voices& _v, const int _block, const int _track) -> const auto&
+		{
+			return _v[static_cast<size_t>(_block * mdDrums::Engine::TrackCount + _track)];
+		};
+		const auto run = [&](const int _track, const int _back)
+		{
+			const auto package = std::make_shared<const md::mds::Package>(md::mds::parsePackage(
+				md::mds::buildPackage(mdDrums::test::neighbourDraft(_back))));
+			md::engine::Engine raw(_os.firmware, _os.osImage);
+			raw.loadRomBank(_bank);
+			mdDrums::applyEngineDefaults(raw.host());
+			raw.installUserMachine(0, package);
+			raw.host().setMachine(_track, mdDrums::Engine::FirstUserMachine);
+			raw.host().setMachine(12, 1);	// GND-SN: a source that renders
+			raw.host().setMachine(13, 0);	// GND--: skipped, zeros
+			md::engine::Engine::Output out;
+			Voices voices(static_cast<size_t>(blocks) * mdDrums::Engine::TrackCount);
+			for(int b = 0; b < blocks; ++b)
+			{
+				if(b == 2)
+					for(int t = 0; t < mdDrums::Engine::TrackCount; ++t)
+						if(t != 14)	// never struck
+							raw.host().trigger(t, 100);
+				require(raw.render(out), "the engine faulted");
+				for(int t = 0; t < mdDrums::Engine::TrackCount; ++t)
+					voices[static_cast<size_t>(b * mdDrums::Engine::TrackCount + t)] = raw.voiceBlock()[static_cast<size_t>(t)];
+			}
+			// From the block after the copier's Hit, which brings its machine
+			size_t differ = 0, sounding = 0;
+			for(int b = 3; b < blocks; ++b)
+			{
+				const auto source = _track - _back;
+				const auto& expected = source >= 0 ? voice(voices, b, source)
+					: voice(voices, b - 1, source + mdDrums::Engine::TrackCount);
+				const auto& got = voice(voices, b, _track);
+				differ += got != expected;
+				sounding += std::any_of(got.begin(), got.end(), [](const int32_t _s) { return _s != 0; });
+			}
+			std::printf("NEIGHBOUR copier on Track %d, %d back: %zu of %d blocks differ from its source's, %zu sound\n",
+				_track + 1, _back, differ, blocks - 3, sounding);
+			require(differ == 0, "a NEIGHBOUR machine did not read its source's raw block");
+			return sounding;
+		};
+		// Track 6: all four sources in the block; Track 2: one in the block, the others in the last; Track 1: none
+		for(const int back : {1, 2, 3, 4})
+			require(run(5, back) > 0, "a NEIGHBOUR copier on Track 6 heard nothing");
+		require(run(1, 1) > 0 && run(1, 2) > 0, "a NEIGHBOUR copier on Track 2 heard nothing");
+		require(run(0, 1) > 0 && run(0, 4) > 0, "a NEIGHBOUR copier on Track 1 heard nothing");
+		// Sources that give zeros: Track 15 never struck, Track 14 on GND-- (skipped); Track 13 on GND-SN renders
+		run(15, 1);
+		run(14, 1);
+	}
+
 	void userMachines(const md::fw::FlashOs& _os, const md::fw::RomBank& _bank)
 	{
 		const auto package = std::make_shared<const md::mds::Package>(md::mds::parsePackage(md::mds::buildPackage(mdDrums::test::sawDraft())));
@@ -1094,12 +1156,12 @@ namespace
 			require(std::all_of(own.begin(), own.end(), [](float _v) { return std::abs(_v) < 1e-6f; }),
 				"a removed User Machine still sounds");
 
-			// Refused: an import the voice DSP does not provide (SAMPLE_READ), and NEIGHBOUR
+			// Refused: an import the voice DSP does not provide (SAMPLE_READ), and STEREO PAIR (NEIGHBOUR plays: neighbours)
 			auto sampleRead = mdDrums::test::sawDraft();
 			sampleRead.imports.push_back({0, 5, 10});
-			auto neighbour = mdDrums::test::sawDraft();
-			neighbour.flags = md::mds::FlagNeighbour;
-			for(const auto& draft : {sampleRead, neighbour})
+			auto pair = mdDrums::test::sawDraft();
+			pair.flags = md::mds::FlagNeighbour | md::mds::FlagStereoPair;
+			for(const auto& draft : {sampleRead, pair})
 			{
 				bool refused = false;
 				try
@@ -1170,6 +1232,7 @@ int main()
 		coldFireBytePush(os);
 		conversions(os);
 		userMachines(os, bank);
+		neighbours(os, bank);
 		sampleWrite(_flash, os, bank);
 		userSamples(_flash, os, bank);
 

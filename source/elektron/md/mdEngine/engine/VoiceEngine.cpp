@@ -50,6 +50,12 @@ namespace md::engine
 		constexpr TWord kSkipStub = 0x0c20;	// silent-voice check, replaces kRenderFn's lookup
 		constexpr TWord kSkipNormal = 0x0c30;	// real render fn lookup, resumed
 		constexpr TWord kSkipSilent = 0x0c38;	// idle voice: flag 0, straight to the next voice
+		// md-drums: the neighbours' ring (.scratch/user-machines/research/12-neighbour-buffers.md): four output buffers
+		// where 1.63 flips two banks, and the descriptor of the MDS Standard's NEIGHBOUR machines at Y:$7F0
+		constexpr TWord kBankFlip = 0x9b;		// 1.63's flip of Y:$140 between $100 and $120, up to the type fetch's end
+		constexpr TWord kRingStub = 0x0c40;
+		constexpr TWord kDescriptors = 0x7e0, kRingPointer = 0x7f0;
+		constexpr std::array<TWord, 4> kRingBuffers{0x100, 0x120, 0x7a0, 0x7c0};
 
 		constexpr uint64_t kMaxInstrInit = 200'000'000;
 		constexpr uint64_t kMaxInstrBlock = 20'000'000;
@@ -206,14 +212,51 @@ namespace md::engine
 			m_dsp->memWriteP(pc++, kAfterRenderFn);
 		}
 		{
-			// An idle voice sends flag 0 and nothing else - no 32-word clear, no 32-word transmit; the host fills its
-			// zeros. Its buffer pointer (mod 32) ends where it started, so going straight to the next voice is the same
-			// state the clear-and-send path left. A voice's 32 samples are only sent when its flag is 1.
+			// An idle voice sends flag 0 and nothing else - no 32-word transmit; the host fills its zeros. A voice's 32
+			// samples are only sent when its flag is 1. md-drums: its buffer takes 32 zeros all the same, as 1.63's null
+			// render writes them: with four buffers, a NEIGHBOUR machine reading it would hear the Track four places
+			// further back (research/12 §3.2). M7 is linear here; the next voice sets R7 again.
 			TWord pc = kSkipSilent;
+			emit(pc, "clr a");
+			emit(pc, "rep #32");
+			emit(pc, "move a,y:(r7)+");
 			emit(pc, "movep #>0,x:<<$ffffc7");
 			m_dsp->memWriteP(pc++, 0x0af080);	// jmp >kNextVoice
 			m_dsp->memWriteP(pc++, kNextVoice);
+			if(pc > kRingStub)
+				throw std::runtime_error("voice harness: the silent voice's stub runs into the ring's");
 		}
+
+		// 2c) md-drums: the neighbours' ring in place of 1.63's bank flip: Track t (R1, 0-15) renders into buffer t mod 4
+		//     and Y:$7F0 points at its descriptor (writeRing), whose words 1 to 3 name the buffers of the three Tracks
+		//     before it, as the MDS Standard's NEIGHBOUR machines read them. Stateless, from the Track number, so it
+		//     cannot drift. The type comes into R0 as 1.63's $A3 takes it, and X0 and X1 hold what its flip left there.
+		{
+			TWord pc = kBankFlip;
+			m_dsp->memWriteP(pc++, 0x0af080);	// jmp >kRingStub
+			m_dsp->memWriteP(pc++, kRingStub);
+			while(pc < kRenderFn)
+				m_dsp->memWriteP(pc++, 0x000000);	// nop, never run
+		}
+		{
+			TWord pc = kRingStub;
+			emit(pc, "move y:(r1+$153),r0");
+			emit(pc, "move r1,a");
+			emit(pc, "and #<$3,a");
+			emit(pc, "asl a");
+			emit(pc, "asl a");
+			emit(pc, "add #>" + hex(kDescriptors) + ",a");
+			emit(pc, "move a,y:>" + hex(kRingPointer));
+			emit(pc, "move a,r1");
+			emit(pc, "nop");
+			emit(pc, "move y:(r1),r7");
+			emit(pc, "move r7,y:>$140");
+			emit(pc, "move #>$100,x1");
+			emit(pc, "move #>$20,x0");
+			m_dsp->memWriteP(pc++, 0x0af080);	// jmp >kRenderFn, the skip stub's jump
+			m_dsp->memWriteP(pc++, kRenderFn);
+		}
+		writeRing();
 
 		// 3) after all 16 voices: wait for the host's "go" word (the host updates the voice slots meanwhile)
 		{
@@ -222,6 +265,19 @@ namespace md::engine
 			emit(pc, "movep x:<<$ffffc6,a");
 			emit(pc, "jmp " + hex(kBlockStart));
 		}
+	}
+
+	void VoiceEngine::writeRing()
+	{
+		// Y:$7A0-$7DF, which no 1.63 machine reads or writes (research/04): two more buffers of 32 zeros; then the four
+		// descriptors, each its own buffer and those of one, two and three Tracks back on the ring $100, $120, $7A0, $7C0
+		for(TWord a = kRingBuffers[2]; a < kDescriptors; ++a)
+			m_dsp->memWrite(MemArea_Y, a, 0);
+		for(size_t d = 0; d < kRingBuffers.size(); ++d)
+			for(size_t back = 0; back < kRingBuffers.size(); ++back)
+				m_dsp->memWrite(MemArea_Y, kDescriptors + static_cast<TWord>(4 * d + back),
+					kRingBuffers[(d + kRingBuffers.size() - back) % kRingBuffers.size()]);
+		m_dsp->memWrite(MemArea_Y, kRingPointer, kDescriptors);
 	}
 
 	void VoiceEngine::extendDispatch()
@@ -241,9 +297,10 @@ namespace md::engine
 
 	void VoiceEngine::checkUserMachine(const md::mds::Package& _package)
 	{
-		if(_package.flags & (md::mds::FlagNeighbour | md::mds::FlagStereoPair))
-			throw std::runtime_error(_package.displayName() + " processes other Tracks ("
-				+ (_package.flags & md::mds::FlagStereoPair ? "STEREO PAIR" : "NEIGHBOUR") + "), which MoDule does not play yet");
+		// NEIGHBOUR plays on the ring (installHarness); STEREO PAIR's role word is not there yet
+		if(_package.flags & md::mds::FlagStereoPair)
+			throw std::runtime_error(_package.displayName() + " pairs with the next Track (STEREO PAIR), which MoDule does"
+				" not play yet");
 		for(const auto& im : _package.imports)
 		{
 			if(im.symbol != 1 && im.symbol != 6 && im.symbol != 7 && im.symbol != 8)
@@ -335,6 +392,8 @@ namespace md::engine
 			throw std::runtime_error("voice DSP init did not complete: " + m_fault);
 		while(hi.hasTX())
 			hi.readTX();
+		// The ring's words again, whatever the program's init did to that memory
+		writeRing();
 	}
 
 	void VoiceEngine::setSlot(const int _voice, const uint32_t* _words, const int _count)

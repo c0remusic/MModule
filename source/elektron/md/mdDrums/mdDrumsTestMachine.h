@@ -85,6 +85,67 @@ namespace mdDrums::test
 		return draft;
 	}
 
+	// A NEIGHBOUR User Machine of the test's own (ticket 22 of the User Machines map): its RENDER copies, word for word,
+	// the raw block of the Track _back places before it (1-3, through the descriptor the MDS Standard puts at Y:$7F0), or
+	// with 4 its own buffer as RENDER finds it, which holds the Track four places back. A copy, so that the tests compare
+	// it bit for bit with its source.
+	inline md::mds::Draft neighbourDraft(const int _back)
+	{
+		struct Code
+		{
+			std::vector<uint32_t> words;
+			void op(const std::string& _text)
+			{
+				dsp56k::Assembler as;
+				const auto r = as.assemble(_text.c_str());
+				if(!r.success())
+					throw std::runtime_error("cannot assemble '" + _text + "'");
+				words.push_back(r.word[0]);
+				if(r.wordCount > 1)
+					words.push_back(r.word[1]);
+			}
+		};
+		md::mds::Draft draft;
+		Code code;
+		draft.initOffset = 0;
+		code.op("rts");
+		draft.trigOffset = static_cast<uint16_t>(code.words.size());
+		code.op("rts");
+		draft.renderOffset = static_cast<uint16_t>(code.words.size());
+		code.op("move y:>$7f0,r0");	// the descriptor
+		code.op("nop");
+		char text[32];
+		// Word _back of the descriptor; with 4 back, word 0, its own buffer
+		if(_back % 4)
+		{
+			std::snprintf(text, sizeof(text), "move y:(r0+$%x),r0", _back % 4);
+			code.op(text);
+		}
+		else
+		{
+			code.op("move y:(r0),r0");
+		}
+		code.op("nop");
+		Code body;
+		body.op("move y:(r0)+,a");
+		body.op("move a,y:(r7)+");
+		const auto end = code.words.size() + 2 + body.words.size();
+		std::snprintf(text, sizeof(text), "do #32,$%zx", end);
+		draft.relocated.push_back(static_cast<uint16_t>(code.words.size() + 1));
+		code.op(text);
+		code.words.insert(code.words.end(), body.words.begin(), body.words.end());
+		code.op("rts");
+		draft.program = code.words;
+		draft.yWords = 11;
+		draft.declaredCycles = 200;
+		draft.category = "TST";
+		draft.code = "N" + std::to_string(_back);
+		draft.name = "TEST NEIGHBOUR " + std::to_string(_back);
+		draft.id = "org.mmodule.test.neighbour" + std::to_string(_back);
+		draft.flags = md::mds::FlagNeighbour;
+		return draft;
+	}
+
 	// The package's bytes, with another default for PTCH, so that two packages differ
 	inline std::vector<uint8_t> sawPackage(const uint8_t _pitch = 100)
 	{

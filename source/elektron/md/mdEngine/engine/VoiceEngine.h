@@ -50,9 +50,10 @@ namespace md::engine
 		// the dispatch tables extended from OS 1.63's 193 types to 211, USR-01 being type 195 (its machine id 194, + 1),
 		// each package's code relocated into the memory P, X and Y share ($020000 + $E000 words a number), and its imports
 		// on 1.63's layout (the sine table, P-I's 1,536 words of external memory per Track, the X and Y scratch). A type
-		// without a User Machine plays the empty machine. Throws, installing nothing, on a package it cannot play: an import
-		// it does not provide (the Sample and RAM services, the rings), NEIGHBOUR or STEREO PAIR (the four-buffer
-		// descriptor X.20 keeps at Y:$7F0 is not there), more code than a number's room, a declared cost X.20 refuses.
+		// without a User Machine plays the empty machine. A NEIGHBOUR package reads the three Tracks before it through the
+		// descriptor at Y:$7F0, on the harness's ring of four buffers (research/12 of the User Machines map). Throws,
+		// installing nothing, on a package it cannot play: an import it does not provide (the Sample and RAM services, the
+		// rings), STEREO PAIR (its role word is not there), more code than a number's room, a declared cost X.20 refuses.
 		// reset() keeps them.
 		static constexpr int kUserMachines = 16;
 		static constexpr uint32_t kFirstUserType = 195;
@@ -73,6 +74,7 @@ namespace md::engine
 	private:
 		void loadImage(const fw::DspImage& _img);
 		void installHarness();
+		void writeRing();	// the neighbours' ring: its two extra buffers and four descriptors in Y
 		void extendDispatch();
 		void writeUserMachine(int _index);
 		bool runUntilTx(size_t _words, uint64_t _maxInstructions);
