@@ -92,11 +92,18 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 
 ## Not yet specified
 
-- Les drapeaux TONAL et CONTINUOUS RETRIGGER : ce que MoDule en fait (les modes d'accord d'X.20 sont hors périmètre).
-- NEIGHBOUR et STEREO PAIR (les 9 NFX et les 4 SYN-F) : le descripteur de quatre tampons qu'X.20 tient à Y:`$7F0` et
-  fait tourner Track après Track, que le harnais du DSP voix devra tenir ; le rôle stéréo à Y+9. Refusés d'ici là.
+- NEIGHBOUR (les 9 NFX et les 4 SYN-F, 13 des 43 du zip ; aucun ne pose STEREO PAIR,
+  [research/11](research/11-mdm1-flags.md)) : le descripteur de quatre tampons qu'X.20 tient à Y:`$7F0` et fait
+  tourner Track après Track, que le harnais du DSP voix devra tenir ; un voice sautée doit vider son tampon ; le délai
+  des Hits sample-accurate face à leurs sources ; l'aperçu du Hit, qui rend une Track seule. STEREO PAIR (rôle à Y+9)
+  après NEIGHBOUR. Refusés d'ici là, et un set qui en garde un le perd au prochain enregistrement.
 - Le sprite 32x24 de MDM1 : où le montrer, si l'éditeur le montre.
-- Le fondu ANTI-CLICK qu'X.20 fait avant TRIG : le faire ou non, OS 1.63 n'en a pas.
+- Le fondu ANTI-CLICK qu'X.20 fait avant TRIG : le faire ou non, OS 1.63 n'en a pas. S'il se fait, il suit le
+  drapeau CONTINUOUS RETRIGGER (31 des 43, research/11), qu'X.20 lit pour le sauter ; MoDule ne le lit pas d'ici là,
+  ce qui revient à ANTI-CLICK OFF.
+- TONAL : MoDule n'en fait rien, le drapeau n'ouvrant que l'éditeur TUNING d'X.20, hors périmètre (research/10 et 11).
+  Mais un `$5B` d'X.20 qui porte des drapeaux d'accord est mal lu (USR-01 TONAL devient P-I-MT, research/11) ;
+  aucun message de MoDule ne l'envoie aujourd'hui.
 - Le nom et les paramètres d'une Machine utilisateur sur Push.
 - SAMPLE_INFO et SAMPLE_READ, pour qu'une Machine utilisateur lise les Samples (lien avec la carte des Samples).
 
