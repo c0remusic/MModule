@@ -1,8 +1,8 @@
 # NEIGHBOUR et les Hits sample-accurate
 
 Type: grilling
-Status: open
-Assignee:
+Status: resolved
+Assignee: c0remusic (session du 2026-10-19)
 Blocked by: [Les tampons des voisins](19-tampons-des-voisins.md)
 
 ## Question
@@ -20,3 +20,11 @@ Trois pistes à trancher avec l'utilisateur :
 - couper le sample-accurate pour ces Tracks.
 
 La latence se mesure avant et après (CLAUDE.md : note→son et gigue).
+
+## Décision
+
+L'utilisateur, le 2026-10-19 : la Track NEIGHBOUR prend le délai de la Track d'avant, sa première voisine (le délai
+qui cale son Hit à l'échantillon et retient sa voix jusqu'à `Engine::AlignedStart`). Exact pour les 7 paquets qui ne
+lisent que la Track d'avant, approché pour les 6 qui en lisent deux ou trois ([research/12](../research/12-neighbour-buffers.md)).
+Écartés : décaler dans le DSP comme le PRECISE d'X.20 (exact pour toutes, mais le chemin des Hits à refaire),
+accepter l'écart, couper le calage pour ces Tracks.

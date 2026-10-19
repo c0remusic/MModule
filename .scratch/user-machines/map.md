@@ -94,6 +94,10 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   Machine utilisateur aujourd'hui.
 - [Garder ce qui ne joue pas](issues/23-garder-ce-qui-ne-joue-pas.md) : construit ; le set garde le paquet refusé, son
   numéro joue la Machine vide, la ligne d'état le dit.
+- [NEIGHBOUR et les Hits sample-accurate](issues/20-voisins-et-hits-sample-accurate.md) : la Track NEIGHBOUR prend le
+  délai de la Track d'avant.
+- [L'aperçu d'une Machine voisine](issues/21-apercu-d-une-machine-voisine.md) : l'aperçu frappe aussi ses voisines et
+  ne fait entendre qu'elle ; toute USR s'y entend depuis c33d669.
 
 ## Not yet specified
 

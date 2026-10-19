@@ -1,8 +1,8 @@
 # L'aperçu du Hit d'une Machine voisine
 
 Type: grilling
-Status: open
-Assignee:
+Status: resolved
+Assignee: c0remusic (session du 2026-10-19)
 Blocked by: [Les tampons des voisins](19-tampons-des-voisins.md)
 
 ## Question
@@ -18,3 +18,9 @@ Fait le 2026-10-19 en marge ([research/12](../research/12-neighbour-buffers.md))
 aucune Machine utilisateur, et toute USR s'y entendait muette. Elle porte maintenant celles de l'instance, et la Track
 montrée installe la sienne ; `mdDrumsHitPreviewTest` le vérifie (USR-02 sur Track 3 : le premier Hit du Device, colonne
 pour colonne). Reste la question de ce ticket : les voisines d'une NEIGHBOUR.
+
+## Décision
+
+L'utilisateur, le 2026-10-19 : l'aperçu d'une Machine NEIGHBOUR frappe aussi les Tracks qu'elle lit (une à quatre avant
+elle, comme son paquet les lit), avec le Kit joué, et ne fait entendre que la sortie de la Track montrée. Écartés :
+l'aperçu tel quel avec une mention, pas d'aperçu.
