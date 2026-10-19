@@ -495,7 +495,9 @@ namespace
 	// Lock, then (end - start) x 128 / clocks, truncated toward zero, added at each 24-ppqn clock, each sum >> 7, a
 	// clock (882 samples) apart; then the next trig's value, its Lock or the Kit's. The trig's own clock steps the
 	// slide or skips it as the control tick's phase falls (MD Drums always skips it, HostModel::clock). Stopped
-	// mid-slide, it stands still. mdDrumsEngineTest checks MD Drums' port against the same ramp.
+	// mid-slide, it stands still. A CC on the locked parameter sets the target at once, over a Lock until the
+	// next trig, over a slide until its next clock, from which the slide goes on. mdDrumsEngineTest checks MD Drums'
+	// port against the same ramp and the same CC.
 	void slides(const char* _path)
 	{
 		using namespace md::automation;
@@ -524,9 +526,13 @@ namespace
 			require(hardware.trySendPanelEvent(packet->row, 0), "panel release rejected");
 			settle(25);
 		};
-		const auto cc = encodeParameterChange(md::MachineModel::Machinedrum, {machinedrum::Effects, 0, 4, kitValue}, 0);
-		require(cc.has_value(), "no CC for FLTF");
-		bench.note((*cc)[0], (*cc)[1], (*cc)[2], 0);
+		const auto kitFltf = [&](const uint8_t _value)
+		{
+			const auto cc = encodeParameterChange(md::MachineModel::Machinedrum, {machinedrum::Effects, 0, 4, _value}, 0);
+			require(cc.has_value(), "no CC for FLTF");
+			bench.note((*cc)[0], (*cc)[1], (*cc)[2], 0);
+		};
+		kitFltf(kitValue);
 		settle(8);
 		const auto extended = [&]
 		{
@@ -550,16 +556,21 @@ namespace
 			const char* name;
 			std::vector<uint8_t> trigs;		// track 1's steps (0-31)
 			std::vector<std::pair<uint8_t, uint8_t>> locks;	// step, FLTF
-			uint8_t slideStep;
+			uint8_t slideStep;				// NoSlide: none
 			int start, end, clocks;			// the ramp the research derives
 			bool stop;						// STOP after three stairs
+			int cc = -1;					// a CC of FLTF, ccClock clocks into the slide step
+			int ccClock = 0;
 		};
+		constexpr uint8_t NoSlide = 0xff;
 		const std::vector<Scenario> scenarios{
 			{"one step from 0 to 127", {0, 1}, {{0, 0}, {1, 127}}, 0, 0, 127, 6, false},
 			{"to the Kit's value", {0, 1}, {{0, 0}}, 0, 0, kitValue, 6, false},
 			{"two steps from 0 to 127", {0, 2}, {{0, 0}, {2, 127}}, 0, 0, 127, 12, false},
 			{"one step from 100 to 20", {0, 1}, {{0, 100}, {1, 20}}, 0, 100, 20, 6, false},
 			{"stopped", {0, 2}, {{0, 0}, {2, 127}}, 0, 0, 127, 12, true},
+			{"a CC over a Lock", {0, 8}, {{0, 0}}, NoSlide, 0, 100, 6, false, 100, 3},
+			{"a CC over a slide", {0, 2}, {{0, 0}, {2, 127}}, 0, 0, 127, 12, false, 100, 4},
 		};
 		const auto ramp = [](const int _start, const int _end, const int _over, const int _clocks)
 		{
@@ -594,7 +605,7 @@ namespace
 				put32(main + 64 + 4 * track, track ? 0 : 1u << 12);
 			}
 			put32(main + 128, 0);
-			put32(main + 132, 1u << scenario.slideStep);
+			put32(main + 132, scenario.slideStep == NoSlide ? 0 : 1u << scenario.slideStep);
 			put32(main + 136, 0);
 			writes.push_back({main + 149, 1});
 			for(uint32_t step = 0; step < 32; ++step)
@@ -605,6 +616,7 @@ namespace
 			put32(tail + 4, 1);
 			put32(tail + 8, 0);
 			require(hardware.writeRamIfUnchanged(writes), "the pattern's bytes were refused");
+			kitFltf(kitValue);
 			settle(16);
 
 			// Played from step 1, twice through: a sequencer that starts sets up its first step's Locks and slides at
@@ -618,10 +630,22 @@ namespace
 			size_t from = SIZE_MAX;
 			const auto startFrame = bench.frame();
 			bool held = false;
+			size_t ccChange = SIZE_MAX;	// the change the CC made
+			bool ccSent = false;
 			for(uint32_t block = 0; block < blocks; ++block)
 			{
 				if(block == 8)
 					require(hardware.trySendPanelEvent(play->row, 0), "PLAY's release rejected");
+				// The CC ccClock clocks into the step, over a slide just after a stair: the firmware takes a CC some
+				// milliseconds after it comes, which the next clock must not overtake
+				const auto ccDue = from != SIZE_MAX && (scenario.slideStep == NoSlide
+					? bench.frame() >= changes[from].first + static_cast<uint64_t>(scenario.ccClock * 882)
+					: changes.size() > from + scenario.ccClock);
+				if(scenario.cc >= 0 && !ccSent && ccDue)
+				{
+					kitFltf(static_cast<uint8_t>(scenario.cc));
+					ccSent = true;
+				}
 				bench.process();
 				const int value = uc.read8(target);
 				if(value != last)
@@ -631,6 +655,8 @@ namespace
 					const auto secondTime = startFrame + static_cast<uint64_t>((loopClocks - 3) * 882);
 					if(from == SIZE_MAX && bench.frame() > secondTime)
 						from = changes.size() - 1;
+					if(ccSent && ccChange == SIZE_MAX)
+						ccChange = changes.size() - 1;
 				}
 				last = value;
 				if(scenario.stop && from != SIZE_MAX && changes.size() == from + 3)
@@ -659,6 +685,20 @@ namespace
 				check(held, std::string(scenario.name) + ": never stopped mid-slide");
 				continue;
 			}
+			if(scenario.cc >= 0)
+			{
+				check(ccChange != SIZE_MAX && changes[ccChange].second == scenario.cc,
+					std::string(scenario.name) + ": the CC did not set the target");
+				check(uc.read8(0x0010001a + 12) == scenario.cc, std::string(scenario.name) + ": the CC did not set the Kit");
+			}
+			if(scenario.slideStep == NoSlide)
+			{
+				// The Lock, then the CC's value until the next trig, which plays the Kit's: the same
+				check(changes.size() == from + 2 && changes[from].second == scenario.start && ccChange == from + 1,
+					std::string(scenario.name) + ": the Lock and the CC are not the only changes");
+				std::printf("slide %s: the CC set the target over the Lock at once\n", scenario.name);
+				continue;
+			}
 			// The Lock, the clocks' stairs, then the next trig's value. The trig's own clock steps the slide too when
 			// the control tick arms it between the clock handler's trigs and its update (the update skips a track whose
 			// trig waits for the tick, $2ae8c2), which the tick's phase decides: the Lock and its first stair then
@@ -676,10 +716,15 @@ namespace
 					values.push_back(scenario.end);
 				return values;
 			};
+			// The stairs seen, but the CC's own change: the slide goes on from where it stood
 			std::vector<int> observed;
+			std::vector<uint64_t> frames;
 			for(auto i = from; i < changes.size(); ++i)
 			{
+				if(i == ccChange)
+					continue;
 				observed.push_back(changes[i].second);
+				frames.push_back(changes[i].first);
 				if(changes[i].second == scenario.end)
 					break;
 			}
@@ -692,7 +737,7 @@ namespace
 			std::string gaps;
 			for(size_t i = 1; i < observed.size(); ++i)
 			{
-				const auto gap = static_cast<int64_t>(changes[from + i].first - changes[from + i - 1].first);
+				const auto gap = static_cast<int64_t>(frames[i] - frames[i - 1]);
 				gaps += " " + std::to_string(gap);
 				check(i + 1 == observed.size() || std::abs(gap - 882) <= static_cast<int64_t>(g_block),
 					std::string(scenario.name) + ": stair " + std::to_string(i) + " came " + std::to_string(gap)

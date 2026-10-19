@@ -94,7 +94,13 @@ namespace md::engine
 	template<class TVoices>
 	void HostModel<TVoices>::setParam(const int _track, const int _param, const int _value)
 	{
-		m_raw[_track][_param] = static_cast<uint8_t>(std::clamp(_value, 0, 127));
+		const auto value = static_cast<uint8_t>(std::clamp(_value, 0, 127));
+		m_raw[_track][_param] = value;
+		// md-drums: the OS's knob and CC path writes the smoothing target whatever holds it (mdSlideFirmwareTest): a
+		// lock plays the Kit's new value until the track's next Hit, a slide until its next clock, which goes on from
+		// where the slide stood
+		if((m_locked[_track] >> _param) & 1)
+			m_lockValue[_track][_param] = value;
 	}
 
 	template<class TVoices>

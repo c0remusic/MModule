@@ -301,7 +301,7 @@ path, and a binding Live play cannot give. [I]
   md-drums-seq's choice; the OS gives no reference for micro-timing or ratchets.
 - **Knob and host automation during a slide:** the OS's slide rewrites the target each clock; how its knob path treats
   a locked or sliding parameter was not traced. MoDule's `setParam` changes the Kit's value, which `target()` would
-  ignore while a Lock or a slide holds the parameter.
+  ignore while a Lock or a slide holds the parameter. (Measured since, and MoDule changed: see below.)
 - **The transport:** the OS freezes a slide when its sequencer stops; MoDule has no transport for Hits, so a slide would
   run its clocks out unless md-drums-seq sends something on stop.
 - **Identities inferred, not traced:** $1001544 as EXTENDED mode, the timer's 2 µs unit, the scale names of the table
@@ -333,6 +333,12 @@ boot's 125 BPM in EXTENDED mode. [M] for everything in this section.
   one step ahead, and there is no step before the first); from the second pass on they play. What a run staged stays
   staged across STOP: the next PLAY's first step slides with the last run's staging.
 - **$1001544 is not EXTENDED mode**: it reads 0 with the EXTENDED LED lit and slides playing. Its identity stays open.
+- **A CC over a Lock or a slide** sets the smoothing target at once, and the Kit's value: over a Lock (0) the target
+  takes the CC's 100 and keeps it until the next trig, which plays the Kit's, now 100; over a slide it takes 100 until
+  the slide's next clock, which writes the ramp's next stair as if nothing happened (0 10 21 31 42, 100, 52 63 ...).
+  The firmware takes a CC a few milliseconds after it comes, so a CC just before a clock is overwritten within the
+  same block. MoDule's `HostModel::setParam` did not touch a locked parameter's target; it now writes it, as the OS's
+  knob path does (2026-10-19).
 
 The clock count's range, the transport and the clock's phase above were settled with md-drums-seq on 2026-10-19
 (ADR 0003, amended): note 114 for the clocks past 127; the host transport's MIDI clocks step MoDule's slides and stop

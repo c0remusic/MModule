@@ -142,6 +142,10 @@ a Lock without a Hit cannot name its Track.
   outcomes (`mdSlideFirmwareTest`, which measures the firmware's stairs against the same ramp). The Track's next Hit ends
   the slide at once with its own Locks or the Kit's values, as every Hit does; a Hit the mute drops, or another
   Track's, leaves it running. A host that gives no transport plays no slide.
+- A knob, a CC or the host's automation of a parameter a Lock or a slide holds sets its target at once, as the OS's
+  knob path does (measured by `mdSlideFirmwareTest`): over a Lock until the Track's next Hit, which plays the Kit's
+  value, now the new one; over a slide until its next clock, from which the slide goes on. Before this, a Lock held
+  its value against any knob until the next Hit.
 - md-drums-seq sends, at one tick, with the last ratchet of a slide step, the Hit, then its Locks, then note 88 if it
   is accented, then note 89, the target notes and note 114. `mdDrumsEngineTest` checks the ramp against the research's
   worked one (0 to 127 over 6 clocks: 0, 21, 42, 63, 84, 105, a clock apart) and the OS's arithmetic block by block,

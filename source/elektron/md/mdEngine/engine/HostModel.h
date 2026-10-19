@@ -48,12 +48,14 @@ namespace md::engine
 		void setUserMachine(int _index, std::shared_ptr<const md::mds::Package> _package);
 		// md-drums: OS 1.63's decay table, which a User Machine's Decay parameters read, as the OS image holds it
 		const md::mds::DecayTable& decayTable() const { return m_decay; }
-		void setParam(int _track, int _param, int _value);	// 0-127, smoothed like the MD
+		// 0-127, smoothed like the MD. md-drums: as the OS's knob path, it sets the target over a lock or a slide too
+		void setParam(int _track, int _param, int _value);
 		int param(int _track, int _param) const { return m_raw[_track][_param]; }
 		// md-drums: a parameter lock (0-127) for the track's Hit in the block about to render. Where the tick's trigger
 		// path applies the OS's own locks, with a pending machine, the parameter takes the value at once (no glide) and
-		// holds it until the track's next Hit; a Hit without a lock on a parameter the last Hit locked plays the Kit's
-		// value again, at once too. A lock with no Hit of its track in that block is dropped; param() stays the Kit's.
+		// holds it until the track's next Hit, or until setParam gives it the Kit's new value; a Hit without a lock on a
+		// parameter the last Hit locked plays the Kit's value again, at once too. A lock with no Hit of its track in that
+		// block is dropped; param() stays the Kit's.
 		void lock(int _track, int _param, int _value);
 		// md-drums: an accent for the track's Hit in the block about to render, as the sequencer's accented step: that Hit
 		// and its Link's play at velocity 128 + 2 x _amount, the accent amount (0-127) from then on. Taken where the

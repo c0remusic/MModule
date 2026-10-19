@@ -428,8 +428,9 @@ namespace
 	// parameter glides as OS 1.63's sequencer slides a locked step, its smoothing target stepping at each 24-ppqn clock of
 	// the transport by (end - start) x 128 / clocks, truncated, and stopping before the next sum passes the end; a clock
 	// in the Hit's own block skips its track; the track's next Hit ends the slide with its own Lock or the Kit's value,
-	// at once; without clocks it stands still. The research's worked ramp anchors it: one step at 1x (6 clocks) from 0
-	// to 127 steps 0, 21, 42, 63, 84, 105.
+	// at once; without clocks it stands still; a knob sets the target over a Lock or a slide at once, as the OS's does.
+	// The research's worked ramp anchors it, which mdSlideFirmwareTest measures on the firmware: one step at 1x (6
+	// clocks) from 0 to 127 steps 0, 21, 42, 63, 84, 105.
 	void slides(const md::fw::FlashOs& _os, const md::fw::RomBank& _bank)
 	{
 		static constexpr int fltf = 12, fltw = 13, kitValue = 64;
@@ -533,6 +534,30 @@ namespace
 		require(toKit[119] == 84 && toKit[120] == kitValue && toKit.back() == kitValue,
 			"the next Hit did not play the Kit's value at once");
 		require(toLock[120] == 127 && toLock.back() == 127, "the next Hit did not play its Lock at once");
+
+		// A knob or a CC sets the target at once, as the OS's do (mdSlideFirmwareTest): over a Lock until the next Hit,
+		// which plays the Kit's new value; over a slide until its next clock, from which the slide goes on
+		const auto overLock = run([](Host& _h)
+		{
+			_h.lock(0, fltf, 0);
+			_h.trigger(0, 100);
+		}, 200, 28, [](Host& _h, const int _b)
+		{
+			if(_b == 50)
+				_h.setParam(0, fltf, 100);
+			if(_b == 150)
+				_h.trigger(0, 100);
+		});
+		require(overLock[49] == 0 && overLock[50] == 100 && overLock[149] == 100 && overLock.back() == 100,
+			"a knob did not set a locked parameter's target at once");
+		const auto overSlide = run(slideHit(0, 12, 127), 400, 28, [](Host& _h, const int _b)
+		{
+			if(_b == 70)
+				_h.setParam(0, fltf, 100);
+		});
+		require(overSlide[69] == ramp(0, 127, 12, 2) && overSlide[70] == 100 && overSlide[83] == 100
+			&& overSlide[84] == ramp(0, 127, 12, 3) && overSlide.back() == ramp(0, 127, 12, 13),
+			"a knob over a slide did not hold until its next clock, the slide going on");
 
 		// Falling, with clocks twice as close; without a target, to the Kit's value
 		expect(run(slideHit(100, 3, 20), 80, 14), 14, 100, 20, 3, "100 to 20 over 3 clocks");
