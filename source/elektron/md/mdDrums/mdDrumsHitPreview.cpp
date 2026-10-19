@@ -3,10 +3,12 @@
 #include "mdDrumsEngine.h"
 
 #include "Firmware.h"
+#include "MdsPackage.h"
 
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <vector>
 
 namespace mdDrums
 {
@@ -18,27 +20,44 @@ namespace mdDrums
 			if(const auto& sample = _request.samples[static_cast<size_t>(rom)])
 				_engine.setSample(rom, sample);
 		_engine.writeSamples();
-		// The Track's User Machine, as the instance holds it: a fresh engine has none. One the voice DSP refuses plays
-		// the empty machine, as on the Device.
-		const auto id = static_cast<uint8_t>(_request.kit.machine(static_cast<uint8_t>(track)));
-		if(md::engine::isUserMachine(id))
+		// The Tracks struck: the shown one, and for a NEIGHBOUR User Machine the four before it, which it reads (ticket
+		// 21 of the User Machines map), only the shown one heard. Each one's User Machine installed as the instance holds
+		// it, a fresh engine having none; one the voice DSP refuses plays the empty machine, as on the Device.
+		const auto userIndex = [&](const int _t)
 		{
-			const auto index = id - md::engine::kFirstUserMachine;
-			if(const auto& package = _request.userMachines[static_cast<size_t>(index)])
+			const auto id = static_cast<uint8_t>(_request.kit.machine(static_cast<uint8_t>(_t)));
+			return md::engine::isUserMachine(id) ? id - md::engine::kFirstUserMachine : -1;
+		};
+		const auto packageOf = [&](const int _t)
+		{
+			const auto index = userIndex(_t);
+			return index >= 0 ? _request.userMachines[static_cast<size_t>(index)] : nullptr;
+		};
+		std::vector<int> struck{track};
+		if(const auto own = packageOf(track); own && (own->flags & md::mds::FlagNeighbour))
+			for(int back = 1; back <= 4; ++back)
+				struck.push_back((track + Engine::TrackCount - back) % Engine::TrackCount);
+		uint32_t installed = 0;
+		for(const auto t : struck)
+		{
+			const auto index = userIndex(t);
+			const auto package = packageOf(t);
+			if(!package || (installed >> index) & 1)
+				continue;
+			installed |= 1u << index;
+			try
 			{
-				try
-				{
-					_engine.installUserMachine(index, package);
-				}
-				catch(const std::exception&)
-				{
-				}
+				_engine.installUserMachine(index, package);
+			}
+			catch(const std::exception&)
+			{
 			}
 		}
 		applyKit(_engine, _request.kit);
 		// Struck before the first block, as a Device's first note at its first sample: its capture starts CaptureDelay
 		// samples later, as the Device's does
-		_engine.trigger(track, _request.velocity);
+		for(const auto t : struck)
+			_engine.trigger(t, _request.velocity);
 
 		_capture.id = 1;
 		_capture.velocity = _request.velocity;

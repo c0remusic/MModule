@@ -3,6 +3,7 @@
 #include "Dsp56.h"
 #include "MdEngine.h"
 #include "Firmware.h"
+#include "MdsPackage.h"
 
 #include "mdProtocol/mdkit.h"
 #include "mdProtocol/mdmachines.h"
@@ -111,6 +112,18 @@ namespace mdDrums
 				continue;
 			delay[t] = pending[t];
 			pending[t] = -1;
+		}
+		// A NEIGHBOUR User Machine plays on the delay of the Track before it (ticket 20 of the User Machines map): its
+		// sound, made from that Track's raw block in the same block of the voice DSP, then lands where that Track's does,
+		// exactly when it reads that Track alone (7 of the 13 in X.20 B's zip); its own Hit's wait does not count
+		for(int t = 0; t < TrackCount && sampleAccurate; ++t)
+		{
+			const auto id = host.machine(t);
+			if(!md::engine::isUserMachine(id))
+				continue;
+			const auto& package = userMachines[static_cast<size_t>(id - md::engine::kFirstUserMachine)];
+			if(package && (package->flags & md::mds::FlagNeighbour))
+				delay[t] = delay[(t + TrackCount - 1) % TrackCount];
 		}
 
 		// A Choke that silenced a Track in this block (ticket 38): the Track stops exactly where the Hit that cut it

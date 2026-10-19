@@ -98,6 +98,8 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   délai de la Track d'avant.
 - [L'aperçu d'une Machine voisine](issues/21-apercu-d-une-machine-voisine.md) : l'aperçu frappe aussi ses voisines et
   ne fait entendre qu'elle ; toute USR s'y entend depuis c33d669.
+- [Faire jouer NEIGHBOUR](issues/22-faire-jouer-neighbour.md) : construit ; l'anneau de quatre tampons, le délai de la
+  Track d'avant, l'aperçu avec ses voisines ; les 13 NFX et SYN-F s'installent.
 
 ## Not yet specified
 

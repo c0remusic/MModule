@@ -216,6 +216,22 @@ int main()
 			require(!audible(without), "a User Machine previewed without its package");
 		}
 
+		// A NEIGHBOUR User Machine (ticket 21 of the User Machines map): the test's copier one back on Track 6 previews
+		// what it makes of Track 5, which the preview strikes too, only Track 6 heard
+		{
+			const auto copier = std::make_shared<const md::mds::Package>(md::mds::parsePackage(
+				md::mds::buildPackage(mdDrums::test::neighbourDraft(1))));
+			mdDrums::HitPreview::Request request;
+			request.kit = *factory;
+			request.kit.machines[5] = mdDrums::Engine::FirstUserMachine;
+			request.track = 5;
+			request.velocity = 100;
+			request.userMachines[0] = copier;
+			const auto rendered = preview(os, bank, request);
+			std::printf("NEIGHBOUR copier on Track 6: its preview %s\n", audible(rendered) ? "sounds Track 5" : "is silent");
+			require(audible(rendered), "a NEIGHBOUR User Machine's preview did not strike the Track before it");
+		}
+
 		// The same request twice, on two fresh engines
 		mdDrums::HitPreview::Request request;
 		request.kit = *factory;

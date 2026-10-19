@@ -1049,6 +1049,78 @@ namespace
 		// Sources that give zeros: Track 15 never struck, Track 14 on GND-- (skipped); Track 13 on GND-SN renders
 		run(15, 1);
 		run(14, 1);
+
+		// On mdDrums::Engine (ticket 20): the copier one back on Track 6 plays on Track 5's delay, so that each of Track
+		// 5's Hits, wherever it falls in a block, starts on Track 6's own output at the sample it starts on Track 5's, and
+		// the two line up there (their cross-correlation peaks at lag 0). Not sample for sample: the effects chain, as
+		// the mixer DSP's, keeps scratch from one Track to the next, so equal inputs and parameters on two Tracks need
+		// not give equal outputs. Both Tracks with the same effects, routing and level, their LFOs at zero depth.
+		{
+			const auto copier = std::make_shared<const md::mds::Package>(md::mds::parsePackage(
+				md::mds::buildPackage(mdDrums::test::neighbourDraft(1))));
+			mdDrums::Engine engine(_os, _bank, false);
+			engine.installUserMachine(0, copier);
+			engine.setMachine(5, mdDrums::Engine::FirstUserMachine);
+			constexpr std::array<int, 16> same{0, 0, 64, 64, 0, 127, 0, 0, 0, 100, 64, 0, 0, 0, 0, 0};	// AMD to LFOM
+			for(const int t : {4, 5})
+			{
+				engine.setLevel(t, 100);
+				for(int p = 0; p < 16; ++p)
+					engine.setParam(t, 8 + p, same[static_cast<size_t>(p)]);
+			}
+			engine.setSeparateOutputs((1u << 4) | (1u << 5));
+			constexpr size_t settle = 44100, length = settle + 16000;
+			std::vector<float> five(length), six(length);
+			size_t rendered = 0;
+			const auto renderTo = [&](const size_t _at)
+			{
+				std::array<float*, mdDrums::Engine::OutputCount> outputs{};
+				outputs[2 + 4] = five.data() + rendered;
+				outputs[2 + 5] = six.data() + rendered;
+				engine.render(outputs.data(), _at - rendered);
+				rendered = _at;
+			};
+			engine.trigger(5, 100);	// the copier's machine, from its Hit
+			const std::array<size_t, 4> hits{settle + 1003, settle + 5017, settle + 9030, settle + 12001};
+			for(const auto at : hits)
+			{
+				renderTo(at);
+				engine.trigger(4, 100);
+			}
+			renderTo(length);
+			const auto onset = [](const std::vector<float>& _v, const size_t _from)
+			{
+				for(auto i = _from; i < _v.size(); ++i)
+					if(std::abs(_v[i]) > 1e-4f)
+						return static_cast<int64_t>(i);
+				return int64_t{-1};
+			};
+			std::string seen;
+			bool aligned = true;
+			for(const auto at : hits)
+			{
+				const auto five0 = onset(five, at), six0 = onset(six, at);
+				int bestLag = 0;
+				double best = -1;
+				for(int lag = -48; lag <= 48; ++lag)
+				{
+					double c = 0;
+					for(size_t i = at + 64; i < at + 2048; ++i)
+						c += double(five[i]) * double(six[i + lag]);
+					if(c > best)
+					{
+						best = c;
+						bestLag = lag;
+					}
+				}
+				seen += " " + std::to_string(at % mdDrums::Engine::BlockSize) + ":" + std::to_string(six0 - five0) + "/"
+					+ std::to_string(bestLag);
+				aligned = aligned && five0 >= 0 && six0 >= 0 && bestLag == 0;
+			}
+			std::printf("NEIGHBOUR copier on Track 6 on Track 5's delay, Hits at block place: onset difference / lag%s\n",
+				seen.c_str());
+			require(aligned, "a NEIGHBOUR Track did not play on the delay of the Track before it");
+		}
 	}
 
 	void userMachines(const md::fw::FlashOs& _os, const md::fw::RomBank& _bank)
