@@ -68,10 +68,12 @@ Windows (macOS construit par la CI, pas vérifié à la main). Pas de tag.
 - [Le set marqué modifié](issues/11-set-marque-modifie.md) (prototype construit, jugement dans Live en attente) : un
   Sample, une Machine utilisateur, un Link, un Choke ou le nom du Kit demandent à l'hôte de marquer le set modifié
   (`setDirty`) ; que Live l'entende reste à voir ; l'undo de Live ne voit que les paramètres.
+- Le nom d'un Sample, sans ticket : dans le fichier `.kit` de md-drums-seq, la Machine ROM qui joue un Sample de
+  l'utilisateur porte le nom de son fichier sans l'extension (`60188f5`, accepté par l'utilisateur via la session
+  md-drums-seq le 2026-10-19) ; sur Push et dans Live, le paramètre Machine garde ROM-NN (choix de l'utilisateur du
+  2026-10-19).
 
 ## Not yet specified
-
-- Le nom d'un Sample dans le fichier `.kit` de md-drums-seq et sur Push.
 
 ## Out of scope
 

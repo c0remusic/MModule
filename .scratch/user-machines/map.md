@@ -113,7 +113,7 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 - TONAL : MoDule n'en fait rien, le drapeau n'ouvrant que l'éditeur TUNING d'X.20, hors périmètre (research/10 et 11).
   Mais un `$5B` d'X.20 qui porte des drapeaux d'accord est mal lu (USR-01 TONAL devient P-I-MT, research/11) ;
   aucun message de MoDule ne l'envoie aujourd'hui.
-- Le nom et les paramètres d'une Machine utilisateur sur Push.
+- Les paramètres d'une Machine utilisateur sur Push. Son nom y reste USR-NN, comme le paramètre Machine le montre (choix de l'utilisateur du 2026-10-19).
 - SAMPLE_INFO et SAMPLE_READ, pour qu'une Machine utilisateur lise les Samples (lien avec la carte des Samples).
 
 ## Out of scope
