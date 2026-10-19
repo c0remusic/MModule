@@ -20,9 +20,13 @@
 
 #include "synthLib/midiTypes.h"
 
+#include "mdDrumsTestMachine.h"
 #include "mdDrumsTestSupport.h"
 
+#include "MdsPackage.h"
+
 #include <chrono>
+#include <functional>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -71,12 +75,15 @@ namespace
 		md::automation::sysex::MdKit kit;
 	};
 
-	Live live(const std::vector<uint8_t>& _flash, const std::vector<synthLib::SMidiEvent>& _events, const int _track)
+	Live live(const std::vector<uint8_t>& _flash, const std::vector<synthLib::SMidiEvent>& _events, const int _track,
+		const std::function<void(mdDrums::Device&)>& _setUp = {})
 	{
 		synthLib::DeviceCreateParams params;
 		params.romData = _flash;
 		auto telemetry = std::make_shared<mdDrums::Telemetry>();
 		mdDrums::Device device(params, telemetry);
+		if(_setUp)
+			_setUp(device);
 		constexpr size_t block = 512;
 		std::vector<std::vector<float>> buffers(mdDrums::Device::OutputCount, std::vector<float>(block));
 		synthLib::TAudioOutputs outputs{};
@@ -179,6 +186,34 @@ int main()
 					" it\n", name, withDefaults, withOld);
 				require(withDefaults == 0, "a machine just chosen does not play its defaults");
 			}
+		}
+
+		// A User Machine (ticket 21 of the User Machines map): the test's saw at USR-02 on Track 3 previews as the Device
+		// that holds it plays its first Hit; without the package in the request, silent
+		{
+			constexpr int track = 2, index = 1;
+			const auto id = mdDrums::Engine::FirstUserMachine + index;
+			const auto saw = std::make_shared<const md::mds::Package>(md::mds::parsePackage(mdDrums::test::sawPackage()));
+			// ASSIGN MACHINE as the editor sends it for a User Machine (assignMachine knows the OS's machines only)
+			using md::automation::sysex::KitChange;
+			const auto assign = md::automation::sysex::encodeKitChange({KitChange::Kind::Machine, track,
+				KitChange::AssignScope, static_cast<uint8_t>(id)});
+			require(assign.has_value(), "no ASSIGN MACHINE for USR-02");
+			const auto device = live(_flash, {sysex(assign->message()), note(track, 100)}, track,
+				[&](mdDrums::Device& _device) { _device.installUserMachine(index, saw); });
+			require(device.kit.machine(track) == id, "the Device did not take USR-02");
+			mdDrums::HitPreview::Request request;
+			request.kit = device.kit;
+			request.track = track;
+			request.velocity = 100;
+			const auto without = preview(os, bank, request);
+			request.userMachines[index] = saw;
+			const auto rendered = preview(os, bank, request);
+			const auto differ = differing(device.capture, rendered);
+			std::printf("USR-02 on Track 3: %d of %d columns differ from the Device's first Hit; silent without its"
+				" package: %s\n", differ, rendered.count, audible(without) ? "no" : "yes");
+			require(audible(rendered) && differ == 0, "a User Machine's preview is not the Device's first Hit");
+			require(!audible(without), "a User Machine previewed without its package");
 		}
 
 		// The same request twice, on two fresh engines

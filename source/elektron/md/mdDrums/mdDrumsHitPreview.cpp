@@ -18,6 +18,23 @@ namespace mdDrums
 			if(const auto& sample = _request.samples[static_cast<size_t>(rom)])
 				_engine.setSample(rom, sample);
 		_engine.writeSamples();
+		// The Track's User Machine, as the instance holds it: a fresh engine has none. One the voice DSP refuses plays
+		// the empty machine, as on the Device.
+		const auto id = static_cast<uint8_t>(_request.kit.machine(static_cast<uint8_t>(track)));
+		if(md::engine::isUserMachine(id))
+		{
+			const auto index = id - md::engine::kFirstUserMachine;
+			if(const auto& package = _request.userMachines[static_cast<size_t>(index)])
+			{
+				try
+				{
+					_engine.installUserMachine(index, package);
+				}
+				catch(const std::exception&)
+				{
+				}
+			}
+		}
 		applyKit(_engine, _request.kit);
 		// Struck before the first block, as a Device's first note at its first sample: its capture starts CaptureDelay
 		// samples later, as the Device's does

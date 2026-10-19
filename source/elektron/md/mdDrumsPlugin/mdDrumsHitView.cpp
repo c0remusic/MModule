@@ -191,6 +191,8 @@ namespace mdDrums
 		request.velocity = m_current.id ? m_current.velocity
 			: static_cast<uint8_t>(tracks ? tracks->getPlayVelocity() : TrackView::ListenVelocity);
 		request.samples = m_editor.processor().samples();
+		for(int index = 0; index < static_cast<int>(request.userMachines.size()); ++index)
+			request.userMachines[static_cast<size_t>(index)] = m_editor.processor().userMachine(index);
 		m_requested = m_client.request(std::move(request));
 	}
 

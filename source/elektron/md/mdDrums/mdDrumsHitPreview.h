@@ -23,6 +23,11 @@ namespace md::fw
 	struct RomBank;
 }
 
+namespace md::mds
+{
+	struct Package;
+}
+
 namespace mdDrums
 {
 	class Engine;
@@ -46,6 +51,8 @@ namespace mdDrums
 			uint8_t track = 0;
 			uint8_t velocity = 100;
 			std::array<std::shared_ptr<const Sample>, Samples::RomCount> samples{};	// the instance's, as its Device has them
+			// The instance's User Machines, USR-01 to USR-16, as its Device holds them: the Track's is installed
+			std::array<std::shared_ptr<const md::mds::Package>, 16> userMachines{};
 		};
 
 		struct Result
