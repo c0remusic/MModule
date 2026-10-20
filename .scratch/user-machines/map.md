@@ -109,7 +109,10 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 - Le sprite 32x24 de MDM1 : où le montrer, si l'éditeur le montre.
 - Le fondu ANTI-CLICK qu'X.20 fait avant TRIG : le faire ou non, OS 1.63 n'en a pas. S'il se fait, il suit le
   drapeau CONTINUOUS RETRIGGER (31 des 43, research/11), qu'X.20 lit pour le sauter ; MoDule ne le lit pas d'ici là,
-  ce qui revient à ANTI-CLICK OFF.
+  ce qui revient à ANTI-CLICK OFF. [research/13](research/13-anti-click.md) le décrit : un réglage global d'X.20
+  (OFF, 64, 128 ; 128 par défaut), le TRIG retenu 2 ou 4 blocs par la DSP des voix, la voix brute de la Track baissée
+  en ligne droite par la DSP du mixer pendant l'attente ; tout en C++ dans MoDule, mais 64 ou 128 échantillons de
+  latence en plus. Trois voies pour l'utilisateur : ne rien faire (OFF), 128 fixe, ou un réglage OFF / 64 / 128.
 - TONAL : MoDule n'en fait rien, le drapeau n'ouvrant que l'éditeur TUNING d'X.20, hors périmètre (research/10 et 11).
   Mais un `$5B` d'X.20 qui porte des drapeaux d'accord est mal lu (USR-01 TONAL devient P-I-MT, research/11) ;
   aucun message de MoDule ne l'envoie aujourd'hui.
