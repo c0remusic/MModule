@@ -356,13 +356,33 @@ namespace mdDrums
 
 	void Engine::setMachine(const int _track, const uint8_t _machineId)
 	{
-		m_state->engine.host().setMachine(_track, _machineId);
+		auto& host = m_state->engine.host();
+		host.setMachine(_track, _machineId);
+		// A NEIGHBOUR User Machine, an effect, works from now on without waiting for a Hit (ticket 32 of the User Machines
+		// map)
+		if(isNeighbour(_machineId))
+			host.start(_track);
+	}
+
+	bool Engine::isNeighbour(const uint8_t _machineId) const
+	{
+		if(!md::engine::isUserMachine(_machineId))
+			return false;
+		const auto& package = m_state->userMachines[static_cast<size_t>(_machineId - FirstUserMachine)];
+		return package && (package->flags & md::mds::FlagNeighbour);
 	}
 
 	void Engine::installUserMachine(const int _index, std::shared_ptr<const md::mds::Package> _package)
 	{
 		m_state->engine.installUserMachine(_index, _package);
 		m_state->userMachines[static_cast<size_t>(_index)] = std::move(_package);
+		// The Tracks that played this number went silent until their next Hit (VoiceEngine::forgetUserMachine); a NEIGHBOUR
+		// starts again at once
+		const auto id = static_cast<uint8_t>(FirstUserMachine + _index);
+		auto& host = m_state->engine.host();
+		for(int t = 0; t < TrackCount && isNeighbour(id); ++t)
+			if(host.machine(t) == id)
+				host.start(t);
 	}
 
 	void Engine::setSources(const int _track, const Sources& _sources)

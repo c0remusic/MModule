@@ -341,20 +341,37 @@ namespace md::engine
 		m_os.poke16(kLevel + 2 * track, static_cast<uint16_t>(m_os.peek8(kLevelTarget + track) << 7));
 		// The OS's track trigger ($20cdf0) flags the track's own LFO; the tick's trigger path acts on it.
 		m_os.poke8(kLfo + kLfoStride * static_cast<uint32_t>(_track) + 5, 1);
+		applyPendingMachine(_track);
+	}
+
+	template<class TVoices>
+	void HostModel<TVoices>::applyPendingMachine(const int _track)
+	{
 		// The tick routine's trigger path: a pending machine is applied now, loading the kit values straight into
 		// the smoothing targets, the smoothed array and the voice array (no glide).
-		if(m_pendingMachine[_track] >= 0)
+		if(m_pendingMachine[_track] < 0)
+			return;
+		m_machine[_track] = static_cast<uint8_t>(m_pendingMachine[_track]);
+		m_pendingMachine[_track] = -1;
+		for(int p = 0; p < kParams; ++p)
 		{
-			m_machine[_track] = static_cast<uint8_t>(m_pendingMachine[_track]);
-			m_pendingMachine[_track] = -1;
-			for(int p = 0; p < kParams; ++p)
-			{
-				const auto v = static_cast<uint16_t>(m_raw[_track][p] << 7);
-				m_os.poke8(kRaw + 24 * static_cast<uint32_t>(_track) + static_cast<uint32_t>(p), m_raw[_track][p]);
-				m_os.poke16(kWork + kTrackStride * static_cast<uint32_t>(_track) + 2 * static_cast<uint32_t>(p), v);
-				m_os.poke16(kVoiceParams + kTrackStride * static_cast<uint32_t>(_track) + 2 * static_cast<uint32_t>(p), v);
-			}
+			const auto v = static_cast<uint16_t>(m_raw[_track][p] << 7);
+			m_os.poke8(kRaw + 24 * static_cast<uint32_t>(_track) + static_cast<uint32_t>(p), m_raw[_track][p]);
+			m_os.poke16(kWork + kTrackStride * static_cast<uint32_t>(_track) + 2 * static_cast<uint32_t>(p), v);
+			m_os.poke16(kVoiceParams + kTrackStride * static_cast<uint32_t>(_track) + 2 * static_cast<uint32_t>(p), v);
 		}
+	}
+
+	template<class TVoices>
+	void HostModel<TVoices>::start(const int _track)
+	{
+		m_started[_track] = true;
+		m_velocity[_track] = 127;
+		m_accent[_track] = false;
+		// The level at the Kit's, as a Hit snaps it
+		const auto track = static_cast<uint32_t>(_track);
+		m_os.poke16(kLevel + 2 * track, static_cast<uint16_t>(m_os.peek8(kLevelTarget + track) << 7));
+		applyPendingMachine(_track);
 	}
 
 	template<class TVoices>
@@ -391,7 +408,7 @@ namespace md::engine
 				for(size_t p = 0; p < package->parameters.size() && p < 8; ++p)
 					out[1 + p] = md::mds::convertFine(package->parameters[p], params[p], m_decay);
 			}
-			out[0] = m_trigger[_track] ? static_cast<uint32_t>(id) + 1 : 0;
+			out[0] = m_trigger[_track] || m_started[_track] ? static_cast<uint32_t>(id) + 1 : 0;
 			m_voices.setSlot(_track, out, 9);
 		}
 		else if(isAudioMachine(id))
@@ -416,6 +433,7 @@ namespace md::engine
 		if(m_trigger[_track])
 			applyChoke(_track);
 		m_trigger[_track] = false;
+		m_started[_track] = false;
 	}
 
 	template<class TVoices>

@@ -1104,7 +1104,8 @@ namespace
 		// not give equal outputs. Both Tracks with the same effects, routing and level, their LFOs at zero depth.
 		// Then chosen sources (ticket 31): Track 12 hearing Track 3 lines up the same; Track 3 hearing Track 12, which
 		// renders after it, lands a block later, 32 samples, every time
-		const auto lineUp = [&](const int _source, const int _nfx, const int _lag)
+		// _struck: the copier's own Track struck once, as before ticket 32; without, it works from its machine on
+		const auto lineUp = [&](const int _source, const int _nfx, const int _lag, const bool _struck = true)
 		{
 			const auto copier = std::make_shared<const md::mds::Package>(md::mds::parsePackage(
 				md::mds::buildPackage(mdDrums::test::neighbourDraft(1))));
@@ -1136,7 +1137,8 @@ namespace
 				engine.render(outputs.data(), _at - rendered);
 				rendered = _at;
 			};
-			engine.trigger(_nfx, 100);	// the copier's machine, from its Hit
+			if(_struck)
+				engine.trigger(_nfx, 100);	// the copier's machine, from its Hit
 			const std::array<size_t, 4> hits{settle + 1003, settle + 5017, settle + 9030, settle + 12001};
 			for(const auto at : hits)
 			{
@@ -1173,13 +1175,15 @@ namespace
 					+ std::to_string(bestLag);
 				aligned = aligned && five0 >= 0 && six0 >= 0 && bestLag == _lag;
 			}
-			std::printf("NEIGHBOUR copier on Track %d hearing Track %d, Hits at block place: onset difference / lag%s\n",
-				_nfx + 1, _source + 1, seen.c_str());
+			std::printf("NEIGHBOUR copier on Track %d hearing Track %d%s, Hits at block place: onset difference / lag%s\n",
+				_nfx + 1, _source + 1, _struck ? "" : ", never struck", seen.c_str());
 			require(aligned, "a NEIGHBOUR Track did not play on its source's delay");
 		};
 		lineUp(4, 5, 0);
 		lineUp(2, 11, 0);
 		lineUp(11, 2, mdDrums::Engine::BlockSize);
+		// Ticket 32: a NEIGHBOUR works from its machine on, its own Track never struck
+		lineUp(4, 5, 0, false);
 	}
 
 	// By hand: the user's own NEIGHBOUR User Machines (X.20 B's NFX and SYN-F) where MD_X20_MACHINES names a folder of

@@ -89,6 +89,10 @@ namespace md::engine
 		// drops its Hit, as the OS's note handler does ($20ccf6), and so fires neither its Link nor its Choke.
 		// md-drums: returns the tracks it struck, one bit each: the track and its Link, a muted one left out.
 		uint32_t trigger(int _track, int _velocity = 100, bool _accent = false);
+		// md-drums: _track's User Machine given to its voice at the next tick as a Hit gives it (its type, so INIT and TRIG,
+		// and its words), at full velocity, without what else a Hit does (the LFO's restart, the accent, the Link, the
+		// Choke): a NEIGHBOUR effect works from then on without waiting for a Hit (ticket 32 of the User Machines map)
+		void start(int _track);
 
 		// md-drums: Links and Chokes, the Kit's trig and mute groups, played as OS 1.63 plays them
 		// (.scratch/md-drums-editor/research/06-groupes.md). A Hit of _track also hits its Link, at the same velocity
@@ -175,6 +179,8 @@ namespace md::engine
 		std::array<uint8_t, kTracks> m_machine{};
 		std::array<int, kTracks> m_pendingMachine{};	// -1 = none
 		std::array<bool, kTracks> m_trigger{};
+		std::array<bool, kTracks> m_started{};	// start()'s, for the next tick
+		void applyPendingMachine(int _track);
 		std::array<uint8_t, kTracks> m_velocity{};	// last trigger's velocity (0 until triggered, as on the MD)
 		std::array<bool, kTracks> m_accent{};
 		std::array<bool, kTracks> m_mute{};
