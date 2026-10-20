@@ -254,7 +254,7 @@ namespace mdDrums
 				if(auto* status = editor->getStatusView())
 					status->chooseFlashImage();
 		});
-		menu.addEntry("Install User Machine...", [this]
+		menu.addEntry("Install User Machines...", [this]
 		{
 			if(auto* editor = dynamic_cast<Editor*>(getEditor()))
 				if(auto* status = editor->getStatusView())

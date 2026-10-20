@@ -175,27 +175,68 @@ namespace mdDrums
 		m_saidNew = true;
 	}
 
-	bool StatusView::importFile(const std::filesystem::path& _file)
+	bool StatusView::importFiles(const std::vector<std::filesystem::path>& _files)
 	{
-		const auto track = m_editor.controller().getCurrentPart();
-		const auto result = m_editor.processor().importFile(_file, track);
-		say(result.text);
-		// Said at once, with the Track's new machine
+		if(_files.empty())
+			return false;
+		auto& processor = m_editor.processor();
+		if(_files.size() == 1)
+		{
+			const auto result = processor.importFile(_files.front(), m_editor.controller().getCurrentPart());
+			say(result.text);
+			// Said at once, with the Track's new machine
+			m_editor.frame();
+			return result.ok;
+		}
+
+		// X.20's User Machines come as a folder of 43: the numbers they went to, and the first refusal's reason
+		const auto number = [](const int _machine)
+		{
+			char text[8];
+			if(_machine >= Engine::FirstUserMachine)
+				std::snprintf(text, sizeof(text), "USR-%02d", _machine - Engine::FirstUserMachine + 1);
+			else
+				std::snprintf(text, sizeof(text), "ROM-%02d", _machine < 176 ? _machine - 128 + 1 : _machine - 176 + 33);
+			return std::string(text);
+		};
+		size_t went = 0;
+		std::string first, last, refused;
+		for(const auto& file : _files)
+		{
+			const auto result = processor.importFile(file, -1);
+			if(!result.ok)
+			{
+				if(refused.empty())
+					refused = result.text;
+				continue;
+			}
+			last = number(result.machine);
+			if(!went++)
+				first = last;
+		}
+		const auto range = went ? ": " + first + (went > 1 ? " to " + last : std::string()) : std::string();
+		if(went == _files.size())
+			say(std::to_string(went) + " installed" + range);
+		else
+			say(std::to_string(went) + " of " + std::to_string(_files.size()) + " installed" + range + ". " + refused);
 		m_editor.frame();
-		return result.ok;
+		return went == _files.size();
 	}
 
 	void StatusView::chooseUserMachine()
 	{
 		// A FileChooser deleted drops its callback: the one this replaces, or this view's when the editor closes
-		m_chooser = std::make_unique<juce::FileChooser>("Install a User Machine (MDX X.20's .syx or .mds)",
+		m_chooser = std::make_unique<juce::FileChooser>("Install User Machines (MDX X.20's .syx or .mds)",
 			juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.syx;*.mds");
-		m_chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+		m_chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles
+			| juce::FileBrowserComponent::canSelectMultipleItems,
 			[this](const juce::FileChooser& _chooser)
 			{
-				const auto file = _chooser.getResult();
-				if(file != juce::File())
-					importFile(pathOf(file));
+				std::vector<std::filesystem::path> files;
+				for(const auto& file : _chooser.getResults())
+					if(file != juce::File())
+						files.push_back(pathOf(file));
+				importFiles(files);
 			});
 	}
 

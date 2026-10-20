@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace Rml
 {
@@ -47,11 +48,14 @@ namespace mdDrums
 
 		// Opens a file chooser for the flash image, then gives the file to Processor::loadFlashImage
 		void chooseFlashImage();
-		// Opens a file chooser for a User Machine (.syx, .mds), then imports it (the Menu's "Install User Machine...")
+		// Opens a file chooser for User Machines (.syx, .mds), one or many, then imports them (the Menu's "Install User
+		// Machines...")
 		void chooseUserMachine();
-		// A file chosen or dropped, imported for the Track shown (Processor::importFile), what happened said for a few
-		// seconds; true when it went
-		bool importFile(const std::filesystem::path& _file);
+		// Files chosen or dropped (Processor::importFile), what happened said for a few seconds; true when every one went.
+		// One file goes to the Track shown; several only into the Library and the free ROM Machines, the Track playing on
+		// as it played
+		bool importFiles(const std::vector<std::filesystem::path>& _files);
+		bool importFile(const std::filesystem::path& _file) { return importFiles({_file}); }
 		// _text on the line for a few seconds, from the next frame on
 		void say(std::string _text);
 		// The line as it stands, for the tests

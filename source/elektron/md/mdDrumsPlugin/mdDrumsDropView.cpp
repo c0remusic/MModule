@@ -10,6 +10,7 @@
 
 #include "RmlUi/Core/ElementDocument.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 
@@ -26,14 +27,13 @@ namespace mdDrums
 		bool canDropFiles(const Rml::Event&, const std::vector<std::string>& _files) override
 		{
 			m_view.journal("over", _files);
-			return _files.size() == 1 && takes(_files.front());
+			return !_files.empty() && std::all_of(_files.begin(), _files.end(), takes);
 		}
 
 		void dropFiles(const Rml::Event&, const juceRmlUi::FileDragData*, const std::vector<std::string>& _files) override
 		{
 			m_view.journal("drop", _files);
-			if(_files.size() == 1)
-				m_view.drop(_files.front());
+			m_view.drop(_files);
 		}
 
 	private:
@@ -74,9 +74,14 @@ namespace mdDrums
 		out << line << "\n";
 	}
 
-	bool DropView::drop(const std::string& _file)
+	bool DropView::drop(const std::vector<std::string>& _files)
 	{
 		auto* status = m_editor.getStatusView();
-		return status && status->importFile(std::filesystem::u8path(_file));
+		if(!status)
+			return false;
+		std::vector<std::filesystem::path> files;
+		for(const auto& file : _files)
+			files.push_back(std::filesystem::u8path(file));
+		return status->importFiles(files);
 	}
 }

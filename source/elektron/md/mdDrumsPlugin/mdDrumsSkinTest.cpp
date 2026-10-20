@@ -1375,6 +1375,24 @@ namespace
 		}
 		_f.showView("track");
 
+		// Several files at once, as X.20's folder of User Machines comes: into the Library and the free ROM Machines, the
+		// Track playing on as it played
+		{
+			const auto second = file.getSiblingFile("MoDuleDrop2.wav");
+			require(file.copyFileTo(second), "the second WAV was not written");
+			set(_f, "Machine", 0, before);
+			const auto went = _f.editor->getDropView()->drop(std::vector<std::string>{file.getFullPathName().toStdString(),
+				second.getFullPathName().toStdString()});
+			look(1000.0 / mdDrums::StatusView::RefreshHz);
+			const auto both = view->text();
+			std::printf("status: two WAVs dropped at once say \"%s\"\n", both.c_str());
+			require(went && both == "2 installed: ROM-33 to ROM-34" && static_cast<int>(machine.getUnnormalizedValue()) == before,
+				"two WAVs dropped at once did not go to ROM-33 and ROM-34, the Track left as it played");
+			_f.processor.removeSample(32);
+			_f.processor.removeSample(33);
+			second.deleteFile();
+		}
+
 		// A User Machine dropped (ticket 17 of the User Machines map): Track 1 on USR-01, the head band says its package's
 		// category, code and name, SYN1 and SYN2 its parameters' names, the others unused
 		const auto mds = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("MoDuleDrop.mds");

@@ -32,3 +32,15 @@ Construit le 2026-10-17 :
   plus remplissent les 16 ; le dix-septième est refusé), `mdDrumsSkinTest` (un lâcher, la ligne dans sa boîte).
 - Pas encore : choisir un USR dans le navigateur prend la copie de la Library. Les cases n'existent pas ; le
   branchement viendra avec elles.
+
+## Révision du 2026-10-20 : plusieurs à la fois
+
+L'utilisateur : « les user machines semblent vides aussi », puis « mais on ne peut pas prendre celles presentes dans
+x20 ? ». Le zip d'X.20 en donne 43, une par fichier : les installer une à une demandait 16 passages par le sélecteur.
+
+L'entrée s'appelle maintenant « Install User Machines... » et son sélecteur prend plusieurs fichiers ; un lâcher de
+plusieurs fichiers sur la fenêtre fait de même (`StatusView::importFiles`). Un seul fichier va comme avant à la Track
+montrée. Plusieurs vont seulement dans la Library (et les fichiers audio sur les ROM-33..48 libres), la Track jouant ce
+qu'elle jouait ; la ligne d'état dit combien sont passés et à quels numéros (« 16 of 43 installed: USR-01 to
+USR-16. », puis le premier refus). `mdDrumsSkinTest` lâche deux WAV à la fois : « 2 installed: ROM-33 to ROM-34 », la
+Track 1 inchangée.

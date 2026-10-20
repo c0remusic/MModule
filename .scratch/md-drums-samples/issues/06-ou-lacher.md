@@ -47,3 +47,6 @@ le document). Le nom de la Machine et le titre de l'écran Hit passent en accent
 fenêtre (`body:dragovercenter`). `mdDrumsSkinTest` lâche un WAV par ce chemin sur un potard de l'onglet Track et sur la
 surface de l'onglet Mix : la Track 1 passe sur ROM-33, le nom s'allume pendant le survol et s'éteint après. Le journal
 de `MD_DROP_LOG` voit maintenant tout fichier qui survole la fenêtre, plus seulement ceux des deux cibles.
+
+Plusieurs fichiers lâchés ensemble passent aussi (ticket 16 de la carte des Machines utilisateur, révisé le même jour) :
+chacun va sur une ROM-33..48 libre ou un numéro USR libre, la Track jouant ce qu'elle jouait.

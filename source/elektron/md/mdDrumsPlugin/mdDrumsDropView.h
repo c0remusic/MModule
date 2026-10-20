@@ -11,9 +11,9 @@ namespace mdDrums
 	class Editor;
 
 	// Where a file dropped on the editor goes (ticket 06 of the Samples map, the drop of ticket 16 of the User Machines
-	// map): the whole window takes one audio file (WAV, AIFF, FLAC) or one User Machine (.syx, .mds) for the Track shown
-	// (StatusView::importFile), the head band's machine name and the Hit screen's title lit while a file that would go
-	// hovers over it (body:dragovercenter in the skin). The machine's name and the Hit screen alone, as first
+	// map): the whole window takes audio files (WAV, AIFF, FLAC) and User Machines (.syx, .mds), one for the Track shown,
+	// several into the Library and the free ROM Machines (StatusView::importFiles), the head band's machine name and the
+	// Hit screen's title lit while files that would go hover over it (body:dragovercenter in the skin). The machine's name and the Hit screen alone, as first
 	// prototyped, did not take the drops tried in Live.
 	class DropView
 	{
@@ -26,8 +26,9 @@ namespace mdDrums
 
 		// Whether a file of this name would go: one of the extensions importFile takes
 		static bool takes(const std::string& _file);
-		// A drop, as the targets get it, for the tests: true when it went
-		bool drop(const std::string& _file);
+		// A drop, as the targets get it, for the tests: true when every file went
+		bool drop(const std::vector<std::string>& _files);
+		bool drop(const std::string& _file) { return drop(std::vector<std::string>{_file}); }
 		// With MD_DROP_LOG naming a file, what a drag hands over appended to it (ticket 07 of the Samples map)
 		void journal(const char* _what, const std::vector<std::string>& _files);
 
