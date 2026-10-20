@@ -87,7 +87,8 @@ vglyph { display: inline-block; position: relative; }
 vglyph.chevron { width: 12dp; height: 12dp; margin-left: 12dp; color: #a7aaaf; }
 .machine:hover vglyph.chevron { color: #f2f2f2; }
 vglyph.down { width: 8dp; height: 8dp; margin-left: 4dp; color: #a7aaaf; }
-.family { top: 84dp; height: 24dp; line-height: 22dp; }
+/* A User Machine's code and name can be longer than the three columns: cut at their end, never over Velocity */
+.family { top: 84dp; height: 24dp; line-height: 22dp; overflow: hidden; white-space: nowrap; }
 .output { top: 124dp; height: 24dp; line-height: 22dp; }
 /* The Track's Link and Choke on columns 8-11, on the family's and the output's lines: words that open their menu, the
    text on the column's edge */
