@@ -193,6 +193,7 @@ namespace mdDrums
 		request.samples = m_editor.processor().samples();
 		for(int index = 0; index < static_cast<int>(request.userMachines.size()); ++index)
 			request.userMachines[static_cast<size_t>(index)] = m_editor.processor().userMachine(index);
+		request.sources = controller.sources(track);
 		m_requested = m_client.request(std::move(request));
 	}
 

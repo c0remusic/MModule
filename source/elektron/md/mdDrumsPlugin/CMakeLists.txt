@@ -32,6 +32,7 @@ set(SOURCES
 	mdDrumsDropView.cpp mdDrumsDropView.h
 	mdDrumsProcessor.cpp mdDrumsProcessor.h
 	mdDrumsSampleFile.cpp mdDrumsSampleFile.h
+	mdDrumsSourcesView.cpp mdDrumsSourcesView.h
 	mdDrumsStatusView.cpp mdDrumsStatusView.h
 	mdDrumsTrackView.cpp mdDrumsTrackView.h
 	mdDrumsUpdates.cpp mdDrumsUpdates.h

@@ -234,6 +234,9 @@ vknob { top: 84dp; width: 64dp; height: 64dp; drag: drag; cursor: pointer; }
 .mt.on { background-color: #6fd1c4; color: #10201e; }
 .mt.self { color: #6e7177; cursor: default; }
 .mt.self:hover { color: #6e7177; background-color: transparent; }
+/* What a NEIGHBOUR hears (SourcesView): the Hit screen's title says it, and the Tracks it hears are underlined in the list */
+#hit_hears { display: none; margin-left: 8dp; color: #a7aaaf; }
+.tn.heard { color: #f2f2f2; text-decoration: underline; }
 
 /* ---- Mix tab: strip t on column t ---- */
 .mixsurface, .mastersurface { left: 0dp; top: 56dp; width: 1296dp; height: 768dp; background-color: #26272a; }

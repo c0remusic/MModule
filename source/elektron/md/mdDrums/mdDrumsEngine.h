@@ -161,6 +161,13 @@ namespace mdDrums
 		void setLink(int _track, int _target);
 		void setChoke(int _track, int _target);
 
+		// The Tracks a NEIGHBOUR User Machine on _track hears as one, two, three and four back (research/14 of the User
+		// Machines map), by default the four before it; a source after _track gives its block before. A NEIGHBOUR plays
+		// on its first source's delay. Between renders.
+		using Sources = std::array<uint8_t, 4>;
+		void setSources(int _track, const Sources& _sources);
+		const Sources& sources(int _track) const;
+
 		// The master effects, the mixer DSP's own code on Main (md::engine::MasterEngine): the Kit's 32 bytes, 0-127, in
 		// the Kit dump's order (Gate Box, Rhythm Echo, EQ, Dynamix, 8 each), smoothed as the OS smooths them. The Echo's
 		// TIME follows the tempo. Main comes out MasterDelay samples after the dry mix: Dynamix's look-ahead, as on the

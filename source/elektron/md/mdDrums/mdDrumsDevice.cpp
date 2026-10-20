@@ -62,6 +62,8 @@ namespace mdDrums
 		for(int rom = 0; rom < Samples::RomCount; ++rom)
 			if(auto sample = m_engine->sample(rom))
 				state.samples.push_back({static_cast<uint8_t>(rom), std::move(sample)});
+		for(int t = 0; t < Engine::TrackCount; ++t)
+			state.sources[static_cast<size_t>(t)] = m_engine->sources(t);
 		const auto bytes = messages::writeState(state);
 		_state.insert(_state.end(), bytes.begin(), bytes.end());
 		return true;
@@ -108,6 +110,8 @@ namespace mdDrums
 		for(int rom = 0; rom < Samples::RomCount; ++rom)
 			if(const auto& wanted = samples[static_cast<size_t>(rom)])
 				m_engine->setSample(rom, wanted);
+		for(int t = 0; t < Engine::TrackCount; ++t)
+			m_engine->setSources(t, state->sources[static_cast<size_t>(t)]);
 		m_kit = state->kit;
 		m_mixer = state->mixer;
 		applyKit();
@@ -379,6 +383,9 @@ namespace mdDrums
 				break;
 			case messages::Command::KitName:
 				m_kit.name = own->name;
+				return;
+			case messages::Command::Sources:
+				m_engine->setSources(own->track, own->sources);
 				return;
 			}
 			applyMixer();

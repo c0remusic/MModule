@@ -50,8 +50,8 @@ namespace md::engine
 		// the dispatch tables extended from OS 1.63's 193 types to 211, USR-01 being type 195 (its machine id 194, + 1),
 		// each package's code relocated into the memory P, X and Y share ($020000 + $E000 words a number), and its imports
 		// on 1.63's layout (the sine table, P-I's 1,536 words of external memory per Track, the X and Y scratch). A type
-		// without a User Machine plays the empty machine. A NEIGHBOUR package reads the three Tracks before it through the
-		// descriptor at Y:$7F0, on the harness's ring of four buffers (research/12 of the User Machines map). Throws,
+		// without a User Machine plays the empty machine. A NEIGHBOUR package reads the Tracks it hears through the
+		// descriptor at Y:$7F0, a buffer per Track (research/12 and 14 of the User Machines map). Throws,
 		// installing nothing, on a package it cannot play: an import it does not provide (the Sample and RAM services, the
 		// rings), STEREO PAIR (its role word is not there), more code than a number's room, a declared cost X.20 refuses.
 		// reset() keeps them.
@@ -60,6 +60,16 @@ namespace md::engine
 		static void checkUserMachine(const md::mds::Package& _package);
 		void installUserMachine(int _index, std::shared_ptr<const md::mds::Package> _package);
 		void removeUserMachine(int _index);
+
+		// md-drums: the Tracks (0-15) a NEIGHBOUR machine on _track hears as one, two, three and four back, by default the
+		// four before it (wrapping to the block before past Track 1); a source rendered after _track gives its block
+		// before (research/14 of the User Machines map). _track itself, or none, takes the default. Between blocks only,
+		// as setSlot; reset() keeps them.
+		static constexpr int kTracks = 16;
+		using Sources = std::array<uint8_t, 4>;
+		static Sources defaultSources(int _track);
+		void setSources(int _track, const Sources& _sources);
+		const Sources& sources(int _track) const { return m_sources[static_cast<size_t>(_track)]; }
 
 		// md-drums: the DSP's memory and registers between two blocks, and back (EngineT::warmUpVoices, which runs every
 		// machine once so that the JIT compiles its code, then puts the DSP back as it was: P holds the same code after,
@@ -74,7 +84,8 @@ namespace md::engine
 	private:
 		void loadImage(const fw::DspImage& _img);
 		void installHarness();
-		void writeRing();	// the neighbours' ring: its two extra buffers and four descriptors in Y
+		void writeSources();			// the sixteen buffers, zeroed, and every Track's descriptor
+		void writeSources(int _track);	// a Track's descriptor and fourth source
 		void extendDispatch();
 		void writeUserMachine(int _index);
 		// md-drums: the Tracks whose voice runs User Machine _index's code made silent until their next Hit
@@ -90,5 +101,12 @@ namespace md::engine
 		std::unique_ptr<dsp56k::DSP> m_dsp;
 		std::string m_fault;
 		std::array<std::shared_ptr<const md::mds::Package>, kUserMachines> m_userMachines{};
+		std::array<Sources, kTracks> m_sources = []
+		{
+			std::array<Sources, kTracks> sources{};
+			for(int t = 0; t < kTracks; ++t)
+				sources[static_cast<size_t>(t)] = defaultSources(t);
+			return sources;
+		}();
 	};
 }

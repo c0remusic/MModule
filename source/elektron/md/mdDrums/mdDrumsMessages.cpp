@@ -116,6 +116,22 @@ namespace mdDrums::messages
 		return writer.add(0xf7).raw;
 	}
 
+	Sources defaultSources(const uint8_t _track)
+	{
+		Sources sources{};
+		for(uint8_t k = 0; k < sources.size(); ++k)
+			sources[k] = static_cast<uint8_t>((_track + 16 - (k + 1)) % 16);
+		return sources;
+	}
+
+	Raw sources(const uint8_t _track, const Sources& _sources)
+	{
+		auto writer = Writer::own(Command::Sources).add(static_cast<uint8_t>(_track & 0x0f));
+		for(const auto source : _sources)
+			writer.add(static_cast<uint8_t>(source & 0x0f));
+		return writer.add(0xf7).raw;
+	}
+
 	std::optional<Parsed> parse(const MessageView _message)
 	{
 		if(_message.size() < g_commandAt + 2 || !std::equal(std::begin(g_header), std::end(g_header), _message.begin())
@@ -173,6 +189,17 @@ namespace mdDrums::messages
 			if(length != parsed.name.size())
 				return std::nullopt;
 			std::copy_n(_message.begin() + data, parsed.name.size(), parsed.name.begin());
+			return parsed;
+		case Command::Sources:
+			if(length != 1 + parsed.sources.size() || _message[data] > 15)
+				return std::nullopt;
+			parsed.track = _message[data];
+			for(size_t k = 0; k < parsed.sources.size(); ++k)
+			{
+				if(_message[data + 1 + k] > 15)
+					return std::nullopt;
+				parsed.sources[k] = _message[data + 1 + k];
+			}
 			return parsed;
 		}
 		return std::nullopt;
@@ -294,6 +321,13 @@ namespace mdDrums::messages
 			const auto message = sample(s);
 			bytes.insert(bytes.end(), message.begin(), message.end());
 		}
+		for(uint8_t t = 0; t < _state.sources.size(); ++t)
+		{
+			if(_state.sources[t] == defaultSources(t))
+				continue;
+			const auto message = sources(t, _state.sources[t]);
+			bytes.insert(bytes.end(), message.bytes.begin(), message.bytes.begin() + message.size);
+		}
 		return bytes;
 	}
 
@@ -305,8 +339,9 @@ namespace mdDrums::messages
 		auto kit = md::automation::sysex::parseMdKit({_data, dumpSize});
 		if(!kit)
 			return std::nullopt;
-		// The mixer message, then the User Machines' and the Samples', each up to its F7
-		State state{*kit, {}, {}, {}};
+		// The mixer message, then the User Machines', the Samples' and the Sources', each up to its F7
+		State state;
+		state.kit = *kit;
 		size_t at = dumpSize;
 		bool first = true;
 		while(at < _size)
@@ -330,6 +365,10 @@ namespace mdDrums::messages
 			else if(auto s = parseSample(message))
 			{
 				state.samples.push_back(std::move(*s));
+			}
+			else if(const auto own = parse(message); own && own->command == Command::Sources)
+			{
+				state.sources[own->track] = own->sources;
 			}
 			else
 			{

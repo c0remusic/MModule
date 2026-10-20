@@ -60,8 +60,10 @@ namespace mdDrums
 	void Bank::readMachines()
 	{
 		// A Slot's 16 numbers, each an id of 8 bytes, least significant first, then a name of 16 bytes padded with
-		// zeros; no file, or a short one, is no User Machine
+		// zeros, then its 16 Tracks' four sources, $80 + the Track each; no file, or a short one, is no User Machine and
+		// no source
 		m_machines.fill({});
+		m_sources.fill(std::nullopt);
 		std::vector<uint8_t> bytes;
 		if(!baseLib::filesystem::readFile(bytes, machinesFile().u8string()))
 			return;
@@ -79,6 +81,18 @@ namespace mdDrums
 				if(!machine.id)
 					machine.name.clear();
 			}
+			const auto* sources = bytes.data() + slot * MachinesSize + MachineCount * (8 + MachineNameSize);
+			Sources read{};
+			bool all = true;
+			for(size_t t = 0; t < read.size(); ++t)
+				for(size_t k = 0; k < read[t].size(); ++k)
+				{
+					const auto byte = sources[t * 4 + k];
+					all = all && (byte & 0x80) && (byte & 0x7f) < 16;
+					read[t][k] = static_cast<uint8_t>(byte & 0x0f);
+				}
+			if(all)
+				m_sources[slot] = read;
 		}
 	}
 
@@ -111,6 +125,10 @@ namespace mdDrums
 				if(machine.id)
 					std::copy_n(machine.name.begin(), std::min(machine.name.size(), MachineNameSize - 1), at + 8);
 			}
+			auto* sources = bytes.data() + MachineCount * (8 + MachineNameSize);
+			for(size_t t = 0; entry.kit && entry.sources && t < entry.sources->size(); ++t)
+				for(size_t k = 0; k < (*entry.sources)[t].size(); ++k)
+					sources[t * 4 + k] = static_cast<uint8_t>(0x80 | ((*entry.sources)[t][k] & 0x0f));
 			file.seekp(static_cast<std::streamoff>(static_cast<size_t>(entry.slot) * MachinesSize));
 			file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
 		}
@@ -136,6 +154,12 @@ namespace mdDrums
 	{
 		static const Machines none{};
 		return _slot >= 0 && _slot < SlotCount ? m_machines[static_cast<size_t>(_slot)] : none;
+	}
+
+	const std::optional<Bank::Sources>& Bank::sources(const int _slot) const
+	{
+		static const std::optional<Sources> none;
+		return _slot >= 0 && _slot < SlotCount ? m_sources[static_cast<size_t>(_slot)] : none;
 	}
 
 	bool Bank::write(const std::vector<SlotKit>& _slots)
@@ -177,6 +201,7 @@ namespace mdDrums
 			const auto kept = entry.kit && !entry.kit->isEmptySlot();
 			m_slots[static_cast<size_t>(entry.slot)] = kept ? entry.kit : std::nullopt;
 			m_machines[static_cast<size_t>(entry.slot)] = kept ? entry.machines : Machines{};
+			m_sources[static_cast<size_t>(entry.slot)] = kept ? entry.sources : std::nullopt;
 		}
 		m_seen = std::filesystem::last_write_time(m_file, error);
 		return true;

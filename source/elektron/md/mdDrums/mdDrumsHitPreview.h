@@ -53,6 +53,9 @@ namespace mdDrums
 			std::array<std::shared_ptr<const Sample>, Samples::RomCount> samples{};	// the instance's, as its Device has them
 			// The instance's User Machines, USR-01 to USR-16, as its Device holds them: the Track's is installed
 			std::array<std::shared_ptr<const md::mds::Package>, 16> userMachines{};
+			// The Tracks a NEIGHBOUR on the Track hears, as its Device has them (Engine::setSources); none: the four
+			// before it
+			std::optional<std::array<uint8_t, 4>> sources;
 		};
 
 		struct Result

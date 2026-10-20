@@ -113,6 +113,10 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 - [Le menu secondaire des Machines utilisateur](issues/26-menu-secondaire.md) : comme le premier menu, au choix de
   l'utilisateur ; « all 43 installed » sous USR, familles de neuf rangées au plus avec leur genre, le code dans la case,
   le nom pour les effets.
+- [Ce que la DSP des voix doit faire pour qu'une NFX entende n'importe quelle Track](issues/29-sources-d-une-nfx.md) :
+  un tampon par Track, un descripteur par Track, sans changer les paquets ; le défaut sonne comme avant.
+- [Construire le choix des sources d'une NFX](issues/31-construire-les-sources.md) : construit ; message Sources, état,
+  Bank, aperçu, délai de la première source.
 - [Un Kit du Bank se souvient de ses Machines utilisateur](issues/27-kit-du-bank-et-ses-machines.md) : construit ;
   `Bank.machines` à côté du Bank, l'id et le nom du paquet par numéro ; rechargé, il les reprend, ou dit ce qui manque.
 

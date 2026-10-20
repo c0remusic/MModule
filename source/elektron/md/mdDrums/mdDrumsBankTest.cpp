@@ -153,6 +153,18 @@ int main()
 				"an emptied Slot kept its Kit's User Machines");
 			require(bank.write(45, b, machines) && third.write(46, a) && bank.read() && bank.machines(45) == machines,
 				"another Bank's write lost a Slot's User Machines");
+			// And what its NEIGHBOUR machines hear (ticket 31): kept with the Kit, read by another Bank, none for a Kit written
+			// without them
+			mdDrums::Bank::Sources sources{};
+			for(size_t track = 0; track < sources.size(); ++track)
+				for(size_t k = 0; k < 4; ++k)
+					sources[track][k] = static_cast<uint8_t>((track + 15 - k) % 16);
+			sources[11] = {2, 9, 9, 7};
+			require(bank.write(45, b, machines, sources) && bank.sources(45) && *bank.sources(45) == sources
+				&& third.read() && third.sources(45) && *third.sources(45) == sources && third.machines(45) == machines,
+				"a Kit's sources were not kept with it");
+			require(bank.write(45, b) && !bank.sources(45) && third.read() && !third.sources(45),
+				"a Kit written without sources kept the ones before");
 			require(bank.write(45, std::nullopt) && bank.write(46, std::nullopt), "Slots 46 and 47 were not emptied again");
 			std::printf("Bank.machines: %s at USR-01 and %s at USR-05 kept with Slot 45, read by another Bank, gone with the"
 				" Kit written without them\n", machines[0].name.c_str(), machines[4].name.c_str());

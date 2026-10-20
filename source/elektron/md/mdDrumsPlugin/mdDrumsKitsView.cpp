@@ -164,7 +164,8 @@ namespace mdDrums
 		if(!isChanged())
 			return false;
 		const auto slot = m_editor.controller().playedSlot();
-		if(!written(b->write(slot, m_editor.controller().playedKit(), m_editor.processor().kitMachines())))
+		if(!written(b->write(slot, m_editor.controller().playedKit(), m_editor.processor().kitMachines(),
+			m_editor.controller().allSources())))
 			return false;
 		m_confirm = Confirm::None;
 		say("Saved in slot " + twoDigits(slot + 1));
@@ -194,9 +195,13 @@ namespace mdDrums
 			ask(Confirm::Load, "Changes to " + m_editor.controller().playedKit().displayName() + " will be lost");
 			return;
 		}
-		// Its User Machines first, as it was saved with them (ticket 27 of the User Machines map)
+		// Its User Machines first, as it was saved with them (ticket 27 of the User Machines map), then the Kit and what
+		// its NEIGHBOUR machines hear, the four before each for a Kit saved without (ticket 31)
 		const auto missing = m_editor.processor().takeUserMachines(b->machines(m_chosen));
 		m_editor.controller().loadKit(kit, m_chosen);
+		const auto& sources = b->sources(m_chosen);
+		for(uint8_t t = 0; t < Controller::TrackCount; ++t)
+			m_editor.controller().setSources(t, sources ? (*sources)[t] : messages::defaultSources(t));
 		m_confirm = Confirm::None;
 		std::string lacking;
 		for(const auto& name : missing)
@@ -216,7 +221,8 @@ namespace mdDrums
 				+ twoDigits(m_chosen + 1));
 			return;
 		}
-		if(!written(b->write(m_chosen, m_editor.controller().playedKit(), m_editor.processor().kitMachines())))
+		if(!written(b->write(m_chosen, m_editor.controller().playedKit(), m_editor.processor().kitMachines(),
+			m_editor.controller().allSources())))
 			return;
 		m_editor.controller().setPlayedSlot(m_chosen);
 		m_confirm = Confirm::None;
@@ -251,7 +257,7 @@ namespace mdDrums
 		const auto name = edit->GetAttribute<Rml::String>("value", "");
 		auto kit = *b->slot(m_chosen);
 		kit.setName(name);
-		if(!written(b->write(m_chosen, kit, b->machines(m_chosen))))
+		if(!written(b->write(m_chosen, kit, b->machines(m_chosen), b->sources(m_chosen))))
 			return;
 		// The Kit played keeps its Slot's name: a renaming is no change to the sound
 		if(m_chosen == m_editor.controller().playedSlot())
@@ -470,9 +476,12 @@ namespace mdDrums
 		if(result.bank)
 		{
 			const auto& stored = result.bank->slot(result.slot);
-			// Another User Machine at a number the Kit plays is a change too, the Kit's bytes the same
+			// Another User Machine at a number the Kit plays, or another source for a NEIGHBOUR, is a change too, the Kit's
+			// bytes the same
+			const auto& sources = result.bank->sources(result.slot);
 			result.changed = !stored || *stored != kit
-				|| result.bank->machines(result.slot) != m_editor.processor().kitMachines();
+				|| result.bank->machines(result.slot) != m_editor.processor().kitMachines()
+				|| (sources ? *sources : messages::State{}.sources) != controller.allSources();
 		}
 		return result;
 	}

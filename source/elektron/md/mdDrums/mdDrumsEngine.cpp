@@ -113,9 +113,10 @@ namespace mdDrums
 			delay[t] = pending[t];
 			pending[t] = -1;
 		}
-		// A NEIGHBOUR User Machine plays on the delay of the Track before it (ticket 20 of the User Machines map): its
-		// sound, made from that Track's raw block in the same block of the voice DSP, then lands where that Track's does,
-		// exactly when it reads that Track alone (7 of the 13 in X.20 B's zip); its own Hit's wait does not count
+		// A NEIGHBOUR User Machine plays on the delay of its first source, by default the Track before it (tickets 20
+		// and 31 of the User Machines map): its sound, made from that Track's raw block, then lands where that Track's
+		// does, exactly when it reads that Track alone (7 of the 13 in X.20 B's zip), and a block later for a source
+		// rendered after it; its own Hit's wait does not count
 		for(int t = 0; t < TrackCount && sampleAccurate; ++t)
 		{
 			const auto id = host.machine(t);
@@ -123,7 +124,7 @@ namespace mdDrums
 				continue;
 			const auto& package = userMachines[static_cast<size_t>(id - md::engine::kFirstUserMachine)];
 			if(package && (package->flags & md::mds::FlagNeighbour))
-				delay[t] = delay[(t + TrackCount - 1) % TrackCount];
+				delay[t] = delay[engine.voices().sources(t)[0]];
 		}
 
 		// A Choke that silenced a Track in this block (ticket 38): the Track stops exactly where the Hit that cut it
@@ -362,6 +363,16 @@ namespace mdDrums
 	{
 		m_state->engine.installUserMachine(_index, _package);
 		m_state->userMachines[static_cast<size_t>(_index)] = std::move(_package);
+	}
+
+	void Engine::setSources(const int _track, const Sources& _sources)
+	{
+		m_state->engine.voices().setSources(_track, _sources);
+	}
+
+	const Engine::Sources& Engine::sources(const int _track) const
+	{
+		return m_state->engine.voices().sources(_track);
 	}
 
 	void Engine::removeUserMachine(const int _index)

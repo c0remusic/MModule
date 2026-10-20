@@ -9,6 +9,7 @@
 #include "mdDrumsKnob.h"
 #include "mdDrumsLfoView.h"
 #include "mdDrumsLibraryView.h"
+#include "mdDrumsSourcesView.h"
 #include "mdDrumsLinksView.h"
 #include "mdDrumsMeterView.h"
 #include "mdDrumsProcessor.h"
@@ -77,6 +78,7 @@ namespace mdDrums
 		m_statusView = std::make_unique<StatusView>(*this);
 		m_dropView = std::make_unique<DropView>(*this);
 		m_libraryView = std::make_unique<LibraryView>(*this);
+		m_sourcesView = std::make_unique<SourcesView>(*this);
 
 		// The frame before every RmlUi update (under its lock: the views' writes are laid out and drawn in that
 		// update); the first one now, so that the first render shows the Track and not the skin's defaults; then the
@@ -138,6 +140,7 @@ namespace mdDrums
 		// head band follows
 		bool wrote = m_trackView->step(f);
 		wrote |= m_libraryView->step(f);
+		wrote |= m_sourcesView->step(f);
 		wrote |= m_linksView->step(f);
 		wrote |= m_kitsView->step(f);
 		wrote |= m_filterView->step(f);

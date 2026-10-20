@@ -30,6 +30,7 @@ namespace mdDrums
 	class KitsView;
 	class LfoView;
 	class LibraryView;
+	class SourcesView;
 	class LinksView;
 	class MeterView;
 	class Processor;
@@ -100,6 +101,7 @@ namespace mdDrums
 		StatusView* getStatusView() const { return m_statusView.get(); }
 		DropView* getDropView() const { return m_dropView.get(); }
 		LibraryView* getLibraryView() const { return m_libraryView.get(); }
+		SourcesView* getSourcesView() const { return m_sourcesView.get(); }
 
 		// Esc, before the stack's own (which opens its settings): disarms ASSIGN, else leaves a Kit's renaming or a second-
 		// click question, else closes the open overlay. Ctrl+S saves the Kit played. The other keys go to KitsView::key
@@ -125,6 +127,7 @@ namespace mdDrums
 		std::unique_ptr<StatusView> m_statusView;
 		std::unique_ptr<DropView> m_dropView;	// after the status line, which its drops speak through
 		std::unique_ptr<LibraryView> m_libraryView;
+		std::unique_ptr<SourcesView> m_sourcesView;
 		std::unique_ptr<TrackView> m_trackView;
 
 		std::function<double()> m_clock;

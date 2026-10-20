@@ -40,7 +40,15 @@ namespace mdDrums::messages
 		// then its words, three bytes each, high first; the name and the words 7 bits to the byte as the Machinedrum's
 		// dumps pack them. Allocates.
 		Sample = 0x07,
+		// The Tracks a NEIGHBOUR User Machine on a Track hears as one, two, three and four back: the track, then four
+		// Tracks (0-15). MoDule's own: X.20 has no such choice (research/14 of the User Machines map)
+		Sources = 0x08,
 	};
+
+	// What an NFX on _track hears when nothing is chosen: the four Tracks before it, wrapping past Track 1, as the MDS
+	// Standard has it (md::engine::VoiceEngine::defaultSources)
+	using Sources = std::array<uint8_t, 4>;
+	Sources defaultSources(uint8_t _track);
 
 	// The Outs a Track can leave Main for: Live opens at most 16 output buses per plug-in, the track's own included
 	// (ticket 33 of the editor map), so Main and 15, any Track on any of them
@@ -83,6 +91,7 @@ namespace mdDrums::messages
 	Raw tempo(double _bpm);		// 30 to 300, as the engine takes it
 	Raw mixer(const Mixer& _mixer);
 	Raw kitName(const std::array<uint8_t, md::automation::sysex::MdKit::NameSize>& _name);
+	Raw sources(uint8_t _track, const Sources& _sources);
 
 	struct Parsed
 	{
@@ -93,6 +102,7 @@ namespace mdDrums::messages
 		double bpm = 0;
 		Mixer mixer;
 		std::array<uint8_t, md::automation::sysex::MdKit::NameSize> name{};
+		Sources sources{};
 	};
 	// Empty for anything but one of these messages, well formed
 	std::optional<Parsed> parse(MessageView _message);
@@ -116,13 +126,21 @@ namespace mdDrums::messages
 
 	// md-drums: then a UserMachine message for each User Machine the Device holds, and a Sample message for each user's
 	// Sample it holds, whether the Kit plays them or not (automation may reach any), so that a set sounds as saved where
-	// they are not installed (none: the state as it was before them)
+	// they are not installed (none: the state as it was before them); then a Sources message for each Track that hears
+	// other Tracks than the four before it (none: the default)
 	struct State
 	{
 		md::automation::sysex::MdKit kit;
 		Mixer mixer;
 		std::vector<UserMachine> userMachines;
 		std::vector<SampleMessage> samples;
+		std::array<Sources, 16> sources = []
+		{
+			std::array<Sources, 16> all{};
+			for(uint8_t t = 0; t < 16; ++t)
+				all[t] = defaultSources(t);
+			return all;
+		}();
 	};
 	std::vector<uint8_t> writeState(const State& _state);
 	std::optional<State> parseState(const uint8_t* _data, size_t _size);

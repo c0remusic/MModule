@@ -1209,6 +1209,76 @@ namespace
 	// A Mix strip's Out (ticket 33): Main, or one of 15 Outs, any Track on any. A click moves the Track between Main and
 	// its natural Out (its own number, Track 16 to 15), the wheel steps through Main and Out 01-15; the box reads the Out,
 	// lit off Main, and the head band says where the Track shown plays, from the click's frame on
+	// What a NEIGHBOUR hears (tickets 30 and 31 of the User Machines map, a prototype): Track 12 on a NEIGHBOUR copier says
+	// "hears track 11" in the Hit screen's title, which opens the menu over the Hit screen, one input shown for a copier
+	// one back; Track 03 chosen there, the Controller holds it, the title says it and Track 3's number is underlined in
+	// the list; a Kit saved in the Bank keeps it, Auto gives Track 11 back and lights Save, the Kit loaded takes Track
+	// 03 again; a Track back on a built-in machine says nothing
+	void sources(Fixture& _f)
+	{
+		using Overlay = mdDrums::TrackView::Overlay;
+		const auto look = [&](const double _ms)
+		{
+			_f.step(_ms);
+			_f.layout();
+		};
+		const auto hidden = [&](const char* _id)
+		{
+			const auto* e = _f.find(_id);
+			return !e || e->GetComputedValues().display() == Rml::Style::Display::None;
+		};
+		auto& controller = _f.editor->controller();
+		constexpr uint8_t track = 11;
+		auto& machine = mdDrums::testSupport::parameter(_f.processor, "Machine", track);
+		const auto before = static_cast<int>(machine.getUnnormalizedValue());
+		const auto installed = _f.processor.getLibrary()->install(md::mds::buildPackage(mdDrums::test::neighbourDraft(1)));
+		require(installed.package != nullptr, "the copier was not installed: " + installed.error);
+		_f.editor->getTrackView()->showTrack(track);
+		require(_f.processor.chooseUserMachine(track, installed.package).first >= 0, "Track 12 did not take the copier");
+		look(100);
+		require(!hidden("hit_hears") && _f.text("hit_hears_text") == "hears track 11",
+			"the Hit screen does not say what a NEIGHBOUR on Track 12 hears: \"" + _f.text("hit_hears_text") + "\"");
+		click(_f, "hit_hears");
+		_f.layout();
+		require(_f.editor->getTrackView()->getOverlay() == Overlay::Sources && !hidden("sourcesmenu") && hidden("src_w2"),
+			"the hears menu did not open, or shows more inputs than a copier one back reads");
+		click(_f, "src_t3");
+		look(100);
+		require(controller.sources(track)[0] == 2 && _f.text("hit_hears_text") == "hears track 03"
+			&& _f.find("row3_num")->IsClassSet("heard") && !_f.find("row11_num")->IsClassSet("heard"),
+			"Track 03 chosen in the menu is not what Track 12 hears");
+
+		auto& kits = *_f.editor->getKitsView();
+		const auto* bank = _f.processor.getBank();
+		kits.choose(62);
+		kits.saveHere();
+		kits.saveHere();
+		require(bank->sources(62) && (*bank->sources(62))[track][0] == 2 && !kits.isChanged(),
+			"Slot 63 did not keep what Track 12 hears");
+		click(_f, "src_auto");
+		look(100);
+		require(controller.sources(track)[0] == 10 && kits.isChanged(), "Auto did not give Track 11 back, or Save is not lit");
+		kits.choose(62);
+		kits.load();
+		kits.load();
+		look(100);
+		require(controller.sources(track)[0] == 2 && _f.text("hit_hears_text") == "hears track 03",
+			"the Kit loaded from Slot 63 did not take what Track 12 hears back");
+		std::printf("sources: Track 12's NEIGHBOUR \"%s\", Track 03 chosen, kept and loaded with the Kit\n",
+			_f.text("hit_hears_text").c_str());
+
+		kits.remove();
+		kits.remove();
+		controller.setSources(track, mdDrums::messages::defaultSources(track));
+		_f.editor->getTrackView()->setOverlay(Overlay::None);
+		mdDrums::testSupport::uiSets(machine, before);
+		look(100);
+		require(hidden("hit_hears") && !_f.find("row3_num")->IsClassSet("heard"),
+			"a Track back on a built-in machine still says what it hears");
+		_f.editor->getTrackView()->showTrack(0);
+		look(100);
+	}
+
 	void outs(Fixture& _f)
 	{
 		auto& controller = _f.processor.getController();
@@ -1731,6 +1801,22 @@ namespace
 		_f.showView("track");
 		_f.editor->getTrackView()->setOverlay(mdDrums::TrackView::Overlay::Links);
 		save("linksmenu");
+		// The hears menu (tickets 30 and 31 of the User Machines map): Track 12 on the test's NEIGHBOUR copier, hearing Track
+		// 03, which the list underlines
+		if(const auto copier = _f.processor.getLibrary()->install(md::mds::buildPackage(mdDrums::test::neighbourDraft(1)));
+			copier.package)
+		{
+			_f.editor->getTrackView()->showTrack(11);
+			_f.processor.chooseUserMachine(11, copier.package);
+			auto heard = _f.editor->controller().sources(11);
+			heard[0] = 2;
+			_f.editor->controller().setSources(11, heard);
+			_f.step(100);
+			_f.editor->getTrackView()->setOverlay(mdDrums::TrackView::Overlay::Sources);
+			save("sourcesmenu");
+			_f.editor->getTrackView()->setOverlay(mdDrums::TrackView::Overlay::None);
+			_f.editor->getTrackView()->showTrack(0);
+		}
 		// The Library over the browser's families (ticket 26 of the User Machines map), with X.20's User Machines when
 		// MD_X20_MACHINES names their folder (never in this repository)
 		if(const auto* x20 = std::getenv("MD_X20_MACHINES"); x20 && *x20)
@@ -1796,7 +1882,7 @@ int main()
 			{"hit preview", hitPreview}, {"input to pixel", inputToPixel}, {"filter screen", filterScreen},
 			{"lfo screen", lfoScreen},
 			{"assign", assign}, {"listen", listen}, {"play and step", playAndStep}, {"kits", kits}, {"links", links},
-			{"outs", outs}, {"status", status}, {"frame", frame}})
+			{"outs", outs}, {"status", status}, {"sources", sources}, {"frame", frame}})
 		{
 			try
 			{

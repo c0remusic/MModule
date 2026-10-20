@@ -132,7 +132,7 @@
 						<vknob id="k_SYN7" class="a c10" param="SYN7"/><div id="n_SYN7" class="a c10 w1 kl"><span>SYN7</span></div><div id="v_SYN7" class="a c10 w1 kv" data-class-edited="SYN7_value != SYN7_default">{{SYN7_value}}</div>
 						<vknob id="k_SYN8" class="a c11" param="SYN8"/><div id="n_SYN8" class="a c11 w1 kl"><span>SYN8</span></div><div id="v_SYN8" class="a c11 w1 kv" data-class-edited="SYN8_value != SYN8_default">{{SYN8_value}}</div>
 						<div id="screen_hit" class="a screen">
-							<div id="screen_hit_title" class="a stitle"><span class="label">Hit</span><span id="hit_note" class="right hint">Not played yet</span></div>
+							<div id="screen_hit_title" class="a stitle"><span class="label">Hit</span><span id="hit_hears" class="word hears"><span id="hit_hears_text">hears track 01</span><vglyph class="down" shape="down"/></span><span id="hit_note" class="right hint">Not played yet</span></div>
 							<!-- The graduations' words, placed by mdDrumsHitView.cpp -->
 							<span id="hit_tick1" class="a hint tick"/><span id="hit_tick2" class="a hint tick"/><span id="hit_tick3" class="a hint tick"/><span id="hit_tick4" class="a hint tick"/>
 							<span id="hit_tick5" class="a hint tick"/><span id="hit_tick6" class="a hint tick"/><span id="hit_tick7" class="a hint tick"/><span id="hit_tick8" class="a hint tick"/>
@@ -152,6 +152,19 @@
 								<div id="links_choke5" class="a mt m4 mr2">05</div><div id="links_choke6" class="a mt m5 mr2">06</div><div id="links_choke7" class="a mt m6 mr2">07</div><div id="links_choke8" class="a mt m7 mr2">08</div>
 								<div id="links_choke9" class="a mt m0 mr3">09</div><div id="links_choke10" class="a mt m1 mr3">10</div><div id="links_choke11" class="a mt m2 mr3">11</div><div id="links_choke12" class="a mt m3 mr3">12</div>
 								<div id="links_choke13" class="a mt m4 mr3">13</div><div id="links_choke14" class="a mt m5 mr3">14</div><div id="links_choke15" class="a mt m6 mr3">15</div><div id="links_choke16" class="a mt m7 mr3">16</div>
+							</div>
+							<!-- md-drums: what a NEIGHBOUR User Machine hears, over the whole Hit screen (the title's "hears" opens it,
+							     Done closes it; mdDrumsSourcesView.cpp, tickets 30 and 31 of the User Machines map, a prototype) -->
+							<div id="sourcesmenu" class="a lfomenu overlay">
+								<div id="sourcesmenu_head" class="a mhead"><span id="sourcesmenu_label" class="label">Track 01</span><span class="hint">hears</span><span id="sourcesmenu_done" class="right word keep">Done</span></div>
+								<div class="a label mlabel mr0">Input</div>
+								<div id="src_w1" class="a mt m0 mr0">T-1</div><div id="src_w2" class="a mt m1 mr0">T-2</div><div id="src_w3" class="a mt m2 mr0">T-3</div><div id="src_w4" class="a mt m3 mr0">T-4</div>
+								<div class="a label mlabel mr2">Track</div>
+								<div id="src_auto" class="a mt moff mr3">Auto</div>
+								<div id="src_t1" class="a mt m0 mr2">01</div><div id="src_t2" class="a mt m1 mr2">02</div><div id="src_t3" class="a mt m2 mr2">03</div><div id="src_t4" class="a mt m3 mr2">04</div>
+								<div id="src_t5" class="a mt m4 mr2">05</div><div id="src_t6" class="a mt m5 mr2">06</div><div id="src_t7" class="a mt m6 mr2">07</div><div id="src_t8" class="a mt m7 mr2">08</div>
+								<div id="src_t9" class="a mt m0 mr3">09</div><div id="src_t10" class="a mt m1 mr3">10</div><div id="src_t11" class="a mt m2 mr3">11</div><div id="src_t12" class="a mt m3 mr3">12</div>
+								<div id="src_t13" class="a mt m4 mr3">13</div><div id="src_t14" class="a mt m5 mr3">14</div><div id="src_t15" class="a mt m6 mr3">15</div><div id="src_t16" class="a mt m7 mr3">16</div>
 							</div>
 						</div>
 					</div>

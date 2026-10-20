@@ -386,6 +386,7 @@ namespace mdDrums
 		setDisplay(find("browser"), _overlay == Overlay::Browser);
 		setDisplay(find("lfomenu"), _overlay == Overlay::LfoMenu);
 		setDisplay(find("linksmenu"), _overlay == Overlay::Links);
+		setDisplay(find("sourcesmenu"), _overlay == Overlay::Sources);
 		followLfoMenu();
 	}
 

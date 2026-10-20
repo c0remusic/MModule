@@ -50,12 +50,17 @@ namespace md::engine
 		constexpr TWord kSkipStub = 0x0c20;	// silent-voice check, replaces kRenderFn's lookup
 		constexpr TWord kSkipNormal = 0x0c30;	// real render fn lookup, resumed
 		constexpr TWord kSkipSilent = 0x0c38;	// idle voice: flag 0, straight to the next voice
-		// md-drums: the neighbours' ring (.scratch/user-machines/research/12-neighbour-buffers.md): four output buffers
-		// where 1.63 flips two banks, and the descriptor of the MDS Standard's NEIGHBOUR machines at Y:$7F0
+		// md-drums: a buffer per Track where 1.63 flips two banks, and the descriptor of the MDS Standard's NEIGHBOUR
+		// machines at Y:$7F0, a Track's own naming the Tracks it hears (.scratch/user-machines/research/12-neighbour-
+		// buffers.md, 14-sources-d-une-nfx.md)
 		constexpr TWord kBankFlip = 0x9b;		// 1.63's flip of Y:$140 between $100 and $120, up to the type fetch's end
-		constexpr TWord kRingStub = 0x0c40;
-		constexpr TWord kDescriptors = 0x7e0, kRingPointer = 0x7f0;
-		constexpr std::array<TWord, 4> kRingBuffers{0x100, 0x120, 0x7a0, 0x7c0};
+		constexpr TWord kSourcesStub = 0x0c40;
+		constexpr TWord kSourcesCopy = 0x0c80;	// a User Machine's four back, copied into its own buffer
+		// Y:$1000 + 32·t, Track t's buffer, in the emulator's Y past what a Machinedrum has (nothing reads or writes it);
+		// Y:$7A0 + 4·t, Track t's descriptor (its own buffer, then its first three sources'); Y:$7E0 + t, its fourth
+		// source's buffer; Y:$7F0, the pointer to the descriptor of the Track rendering
+		constexpr TWord kTrackBuffers = 0x1000, kDescriptors = 0x7a0, kFourBack = 0x7e0, kSourcesPointer = 0x7f0;
+		constexpr TWord kBufferWords = 32;
 
 		constexpr uint64_t kMaxInstrInit = 200'000'000;
 		constexpr uint64_t kMaxInstrBlock = 20'000'000;
@@ -214,8 +219,8 @@ namespace md::engine
 		{
 			// An idle voice sends flag 0 and nothing else - no 32-word transmit; the host fills its zeros. A voice's 32
 			// samples are only sent when its flag is 1. md-drums: its buffer takes 32 zeros all the same, as 1.63's null
-			// render writes them: with four buffers, a NEIGHBOUR machine reading it would hear the Track four places
-			// further back (research/12 §3.2). M7 is linear here; the next voice sets R7 again.
+			// render writes them: a NEIGHBOUR machine reading it would hear the Track's own last block (research/14 §7.1).
+			// M7 is linear here; the next voice sets R7 again.
 			TWord pc = kSkipSilent;
 			emit(pc, "clr a");
 			emit(pc, "rep #32");
@@ -223,40 +228,58 @@ namespace md::engine
 			emit(pc, "movep #>0,x:<<$ffffc7");
 			m_dsp->memWriteP(pc++, 0x0af080);	// jmp >kNextVoice
 			m_dsp->memWriteP(pc++, kNextVoice);
-			if(pc > kRingStub)
-				throw std::runtime_error("voice harness: the silent voice's stub runs into the ring's");
+				if(pc > kSourcesStub)
+				throw std::runtime_error("voice harness: the silent voice's stub runs into the sources'");
 		}
 
-		// 2c) md-drums: the neighbours' ring in place of 1.63's bank flip: Track t (R1, 0-15) renders into buffer t mod 4
-		//     and Y:$7F0 points at its descriptor (writeRing), whose words 1 to 3 name the buffers of the three Tracks
-		//     before it, as the MDS Standard's NEIGHBOUR machines read them. Stateless, from the Track number, so it
-		//     cannot drift. The type comes into R0 as 1.63's $A3 takes it, and X0 and X1 hold what its flip left there.
+		// 2c) md-drums: a buffer per Track in place of 1.63's bank flip: Track t (R1, 0-15) renders into its own buffer
+		//     and Y:$7F0 points at its descriptor (writeSources), whose words 1 to 3 name the buffers of the Tracks it
+		//     hears, by default the three before it, as the MDS Standard's NEIGHBOUR machines read them. A User
+		//     Machine's own buffer first takes its fourth source's block, which the Standard calls four back and NFX-MX
+		//     and NFX-EN read before writing it (research/14 §2.3). Stateless, from the Track number, so it cannot
+		//     drift. The type comes into R0 as 1.63's $A3 takes it, and X0 and X1 hold what its flip left there.
 		{
 			TWord pc = kBankFlip;
-			m_dsp->memWriteP(pc++, 0x0af080);	// jmp >kRingStub
-			m_dsp->memWriteP(pc++, kRingStub);
+			m_dsp->memWriteP(pc++, 0x0af080);	// jmp >kSourcesStub
+			m_dsp->memWriteP(pc++, kSourcesStub);
 			while(pc < kRenderFn)
 				m_dsp->memWriteP(pc++, 0x000000);	// nop, never run
 		}
 		{
-			TWord pc = kRingStub;
+			TWord pc = kSourcesStub;
 			emit(pc, "move y:(r1+$153),r0");
 			emit(pc, "move r1,a");
-			emit(pc, "and #<$3,a");
 			emit(pc, "asl a");
 			emit(pc, "asl a");
 			emit(pc, "add #>" + hex(kDescriptors) + ",a");
-			emit(pc, "move a,y:>" + hex(kRingPointer));
+			emit(pc, "move a,y:>" + hex(kSourcesPointer));
+			emit(pc, "move y:(r1+" + hex(kFourBack) + "),b");	// the fourth source's buffer, while R1 holds the Track
 			emit(pc, "move a,r1");
 			emit(pc, "nop");
 			emit(pc, "move y:(r1),r7");
 			emit(pc, "move r7,y:>$140");
+			emit(pc, "move r0,a");
+			emit(pc, "move #>" + hex(kFirstUserType) + ",x0");
+			emit(pc, "cmp x0,a");
+			emit(pc, "jge " + hex(kSourcesCopy));
+			const TWord rejoin = pc;
 			emit(pc, "move #>$100,x1");
 			emit(pc, "move #>$20,x0");
 			m_dsp->memWriteP(pc++, 0x0af080);	// jmp >kRenderFn, the skip stub's jump
 			m_dsp->memWriteP(pc++, kRenderFn);
+			if(pc > kSourcesCopy)
+				throw std::runtime_error("voice harness: the sources' stub runs into its copy");
+			pc = kSourcesCopy;
+			emit(pc, "move b,r1");
+			emit(pc, "nop");
+			const TWord loop = pc;
+			emit(pc, "do #32," + hex(loop + 4));
+			emit(pc, "move y:(r1)+,a");
+			emit(pc, "move a,y:(r7)+");
+			emit(pc, "move y:>$140,r7");	// M7 is linear here: back to the buffer's start
+			emit(pc, "jmp " + hex(rejoin));
 		}
-		writeRing();
+		writeSources();
 
 		// 3) after all 16 voices: wait for the host's "go" word (the host updates the voice slots meanwhile)
 		{
@@ -267,17 +290,43 @@ namespace md::engine
 		}
 	}
 
-	void VoiceEngine::writeRing()
+	void VoiceEngine::writeSources()
 	{
-		// Y:$7A0-$7DF, which no 1.63 machine reads or writes (research/04): two more buffers of 32 zeros; then the four
-		// descriptors, each its own buffer and those of one, two and three Tracks back on the ring $100, $120, $7A0, $7C0
-		for(TWord a = kRingBuffers[2]; a < kDescriptors; ++a)
-			m_dsp->memWrite(MemArea_Y, a, 0);
-		for(size_t d = 0; d < kRingBuffers.size(); ++d)
-			for(size_t back = 0; back < kRingBuffers.size(); ++back)
-				m_dsp->memWrite(MemArea_Y, kDescriptors + static_cast<TWord>(4 * d + back),
-					kRingBuffers[(d + kRingBuffers.size() - back) % kRingBuffers.size()]);
-		m_dsp->memWrite(MemArea_Y, kRingPointer, kDescriptors);
+		// The sixteen buffers, zeros, then each Track's descriptor and fourth source
+		for(TWord a = 0; a < kTracks * kBufferWords; ++a)
+			m_dsp->memWrite(MemArea_Y, kTrackBuffers + a, 0);
+		for(int t = 0; t < kTracks; ++t)
+			writeSources(t);
+		m_dsp->memWrite(MemArea_Y, kSourcesPointer, kDescriptors);
+	}
+
+	void VoiceEngine::writeSources(const int _track)
+	{
+		const auto buffer = [](const int _t) { return kTrackBuffers + kBufferWords * static_cast<TWord>(_t); };
+		const auto& sources = m_sources[static_cast<size_t>(_track)];
+		const auto descriptor = kDescriptors + 4 * static_cast<TWord>(_track);
+		m_dsp->memWrite(MemArea_Y, descriptor, buffer(_track));
+		for(TWord k = 0; k < 3; ++k)
+			m_dsp->memWrite(MemArea_Y, descriptor + 1 + k, buffer(sources[k]));
+		m_dsp->memWrite(MemArea_Y, kFourBack + static_cast<TWord>(_track), buffer(sources[3]));
+	}
+
+	VoiceEngine::Sources VoiceEngine::defaultSources(const int _track)
+	{
+		Sources sources{};
+		for(int k = 0; k < 4; ++k)
+			sources[static_cast<size_t>(k)] = static_cast<uint8_t>((_track + kTracks - (k + 1)) % kTracks);
+		return sources;
+	}
+
+	void VoiceEngine::setSources(const int _track, const Sources& _sources)
+	{
+		if(_track < 0 || _track >= kTracks)
+			return;
+		auto& sources = m_sources[static_cast<size_t>(_track)];
+		for(size_t k = 0; k < sources.size(); ++k)
+			sources[k] = _sources[k] < kTracks && _sources[k] != _track ? _sources[k] : defaultSources(_track)[k];
+		writeSources(_track);
 	}
 
 	void VoiceEngine::extendDispatch()
@@ -409,7 +458,7 @@ namespace md::engine
 		while(hi.hasTX())
 			hi.readTX();
 		// The ring's words again, whatever the program's init did to that memory
-		writeRing();
+		writeSources();
 	}
 
 	void VoiceEngine::setSlot(const int _voice, const uint32_t* _words, const int _count)

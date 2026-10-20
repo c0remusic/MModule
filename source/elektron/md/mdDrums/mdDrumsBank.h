@@ -18,8 +18,9 @@ namespace mdDrums
 	// $7f, as OS 1.63 sends one. A missing file starts with the factory Kits from Slot 1 on. The file is read again
 	// before each write, and a write touches its own Slots' bytes only, so that two instances keep each other's Slots
 	// (ticket 10 of the editor map). Beside it, "Bank.machines" says which User Machine of the Library each Slot's Kit
-	// plays at its numbers, written and read the same way, so that a Kit loaded plays the ones it was saved with (ticket
-	// 27 of the User Machines map). Without JUCE, for any thread but one at a time.
+	// plays at its numbers and which Tracks its NEIGHBOUR machines hear, written and read the same way, so that a Kit
+	// loaded plays the ones it was saved with (tickets 27 and 31 of the User Machines map). Without JUCE, for any thread
+	// but one at a time.
 	class Bank
 	{
 	public:
@@ -35,17 +36,22 @@ namespace mdDrums
 		};
 		static constexpr int MachineCount = 16;	// USR-01 to USR-16
 		using Machines = std::array<Machine, MachineCount>;
-		// A Slot (0-63) and what to write into it, no Kit for an empty Slot, and the User Machines its Kit plays
+		// The Tracks each Track's NEIGHBOUR machine hears, one to four back (messages::Sources)
+		using Sources = std::array<std::array<uint8_t, 4>, 16>;
+		// A Slot (0-63) and what to write into it, no Kit for an empty Slot, the User Machines its Kit plays and the
+		// Tracks its NEIGHBOUR machines hear (none: the four before each, as for an imported Kit)
 		struct SlotKit
 		{
 			int slot = 0;
 			std::optional<Kit> kit;
 			Machines machines{};
+			std::optional<Sources> sources;
 		};
 		static constexpr int SlotCount = 64;
 		static constexpr size_t SlotSize = md::automation::sysex::MdKitDumpSize;
 		static constexpr size_t MachineNameSize = 16;
-		static constexpr size_t MachinesSize = MachineCount * (8 + MachineNameSize);	// a Slot's in Bank.machines
+		// A Slot's in Bank.machines: its User Machines, then its sources, a byte each, $80 + the Track (0 for none)
+		static constexpr size_t MachinesSize = MachineCount * (8 + MachineNameSize) + 16 * 4;
 
 		Bank(std::filesystem::path _file, std::vector<Kit> _factory);
 
@@ -62,14 +68,17 @@ namespace mdDrums
 		bool isEmpty(int _slot) const { return !slot(_slot).has_value(); }
 		// The User Machines a Slot's Kit plays, none for a Kit that plays none or was imported
 		const Machines& machines(int _slot) const;
+		// The Tracks its NEIGHBOUR machines hear, none for a Kit saved without them (imported, or before ticket 31)
+		const std::optional<Sources>& sources(int _slot) const;
 
 		// Writes Slots in the list's order, as an import does, after reading the file again once for them all. False
 		// when a Slot is out of range or the file cannot be written.
 		bool write(const std::vector<SlotKit>& _slots);
 		// Writes a Slot, an empty one for no Kit
-		bool write(const int _slot, const std::optional<Kit>& _kit, const Machines& _machines = {})
+		bool write(const int _slot, const std::optional<Kit>& _kit, const Machines& _machines = {},
+			const std::optional<Sources>& _sources = std::nullopt)
 		{
-			return write(std::vector<SlotKit>{{_slot, _kit, _machines}});
+			return write(std::vector<SlotKit>{{_slot, _kit, _machines, _sources}});
 		}
 
 		const std::filesystem::path& file() const { return m_file; }
@@ -88,6 +97,7 @@ namespace mdDrums
 		std::vector<Kit> m_factory;
 		std::array<std::optional<Kit>, SlotCount> m_slots{};
 		std::array<Machines, SlotCount> m_machines{};
+		std::array<std::optional<Sources>, SlotCount> m_sources{};
 		std::filesystem::file_time_type m_seen{};	// the file's write time when this Bank last read or wrote it
 	};
 }

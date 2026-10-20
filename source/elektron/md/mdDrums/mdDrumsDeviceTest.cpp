@@ -874,6 +874,43 @@ namespace
 			" was installed\n", keptName.c_str());
 	}
 
+	// What a NEIGHBOUR hears (ticket 31 of the User Machines map): MoDule's Sources message sets a Track's four; the
+	// Device's state keeps those that differ from the default, as a Sources message each, and a Device restored from it
+	// takes them; a state without any gives every Track the four before it
+	void sources(const std::vector<uint8_t>& _flash)
+	{
+		const auto sourcesOf = [](mdDrums::Device& _device)
+		{
+			std::vector<uint8_t> bytes;
+			require(_device.getState(bytes, synthLib::StateTypeGlobal), "no state");
+			const auto state = mdDrums::messages::parseState(bytes.data(), bytes.size());
+			require(state.has_value(), "the state does not parse");
+			return state->sources;
+		};
+		Rig rig(_flash, 44100.0f, false);
+		const auto defaults = mdDrums::messages::State{}.sources;
+		require(sourcesOf(*rig.device) == defaults, "a new Device's Tracks do not hear the four before them");
+		const mdDrums::messages::Sources chosen{2, 9, 9, 7};
+		const auto message = mdDrums::messages::sources(11, chosen);
+		rig.send(MidiEventSource::Editor, std::vector<uint8_t>(message.bytes.begin(), message.bytes.begin() + message.size));
+		rig.process();
+		auto expected = defaults;
+		expected[11] = chosen;
+		const auto saved = sourcesOf(*rig.device);
+		require(saved == expected, "the Sources message did not reach the Device's state");
+
+		std::vector<uint8_t> bytes;
+		require(rig.device->getState(bytes, synthLib::StateTypeGlobal), "no state");
+		Rig restored(_flash, 44100.0f, false);
+		require(restored.device->setState(bytes, synthLib::StateTypeGlobal) && sourcesOf(*restored.device) == expected,
+			"a Device restored from the state does not hear what it saved");
+		const auto plain = mdDrums::messages::writeState(mdDrums::messages::State{restored.device->kit(), {}, {}, {}});
+		require(restored.device->setState(plain, synthLib::StateTypeGlobal) && sourcesOf(*restored.device) == defaults,
+			"a state without Sources did not give the default");
+		std::printf("sources: Track 12 hearing Tracks 3, 10, 10 and 8 kept in the state and restored; a state without"
+			" them gives the four before each Track\n");
+	}
+
 	// A note on that plays nothing (outside 36-51 and 64-114) counts in the Telemetry, which the editor says (ticket 35);
 	// a Hit, a Lock, an accent and a slide do not
 	void unplayed(const std::vector<uint8_t>& _flash)
@@ -1277,6 +1314,7 @@ int main(const int _argc, char** _argv)
 		accents(_flash);
 		slides(_flash);
 		keptUserMachines(_flash);
+		sources(_flash);
 		unplayed(_flash);
 		hello(_flash);
 		allocations(_flash);

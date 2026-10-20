@@ -1,8 +1,8 @@
 # Ce que la DSP des voix doit faire pour qu'une NFX entende n'importe quelle Track
 
 Type: research
-Status: open
-Assignee:
+Status: resolved
+Assignee: c0remusic (session du 2026-10-20)
 Blocked by:
 
 ## Question
@@ -23,3 +23,14 @@ NEIGHBOUR entend les une à quatre Tracks d'avant, par l'anneau de quatre tampon
 - ce qui garde le chemin d'aujourd'hui (les Tracks d'avant) pour un set qui ne choisit rien.
 
 Un document `research/14-sources-d-une-nfx.md`, mêmes marques [V] [M] [I] que research/12 ; rien de construit.
+
+## Answer
+
+[research/14](../research/14-sources-d-une-nfx.md) : un tampon par Track à Y:`$1000` (la mémoire Y de l'émulateur,
+au-delà de ce qu'a une Machinedrum), seize descripteurs à Y:`$7A0` et un mot « quatre en arrière » par Track à
+Y:`$7E0`, dans les 80 mots que l'anneau libère. Aucun des 13 paquets ne lit le mot 0 ; des descripteurs qui pointent
+des Tracks choisies leur suffisent sans changer leur code ; NFX-MX et NFX-EN prennent leur quatrième source par une copie
+dans leur propre tampon avant RENDER. Une source rendue après la NFX donne son bloc d'avant, 32 échantillons plus tard.
+Un set qui ne choisit rien sonne exactement comme avant (0 bloc différent sur les 112 Machines, 20 Kits mêlés et les
+13 paquets). Coût : 11 cycles par voix, 77 de plus par User Machine, 2 % d'un bloc au pire. X.20 ne permet pas ce choix :
+il est propre à MoDule.

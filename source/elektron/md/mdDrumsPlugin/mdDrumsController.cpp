@@ -520,6 +520,21 @@ namespace mdDrums
 		setGroup(md::automation::sysex::KitChange::Kind::Choke, _track, _target);
 	}
 
+	void Controller::setSources(const uint8_t _track, const messages::Sources& _sources)
+	{
+		if(_track >= TrackCount)
+			return;
+		auto sources = messages::defaultSources(_track);
+		for(size_t k = 0; k < sources.size(); ++k)
+			if(_sources[k] < TrackCount && _sources[k] != _track)
+				sources[k] = _sources[k];
+		sendToDevice(messages::sources(_track, sources));
+		if(sources == m_sources[_track])
+			return;
+		m_sources[_track] = sources;
+		static_cast<Processor&>(getProcessor()).markStateChanged();
+	}
+
 	void Controller::setGroup(const md::automation::sysex::KitChange::Kind _kind, const uint8_t _track,
 		const uint8_t _target)
 	{
@@ -583,6 +598,8 @@ namespace mdDrums
 	void Controller::applyState(const messages::State& _state, const bool _kitOnly)
 	{
 		m_kitBase = _state.kit;
+		if(!_kitOnly)
+			m_sources = _state.sources;
 		for(const auto& [index, parameters] : getExposedParameters())
 		{
 			if(_kitOnly && !messages::isKitParameter(index.page))

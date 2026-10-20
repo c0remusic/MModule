@@ -20,8 +20,8 @@ namespace mdDrums
 			if(const auto& sample = _request.samples[static_cast<size_t>(rom)])
 				_engine.setSample(rom, sample);
 		_engine.writeSamples();
-		// The Tracks struck: the shown one, and for a NEIGHBOUR User Machine the four before it, which it reads (ticket
-		// 21 of the User Machines map), only the shown one heard. Each one's User Machine installed as the instance holds
+		// The Tracks struck: the shown one, and for a NEIGHBOUR User Machine the four it hears, by default those before it
+		// (tickets 21 and 31 of the User Machines map), only the shown one heard. Each one's User Machine installed as the instance holds
 		// it, a fresh engine having none; one the voice DSP refuses plays the empty machine, as on the Device.
 		const auto userIndex = [&](const int _t)
 		{
@@ -35,8 +35,13 @@ namespace mdDrums
 		};
 		std::vector<int> struck{track};
 		if(const auto own = packageOf(track); own && (own->flags & md::mds::FlagNeighbour))
-			for(int back = 1; back <= 4; ++back)
-				struck.push_back((track + Engine::TrackCount - back) % Engine::TrackCount);
+		{
+			if(_request.sources)
+				_engine.setSources(track, *_request.sources);
+			for(const auto source : _engine.sources(track))
+				if(std::find(struck.begin(), struck.end(), source) == struck.end())
+					struck.push_back(source);
+		}
 		uint32_t installed = 0;
 		for(const auto t : struck)
 		{

@@ -85,6 +85,13 @@ namespace mdDrums
 		void setLink(uint8_t _track, uint8_t _target);
 		void setChoke(uint8_t _track, uint8_t _target);
 		static constexpr uint8_t Off = md::automation::sysex::MdKit::Off;
+		// The Tracks a NEIGHBOUR User Machine on _track hears as one, two, three and four back (ticket 31 of the User
+		// Machines map), by default the four before it: values of the set and of a Kit of the Bank, not host parameters,
+		// sent to the Device as MoDule's Sources message at the next audio block. _track itself, or a Track out of
+		// range, takes that word's default. On the message thread.
+		const messages::Sources& sources(uint8_t _track) const { return m_sources[_track % TrackCount]; }
+		const std::array<messages::Sources, TrackCount>& allSources() const { return m_sources; }
+		void setSources(uint8_t _track, const messages::Sources& _sources);
 
 		// For Live in Configure mode, which adds the parameters the plug-in moves to the device's list in that order, each
 		// moved to its own value in a gesture (ticket 37): a page of eight per Track, the Tracks' own parameters, so that
@@ -153,6 +160,7 @@ namespace mdDrums
 		std::array<std::atomic<uint8_t>, TrackCount> m_auditionVelocity{};
 		std::vector<uint8_t> m_loadedState;
 		md::automation::sysex::MdKit m_kitBase;
+		std::array<messages::Sources, TrackCount> m_sources = messages::State{}.sources;
 		int m_slot = 0;
 
 		std::array<pluginLib::Parameter*, RelayCount> m_relays{};

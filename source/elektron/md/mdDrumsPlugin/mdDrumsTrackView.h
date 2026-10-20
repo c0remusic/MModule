@@ -45,7 +45,8 @@ namespace mdDrums
 			Browser,
 			LfoMenu,
 			Kits,
-			Links		// the Track's Links and Chokes, over the Hit screen (LinksView)
+			Links,		// the Track's Links and Chokes, over the Hit screen (LinksView)
+			Sources		// what its NEIGHBOUR User Machine hears, over the Hit screen (SourcesView)
 		};
 
 		static constexpr int RowHeight = 40;
