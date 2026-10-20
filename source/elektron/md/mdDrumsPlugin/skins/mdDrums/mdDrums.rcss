@@ -202,7 +202,7 @@ vknob { top: 84dp; width: 64dp; height: 64dp; drag: drag; cursor: pointer; }
 #library { display: none; left: 0dp; top: 0dp; }
 #browser.library #library { display: block; }
 #browser.library .mach, #browser.library .fam, #browser.library .kind { display: none; }
-#browser.library #library .mach { display: block; }
+#browser.library #library .mach, #browser.library #library .kind { display: block; }
 #browser.library #library .fam, #browser.library #preview_group { display: flex; }
 #browser_builtin { display: none; }
 #browser.library #browser_builtin { display: inline; }

@@ -27,6 +27,23 @@ namespace mdDrums
 		constexpr int g_top = 288;
 		constexpr int g_row = 32;
 
+		// What kind of Machines a family of X.20's holds, as the built-in families say theirs ("analog", "FM"), from their
+		// names (TX-8 BASS DRUM, BBD CHORUS, E PIANO...); none for a family MoDule does not know
+		const char* kindOf(const std::string& _category)
+		{
+			if(_category == "TX8" || _category == "TX9")
+				return "drums";
+			if(_category == "TXZ")
+				return "synth sounds";
+			if(_category == "NFX")
+				return "effects";
+			if(_category == "P-I")
+				return "physical";
+			if(_category == "SYN")
+				return "synth parts";
+			return "";
+		}
+
 		bool samePackages(const std::vector<std::shared_ptr<const md::mds::Package>>& _a,
 			const std::vector<std::shared_ptr<const md::mds::Package>>& _b)
 		{
@@ -111,7 +128,7 @@ namespace mdDrums
 			return true;
 
 		// Family by family, as the Library sorts them (by category, then code); a family takes as many columns as its
-		// cells need, and starts a column of its own
+		// cells need, shared evenly as the built-in TRX's 13 are (7 and 6), and starts a column of its own
 		int column = 0;
 		for(size_t first = 0; first < m_machines.size();)
 		{
@@ -121,6 +138,7 @@ namespace mdDrums
 				++end;
 			const auto count = static_cast<int>(end - first);
 			const auto columns = (count + Rows - 1) / Rows;
+			const auto rows = (count + columns - 1) / columns;
 			if(column + columns > Columns)
 				break;
 
@@ -131,14 +149,23 @@ namespace mdDrums
 			head->SetInnerRML("<span>" + Rml::StringUtilities::EncodeRml(category) + "<span class=\"count\">"
 				+ std::to_string(count) + "</span></span>" + (columns > 1 ? "<div class=\"line\"/>" : ""));
 			m_library->AppendChild(std::move(head));
+			if(const auto* kind = kindOf(category); *kind)
+			{
+				auto line = document->CreateElement("div");
+				line->SetClassNames("a kind");
+				line->SetProperty("left", dp(g_left + g_column * column));
+				line->SetProperty("width", dp(64 + g_column * (columns - 1)));
+				line->SetInnerRML(kind);
+				m_library->AppendChild(std::move(line));
+			}
 
 			for(int i = 0; i < count; ++i)
 			{
 				const auto index = first + static_cast<size_t>(i);
 				auto cell = document->CreateElement("div");
 				cell->SetClassNames("a mach");
-				cell->SetProperty("left", dp(g_left + g_column * (column + i / Rows)));
-				cell->SetProperty("top", dp(g_top + g_row * (i % Rows)));
+				cell->SetProperty("left", dp(g_left + g_column * (column + i / rows)));
+				cell->SetProperty("top", dp(g_top + g_row * (i % rows)));
 				cell->SetInnerRML(Rml::StringUtilities::EncodeRml(m_machines[index]->code));
 				juceRmlUi::EventListener::AddClick(cell.get(), [this, index] { choose(index); });
 				m_cells.push_back(m_library->AppendChild(std::move(cell)));

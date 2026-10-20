@@ -1,7 +1,7 @@
 # Le menu secondaire des Machines utilisateur
 
 Type: prototype
-Status: open
+Status: resolved
 Assignee: c0remusic (session du 2026-10-20)
 Blocked by: 25
 
@@ -37,3 +37,17 @@ Construit le 2026-10-20, à juger : [capture](../26-menu-secondaire.png), celle 
 - Pas fait : les flèches et la molette dans la Library ; le nom entier ou le sprite ; les noms dans les seize cases USR.
 - À juger : la place (sur les familles, ou ailleurs), l'ordre des familles (alphabétique, ou les batteries d'abord), le
   code seul dans les cases.
+
+## Décision
+
+Le 2026-10-20, l'utilisateur répond aux trois questions : « Comme pour le premier mnu ». La Library se range donc comme
+les familles intégrées, à la même place, le code seul dans les cases, dans l'ordre de la Library (alphabétique, celui
+du zip d'X.20) :
+
+- neuf rangées par colonne au plus, de 288 à 544 dp, comme la plus longue colonne intégrée (P-I) ; une famille plus
+  longue se partage également sur deux colonnes sous un en-tête et sa ligne, comme TRX (TX8 : 5 et 5) ;
+- une ligne de genre sous l'en-tête, comme « analog » ou « FM » : drums (TX8, TX9), synth sounds (TXZ), effects (NFX),
+  physical (P-I), synth parts (SYN), d'après les noms des 43 (TX-8 BASS DRUM, BBD CHORUS, E PIANO, SX-1 VCO...) ; aucune
+  pour une famille que MoDule ne connaît pas.
+
+La capture est celle de ce rangement.

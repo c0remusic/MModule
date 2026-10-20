@@ -107,6 +107,8 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 - [Les numéros USR donnés par le Kit](issues/25-numeros-donnes-par-le-kit.md) : construit ; le numéro qui la tient,
   sinon celui de la Track, sinon le premier libre ; un numéro vide joue muet, rien pris de la Library.
 - [Copier les 43 du zip X.20 dans la Library de l'utilisateur](issues/28-copier-les-43.md) : fait ; sur son seul PC.
+- [Le menu secondaire des Machines utilisateur](issues/26-menu-secondaire.md) : comme le premier menu, au choix de
+  l'utilisateur ; « all 43 installed » sous USR, familles de neuf rangées au plus avec leur genre, le code dans la case.
 - [Un Kit du Bank se souvient de ses Machines utilisateur](issues/27-kit-du-bank-et-ses-machines.md) : construit ;
   `Bank.machines` à côté du Bank, l'id et le nom du paquet par numéro ; rechargé, il les reprend, ou dit ce qui manque.
 

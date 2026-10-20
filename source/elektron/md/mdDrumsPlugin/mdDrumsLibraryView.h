@@ -20,11 +20,13 @@ namespace mdDrums
 	class Editor;
 	struct Frame;
 
-	// The Library in the machine browser (ticket 26 of the User Machines map, a prototype): the USR block's "All
-	// installed" opens every User Machine the Library holds over the browser's own families, by family as those are (the
-	// package's category, its code in the cell), 16 rows to a column; a click puts the Track shown on it
-	// (Processor::chooseUserMachine), heard when listening; "Built-in machines" and Esc go back. The cells are made
-	// again when the Library changes; the one the Track plays is lit.
+	// The Library in the machine browser (ticket 26 of the User Machines map, a prototype): the USR block's "all
+	// installed" opens every User Machine the Library holds over the browser's own families, laid out as those are (the
+	// user's choice of 2026-10-20, "comme pour le premier menu"): the package's category at the head with its count and
+	// what kind of Machines it holds, its code in each cell, 9 rows to a column at most, a longer family shared evenly
+	// over two or more columns under one head; a click puts the Track shown on it (Processor::chooseUserMachine), heard
+	// when listening; "Built-in machines" and Esc go back. The cells are made again when the Library changes; the one
+	// the Track plays is lit.
 	class LibraryView
 	{
 	public:
@@ -48,7 +50,7 @@ namespace mdDrums
 		Rml::Element* cell(size_t _index) const { return _index < m_cells.size() ? m_cells[_index] : nullptr; }
 		void choose(size_t _index);
 
-		static constexpr int Rows = 16;		// 288 to 768 dp, as far down as the browser's lowest cells
+		static constexpr int Rows = 9;		// 288 to 544 dp, as the built-in families' longest column
 		static constexpr int Columns = 8;	// c4 to c11: the families' columns
 
 	private:
