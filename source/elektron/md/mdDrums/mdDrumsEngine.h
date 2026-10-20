@@ -93,6 +93,8 @@ namespace mdDrums
 		// copy of the voice DSP's memory and a few blocks. Throws, installing nothing, on a package the voice DSP cannot
 		// play (md::engine::VoiceEngine::installUserMachine).
 		static constexpr uint8_t FirstUserMachine = md::engine::kFirstUserMachine;
+		// USR-01 to USR-16: the numbers a Kit plays its User Machines under
+		static constexpr int UserMachineCount = 16;
 		void installUserMachine(int _index, std::shared_ptr<const md::mds::Package> _package);
 		void removeUserMachine(int _index);
 		std::shared_ptr<const md::mds::Package> userMachine(int _index) const;	// as installed, or none

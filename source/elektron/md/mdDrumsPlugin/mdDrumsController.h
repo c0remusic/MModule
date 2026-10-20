@@ -109,7 +109,7 @@ namespace mdDrums
 		// parameter that follows its relay, it does not learn; a Kit, a state and a machine's parameters it reads
 		// again, once (ticket 34).
 		void syncRelays();
-		// The Library followed, and a Track's User Machine taken from it where this instance holds no copy
+		// The Library followed: another instance may install a User Machine
 		void followUserMachines();
 
 		struct Address

@@ -27,6 +27,7 @@
 #include <functional>
 #include <iostream>
 #include <iterator>
+#include <set>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -788,8 +789,8 @@ namespace
 	// A file chosen in the Menu or dropped on the editor (ticket 16 of the User Machines map, 06 of the Samples map),
 	// through Processor::importFile: an audio file on a Track that plays no ROM Machine goes to the first of ROM-33 to
 	// ROM-48 without a user's Sample, and the Track plays it; on a Track that plays one, it replaces that ROM's Sample.
-	// A User Machine goes to the first free number, and the Track plays it; with the 16 taken it is refused. Any other
-	// file is refused, saying what MoDule takes.
+	// A User Machine goes into the Library, as many as there are, and the Track plays it at a number of the Kit that
+	// MoDule gives (ticket 25 of the User Machines map). Any other file is refused, saying what MoDule takes.
 	void imports(const double _rate)
 	{
 		const auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("MoDuleImportsTest");
@@ -820,12 +821,18 @@ namespace
 		const auto second = processor.importFile(low, 1);
 		require(second.ok && second.machine == 177 && machineOf(1) == 177, "a WAV on Track 2 did not go to ROM-34");
 
+		constexpr auto usr = mdDrums::Engine::FirstUserMachine;
+		const auto holds = [&](const int _index, const std::vector<uint8_t>& _package)
+		{
+			const auto held = device(processor).userMachine(_index);
+			return held && held->bytes == _package;
+		};
 		const auto user = processor.importFile(saw.getFullPathName().toStdString(), 2);
-		require(user.ok && user.machine == mdDrums::Engine::FirstUserMachine && machineOf(2) == user.machine
-			&& device(processor).userMachine(0), "a User Machine on Track 3 did not go to USR-01: " + user.text);
-		// The same package again goes to the number that holds it; another never replaces it, on a Track playing it too
+		require(user.ok && user.machine == usr && machineOf(2) == usr && holds(0, package),
+			"a User Machine on Track 3 did not go to USR-01: " + user.text);
+		// The same package again: the number that holds it
 		const auto again = processor.importFile(saw.getFullPathName().toStdString(), 5);
-		require(again.ok && again.machine == mdDrums::Engine::FirstUserMachine, "the same package was not given its number");
+		require(again.ok && again.machine == usr && machineOf(5) == usr, "the same package was not given its number");
 		const auto writePackage = [&](const int _n)
 		{
 			const auto file = folder.getChildFile("saw" + juce::String(_n) + ".mds");
@@ -833,24 +840,46 @@ namespace
 			require(file.replaceWithData(bytes.data(), bytes.size()), "a test package was not written");
 			return file.getFullPathName().toStdString();
 		};
+		// Another on Track 3, which plays USR-01 with Track 6: the first free number, USR-01 kept for Track 6
 		const auto another = processor.importFile(writePackage(1), 2);
-		require(another.ok && another.machine == mdDrums::Engine::FirstUserMachine + 1 && device(processor).userMachine(0),
-			"another package on a Track playing USR-01 did not go to USR-02: " + another.text);
-		// No Track (-1): installed only
-		for(int i = 2; i < mdDrums::Library::Size; ++i)
-			require(processor.importFile(writePackage(i), -1).ok, "USR-" + std::to_string(i + 1) + " was not installed");
-		const auto full = processor.importFile(writePackage(99), 4);
-		require(!full.ok && full.text.find("taken") != std::string::npos, "a 17th User Machine was not refused");
+		require(another.ok && another.machine == usr + 1 && machineOf(5) == usr && holds(0, package),
+			"another package on a Track sharing USR-01 did not go to USR-02: " + another.text);
+		// Another again on Track 3, alone on USR-02 now: in its place
+		const auto inPlace = processor.importFile(writePackage(2), 2);
+		require(inPlace.ok && inPlace.machine == usr + 1 && holds(1, mdDrums::test::sawPackage(2)),
+			"a package on the only Track playing USR-02 did not replace it: " + inPlace.text);
+		// No Track (-1): into the Library only, past sixteen, no number taken
+		for(int i = 3; i < 23; ++i)
+			require(processor.importFile(writePackage(i), -1).ok, "User Machine " + std::to_string(i) + " was not installed");
+		const auto& library = processor.getLibrary()->machines();
+		require(library.size() == 23 && !device(processor).userMachine(2), "the Library holds "
+			+ std::to_string(library.size()) + " User Machines, not 23, or an install without a Track took a number");
+		// Sixteen different ones on the sixteen Tracks: sixteen numbers, each holding its Track's
+		std::set<int> numbers;
+		for(uint8_t track = 0; track < 16; ++track)
+		{
+			const auto [id, error] = processor.chooseUserMachine(track, library[track]);
+			require(id >= usr && machineOf(track) == id, "Track " + std::to_string(track + 1) + " did not take its User Machine: "
+				+ error);
+		}
+		for(uint8_t track = 0; track < 16; ++track)
+		{
+			numbers.insert(machineOf(track));
+			require(holds(machineOf(track) - usr, library[track]->bytes), "Track " + std::to_string(track + 1)
+				+ "'s number does not hold its User Machine");
+		}
+		require(numbers.size() == 16, "sixteen User Machines on sixteen Tracks share numbers");
+		const auto kept = machineOf(0);
 		const auto other = processor.importFile(text.getFullPathName().toStdString(), 0);
-		require(!other.ok && machineOf(0) == 176, "a text file was not refused");
-		std::printf("imports: \"%s\"; \"%s\"; \"%s\"; \"%s\"; \"%s\"\n", first.text.c_str(), replaced.text.c_str(),
-			user.text.c_str(), full.text.c_str(), other.text.c_str());
+		require(!other.ok && machineOf(0) == kept, "a text file was not refused");
+		std::printf("imports: \"%s\"; \"%s\"; \"%s\"; \"%s\"; \"%s\"; 23 in the Library, 16 numbers on 16 Tracks\n",
+			first.text.c_str(), replaced.text.c_str(), user.text.c_str(), another.text.c_str(), other.text.c_str());
 		folder.deleteRecursively();
 	}
 
-	// User Machines (tickets 07 and 14 of the User Machines map): installed into a Processor's Library and its Device,
-	// played on a Track; a set opened where none is installed plays its own copy; two instances hold two Machines at the
-	// same number; a Kit of the Bank takes the Library's; a Track on a number the Device lacks takes the Library's
+	// User Machines (tickets 07, 14 and 25 of the User Machines map): installed into a Processor's Library and its
+	// Device, played on a Track; a set opened where none is installed plays its own copy; two instances hold two Machines
+	// at the same number; a Track on a number the Device lacks plays silence, taking nothing from the Library
 	void userMachines(const double _rate)
 	{
 		const auto saw = mdDrums::test::sawPackage();
@@ -869,7 +898,7 @@ namespace
 			require(prepare(a, _rate, g_block), "no Device for the User Machines");
 			require(a.installUserMachine(index, {0x01, 0x02}).size() > 0, "a file that is no User Machine was installed");
 			require(a.installUserMachine(index, saw).empty(), "the test's User Machine was not installed");
-			require(a.getLibrary()->get(index) && holds(a, saw), "the Library or the Device lacks USR-05");
+			require(a.getLibrary()->find(saw) && holds(a, saw), "the Library or the Device lacks USR-05");
 			automate(a, "Machine", 0, id);
 			automate(a, "Level", 0, 100);
 			automate(a, "DEL", 0, 0);
@@ -884,16 +913,13 @@ namespace
 			// A set opened where USR-05 is not installed: its own copy plays, the Library stays empty
 			const auto b = restoredFrom(set);
 			require(prepare(*b, _rate, g_block), "no Device to open the set");
-			require(!b->getLibrary()->get(index) && holds(*b, saw), "the set did not bring its User Machine");
+			require(!b->getLibrary()->find(saw) && holds(*b, saw), "the set did not bring its User Machine");
 			require(device(*b).kit().machine(0) == id, "the set's Kit lost USR-05");
 			require(play(*b, 36, 0, _rate).peak > 0.01f, "the set's User Machine is silent where it is not installed");
 
-			// A Kit of the Bank plays the Library's USR-05, which differs
-			require(b->getLibrary()->install(index, other).empty(), "the other User Machine was not installed");
+			// Installing into the Library changes nothing the instance plays
+			require(b->getLibrary()->install(other).package != nullptr, "the other User Machine was not installed");
 			require(holds(*b, saw), "installing into the Library changed what the instance plays");
-			b->controller().loadKit(device(*b).kit(), 0);
-			block(*b);
-			require(holds(*b, other), "a Kit of the Bank did not take the Library's User Machine");
 		}
 		{
 			// Two instances, two Machines at USR-05: each its own
@@ -903,15 +929,15 @@ namespace
 				"two User Machines were not installed");
 			require(holds(c, saw) && holds(d, other), "two instances do not each hold their own USR-05");
 
-			// A Track chosen on a number the Device lacks takes the Library's
-			require(d.getLibrary()->install(5, saw).empty(), "USR-06 was not installed into the Library");
-			require(!device(d).userMachine(5), "the Device took USR-06 before a Track chose it");
-			d.takeUserMachineIfAbsent(5);
-			require(device(d).userMachine(5) && device(d).userMachine(5)->bytes == saw,
-				"a Track on USR-06 did not take the Library's");
+			// A Track put on a number the Device lacks plays silence: a number means nothing outside its Kit
+			require(d.getLibrary()->install(saw).package != nullptr, "the test's User Machine was not installed into the Library");
+			automate(d, "Machine", 0, id + 1);
+			for(int i = 0; i < 4; ++i)
+				block(d);
+			require(!device(d).userMachine(index + 1), "a Track on USR-06 took a User Machine from the Library");
 		}
-		std::puts("User Machines: a set brings its own, two instances hold their own, a Kit of the Bank and a Track take"
-			" the Library's");
+		std::puts("User Machines: a set brings its own, two instances hold their own, a Track on an empty number takes"
+			" nothing");
 	}
 }
 

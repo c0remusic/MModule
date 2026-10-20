@@ -189,16 +189,7 @@ namespace mdDrums
 			return result.ok;
 		}
 
-		// X.20's User Machines come as a folder of 43: the numbers they went to, and the first refusal's reason
-		const auto number = [](const int _machine)
-		{
-			char text[8];
-			if(_machine >= Engine::FirstUserMachine)
-				std::snprintf(text, sizeof(text), "USR-%02d", _machine - Engine::FirstUserMachine + 1);
-			else
-				std::snprintf(text, sizeof(text), "ROM-%02d", _machine < 176 ? _machine - 128 + 1 : _machine - 176 + 33);
-			return std::string(text);
-		};
+		// X.20's User Machines come as a folder of 43: the first and the last that went, and the first refusal's reason
 		size_t went = 0;
 		std::string first, last, refused;
 		for(const auto& file : _files)
@@ -210,7 +201,7 @@ namespace mdDrums
 					refused = result.text;
 				continue;
 			}
-			last = number(result.machine);
+			last = result.label;
 			if(!went++)
 				first = last;
 		}

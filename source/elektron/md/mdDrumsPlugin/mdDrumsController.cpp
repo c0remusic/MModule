@@ -262,26 +262,16 @@ namespace mdDrums
 
 	void Controller::followUserMachines()
 	{
-		auto& processor = static_cast<Processor&>(getProcessor());
-		auto* library = processor.getLibrary();
+		auto* library = static_cast<Processor&>(getProcessor()).getLibrary();
 		if(!library)
 			return;
-		// The Library's files twice a second: another instance may install one
+		// The Library's files twice a second. A number means nothing outside its Kit: a Track on one this instance holds
+		// no copy of plays silence, as an empty one does (ticket 25 of the User Machines map)
 		const auto now = juce::Time::getMillisecondCounterHiRes();
 		if(now - m_libraryFollowed >= 500.0)
 		{
 			m_libraryFollowed = now;
 			library->follow();
-		}
-		// A Track on a User Machine this instance holds no copy of takes the Library's (ticket 07 of the User Machines map)
-		for(uint8_t track = 0; track < TrackCount; ++track)
-		{
-			const auto* machine = getParameter("Machine", track);
-			if(!machine)
-				continue;
-			const auto id = static_cast<uint8_t>(machine->getUnnormalizedValue());
-			if(md::engine::isUserMachine(id))
-				processor.takeUserMachineIfAbsent(id - Engine::FirstUserMachine);
 		}
 	}
 
@@ -298,7 +288,7 @@ namespace mdDrums
 		KitFiles::SampleNames samples{};
 		if(const auto* device = dynamic_cast<const Device*>(static_cast<Processor&>(getProcessor()).getPlugin().getDevice()))
 		{
-			for(int i = 0; i < Library::Size; ++i)
+			for(int i = 0; i < Engine::UserMachineCount; ++i)
 				userMachines[static_cast<size_t>(i)] = device->userMachine(i);
 			for(int rom = 0; rom < Samples::RomCount; ++rom)
 				if(const auto sample = device->sample(rom))
@@ -500,10 +490,9 @@ namespace mdDrums
 			if(messages::isKitParameter(m_addresses[slot].page))
 				m_dirty[slot / 64].fetch_and(~(1ull << (slot % 64)), std::memory_order_acq_rel);
 
-		// A Kit of the Bank plays the Library's User Machines and the library's Samples (tickets 07 of the User Machines
-		// map, 10 of the Samples map)
+		// A Kit of the Bank plays the library's Samples (ticket 10 of the Samples map), and the User Machines this
+		// instance holds at its numbers (ticket 27 of the User Machines map will give a Kit its own)
 		auto& processor = static_cast<Processor&>(getProcessor());
-		processor.takeUserMachines(_kit);
 		if(auto* samples = processor.getSampleLibrary())
 			samples->follow();
 		processor.takeSamples(_kit);

@@ -156,39 +156,64 @@ namespace mdDrums
 	{
 		if(!m_library)
 			return "MoDule needs its flash image before a User Machine";
-		if(auto error = m_library->install(_index, _file); !error.empty())
-			return error;
-		if(installFromLibrary(_index, true))
+		if(_index < 0 || _index >= Engine::UserMachineCount)
+			return "There is no USR-" + std::to_string(_index + 1);
+		const auto installed = m_library->install(_file);
+		if(!installed.package)
+			return installed.error;
+		const auto taken = installPackage(_index, installed.package);
+		if(taken.changed)
 			markStateChanged();
-		return {};
+		return taken.error;
 	}
 
-	void Processor::takeUserMachines(const md::automation::sysex::MdKit& _kit)
+	std::pair<int, std::string> Processor::chooseUserMachine(const int _track,
+		const std::shared_ptr<const md::mds::Package>& _package)
 	{
-		uint16_t taken = 0;
+		auto& controller = getController();
+		auto* machine = _track >= 0 && _track < Engine::TrackCount
+			? controller.getParameter("Machine", static_cast<uint8_t>(_track)) : nullptr;
+		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
+		if(!machine || !device || !_package)
+			return {-1, "MoDule needs its flash image before a User Machine"};
+
+		// The numbers the other Tracks play, bit n for USR-(n + 1)
+		uint32_t others = 0;
 		for(uint8_t track = 0; track < Engine::TrackCount; ++track)
 		{
-			const auto id = static_cast<uint8_t>(_kit.machine(track));
-			if(!md::engine::isUserMachine(id))
-				continue;
-			const auto index = id - Engine::FirstUserMachine;
-			if(taken & (1u << index))
-				continue;
-			taken = static_cast<uint16_t>(taken | 1u << index);
-			installFromLibrary(index, true);
+			const auto* parameter = track != _track ? controller.getParameter("Machine", track) : nullptr;
+			const auto id = parameter ? static_cast<uint8_t>(parameter->getUnnormalizedValue()) : uint8_t{0};
+			if(md::engine::isUserMachine(id))
+				others |= 1u << (id - Engine::FirstUserMachine);
 		}
-	}
+		const auto playing = static_cast<uint8_t>(machine->getUnnormalizedValue());
+		int index = -1;
+		for(int n = 0; n < Engine::UserMachineCount && index < 0; ++n)
+			if(const auto held = device->userMachine(n); held && held->bytes == _package->bytes)
+				index = n;
+		if(index < 0 && md::engine::isUserMachine(playing) && !(others & (1u << (playing - Engine::FirstUserMachine))))
+			index = playing - Engine::FirstUserMachine;
+		for(int n = 0; n < Engine::UserMachineCount && index < 0; ++n)
+			if(!(others & (1u << n)) && !device->userMachine(n) && !device->keptUserMachine(n))
+				index = n;
+		for(int n = 0; n < Engine::UserMachineCount && index < 0; ++n)
+			if(!(others & (1u << n)))
+				index = n;
+		if(index < 0)
+			return {-1, "the other Tracks play all 16 User Machine numbers"};
 
-	void Processor::takeUserMachineIfAbsent(const int _index)
-	{
-		// Without the Device's lock first: the Controller's timer asks this of every Track, and both copies change on the
-		// message thread only
-		if(!m_library || !m_library->get(_index))
-			return;
-		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
-		if(!device || device->userMachine(_index))
-			return;
-		installFromLibrary(_index, false);
+		const auto taken = installPackage(index, _package);
+		if(!taken.error.empty())
+			return {-1, taken.error};
+		if(taken.changed)
+			markStateChanged();
+		const auto id = Engine::FirstUserMachine + index;
+		if(playing != id)
+			machine->setUnnormalizedValueNotifyingHost(id, pluginLib::Parameter::Origin::Ui);
+		else if(taken.changed)
+			// Another package at the number the Track plays: ASSIGN MACHINE again, for its parameters' defaults
+			controller.sendParameterChange(*machine, id, pluginLib::Parameter::Origin::Ui);
+		return {id, {}};
 	}
 
 	std::string Processor::loadSampleFile(const int _rom, const std::filesystem::path& _file)
@@ -291,35 +316,23 @@ namespace mdDrums
 
 		if(kind == ImportKind::UserMachine)
 		{
-			// The number that holds the same package already, else the first free one: an install never replaces another
-			// Machine in the Library, which other instances and the Bank's Kits take from
+			// Into the Library, as many as the user installs, then the Track plays it at a number MoDule gives
+			if(!m_library)
+				return {false, -1, "MoDule needs its flash image before a User Machine"};
 			std::ifstream in(_file, std::ios::binary);
 			const std::vector<uint8_t> bytes{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
-			std::vector<uint8_t> package;
-			try
-			{
-				package = !bytes.empty() && bytes.front() == 0xf0 ? md::mds::packageFromSysex(bytes) : bytes;
-			}
-			catch(const std::exception&)
-			{
-			}
-			int index = -1;
-			for(int i = 0; i < Library::Size && index < 0 && m_library; ++i)
-				if(const auto held = m_library->get(i); held && !package.empty() && held->bytes == package)
-					index = i;
-			for(int i = 0; i < Library::Size && index < 0 && m_library; ++i)
-				if(!m_library->get(i))
-					index = i;
-			if(index < 0)
-				return {false, -1, "The 16 User Machines are taken: " + name + " was not installed"};
-			if(auto error = installUserMachine(index, bytes); !error.empty())
-				return {false, -1, name + ": " + error};
-			const auto id = Engine::FirstUserMachine + index;
-			play(id);
-			const auto installed = m_library->get(index);
+			const auto installed = m_library->install(bytes);
+			if(!installed.package)
+				return {false, -1, name + ": " + installed.error};
+			const auto label = installed.package->displayName();
+			if(!machine)
+				return {true, -1, label + " installed", label};
+			const auto [id, error] = chooseUserMachine(_track, installed.package);
+			if(id < 0)
+				return {false, -1, label + ": " + error, label};
 			char number[8];
-			std::snprintf(number, sizeof(number), "USR-%02d", index + 1);
-			return {true, id, (installed ? installed->displayName() : name) + " installed as " + number + onTrack};
+			std::snprintf(number, sizeof(number), "USR-%02d", id - Engine::FirstUserMachine + 1);
+			return {true, id, label + " on " + number + onTrack, label};
 		}
 		if(kind == ImportKind::Audio)
 		{
@@ -336,7 +349,7 @@ namespace mdDrums
 			play(id);
 			char number[8];
 			std::snprintf(number, sizeof(number), "ROM-%02d", rom + 1);
-			return {true, id, name + " on " + number + onTrack};
+			return {true, id, name + " on " + number + onTrack, number};
 		}
 		return {false, -1, name + ": MoDule takes WAV, AIFF and FLAC files, and User Machines (.syx, .mds)"};
 	}
@@ -352,7 +365,7 @@ namespace mdDrums
 	{
 		// Read without the lock: a state is restored on the message thread
 		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
-		for(int index = 0; device && index < Library::Size; ++index)
+		for(int index = 0; device && index < Engine::UserMachineCount; ++index)
 			if(const auto& kept = device->keptUserMachine(index))
 				return {index, &*kept};
 		return {-1, nullptr};
@@ -378,35 +391,36 @@ namespace mdDrums
 		});
 	}
 
-	bool Processor::installFromLibrary(const int _index, const bool _replace)
+	Processor::Taken Processor::installPackage(const int _index, const std::shared_ptr<const md::mds::Package>& _package)
 	{
-		const auto package = m_library ? m_library->get(_index) : nullptr;
-		if(!package)
-			return false;
-		// Nothing to do, without the lock: a click on the browser's cell for a User Machine already held (a User Machine
-		// changes on the message thread only)
-		if(const auto* d = dynamic_cast<const Device*>(getPlugin().getDevice()))
-			if(const auto held = d->userMachine(_index); held && (!_replace || held->bytes == package->bytes))
-				return false;
+		if(!_package || _index < 0 || _index >= Engine::UserMachineCount)
+			return {false, "There is no USR-" + std::to_string(_index + 1)};
+		// Nothing to do, without the lock: a User Machine already held (a User Machine changes on the message thread
+		// only)
+		const auto* held = dynamic_cast<const Device*>(getPlugin().getDevice());
+		if(!held)
+			return {false, "MoDule needs its flash image before a User Machine"};
+		if(const auto package = held->userMachine(_index); package && package->bytes == _package->bytes)
+			return {};
 		// Under the Device's lock, which pauses rendering for the time the voice DSP takes it (a few ms)
-		return getPlugin().withDeviceLocked([&](synthLib::Device* _device)
+		Taken taken{false, "MoDule needs its flash image before a User Machine"};
+		getPlugin().withDeviceLocked([&](synthLib::Device* _device)
 		{
 			auto* device = dynamic_cast<Device*>(_device);
 			if(!device)
 				return false;
-			const auto held = device->userMachine(_index);
-			if(held && (!_replace || held->bytes == package->bytes))
-				return false;
 			try
 			{
-				device->installUserMachine(_index, package);
-				return true;
+				device->installUserMachine(_index, _package);
+				taken = {true, {}};
 			}
-			catch(const std::exception&)
+			catch(const std::exception& _e)
 			{
-				return false;
+				taken = {false, _e.what()};
 			}
+			return taken.changed;
 		});
+		return taken;
 	}
 
 	void Processor::onDeviceCreationFailed(const synthLib::DeviceException& _e)

@@ -76,18 +76,16 @@ namespace mdDrums
 		// The Library of User Machines (CONTEXT.md), "UserMachines" in the plug-in's data folder, made with the Bank
 		Library* getLibrary() const { return m_library.get(); }
 
-		// A User Machine's file (.syx or .mds) into the Library at _index (0-15, USR-01 to USR-16), then this instance's
-		// Device takes it, compiled ahead (rendering pauses for that). Empty when it went, else why not.
+		// A User Machine's file (.syx or .mds) into the Library, then this instance's Device takes it at _index (0-15,
+		// USR-01 to USR-16), compiled ahead (rendering pauses for that), no Track changed. Empty when it went, else why
+		// not.
 		std::string installUserMachine(int _index, const std::vector<uint8_t>& _file);
-		// The Library's copies of the User Machines _kit plays into this instance's Device, where it holds another or
-		// none: what loading a Kit of the Bank does (ticket 07 of the User Machines map). A number the Library lacks
-		// keeps what the Device holds.
-		void takeUserMachines(const md::automation::sysex::MdKit& _kit);
-		// The Library's copy of one, where the Device holds none (a Machine chosen on a Track)
-		void takeUserMachineIfAbsent(int _index);
-		// The Library's copy of one, replacing the Device's: the browser's explicit choice (ticket 18 of the User Machines
-		// map); nothing when the Library holds none
-		void takeUserMachine(int _index) { installFromLibrary(_index, true); }
+		// _track (0-15) put on a User Machine of the Library (ticket 25 of the User Machines map), at a number of the Kit
+		// played that MoDule gives: the one that holds it, else the one _track plays if no other Track plays it, else the
+		// first that no Track plays, an empty one first (a Kit has 16 Tracks: there is always one). The Device takes its
+		// copy there, and _track goes to it by ASSIGN MACHINE, its 24 parameters the package's defaults. The machine id,
+		// or -1 and why not.
+		std::pair<int, std::string> chooseUserMachine(int _track, const std::shared_ptr<const md::mds::Package>& _package);
 		// The sample library's Sample for ROM _rom (0-47), replacing the Device's: the browser's explicit choice; nothing
 		// when the library holds none or the Device plays the same
 		void takeSample(int _rom);
@@ -111,8 +109,8 @@ namespace mdDrums
 		SampleLibrary* getSampleLibrary() const { return m_samples.get(); }
 		// What choosing a file in the Menu or dropping it on the editor does (ticket 16 of the User Machines map, 06 of the
 		// Samples map), _track (0-15) then playing it:
-		// - a User Machine (.syx, .mds) goes into the Library at the number that holds the same package, or else the
-		//   first free one (none: refused), never over another one, and into this instance's Device;
+		// - a User Machine (.syx, .mds) goes into the Library, unless it holds it, then _track plays it
+		//   (chooseUserMachine);
 		// - an audio file (WAV, AIFF, FLAC) becomes the Sample of the ROM Machine _track plays, or else of the first of
 		//   ROM-33 to ROM-48 without a user's Sample (loadSampleFile).
 		// The line the editor shows: what went where, or why not.
@@ -130,6 +128,7 @@ namespace mdDrums
 			bool ok = false;
 			int machine = -1;	// the machine id _track now plays
 			std::string text;
+			std::string label;	// what went in: "ROM-33", "TX8-BD"
 		};
 		Import importFile(const std::filesystem::path& _file, int _track);
 
@@ -143,8 +142,14 @@ namespace mdDrums
 		std::array<std::shared_ptr<const Sample>, Samples::RomCount> samples();
 
 	private:
-		// The Library's copy into the Device; false when there is none, or the Device has the same
-		bool installFromLibrary(int _index, bool _replace);
+		// _package into the Device at _index (0-15), under its lock, unless it holds the same: whether it took it, or why
+		// not
+		struct Taken
+		{
+			bool changed = false;
+			std::string error;
+		};
+		Taken installPackage(int _index, const std::shared_ptr<const md::mds::Package>& _package);
 		// A Sample, or none, handed to the Device under its lock; false when it does not fit
 		bool setDeviceSample(int _rom, std::shared_ptr<const Sample> _sample);
 		// Main, then the 15 Outs (messages::OutCount), off until the host enables them

@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -131,25 +132,66 @@ int main()
 		std::printf("one write: Slots 41 \"%s\" and 43 \"%s\", 42 left empty\n", third.slot(40)->displayName().c_str(),
 			third.slot(42)->displayName().c_str());
 
-		// The Library of User Machines (ticket 14 of the User Machines map), shared as the Bank is: a User Machine one
-		// Library installs another follows, the file the package as installed; one it removes, the other loses; a file
-		// that is no User Machine, refused
+		// The Library of User Machines (tickets 14 and 24 of the User Machines map), shared as the Bank is, without a
+		// limit: a User Machine one Library installs another follows, the file the package as installed and named by its
+		// code; the same one again, no second file; another of the same name, a file of its own; one it removes, the other
+		// loses; a file that is no User Machine, refused; a .syx dump put in the folder by hand, read
 		{
 			mdDrums::Library mine(folder.path() / "UserMachines"), theirs(folder.path() / "UserMachines");
 			mine.read();
 			theirs.read();
 			const auto saw = mdDrums::test::sawPackage();
-			require(!mine.install(2, {0xf0, 0x7f, 0xf7}).empty() && !mine.get(2), "a file that is no User Machine went in");
-			require(mine.install(2, saw).empty() && mine.get(2), "the Library did not take a User Machine");
-			require(readFile(mine.file(2)) == saw, "USR-03's file is not the package as installed");
+			const auto other = mdDrums::test::sawPackage(60);
+			require(!mine.install({0xf0, 0x7f, 0xf7}).package && mine.machines().empty(),
+				"a file that is no User Machine went in");
+			const auto installed = mine.install(saw);
+			require(installed.package && mine.machines().size() == 1 && mine.find(saw), "the Library did not take a User Machine");
+			const auto file = mine.file(installed.package);
+			require(readFile(file) == saw && file.filename().u8string() == installed.package->displayName() + ".mds",
+				"the User Machine's file is not the package as installed, under its code");
+			require(mine.install(saw).package == mine.find(saw) && mine.machines().size() == 1,
+				"the same User Machine went in twice");
+			const auto second = mine.install(other);
+			const auto secondFile = mine.file(second.package);
+			require(second.package && mine.machines().size() == 2 && secondFile != file,
+				"another User Machine of the same name did not get a file of its own");
 			std::this_thread::sleep_for(std::chrono::milliseconds(50));
-			require(theirs.follow() && theirs.get(2) && theirs.get(2)->bytes == saw,
-				"a Library does not follow another's install");
+			require(theirs.follow() && theirs.find(saw) && theirs.find(other), "a Library does not follow another's install");
 			require(!theirs.follow(), "a Library read the files again with nothing written");
 			std::this_thread::sleep_for(std::chrono::milliseconds(50));
-			require(mine.remove(2) && !mine.get(2), "the Library did not remove USR-03");
-			require(theirs.follow() && !theirs.get(2), "a Library does not follow another's removal");
-			std::printf("the Library: a User Machine installed and removed by one Library, followed by another\n");
+			require(mine.remove(second.package) && !mine.find(other) && mine.machines().size() == 1,
+				"the Library did not remove a User Machine");
+			require(theirs.follow() && !theirs.find(other) && theirs.find(saw), "a Library does not follow another's removal");
+			std::printf("the Library: \"%s\" and \"%s\" installed by one Library, followed by another, one removed\n",
+				file.filename().u8string().c_str(), secondFile.filename().u8string().c_str());
+
+			// X.20's own files, as its zip has them, when MD_X20_MACHINES names their folder (never in this repository):
+			// every one goes in, and a .syx put there by hand reads
+			if(const auto* x20 = std::getenv("MD_X20_MACHINES"); x20 && *x20)
+			{
+				mdDrums::Library all(folder.path() / "X20Machines");
+				size_t files = 0;
+				std::filesystem::path first;
+				for(const auto& entry : std::filesystem::recursive_directory_iterator(std::filesystem::u8path(x20)))
+				{
+					if(!entry.is_regular_file() || entry.path().extension() != ".syx")
+						continue;
+					++files;
+					const auto result = all.install(readFile(entry.path()));
+					require(result.package != nullptr,
+						entry.path().filename().u8string() + " did not go in: " + result.error);
+					if(first.empty())
+						first = entry.path();
+				}
+				require(files > 16 && all.machines().size() == files, "of X.20's " + std::to_string(files)
+					+ " User Machines, the Library holds " + std::to_string(all.machines().size()));
+				mdDrums::Library byHand(folder.path() / "ByHand");
+				std::filesystem::create_directories(byHand.folder());
+				std::filesystem::copy_file(first, byHand.folder() / first.filename());
+				require(byHand.read() && byHand.machines().size() == 1, "a .syx put in the folder by hand was not read");
+				std::printf("X.20's User Machines: all %zu in one Library, from %s to %s; a .syx by hand read\n", files,
+					all.machines().front()->displayName().c_str(), all.machines().back()->displayName().c_str());
+			}
 		}
 
 		// The sample library (ticket 10 of the Samples map), shared as the Bank is: a Sample one library keeps another

@@ -116,11 +116,9 @@ namespace mdDrums
 		for(const auto& machine : md::machines::machines(md::MachineModel::Machinedrum))
 			if(m_editor.addClick("mach_" + std::to_string(machine.id), [this, id = machine.id](Rml::Event&)
 			{
-				// A User Machine or a ROM Machine chosen takes the Library's copy, or the sample library's: an explicit
-				// choice (ticket 18 of the User Machines map)
-				if(md::engine::isUserMachine(static_cast<uint8_t>(id)))
-					m_editor.processor().takeUserMachine(id - Engine::FirstUserMachine);
-				else if(const auto rom = Samples::romOf(static_cast<uint8_t>(id)); rom >= 0)
+				// A ROM Machine chosen takes the sample library's Sample: an explicit choice (ticket 18 of the User
+				// Machines map). A USR number plays what this instance holds there (ticket 25).
+				if(const auto rom = Samples::romOf(static_cast<uint8_t>(id)); rom >= 0)
 					m_editor.processor().takeSample(rom);
 				followMachine();
 				if(isListening())
@@ -196,17 +194,16 @@ namespace mdDrums
 		// instance
 		if(m_overlay != Overlay::Browser || !_frame.every(m_userCellsNextMs, 4))
 			return false;
-		// The browser's USR-01 to USR-16 lit where the Library holds one, ROM-33 to ROM-48 where this instance plays a
-		// user's Sample or the sample library holds one (ticket 18 of the User Machines map): bit n USR n + 1, bit 16 + n
-		// ROM 33 + n
+		// The browser's USR-01 to USR-16 lit where this instance holds a User Machine (ticket 25 of the User Machines
+		// map), ROM-33 to ROM-48 where it plays a user's Sample or the sample library holds one (ticket 18): bit n USR
+		// n + 1, bit 16 + n ROM 33 + n
 		auto& processor = m_editor.processor();
-		const auto* library = processor.getLibrary();
 		const auto* samples = processor.getSampleLibrary();
 		const auto played = processor.samples();
 		uint32_t filled = 0;
 		for(int i = 0; i < 16; ++i)
 		{
-			if(library && library->get(i))
+			if(processor.userMachine(i))
 				filled |= 1u << i;
 			const auto rom = 32 + i;
 			if(played[static_cast<size_t>(rom)] || (samples && samples->get(rom)))

@@ -17,7 +17,9 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 - Décidé au cadrage du 2026-10-17 :
   - cette carte ne couvre que X.20 ; Push mappé se fait dans une session à part, sans carte ;
   - « firmware X.20 » veut dire ici les Machines utilisateur, hébergées depuis l'ABI MDS publiée, sans l'OS X.20 ;
-  - 16 Machines utilisateur, USR-01 à USR-16, numérotées comme X.20 ;
+  - 16 Machines utilisateur, USR-01 à USR-16, numérotées comme X.20 ; révisé le 2026-10-20 (l'utilisateur veut
+    toutes les Machines d'X.20 sous la main, dans un menu secondaire) : la Library sans limite, seize numéros par Kit
+    que MoDule donne lui-même, un Kit du Bank qui se souvient des siens (tickets 24 à 28) ;
   - installées par le même lâcher que les Samples (où lâcher : ticket « Où lâcher » de la carte des Samples) et par
     une entrée « Install User Machine… » du Menu ;
   - pour 0.1.2, seulement les imports qu'utilisent les 43 du zip (1, 6, 7, 8) ;
@@ -100,6 +102,10 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   ne fait entendre qu'elle ; toute USR s'y entend depuis c33d669.
 - [Faire jouer NEIGHBOUR](issues/22-faire-jouer-neighbour.md) : construit ; l'anneau de quatre tampons, le délai de la
   Track d'avant, l'aperçu avec ses voisines ; les 13 NFX et SYN-F s'installent.
+- [La Library sans limite](issues/24-library-sans-limite.md) : construit ; tous les paquets du dossier, nommés par leur
+  code, `.syx` d'X.20 lus aussi ; les 43 du zip y entrent.
+- [Les numéros USR donnés par le Kit](issues/25-numeros-donnes-par-le-kit.md) : construit ; le numéro qui la tient,
+  sinon celui de la Track, sinon le premier libre ; un numéro vide joue muet, rien pris de la Library.
 
 ## Not yet specified
 

@@ -31,12 +31,13 @@ The audio one of the 48 ROM Machines (ROM-01 to ROM-48) plays, named by its Mach
 _Avoid_: slot (a Bank's place), user wave, ROM slot
 
 **User Machine**:
-A Machine whose code the user installs from a file made for MDX X.20; there are sixteen, USR-01 to USR-16, each named
-by its number like the built-in Machines: "USR-05".
+A Machine whose code the user installs from a file made for MDX X.20, named by its code: "TX8-BD". A Kit plays up to
+sixteen, under the numbers USR-01 to USR-16 that MoDule gives them as the Tracks take them: "USR-05" is a number of
+the Kit, not a Machine.
 _Avoid_: slot, USR slot (a Bank's place is a Slot), MDS machine (MDS is the kit the code is written with)
 
 **Library**:
-The User Machines installed on this computer, under their numbers, shared by every MoDule; a set keeps its own copy of
+The User Machines installed on this computer, any number of them, shared by every MoDule; a set keeps its own copy of
 those its Kit plays, so it sounds the same where they are not installed.
 _Avoid_: Machine Bank (X.20's word; a Bank holds Kits here), user library
 
