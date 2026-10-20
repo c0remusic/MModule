@@ -86,6 +86,12 @@ namespace mdDrums
 		// copy there, and _track goes to it by ASSIGN MACHINE, its 24 parameters the package's defaults. The machine id,
 		// or -1 and why not.
 		std::pair<int, std::string> chooseUserMachine(int _track, const std::shared_ptr<const md::mds::Package>& _package);
+		// The User Machines the Kit played plays at its numbers, as the Bank keeps them with it (ticket 27 of the User
+		// Machines map); on the message thread
+		Bank::Machines kitMachines();
+		// A Kit of the Bank's User Machines into this instance's Device at their numbers, from the Library: the names of
+		// those the Library lacks, whose numbers keep what the Device holds
+		std::vector<std::string> takeUserMachines(const Bank::Machines& _machines);
 		// The sample library's Sample for ROM _rom (0-47), replacing the Device's: the browser's explicit choice; nothing
 		// when the library holds none or the Device plays the same
 		void takeSample(int _rom);
@@ -165,6 +171,8 @@ namespace mdDrums
 		bool m_forTests = false;
 		std::unique_ptr<Bank> m_bank;
 		std::unique_ptr<Library> m_library;
+		// kitMachines' ids, by the package they were taken from: a frame of the head band reads them ten times a second
+		std::array<std::pair<const md::mds::Package*, uint64_t>, Bank::MachineCount> m_machineIds{};
 		std::unique_ptr<SampleLibrary> m_samples;
 		std::vector<uint8_t> m_chosenFlash;		// loadFlashImage's, for createDevice, while it makes the Device
 	};

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -34,6 +35,10 @@ namespace mdDrums
 		const std::vector<PackagePtr>& machines() const { return m_machines; }
 		// The one installed with these package bytes, else none
 		PackagePtr find(const std::vector<uint8_t>& _package) const;
+		// A package's id, as a Kit of the Bank keeps it (Bank::Machine): a 64-bit FNV-1a of its bytes, never 0
+		static uint64_t id(const md::mds::Package& _package);
+		// The one installed with this id, else none
+		PackagePtr findId(uint64_t _id) const;
 
 		// A User Machine's file as X.20 takes it, its .syx dump ($74) or its .mds package: checked as the voice DSP will
 		// play it (md::engine::VoiceEngine::checkUserMachine), then written unless the Library holds it already. The

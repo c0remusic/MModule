@@ -216,6 +216,61 @@ namespace mdDrums
 		return {id, {}};
 	}
 
+	Bank::Machines Processor::kitMachines()
+	{
+		static_assert(Bank::MachineCount == Engine::UserMachineCount);
+		Bank::Machines machines{};
+		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
+		if(!device)
+			return machines;
+		auto& controller = getController();
+		for(uint8_t track = 0; track < Engine::TrackCount; ++track)
+		{
+			const auto* parameter = controller.getParameter("Machine", track);
+			const auto id = parameter ? static_cast<uint8_t>(parameter->getUnnormalizedValue()) : uint8_t{0};
+			if(!md::engine::isUserMachine(id))
+				continue;
+			const auto n = static_cast<size_t>(id - Engine::FirstUserMachine);
+			const auto package = device->userMachine(static_cast<int>(n));
+			if(!package || machines[n].id)
+				continue;
+			auto& [from, hash] = m_machineIds[n];
+			if(from != package.get())
+				m_machineIds[n] = {package.get(), Library::id(*package)};
+			machines[n] = {m_machineIds[n].second, package->displayName()};
+		}
+		return machines;
+	}
+
+	std::vector<std::string> Processor::takeUserMachines(const Bank::Machines& _machines)
+	{
+		std::vector<std::string> missing;
+		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
+		if(!device)
+			return missing;
+		bool changed = false;
+		for(int n = 0; n < Bank::MachineCount; ++n)
+		{
+			const auto& machine = _machines[static_cast<size_t>(n)];
+			if(!machine.id)
+				continue;
+			if(const auto held = device->userMachine(n); held && Library::id(*held) == machine.id)
+				continue;
+			const auto package = m_library ? m_library->findId(machine.id) : nullptr;
+			if(!package)
+			{
+				char number[8];
+				std::snprintf(number, sizeof(number), "USR-%02d", n + 1);
+				missing.push_back(machine.name.empty() ? std::string(number) : machine.name);
+				continue;
+			}
+			changed |= installPackage(n, package).changed;
+		}
+		if(changed)
+			markStateChanged();
+		return missing;
+	}
+
 	std::string Processor::loadSampleFile(const int _rom, const std::filesystem::path& _file)
 	{
 		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());

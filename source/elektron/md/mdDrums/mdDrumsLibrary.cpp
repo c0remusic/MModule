@@ -141,6 +141,22 @@ namespace mdDrums
 		return {};
 	}
 
+	uint64_t Library::id(const md::mds::Package& _package)
+	{
+		uint64_t hash = 0xcbf29ce484222325ull;
+		for(const auto byte : _package.bytes)
+			hash = (hash ^ byte) * 0x100000001b3ull;
+		return hash ? hash : 1;
+	}
+
+	Library::PackagePtr Library::findId(const uint64_t _id) const
+	{
+		for(const auto& machine : m_machines)
+			if(id(*machine) == _id)
+				return machine;
+		return {};
+	}
+
 	std::filesystem::path Library::file(const PackagePtr& _package) const
 	{
 		for(size_t i = 0; _package && i < m_machines.size(); ++i)

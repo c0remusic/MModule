@@ -164,7 +164,7 @@ namespace mdDrums
 		if(!isChanged())
 			return false;
 		const auto slot = m_editor.controller().playedSlot();
-		if(!written(b->write(slot, m_editor.controller().playedKit())))
+		if(!written(b->write(slot, m_editor.controller().playedKit(), m_editor.processor().kitMachines())))
 			return false;
 		m_confirm = Confirm::None;
 		say("Saved in slot " + twoDigits(slot + 1));
@@ -194,9 +194,14 @@ namespace mdDrums
 			ask(Confirm::Load, "Changes to " + m_editor.controller().playedKit().displayName() + " will be lost");
 			return;
 		}
+		// Its User Machines first, as it was saved with them (ticket 27 of the User Machines map)
+		const auto missing = m_editor.processor().takeUserMachines(b->machines(m_chosen));
 		m_editor.controller().loadKit(kit, m_chosen);
 		m_confirm = Confirm::None;
-		say("Playing " + twoDigits(m_chosen + 1) + ", " + kit.displayName());
+		std::string lacking;
+		for(const auto& name : missing)
+			lacking += (lacking.empty() ? "; the Library lacks " : ", ") + name;
+		say("Playing " + twoDigits(m_chosen + 1) + ", " + kit.displayName() + lacking);
 	}
 
 	void KitsView::saveHere()
@@ -211,7 +216,7 @@ namespace mdDrums
 				+ twoDigits(m_chosen + 1));
 			return;
 		}
-		if(!written(b->write(m_chosen, m_editor.controller().playedKit())))
+		if(!written(b->write(m_chosen, m_editor.controller().playedKit(), m_editor.processor().kitMachines())))
 			return;
 		m_editor.controller().setPlayedSlot(m_chosen);
 		m_confirm = Confirm::None;
@@ -246,7 +251,7 @@ namespace mdDrums
 		const auto name = edit->GetAttribute<Rml::String>("value", "");
 		auto kit = *b->slot(m_chosen);
 		kit.setName(name);
-		if(!written(b->write(m_chosen, kit)))
+		if(!written(b->write(m_chosen, kit, b->machines(m_chosen))))
 			return;
 		// The Kit played keeps its Slot's name: a renaming is no change to the sound
 		if(m_chosen == m_editor.controller().playedSlot())
@@ -296,7 +301,7 @@ namespace mdDrums
 		for(int slot = m_chosen; slot < Bank::SlotCount && slots.size() < kits.size(); ++slot)
 		{
 			if(b->isEmpty(slot))
-				slots.emplace_back(slot, kits[slots.size()]);
+				slots.push_back({slot, kits[slots.size()]});
 		}
 		if(!slots.empty() && !written(b->write(slots)))
 			return false;
@@ -308,7 +313,7 @@ namespace mdDrums
 			say("No empty slot from " + twoDigits(m_chosen + 1) + " on");
 			return false;
 		}
-		const auto first = slots.front().first;
+		const auto first = slots.front().slot;
 		m_chosen = first;
 		std::string text = imported == 1 ? "Imported 1 kit from " + fileName + " into slot " + twoDigits(first + 1)
 			: "Imported " + std::to_string(imported) + " kits from " + fileName + " from slot " + twoDigits(first + 1);
@@ -465,7 +470,9 @@ namespace mdDrums
 		if(result.bank)
 		{
 			const auto& stored = result.bank->slot(result.slot);
-			result.changed = !stored || *stored != kit;
+			// Another User Machine at a number the Kit plays is a change too, the Kit's bytes the same
+			result.changed = !stored || *stored != kit
+				|| result.bank->machines(result.slot) != m_editor.processor().kitMachines();
 		}
 		return result;
 	}

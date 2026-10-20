@@ -46,8 +46,75 @@ namespace mdDrums
 			if(kit && !kit->isEmptySlot())
 				m_slots[static_cast<size_t>(slot)] = std::move(*kit);
 		}
+		readMachines();
 		m_seen = std::filesystem::last_write_time(m_file, error);
 		return true;
+	}
+
+	std::filesystem::path Bank::machinesFile() const
+	{
+		auto file = m_file;
+		return file.replace_extension(".machines");
+	}
+
+	void Bank::readMachines()
+	{
+		// A Slot's 16 numbers, each an id of 8 bytes, least significant first, then a name of 16 bytes padded with
+		// zeros; no file, or a short one, is no User Machine
+		m_machines.fill({});
+		std::vector<uint8_t> bytes;
+		if(!baseLib::filesystem::readFile(bytes, machinesFile().u8string()))
+			return;
+		for(size_t slot = 0; slot < SlotCount && (slot + 1) * MachinesSize <= bytes.size(); ++slot)
+		{
+			for(size_t n = 0; n < MachineCount; ++n)
+			{
+				const auto* at = bytes.data() + slot * MachinesSize + n * (8 + MachineNameSize);
+				auto& machine = m_machines[slot][n];
+				machine.id = 0;
+				for(int b = 7; b >= 0; --b)
+					machine.id = machine.id << 8 | at[b];
+				const auto* name = reinterpret_cast<const char*>(at + 8);
+				machine.name.assign(name, std::find(name, name + MachineNameSize, '\0'));
+				if(!machine.id)
+					machine.name.clear();
+			}
+		}
+	}
+
+	bool Bank::writeMachines(const std::vector<SlotKit>& _slots)
+	{
+		// In place, as the Slots are, the file made or lengthened with no User Machine first
+		const auto path = machinesFile();
+		std::error_code error;
+		const auto size = std::filesystem::exists(path, error) ? std::filesystem::file_size(path, error) : 0;
+		if(error || size < SlotCount * MachinesSize)
+		{
+			std::vector<uint8_t> bytes;
+			baseLib::filesystem::readFile(bytes, path.u8string());
+			bytes.resize(SlotCount * MachinesSize, 0);
+			if(!baseLib::filesystem::writeFile(path.u8string(), bytes))
+				return false;
+		}
+		std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
+		if(!file)
+			return false;
+		for(const auto& entry : _slots)
+		{
+			std::array<uint8_t, MachinesSize> bytes{};
+			for(size_t n = 0; entry.kit && n < MachineCount; ++n)
+			{
+				const auto& machine = entry.machines[n];
+				auto* at = bytes.data() + n * (8 + MachineNameSize);
+				for(int b = 0; b < 8; ++b)
+					at[b] = static_cast<uint8_t>(machine.id >> (8 * b));
+				if(machine.id)
+					std::copy_n(machine.name.begin(), std::min(machine.name.size(), MachineNameSize - 1), at + 8);
+			}
+			file.seekp(static_cast<std::streamoff>(static_cast<size_t>(entry.slot) * MachinesSize));
+			file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+		}
+		return static_cast<bool>(file);
 	}
 
 	bool Bank::follow()
@@ -65,16 +132,25 @@ namespace mdDrums
 		return _slot >= 0 && _slot < SlotCount ? m_slots[static_cast<size_t>(_slot)] : none;
 	}
 
+	const Bank::Machines& Bank::machines(const int _slot) const
+	{
+		static const Machines none{};
+		return _slot >= 0 && _slot < SlotCount ? m_machines[static_cast<size_t>(_slot)] : none;
+	}
+
 	bool Bank::write(const std::vector<SlotKit>& _slots)
 	{
 		int last = 0;
 		for(const auto& entry : _slots)
 		{
-			if(entry.first < 0 || entry.first >= SlotCount)
+			if(entry.slot < 0 || entry.slot >= SlotCount)
 				return false;
-			last = std::max(last, entry.first);
+			last = std::max(last, entry.slot);
 		}
 		if(!read())
+			return false;
+		// The User Machines first: an instance that reads the Kits again after this write finds them already
+		if(!writeMachines(_slots))
 			return false;
 		// The file holds every Slot by now: the Slots' bytes rewritten in place
 		std::fstream file(m_file, std::ios::binary | std::ios::in | std::ios::out);
@@ -91,13 +167,17 @@ namespace mdDrums
 		// A short file (written by another tool) is padded with empty Slots up to the last one written
 		for(auto slot = static_cast<int>(error ? 0 : size / SlotSize); slot < last; ++slot)
 			put(slot, std::nullopt);
-		for(const auto& [slot, kit] : _slots)
-			put(slot, kit);
+		for(const auto& entry : _slots)
+			put(entry.slot, entry.kit);
 		if(!file)
 			return false;
 		file.close();
-		for(const auto& [slot, kit] : _slots)
-			m_slots[static_cast<size_t>(slot)] = kit && !kit->isEmptySlot() ? kit : std::nullopt;
+		for(const auto& entry : _slots)
+		{
+			const auto kept = entry.kit && !entry.kit->isEmptySlot();
+			m_slots[static_cast<size_t>(entry.slot)] = kept ? entry.kit : std::nullopt;
+			m_machines[static_cast<size_t>(entry.slot)] = kept ? entry.machines : Machines{};
+		}
 		m_seen = std::filesystem::last_write_time(m_file, error);
 		return true;
 	}

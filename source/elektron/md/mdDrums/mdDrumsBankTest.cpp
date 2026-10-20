@@ -132,6 +132,32 @@ int main()
 		std::printf("one write: Slots 41 \"%s\" and 43 \"%s\", 42 left empty\n", third.slot(40)->displayName().c_str(),
 			third.slot(42)->displayName().c_str());
 
+		// The User Machines a Slot's Kit plays (ticket 27 of the User Machines map), in Bank.machines beside the Bank:
+		// kept with the Kit and read by another Bank; gone when the Kit is written without them, as an import writes
+		// it, or the Slot emptied; another Bank's write keeping this one's
+		{
+			using Machines = mdDrums::Bank::Machines;
+			Machines machines{};
+			machines[0] = {0x0123456789abcdefull, "TX8-BD"};
+			machines[4] = {42, "NFX-D1"};
+			require(bank.write(44, a, machines) && bank.machines(44) == machines, "the Bank did not keep a Kit's User Machines");
+			require(third.read() && third.machines(44) == machines && third.slot(44) && *third.slot(44) == a,
+				"another Bank does not read a Kit's User Machines");
+			auto machinesFile = file;
+			machinesFile.replace_extension(".machines");
+			require(std::filesystem::file_size(machinesFile) == mdDrums::Bank::SlotCount * mdDrums::Bank::MachinesSize,
+				"Bank.machines does not hold the 64 Slots' User Machines");
+			require(bank.write(44, a) && bank.machines(44) == Machines{} && third.read() && third.machines(44) == Machines{},
+				"a Kit written without User Machines kept the ones before");
+			require(bank.write(44, a, machines) && bank.write(44, std::nullopt) && bank.machines(44) == Machines{},
+				"an emptied Slot kept its Kit's User Machines");
+			require(bank.write(45, b, machines) && third.write(46, a) && bank.read() && bank.machines(45) == machines,
+				"another Bank's write lost a Slot's User Machines");
+			require(bank.write(45, std::nullopt) && bank.write(46, std::nullopt), "Slots 46 and 47 were not emptied again");
+			std::printf("Bank.machines: %s at USR-01 and %s at USR-05 kept with Slot 45, read by another Bank, gone with the"
+				" Kit written without them\n", machines[0].name.c_str(), machines[4].name.c_str());
+		}
+
 		// The Library of User Machines (tickets 14 and 24 of the User Machines map), shared as the Bank is, without a
 		// limit: a User Machine one Library installs another follows, the file the package as installed and named by its
 		// code; the same one again, no second file; another of the same name, a file of its own; one it removes, the other

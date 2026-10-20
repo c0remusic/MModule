@@ -1464,6 +1464,43 @@ namespace
 				&& held->bytes == other && library.cell(second)->IsClassSet("chosen")
 				&& !library.cell(first)->IsClassSet("chosen"),
 				"the User Machine chosen in the Library did not take Track 1's number");
+
+			// A Kit of the Bank remembers its User Machines (ticket 27 of the User Machines map): saved in Slot 64 with
+			// USR-01 holding the second one, then the first put in its place, which lights Save; loaded again, USR-01 holds
+			// the second once more; the second gone from the Library, the load says the Library lacks it
+			{
+				auto& kits = *_f.editor->getKitsView();
+				const auto usr01 = [&](const std::vector<uint8_t>& _package)
+				{
+					const auto held = _f.processor.userMachine(0);
+					return held && held->bytes == _package;
+				};
+				kits.choose(63);
+				kits.saveHere();
+				kits.saveHere();
+				require(usr01(other) && !kits.isChanged() && _f.processor.getBank()->machines(63)[0].id != 0,
+					"Slot 64 did not keep USR-01's User Machine with the Kit");
+				library.choose(first);
+				look(300);
+				require(usr01(saw) && kits.isChanged(), "another User Machine at USR-01 does not light Save");
+				kits.choose(63);
+				kits.load();
+				kits.load();
+				look(300);
+				require(usr01(other), "the Kit loaded from Slot 64 did not take its User Machine again");
+				require(_f.processor.getLibrary()->remove(_f.processor.getLibrary()->find(other)), "the second was not removed");
+				look(300);
+				library.choose(0);
+				look(300);
+				kits.choose(63);
+				kits.load();
+				kits.load();
+				std::printf("the Bank's Kit: \"%s\"\n", kits.note().c_str());
+				require(usr01(saw) && kits.note().find("the Library lacks TST-SW") != std::string::npos,
+					"a Kit whose User Machine the Library lacks does not say so");
+				kits.remove();
+				kits.remove();
+			}
 			require(_f.editor->escape() && !library.isShown()
 				&& _f.editor->getTrackView()->getOverlay() == mdDrums::TrackView::Overlay::Browser,
 				"Esc did not go back to the built-in machines");
