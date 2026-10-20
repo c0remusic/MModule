@@ -1746,6 +1746,12 @@ namespace
 		_f.showView("browser");
 		_f.editor->getLibraryView()->show(true);
 		_f.step(300);
+		_f.layout();
+		auto& library = *_f.editor->getLibraryView();
+		for(size_t i = 0; library.cell(i); ++i)
+			if(library.cell(i)->GetScrollWidth() > _f.box(*library.cell(i)).w + 0.5f)
+				std::printf("library: \"%s\" runs out of its cell, %g of %g dp\n",
+					library.cell(i)->GetInnerRML().c_str(), library.cell(i)->GetScrollWidth(), _f.box(*library.cell(i)).w);
 		save("library");
 		_f.editor->getLibraryView()->show(false);
 		_f.showView("track");

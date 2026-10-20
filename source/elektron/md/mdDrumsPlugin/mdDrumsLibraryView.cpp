@@ -137,9 +137,14 @@ namespace mdDrums
 			while(end < m_machines.size() && m_machines[end]->category == category)
 				++end;
 			const auto count = static_cast<int>(end - first);
-			const auto columns = (count + Rows - 1) / Rows;
-			const auto rows = (count + columns - 1) / columns;
-			if(column + columns > Columns)
+			const auto* kind = kindOf(category);
+			// The effects by name, a cell two columns wide
+			const auto named = std::string(kind) == "effects";
+			const auto width = named ? 2 : 1;
+			const auto cellColumns = (count + Rows - 1) / Rows;
+			const auto rows = (count + cellColumns - 1) / cellColumns;
+			const auto columns = cellColumns * width;
+			if(column + columns > Columns + RightColumns || (column + columns > Columns && rows > RightRows))
 				break;
 
 			auto head = document->CreateElement("div");
@@ -149,7 +154,7 @@ namespace mdDrums
 			head->SetInnerRML("<span>" + Rml::StringUtilities::EncodeRml(category) + "<span class=\"count\">"
 				+ std::to_string(count) + "</span></span>" + (columns > 1 ? "<div class=\"line\"/>" : ""));
 			m_library->AppendChild(std::move(head));
-			if(const auto* kind = kindOf(category); *kind)
+			if(*kind)
 			{
 				auto line = document->CreateElement("div");
 				line->SetClassNames("a kind");
@@ -163,10 +168,12 @@ namespace mdDrums
 			{
 				const auto index = first + static_cast<size_t>(i);
 				auto cell = document->CreateElement("div");
-				cell->SetClassNames("a mach");
-				cell->SetProperty("left", dp(g_left + g_column * (column + i / rows)));
+				cell->SetClassNames(named ? "a mach named" : "a mach");
+				cell->SetProperty("left", dp(g_left + g_column * (column + i / rows * width)));
 				cell->SetProperty("top", dp(g_top + g_row * (i % rows)));
-				cell->SetInnerRML(Rml::StringUtilities::EncodeRml(m_machines[index]->code));
+				const auto& package = *m_machines[index];
+				cell->SetInnerRML(Rml::StringUtilities::EncodeRml(named && !package.name.empty() ? package.name
+					: package.code));
 				juceRmlUi::EventListener::AddClick(cell.get(), [this, index] { choose(index); });
 				m_cells.push_back(m_library->AppendChild(std::move(cell)));
 			}

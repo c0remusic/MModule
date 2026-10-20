@@ -17,6 +17,9 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 - Décidé au cadrage du 2026-10-17 :
   - cette carte ne couvre que X.20 ; Push mappé se fait dans une session à part, sans carte ;
   - « firmware X.20 » veut dire ici les Machines utilisateur, hébergées depuis l'ABI MDS publiée, sans l'OS X.20 ;
+  - une NFX entend les Tracks que l'utilisateur choisit, pas seulement celles d'avant (choix du 2026-10-20 « Choisir la
+    source », plutôt que réordonner les Tracks, qui laisserait notes, automation et séquences sur leurs numéros) :
+    tickets 29 à 31 ;
   - 16 Machines utilisateur, USR-01 à USR-16, numérotées comme X.20 ; révisé le 2026-10-20 (l'utilisateur veut
     toutes les Machines d'X.20 sous la main, dans un menu secondaire) : la Library sans limite, seize numéros par Kit
     que MoDule donne lui-même, un Kit du Bank qui se souvient des siens (tickets 24 à 28) ;
@@ -108,11 +111,15 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   sinon celui de la Track, sinon le premier libre ; un numéro vide joue muet, rien pris de la Library.
 - [Copier les 43 du zip X.20 dans la Library de l'utilisateur](issues/28-copier-les-43.md) : fait ; sur son seul PC.
 - [Le menu secondaire des Machines utilisateur](issues/26-menu-secondaire.md) : comme le premier menu, au choix de
-  l'utilisateur ; « all 43 installed » sous USR, familles de neuf rangées au plus avec leur genre, le code dans la case.
+  l'utilisateur ; « all 43 installed » sous USR, familles de neuf rangées au plus avec leur genre, le code dans la case,
+  le nom pour les effets.
 - [Un Kit du Bank se souvient de ses Machines utilisateur](issues/27-kit-du-bank-et-ses-machines.md) : construit ;
   `Bank.machines` à côté du Bank, l'id et le nom du paquet par numéro ; rechargé, il les reprend, ou dit ce qui manque.
 
 ## Not yet specified
+
+- Une NFX qui travaille dès qu'on la choisit : aujourd'hui sa Track doit être frappée une fois (la voix prend le type au
+  Hit), à chaque ouverture du set. Proposé à l'utilisateur le 2026-10-20, sans réponse encore.
 
 - STEREO PAIR (rôle à Y+9, aucune des 43 ne le pose, [research/11](research/11-mdm1-flags.md)) : après NEIGHBOUR,
   que l'utilisateur a voulu le 2026-10-19 (tickets 19 à 23 : les tampons des voisins, le délai face aux Hits

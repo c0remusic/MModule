@@ -208,6 +208,8 @@ vknob { top: 84dp; width: 64dp; height: 64dp; drag: drag; cursor: pointer; }
 #browser.library #browser_builtin { display: inline; }
 .libopen { margin-left: 16dp; cursor: pointer; }
 .mach.chosen { color: #f2f2f2; border-bottom-color: #f2f2f2; }
+/* An effect's cell, two columns wide, says its name ("FILTER DISTORT"): no tracking, so that 16 capitals fit */
+.mach.named { width: 144dp; letter-spacing: 0dp; white-space: nowrap; }
 .pvname { top: 552dp; height: 24dp; line-height: 24dp; }
 .pvname .big { margin-right: 8dp; }
 .pvauto { top: 584dp; height: 16dp; line-height: 14dp; font-size: 14dp; color: #a7aaaf; cursor: pointer; }

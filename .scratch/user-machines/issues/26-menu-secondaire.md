@@ -50,4 +50,10 @@ du zip d'X.20) :
   physical (P-I), synth parts (SYN), d'après les noms des 43 (TX-8 BASS DRUM, BBD CHORUS, E PIANO, SX-1 VCO...) ; aucune
   pour une famille que MoDule ne connaît pas.
 
+Puis, le même jour : « ok go, pour les effets ca serait bien d'avoir des noms plus clairs ». Les cases des effets
+(NFX) disent le nom du paquet (BUS COMP, BBD CHORUS, DISTORTION, OVERDRIVE, FUZZ, FILTER DISTORT, SY-VP ENSEMBLE, FET
+COMP, 4-TRACK MIXER), deux colonnes de large, sans approche, pour que seize capitales tiennent ; leurs codes (BC, CH,
+D1...) ne disaient rien. Une famille qui n'a plus de place dans les colonnes des familles continue à droite, au-dessus de
+la prévisualisation, si elle tient en sept rangées.
+
 La capture est celle de ce rangement.

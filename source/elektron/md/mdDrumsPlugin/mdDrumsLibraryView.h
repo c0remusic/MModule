@@ -25,8 +25,10 @@ namespace mdDrums
 	// user's choice of 2026-10-20, "comme pour le premier menu"): the package's category at the head with its count and
 	// what kind of Machines it holds, its code in each cell, 9 rows to a column at most, a longer family shared evenly
 	// over two or more columns under one head; a click puts the Track shown on it (Processor::chooseUserMachine), heard
-	// when listening; "Built-in machines" and Esc go back. The cells are made again when the Library changes; the one
-	// the Track plays is lit.
+	// when listening; "Built-in machines" and Esc go back. The effects' cells say their package's name, two columns wide
+	// (BUS COMP, BBD CHORUS: their codes say little; the user's wish of 2026-10-20). Families go on to the right of the
+	// families' columns, above the preview, when they hold 7 rows or fewer. The cells are made again when the Library
+	// changes; the one the Track plays is lit.
 	class LibraryView
 	{
 	public:
@@ -52,6 +54,8 @@ namespace mdDrums
 
 		static constexpr int Rows = 9;		// 288 to 544 dp, as the built-in families' longest column
 		static constexpr int Columns = 8;	// c4 to c11: the families' columns
+		static constexpr int RightColumns = 5;	// c12 to c16, above the preview
+		static constexpr int RightRows = 7;		// 288 to 480 dp, above the preview's head at 528
 
 	private:
 		bool build();
