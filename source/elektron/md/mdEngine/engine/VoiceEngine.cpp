@@ -320,6 +320,7 @@ namespace md::engine
 		checkUserMachine(*_package);
 		m_userMachines[static_cast<size_t>(_index)] = std::move(_package);
 		writeUserMachine(_index);
+		forgetUserMachine(_index);
 	}
 
 	void VoiceEngine::removeUserMachine(const int _index)
@@ -331,6 +332,21 @@ namespace md::engine
 		m_dsp->memWriteP(kExtInit + type, readP(kDispatchInit + kEmptyType));
 		m_dsp->memWriteP(kExtTrig + type, readP(kDispatchTrig + kEmptyType));
 		m_dsp->memWriteP(kExtRender + type, readP(kDispatchRender + kEmptyType));
+		forgetUserMachine(_index);
+	}
+
+	void VoiceEngine::forgetUserMachine(const int _index)
+	{
+		// The dispatcher calls a type's INIT only when a Hit brings a type other than the voice's active one (Y:$153 + t),
+		// so a Track that played this number would run the new package's code on the old one's private state at its next
+		// Hit: silence, saturation or the wrong pitch, until the Track took another machine and came back. Its active type
+		// becomes the empty machine's, silent from now on, and its next Hit INITs what the number holds (the MDS Standard:
+		// "A replaced neighbour machine's track stays silent until the new machine is triggered").
+		constexpr TWord activeTypes = 0x153;
+		const auto type = kFirstUserType + static_cast<TWord>(_index);
+		for(TWord t = 0; t < 16; ++t)
+			if((m_mem->get(MemArea_Y, activeTypes + t) & 0xffffff) == type)
+				m_dsp->memWrite(MemArea_Y, activeTypes + t, kEmptyType);
 	}
 
 	void VoiceEngine::writeUserMachine(const int _index)

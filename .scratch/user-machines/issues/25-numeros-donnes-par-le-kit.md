@@ -41,3 +41,16 @@ Construit le 2026-10-20 :
   autre sur la Track 3 prend USR-02, un autre encore la remplace en place, seize Machines sur seize Tracks donnent seize
   numéros qui tiennent chacun celle de sa Track ; « User Machines » : une Track sur un numéro vide ne prend rien),
   `mdDrumsSkinTest` (le lâcher d'un `.mds` met la Track 1 sur USR-01, la case allumée).
+
+## Correctif du 2026-10-20
+
+L'utilisateur, dans Live : « il faut parfois changer de banque dans les user machine pour entendre », avec des clics, du
+silence, une hauteur ou une durée fausses, de la saturation. Cause : un autre paquet au numéro que joue la Track (ce que
+ce ticket fait quand la Track joue seule son numéro) réécrivait le code et les tables d'appel, mais la voix gardait son
+type actif (Y:`$153` + t) ; au Hit suivant le dispatcher, qui n'appelle INIT que pour un type différent, n'appelait que
+TRIG, et le nouveau code tournait sur l'état privé de l'ancien paquet. Prendre une autre Machine puis revenir relançait
+INIT. Désormais `VoiceEngine::forgetUserMachine` donne aux Tracks qui jouaient ce numéro le type de la Machine vide,
+muettes jusqu'à leur Hit suivant, qui appelle INIT, comme le dit la Standard MDS (« A replaced neighbour machine's track
+stays silent until the new machine is triggered ») ; retirer un paquet fait de même. `mdDrumsEngineTest` : remplacé
+pendant que la Track 3 le joue, muet jusqu'au Hit, puis la voix du paquet nu à l'échantillon près ; sans le correctif,
+la Track jouait encore.

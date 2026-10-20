@@ -77,6 +77,8 @@ namespace md::engine
 		void writeRing();	// the neighbours' ring: its two extra buffers and four descriptors in Y
 		void extendDispatch();
 		void writeUserMachine(int _index);
+		// md-drums: the Tracks whose voice runs User Machine _index's code made silent until their next Hit
+		void forgetUserMachine(int _index);
 		bool runUntilTx(size_t _words, uint64_t _maxInstructions);
 		bool readBlock(Block& _out, uint64_t _maxInstructions);
 

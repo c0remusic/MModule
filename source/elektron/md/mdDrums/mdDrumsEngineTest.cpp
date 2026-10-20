@@ -1276,6 +1276,62 @@ namespace
 		require(diffs == 0, "the User Machine's voice is not the bare host's");
 		require(others == 0, "a User Machine changed another Track's voice");
 
+		// Another package at the number the Track plays, as choosing in the Library does when the Track alone plays it
+		// (ticket 25): the Track is silent until its next Hit, which INITs the new package, and its voice is then the bare
+		// host's for that package. The voice once kept its active type, so the Hit called TRIG alone and the new code ran
+		// on the old package's state: the user heard silence, saturation or the wrong pitch until the Track took another
+		// machine and came back.
+		{
+			const auto other = std::make_shared<const md::mds::Package>(md::mds::parsePackage(mdDrums::test::sawPackage(60)));
+			md::mds::BareHost fresh(*other, md::mds::decayTable(_os.osImage));
+			for(size_t p = 0; p < other->parameters.size(); ++p)
+				fresh.setParameter(p, other->parameters[p].defaultValue);
+			fresh.init();
+			fresh.trig();
+			std::vector<int32_t> expected(blocks * mdDrums::Engine::BlockSize);
+			for(int b = 0; b < blocks; ++b)
+				fresh.render(expected.data() + b * mdDrums::Engine::BlockSize);
+
+			md::engine::Engine raw(_os.firmware, _os.osImage);
+			raw.loadRomBank(_bank);
+			mdDrums::applyEngineDefaults(raw.host());
+			raw.installUserMachine(user, package);
+			raw.host().setMachine(track, id);
+			md::engine::Engine::Output out;
+			std::vector<int32_t> after;
+			bool silentBetween = true;
+			for(int b = 0; b < 2 * blocks; ++b)
+			{
+				if(b == 2)
+					raw.host().trigger(track, 100);
+				if(b == 20)
+				{
+					raw.installUserMachine(user, other);
+					raw.host().setMachine(track, id);
+				}
+				if(b == 24)
+					raw.host().trigger(track, 100);
+				require(raw.render(out), "the engine faulted");
+				const auto& block = raw.voiceBlock()[static_cast<size_t>(track)];
+				if(b >= 20 && b < 24)
+					silentBetween &= std::all_of(block.begin(), block.end(), [](int32_t _s) { return _s == 0; });
+				if(b >= 24)
+					after.insert(after.end(), block.begin(), block.end());
+			}
+			const auto from = static_cast<size_t>(std::find_if(after.begin(), after.end(), [](int32_t _s) { return _s != 0; })
+				- after.begin());
+			require(from < after.size(), "the new package is silent after its Hit");
+			const auto length = std::min(after.size() - from, expected.size());
+			const std::vector<int32_t> heard(after.begin() + static_cast<ptrdiff_t>(from),
+				after.begin() + static_cast<ptrdiff_t>(from + length));
+			const auto replacedDiffs = differences(heard, std::vector<int32_t>(expected.begin(),
+				expected.begin() + static_cast<ptrdiff_t>(heard.size())));
+			std::printf("another package at USR-02 while Track 3 plays it: %s until the next Hit, then %zu of %zu samples"
+				" differ from the bare host's\n", silentBetween ? "silent" : "not silent", replacedDiffs, heard.size());
+			require(silentBetween, "the Track goes on playing after its User Machine was replaced");
+			require(replacedDiffs == 0, "a package replaced at the number a Track plays does not start from its INIT");
+		}
+
 		// mdDrums::Engine: installed (compiled ahead), struck like any machine on Track 1's own output, then removed
 		{
 			mdDrums::Engine engine(_os, _bank, false);
