@@ -197,6 +197,17 @@ vknob { top: 84dp; width: 64dp; height: 64dp; drag: drag; cursor: pointer; }
 .fam.lowest { top: 704dp; }
 .kind.lowest { top: 720dp; }
 .mach.empty { color: #6e7177; }
+/* The Library over the browser's own families (ticket 26 of the User Machines map, a prototype; LibraryView): those
+   hidden while it shows, the preview kept; the cell of the User Machine the Track plays lit as a chosen machine is */
+#library { display: none; left: 0dp; top: 0dp; }
+#browser.library #library { display: block; }
+#browser.library .mach, #browser.library .fam, #browser.library .kind { display: none; }
+#browser.library #library .mach { display: block; }
+#browser.library #library .fam, #browser.library #preview_group { display: flex; }
+#browser_builtin { display: none; }
+#browser.library #browser_builtin { display: inline; }
+.libopen { margin-left: 16dp; cursor: pointer; }
+.mach.chosen { color: #f2f2f2; border-bottom-color: #f2f2f2; }
 .pvname { top: 552dp; height: 24dp; line-height: 24dp; }
 .pvname .big { margin-right: 8dp; }
 .pvauto { top: 584dp; height: 16dp; line-height: 14dp; font-size: 14dp; color: #a7aaaf; cursor: pointer; }

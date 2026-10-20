@@ -1,0 +1,70 @@
+#pragma once
+
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace md::mds
+{
+	struct Package;
+}
+
+namespace Rml
+{
+	class Element;
+}
+
+namespace mdDrums
+{
+	class Editor;
+	struct Frame;
+
+	// The Library in the machine browser (ticket 26 of the User Machines map, a prototype): the USR block's "All
+	// installed" opens every User Machine the Library holds over the browser's own families, by family as those are (the
+	// package's category, its code in the cell), 16 rows to a column; a click puts the Track shown on it
+	// (Processor::chooseUserMachine), heard when listening; "Built-in machines" and Esc go back. The cells are made
+	// again when the Library changes; the one the Track plays is lit.
+	class LibraryView
+	{
+	public:
+		explicit LibraryView(Editor& _editor);
+		~LibraryView();
+
+		LibraryView(const LibraryView&) = delete;
+		LibraryView& operator=(const LibraryView&) = delete;
+
+		// The editor's frame: true when it changed the document
+		bool step(const Frame& _frame);
+
+		bool isShown() const { return m_shown; }
+		void show(bool _shown);
+		// Esc: back to the built-in machines, true when it was showing
+		bool escape();
+
+		// What the cells hold, in their order, for the tests
+		const std::vector<std::shared_ptr<const md::mds::Package>>& machines() const { return m_machines; }
+		// The cell of a User Machine of the Library, for the tests; none when it shows none
+		Rml::Element* cell(size_t _index) const { return _index < m_cells.size() ? m_cells[_index] : nullptr; }
+		void choose(size_t _index);
+
+		static constexpr int Rows = 16;		// 288 to 768 dp, as far down as the browser's lowest cells
+		static constexpr int Columns = 8;	// c4 to c11: the families' columns
+
+	private:
+		bool build();
+		bool followChosen(uint8_t _track);
+
+		Editor& m_editor;
+		Rml::Element* m_browser = nullptr;
+		Rml::Element* m_library = nullptr;
+		Rml::Element* m_open = nullptr;
+		Rml::Element* m_what = nullptr;
+		bool m_shown = false;
+		std::vector<std::shared_ptr<const md::mds::Package>> m_machines;	// the cells', as built
+		std::vector<Rml::Element*> m_cells;
+		int m_chosen = -1;			// the lit cell
+		double m_nextMs = 0.0;		// when the Library is looked at again
+		size_t m_countShown = ~size_t{0};
+	};
+}

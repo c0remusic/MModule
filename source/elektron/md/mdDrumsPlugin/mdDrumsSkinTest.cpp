@@ -31,6 +31,8 @@
 #include "mdDrumsKitsView.h"
 #include "mdDrumsKnob.h"
 #include "mdDrumsLfoView.h"
+#include "mdDrumsLibrary.h"
+#include "mdDrumsLibraryView.h"
 #include "mdDrumsLinksView.h"
 #include "mdDrumsMeterView.h"
 #include "mdDrumsProcessor.h"
@@ -63,6 +65,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -1422,6 +1425,51 @@ namespace
 			"the browser does not dim the empty User Machines and ROM Machines");
 		require(_f.box(*usr1).x == 256 && _f.box(*usr1).y == 632 && _f.box(*rom33).y == 744,
 			"the USR and ROM 33-48 cells are not where the prototype puts them");
+
+		// The Library over the families (ticket 26 of the User Machines map, a prototype): "all 1 installed" opens it, its
+		// family TST in the first column with the one dropped lit, the built-in cells hidden, the preview kept; another
+		// package installed shows at the next look; chosen, it takes the Track's number, which no other Track plays; Esc
+		// goes back to the built-in machines, the browser still open
+		{
+			auto& library = *_f.editor->getLibraryView();
+			const auto hidden = [&](const char* _id)
+			{
+				const auto* e = _f.find(_id);
+				return e && e->GetComputedValues().display() == Rml::Style::Display::None;
+			};
+			require(_f.text("library_open") == "all 1 installed", "the USR block says \"" + _f.text("library_open") + "\"");
+			click(_f, "library_open");
+			look(300);
+			require(library.isShown() && library.machines().size() == 1 && library.cell(0)
+				&& library.cell(0)->IsClassSet("chosen"), "the Library does not show the User Machine Track 1 plays, lit");
+			const auto cell = _f.box(*library.cell(0));
+			require(cell.x == 256 && cell.y == 288 && hidden("mach_16") && hidden("fam_TRX") && hidden("mach_194")
+				&& !hidden("preview_group") && !hidden("browser_builtin") && _f.text("browser_what") == "Choose a user machine",
+				"the Library is not over the families, or the browser's own still show");
+			const auto other = mdDrums::test::sawPackage(60);
+			require(_f.processor.getLibrary()->install(other).package != nullptr, "a second User Machine was not installed");
+			look(300);
+			require(library.machines().size() == 2 && library.cell(1) && _f.box(*library.cell(1)).y == 320,
+				"the Library's second User Machine does not show under the first");
+			// The Library sorts by name, then by file: "TST-SW 2.mds" before "TST-SW.mds"
+			const size_t second = library.machines()[0]->bytes == other ? 0 : 1;
+			const size_t first = 1 - second;
+			library.choose(second);
+			look(300);
+			const auto held = _f.processor.userMachine(0);
+			std::printf("the Library: %zu User Machines over the families, the second chosen: Track 1 on %d, USR-01 %s\n",
+				library.machines().size(), static_cast<int>(machine.getUnnormalizedValue()),
+				held && held->bytes == other ? "holds it" : "does not hold it");
+			require(static_cast<int>(machine.getUnnormalizedValue()) == mdDrums::Engine::FirstUserMachine && held
+				&& held->bytes == other && library.cell(second)->IsClassSet("chosen")
+				&& !library.cell(first)->IsClassSet("chosen"),
+				"the User Machine chosen in the Library did not take Track 1's number");
+			require(_f.editor->escape() && !library.isShown()
+				&& _f.editor->getTrackView()->getOverlay() == mdDrums::TrackView::Overlay::Browser,
+				"Esc did not go back to the built-in machines");
+			look(300);
+			require(!hidden("mach_16") && _f.text("browser_what") == "Choose a machine", "the built-in machines do not show again");
+		}
 		_f.editor->getTrackView()->setOverlay(mdDrums::TrackView::Overlay::None);
 		mdDrums::testSupport::uiSets(machine, before);
 		look(9000);
@@ -1646,6 +1694,23 @@ namespace
 		_f.showView("track");
 		_f.editor->getTrackView()->setOverlay(mdDrums::TrackView::Overlay::Links);
 		save("linksmenu");
+		// The Library over the browser's families (ticket 26 of the User Machines map), with X.20's User Machines when
+		// MD_X20_MACHINES names their folder (never in this repository)
+		if(const auto* x20 = std::getenv("MD_X20_MACHINES"); x20 && *x20)
+		{
+			for(const auto& entry : std::filesystem::recursive_directory_iterator(std::filesystem::u8path(x20)))
+			{
+				if(!entry.is_regular_file() || entry.path().extension() != ".syx")
+					continue;
+				std::ifstream in(entry.path(), std::ios::binary);
+				_f.processor.getLibrary()->install({std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()});
+			}
+		}
+		_f.showView("browser");
+		_f.editor->getLibraryView()->show(true);
+		_f.step(300);
+		save("library");
+		_f.editor->getLibraryView()->show(false);
 		_f.showView("track");
 	}
 }

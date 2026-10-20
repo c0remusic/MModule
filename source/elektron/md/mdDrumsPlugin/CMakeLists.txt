@@ -26,6 +26,7 @@ set(SOURCES
 	mdDrumsKitsView.cpp mdDrumsKitsView.h
 	mdDrumsKnob.cpp mdDrumsKnob.h
 	mdDrumsLfoView.cpp mdDrumsLfoView.h
+	mdDrumsLibraryView.cpp mdDrumsLibraryView.h
 	mdDrumsLinksView.cpp mdDrumsLinksView.h
 	mdDrumsMeterView.cpp mdDrumsMeterView.h
 	mdDrumsDropView.cpp mdDrumsDropView.h

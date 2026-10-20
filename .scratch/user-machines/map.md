@@ -106,6 +106,7 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
   code, `.syx` d'X.20 lus aussi ; les 43 du zip y entrent.
 - [Les numéros USR donnés par le Kit](issues/25-numeros-donnes-par-le-kit.md) : construit ; le numéro qui la tient,
   sinon celui de la Track, sinon le premier libre ; un numéro vide joue muet, rien pris de la Library.
+- [Copier les 43 du zip X.20 dans la Library de l'utilisateur](issues/28-copier-les-43.md) : fait ; sur son seul PC.
 
 ## Not yet specified
 

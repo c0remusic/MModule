@@ -271,8 +271,8 @@
 				<!-- The machine browser, over the bands (the machine's name opens it): a click loads a machine, Keep closes,
 				     Cancel brings the machine back -->
 				<div id="browser" class="layer overlay" data-model="partCurrent">
-					<div id="browser_title" class="a c4 w8 bhead"><span class="big">Choose a machine</span><span id="browser_for">for track 01</span></div>
-					<div id="browser_actions" class="a c12 bact"><span id="browser_cancel" class="act">Cancel</span><span id="browser_keep" class="act keep">Keep</span></div>
+					<div id="browser_title" class="a c4 w8 bhead"><span id="browser_what" class="big">Choose a machine</span><span id="browser_for">for track 01</span></div>
+					<div id="browser_actions" class="a c12 bact"><span id="browser_builtin" class="act">Built-in machines</span><span id="browser_cancel" class="act">Cancel</span><span id="browser_keep" class="act keep">Keep</span></div>
 					<div id="fam_GND" class="a c4 w1 grp fam"><span>GND<span class="count">4</span></span></div>
 					<div id="fam_TRX" class="a c5 w2 grp fam"><span>TRX<span class="count">13</span></span><div class="line"/></div>
 					<div id="fam_EFM" class="a c7 w1 grp fam"><span>EFM<span class="count">8</span></span></div>
@@ -370,7 +370,7 @@
 					<!-- md-drums: the User Machines (USR-01 to USR-16) and ROM-33 to ROM-48, which take the user's Samples, under the
 					     families (ticket 18 of the User Machines map, a prototype): empty ones dimmed (TrackView) -->
 					<div id="fam_USR" class="a c4 w8 grp fam lower"><span>USR<span class="count">16</span></span><div class="line"/></div>
-					<div id="kind_USR" class="a c4 w8 kind lower">user machines</div>
+					<div id="kind_USR" class="a c4 w8 kind lower">user machines<span id="library_open" class="act libopen">all installed</span></div>
 					<button id="mach_194" class="a c4 mach" style="top: 632dp;" param="Machine" isToggle="1" valueOn="194">01</button>
 					<button id="mach_195" class="a c5 mach" style="top: 632dp;" param="Machine" isToggle="1" valueOn="195">02</button>
 					<button id="mach_196" class="a c6 mach" style="top: 632dp;" param="Machine" isToggle="1" valueOn="196">03</button>
@@ -405,6 +405,9 @@
 					<button id="mach_189" class="a c9 mach" style="top: 776dp;" param="Machine" isToggle="1" valueOn="189">46</button>
 					<button id="mach_190" class="a c10 mach" style="top: 776dp;" param="Machine" isToggle="1" valueOn="190">47</button>
 					<button id="mach_191" class="a c11 mach" style="top: 776dp;" param="Machine" isToggle="1" valueOn="191">48</button>
+					<!-- md-drums: the Library over the families, "all installed" opening it (ticket 26 of the User Machines map, a
+					     prototype): its families and cells made by mdDrumsLibraryView.cpp -->
+					<div id="library" class="a"/>
 					<div id="preview_group" class="a c12 w5 grp fam preview"><span>Preview</span><div class="line"/></div>
 					<div id="preview_name" class="a c12 w5 pvname"><span class="big">{{Machine_text}}</span><span id="preview_kind" class="meta">analog</span></div>
 					<div id="preview_listen" class="a c12 w5 pvauto"><span class="box"/>Listen while choosing</div>
