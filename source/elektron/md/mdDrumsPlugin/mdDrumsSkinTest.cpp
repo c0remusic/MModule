@@ -1338,6 +1338,43 @@ namespace
 		require(line->GetScrollWidth() <= _f.box(*line).w + 0.5f, "the drop's line overflows its box");
 		_f.processor.removeSample(32);
 
+		// The same file through the window as the operating system hands it over (RmlComponent's FileDragAndDropTarget,
+		// then RmlDrag's drag of a stand-in element), in the component's own coordinates, away from the Machine's name and
+		// on another tab: the whole window takes it for the Track shown, the Machine's name lit while it hovers
+		const auto dims = _f.component->getContext()->GetDimensions();
+		const auto toComponent = [&](const Box& _b)
+		{
+			const auto r = _f.dp();
+			return juce::Point<int>(juce::roundToInt((_b.x + _b.w * 0.5f) * r * static_cast<float>(_f.component->getWidth()) / dims.x),
+				juce::roundToInt((_b.y + _b.h * 0.5f) * r * static_cast<float>(_f.component->getHeight()) / dims.y));
+		};
+		const auto accent = Rml::Colourb(0x6f, 0xd1, 0xc4, 255);
+		for(const auto& [tab, over] : {std::pair<const char*, const char*>{"track", "k_DIST"}, {"mix", "mix_surface"}})
+		{
+			set(_f, "Machine", 0, before);
+			_f.showView(tab);
+			_f.layout();
+			const auto at = toComponent(_f.box(*_f.find(over)));
+			const juce::StringArray files(file.getFullPathName());
+			juce::FileDragAndDropTarget& target = *_f.component;
+			require(target.isInterestedInFileDrag(files), "the editor's window does not take a file drag");
+			target.fileDragEnter(files, at.x, at.y);
+			target.fileDragMove(files, at.x + 1, at.y);
+			_f.layout();
+			const auto lit = _f.find("machine")->GetComputedValues().color() == accent;
+			target.filesDropped(files, at.x, at.y);
+			look(1000.0 / mdDrums::StatusView::RefreshHz);
+			const auto through = view->text();
+			const auto unlit = _f.find("machine")->GetComputedValues().color() != accent;
+			std::printf("status: a WAV dropped through the window on %s (%s tab) says \"%s\", the Machine's name %s, then %s\n",
+				over, tab, through.c_str(), lit ? "lit" : "not lit", unlit ? "unlit" : "still lit");
+			require(lit && unlit, std::string("the Machine's name is not lit only while a WAV hovers over ") + over);
+			require(static_cast<int>(machine.getUnnormalizedValue()) == 176 && through == "MoDuleDrop.wav on ROM-33, Track 1",
+				std::string("a WAV dropped through the editor's window on ") + over + " did not put Track 1 on ROM-33");
+			_f.processor.removeSample(32);
+		}
+		_f.showView("track");
+
 		// A User Machine dropped (ticket 17 of the User Machines map): Track 1 on USR-01, the head band says its package's
 		// category, code and name, SYN1 and SYN2 its parameters' names, the others unused
 		const auto mds = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("MoDuleDrop.mds");

@@ -4,7 +4,11 @@
 #include "mdDrumsProcessor.h"
 #include "mdDrumsStatusView.h"
 
+#include "juceRmlUi/juceRmlComponent.h"
+
 #include "mdLib/mdenv.h"
+
+#include "RmlUi/Core/ElementDocument.h"
 
 #include <filesystem>
 #include <fstream>
@@ -38,9 +42,11 @@ namespace mdDrums
 
 	DropView::DropView(Editor& _editor) : m_editor(_editor)
 	{
-		for(const auto* id : {"machine", "screen_hit"})
-			if(auto* element = m_editor.element(id))
-				m_targets.push_back(std::make_unique<Target>(*this, element));
+		// The document, which RmlUi's drag events reach from wherever the file hovers: a file goes to the Track shown
+		// wherever it drops, on every tab and overlay
+		if(auto* component = m_editor.getRmlComponent())
+			if(auto* document = component->getDocument())
+				m_target = std::make_unique<Target>(*this, document);
 	}
 
 	DropView::~DropView() = default;

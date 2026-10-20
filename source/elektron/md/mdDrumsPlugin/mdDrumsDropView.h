@@ -11,9 +11,10 @@ namespace mdDrums
 	class Editor;
 
 	// Where a file dropped on the editor goes (ticket 06 of the Samples map, the drop of ticket 16 of the User Machines
-	// map): the head band's machine name and the Hit screen take one audio file (WAV, AIFF, FLAC) or one User Machine
-	// (.syx, .mds) for the Track shown (StatusView::importFile), lit while a file that would go hovers over them
-	// (:dragovercenter in the skin). A first prototype, for the user to judge in Live.
+	// map): the whole window takes one audio file (WAV, AIFF, FLAC) or one User Machine (.syx, .mds) for the Track shown
+	// (StatusView::importFile), the head band's machine name and the Hit screen's title lit while a file that would go
+	// hovers over it (body:dragovercenter in the skin). The machine's name and the Hit screen alone, as first
+	// prototyped, did not take the drops tried in Live.
 	class DropView
 	{
 	public:
@@ -34,7 +35,7 @@ namespace mdDrums
 		class Target;
 
 		Editor& m_editor;
-		std::vector<std::unique_ptr<Target>> m_targets;
+		std::unique_ptr<Target> m_target;
 		std::string m_journalLast;
 	};
 }

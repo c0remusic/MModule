@@ -33,3 +33,17 @@ Construit le 2026-10-17, à juger dans Live :
 
 Le 2026-10-19, l'utilisateur accepte le prototype tel quel (« ok go pour tout ») : les deux cibles, la ROM de la Track ou
 la première ROM-33..48 libre, la ligne d'état.
+
+## Révision du 2026-10-20 : toute la fenêtre
+
+L'utilisateur, dans Live : « le drag and drop des samples ne semble pas fonctionner ». Aucun Sample n'avait atteint le
+dossier de données. Le chemin complet que suit un fichier de l'OS (le `FileDragAndDropTarget` de `RmlComponent`, puis
+le glisser d'un élément de remplacement par `RmlDrag`) marchait sur le nom de la Machine, mais pas un pixel à côté :
+lâché sur un potard de l'onglet Track ou sur l'onglet Mix, le fichier tombait sur un élément sans cible et rien ne se
+passait, sans un mot. Les deux cibles, petites et sans repère hors survol, ne prenaient pas les lâchers essayés.
+
+Désormais toute la fenêtre prend le fichier, sur chaque onglet et chaque overlay, pour la Track montrée (`DropView` sur
+le document). Le nom de la Machine et le titre de l'écran Hit passent en accent dès qu'un fichier qui irait survole la
+fenêtre (`body:dragovercenter`). `mdDrumsSkinTest` lâche un WAV par ce chemin sur un potard de l'onglet Track et sur la
+surface de l'onglet Mix : la Track 1 passe sur ROM-33, le nom s'allume pendant le survol et s'éteint après. Le journal
+de `MD_DROP_LOG` voit maintenant tout fichier qui survole la fenêtre, plus seulement ceux des deux cibles.

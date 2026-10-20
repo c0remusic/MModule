@@ -61,8 +61,9 @@ Windows (macOS construit par la CI, pas vérifié à la main). Pas de tag.
   moyenne des canaux, rate du fichier jusqu'à 48 kHz, boucle `smpl`, codes de 12 bits par la table de l'OS.
 - [La bibliothèque des Samples et l'état du set](issues/10-bibliotheque-et-etat.md) : construit ; `ROM-NN.smp`
   partagés dans le dossier de données, copie par instance, l'état du set porte tous les Samples de l'instance.
-- [Où lâcher](issues/06-ou-lacher.md) : accepté tel que prototypé ; sur le nom de la Machine et l'écran Hit ; la ROM
-  de la Track, sinon la première ROM-33..48 libre ; la ligne d'état dit ce qui s'est passé.
+- [Où lâcher](issues/06-ou-lacher.md) : accepté tel que prototypé, puis toute la fenêtre le 2026-10-20 (les deux
+  cibles ne prenaient pas les lâchers essayés dans Live) ; la ROM de la Track montrée, sinon la première ROM-33..48
+  libre ; la ligne d'état dit ce qui s'est passé.
 - [Un clip ou un pad lâchés](issues/07-clip-et-pad-laches.md) (journal construit, lâchers de l'utilisateur en
   attente) : `MD_DROP_LOG` écrit ce que Live passe au plug-in.
 - [Le set marqué modifié](issues/11-set-marque-modifie.md) (prototype construit, jugement dans Live en attente) : un

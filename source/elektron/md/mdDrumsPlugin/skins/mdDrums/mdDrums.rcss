@@ -77,11 +77,11 @@ body.mdd { background-color: #1b1c1e; color: #f2f2f2; font-family: Inter; font-s
 .step.prev { left: 336dp; }
 .step.next { left: 360dp; }
 .machine { top: 108dp; height: 40dp; line-height: 40dp; font-size: 34dp; cursor: pointer; }
-/* A file that would go, over where it drops (DropView): the machine's name and the Hit screen's title in accent. The
-   stack's drag targets take a 2 px border (tus_default.rcss), which would move them off the grid: none here */
-#machine:dragtarget, #machine:dragovercenter { border-width: 0dp; }
-#screen_hit:dragtarget, #screen_hit:dragovercenter { border-width: 0dp; border-left: 1dp #55585e; }
-#machine:dragovercenter, #screen_hit:dragovercenter .label { color: #6fd1c4; }
+/* A file that would go, anywhere over the window (DropView): the machine's name and the Hit screen's title in accent.
+   The stack's drag targets take a 2 px border (tus_default.rcss), which would move the whole window off the grid: none
+   here */
+body:dragtarget, body:dragovercenter { border-width: 0dp; }
+body:dragovercenter #machine, body:dragovercenter #screen_hit_title .label { color: #6fd1c4; }
 /* Relative: the glyph's canvas fills the glyph, not the nearest positioned box */
 vglyph { display: inline-block; position: relative; }
 vglyph.chevron { width: 12dp; height: 12dp; margin-left: 12dp; color: #a7aaaf; }
