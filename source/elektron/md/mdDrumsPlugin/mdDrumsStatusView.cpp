@@ -16,6 +16,7 @@ namespace mdDrums
 		constexpr const char* g_timeKey = "updateCheckTime";
 		constexpr const char* g_latestKey = "updateLatest";
 		constexpr const char* g_urlKey = "updateUrl";
+		constexpr const char* g_installerKey = "updateInstaller";
 		constexpr juce::int64 g_checkSeconds = 24 * 60 * 60;
 		constexpr double g_unplayedSeconds = 5.0;
 		constexpr double g_flashErrorSeconds = 8.0;
@@ -38,7 +39,8 @@ namespace mdDrums
 		auto& config = m_editor.processor().getConfig();
 		if(checksForUpdates(config))
 		{
-			offer({config.getValue(g_latestKey).toStdString(), config.getValue(g_urlKey).toStdString()});
+			offer({config.getValue(g_latestKey).toStdString(), config.getValue(g_urlKey).toStdString(),
+				config.getValue(g_installerKey).toStdString()});
 			const auto now = juce::Time::currentTimeMillis() / 1000;
 			if(now - config.getValue(g_timeKey).getLargeIntValue() >= g_checkSeconds)
 			{
@@ -99,6 +101,7 @@ namespace mdDrums
 			auto& config = m_editor.processor().getConfig();
 			config.setValue(g_latestKey, juce::String(release->version));
 			config.setValue(g_urlKey, juce::String(release->url));
+			config.setValue(g_installerKey, juce::String(release->installer));
 			offer(*release);
 		}
 
@@ -148,8 +151,10 @@ namespace mdDrums
 			return {std::string(number) + " " + (kept->name.empty() ? std::string("in this set") : kept->name)
 				+ " plays nothing here: " + kept->reason + ". The set keeps it.", Action::None};
 		}
+		// With its installer, a click downloads it (the browser saves it; the user runs it with the host closed)
 		if(m_newer)
-			return {"MoDule " + m_newer->version + " is out", Action::OpenRelease};
+			return {"MoDule " + m_newer->version + " is out"
+				+ (m_newer->installer.empty() ? std::string() : ": download the installer"), Action::OpenRelease};
 		return {{}, Action::None};
 	}
 
@@ -162,7 +167,7 @@ namespace mdDrums
 			break;
 		case Action::OpenRelease:
 			if(m_newer)
-				juce::URL(m_newer->url).launchInDefaultBrowser();
+				juce::URL(m_newer->installer.empty() ? m_newer->url : m_newer->installer).launchInDefaultBrowser();
 			break;
 		case Action::None:
 			break;

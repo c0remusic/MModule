@@ -12,6 +12,8 @@ namespace mdDrums::updates
 	{
 		std::string version;	// "0.1.1"
 		std::string url;		// its page
+		// Its Windows installer (an asset named *-setup.exe, in this repository's releases), empty without one
+		std::string installer;
 	};
 
 	// Below, equal to or above zero as _a is older than, the same as or newer than _b, number by number ("0.1.10" after
@@ -25,7 +27,7 @@ namespace mdDrums::updates
 	// The process's check (ticket 35): the release list read once in the process's life, on a thread of its own, while
 	// an editor holds a Check (juce::SharedResourcePointer): the last editor closed stops a read still running, on the
 	// message thread, never as the plug-in's module unloads. Nothing is installed: the editor says that a newer release
-	// is out and opens its page.
+	// is out and has the browser download its installer, or opens its page without one.
 	class Check final : juce::Thread
 	{
 	public:

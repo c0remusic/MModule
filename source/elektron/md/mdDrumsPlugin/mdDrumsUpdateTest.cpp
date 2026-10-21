@@ -19,12 +19,22 @@ namespace
 
 	// Trimmed from api.github.com/repos/c0remusic/MModule/releases, with what the check must skip
 	constexpr const char* g_list = R"([
+		{"tag_name": "md-drums-v0.1.11", "draft": false, "prerelease": true,
+		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/md-drums-v0.1.11"},
 		{"tag_name": "md-drums-v0.1.0", "draft": false, "prerelease": true,
 		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/md-drums-v0.1.0"},
 		{"tag_name": "md-drums-v0.1.10", "draft": false, "prerelease": true,
 		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/md-drums-v0.1.10"},
 		{"tag_name": "module-v0.1.11", "draft": false, "prerelease": true,
-		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/module-v0.1.11"},
+		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/module-v0.1.11",
+		 "assets": [
+			{"name": "MoDule-0.1.11-Windows-x64.zip",
+			 "browser_download_url": "https://github.com/c0remusic/MModule/releases/download/module-v0.1.11/MoDule-0.1.11-Windows-x64.zip"},
+			{"name": "MoDule-0.1.11-setup.exe",
+			 "browser_download_url": "https://github.com/c0remusic/MModule/releases/download/module-v0.1.11/MoDule-0.1.11-setup.exe"}]},
+		{"tag_name": "md-drums-v0.1.8", "draft": false,
+		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/md-drums-v0.1.8",
+		 "assets": [{"name": "evil-setup.exe", "browser_download_url": "https://example.com/evil-setup.exe"}]},
 		{"tag_name": "md-drums-v0.1.9", "draft": false, "prerelease": false,
 		 "html_url": "https://github.com/c0remusic/MModule/releases/tag/md-drums-v0.1.9"},
 		{"tag_name": "md-drums-v0.3.0", "draft": true,
@@ -51,7 +61,17 @@ int main()
 		std::printf("newest in the list: %s at %s\n", newest->version.c_str(), newest->url.c_str());
 		require(newest->version == "0.1.11"
 			&& newest->url == "https://github.com/c0remusic/MModule/releases/tag/module-v0.1.11",
-			"the newest is not module-v0.1.11, past md-drums-v0.1.10, a draft, another product's tag and markup");
+			"the newest is not module-v0.1.11, past md-drums-v0.1.10, the pointer md-drums-v0.1.11 listed before it, a"
+			" draft, another product's tag and markup");
+		std::printf("its installer: %s\n", newest->installer.c_str());
+		require(newest->installer
+			== "https://github.com/c0remusic/MModule/releases/download/module-v0.1.11/MoDule-0.1.11-setup.exe",
+			"the newest release's installer is not its -setup.exe");
+		// An installer anywhere but the repository's releases is no installer
+		const auto other = mdDrums::updates::newest(juce::JSON::parse(R"([{"tag_name": "module-v0.2.0", "draft": false,
+			"html_url": "https://github.com/c0remusic/MModule/releases/tag/module-v0.2.0",
+			"assets": [{"name": "MoDule-0.2.0-setup.exe", "browser_download_url": "https://example.com/MoDule-0.2.0-setup.exe"}]}])"));
+		require(other && other->installer.empty(), "an installer outside the repository's releases was taken");
 
 		require(!mdDrums::updates::newest(juce::JSON::parse("[]")).has_value(), "an empty list gave a release");
 		require(!mdDrums::updates::newest(juce::JSON::parse("{\"message\": \"API rate limit exceeded\"}")).has_value(),

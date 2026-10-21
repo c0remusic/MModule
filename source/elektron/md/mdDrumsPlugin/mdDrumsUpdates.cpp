@@ -12,6 +12,8 @@ namespace mdDrums::updates
 	{
 		// The repository's release list, which the check reads
 		constexpr const char* g_listUrl = "https://api.github.com/repos/c0remusic/MModule/releases?per_page=30";
+		// Where an installer may come from: this repository's releases, nowhere the list could point otherwise
+		constexpr const char* g_downloadUrl = "https://github.com/c0remusic/MModule/releases/download/";
 		// MoDule's tags, then MD Drums' before the name changed (0.1.1 and earlier)
 		constexpr std::array<std::string_view, 2> g_tagPrefixes{"module-v", "md-drums-v"};
 
@@ -97,8 +99,18 @@ namespace mdDrums::updates
 			const auto version = tag.substr(prefix->size());
 			if(!isVersion(version))
 				continue;
-			if(!best || compare(version, best->version) > 0)
-				best = Release{version, entry["html_url"].toString().toStdString()};
+			Release release{version, entry["html_url"].toString().toStdString(), {}};
+			if(const auto* assets = entry["assets"].getArray())
+				for(const auto& asset : *assets)
+				{
+					const auto url = asset["browser_download_url"].toString();
+					if(asset["name"].toString().endsWith("-setup.exe") && url.startsWith(g_downloadUrl))
+						release.installer = url.toStdString();
+				}
+			// Of two releases of one version (md-drums-vX.Y.Z pointing 0.1.1 to module-vX.Y.Z), the one with the installer
+			const auto order = best ? compare(version, best->version) : 1;
+			if(order > 0 || (order == 0 && best->installer.empty() && !release.installer.empty()))
+				best = std::move(release);
 		}
 		return best;
 	}
