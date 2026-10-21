@@ -10,7 +10,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 endif()
 
 add_library(stEngine STATIC stEmac.h stVoice.h stVoice.cpp stStages.h stStages.cpp stBdModern.h stBdModern.cpp
-	stEngine.h stEngine.cpp)
+	stEngine.h stEngine.cpp stBoot.h stBoot.cpp)
 target_include_directories(stEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(TARGET stEngine PROPERTY FOLDER "Elektron/syntakt")
 
@@ -21,4 +21,9 @@ if(BUILD_TESTING)
 	set_property(TARGET stEngineOracleTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stEngineOracleTest COMMAND stEngineOracleTest)
 	set_tests_properties(stEngineOracleTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# A machine rendered from the port alone into a WAV, by hand (stRender SECTION7 OUT.wav MACHINE NOTE SECONDS)
+	add_executable(stRender stRender.cpp)
+	target_link_libraries(stRender PRIVATE stEngine)
+	set_property(TARGET stRender PROPERTY FOLDER "Elektron/test")
 endif()

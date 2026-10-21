@@ -131,9 +131,18 @@ reads its constant tables from the user's section 7 (`Rom`).
   phaseIncrements48k (2596), feedbackOscillator (35de), pmOscillator (290e). `stVoice.*`: initVoice (3ee0),
   restartPhases (255e), drawRandom (3eb4). `stBdModern.*`: update (6968), render (6c9e), click (4ee6), sum (46dc).
   `stEngine.*`: renderVoices (4324).
-- Not ported yet: the boot's RAM tables (the sine at 0x80004b70 and the exp2 table at 0x8000a888, which the tests take
-  from the original's SRAM), the audio ISR's scatter of CPU #1's block, CPU #1's side (parameters, per-track filter,
-  sends), the other eleven engines.
+- `stBoot.*`: the boot as the voices need it (0x40000fd6): SRAM's initialized data copied from section 7, the RAM
+  sine at 0x80004b70 and the exp2 table at 0x8000a888 among it (copied, not computed), then each voice's history
+  pointer and init with the noise generator seeded anew (0x40002544); the audio interrupt's first part (0x40000934):
+  CPU #1's 0x1b0-byte block spread into the per-track parameters, the trig and gate-off bits, the voices rendered.
+  Measured 2026-10-22: the port's SRAM after boot equals the original's, 0 of 16,384 words differing.
+- `stRender SECTION7 OUT.wav MACHINE NOTE SECONDS`: a machine rendered from the port alone, the scenario of
+  `cli.py render`. BD MODERN at note 60 for 0.5 s equals the original's engine output, captured at the same point
+  (`tools/engine_out.py`, after 0x40004324 returns), sample for sample: 24,000 samples, 0 differing, peak -2.4 dBFS.
+  2 s of the eight voices' dispatch, the boot included, render in 0.13 s.
+- Not ported yet: the interrupt's per-track stages after the voices (0x4000112c, 0x40002320, 0x400019d6 per track,
+  0x4000168e: the track filter and amp, whose output `cli.py render` writes), CPU #1's side (parameters, sends,
+  mix), the other eleven engines.
 
 `stEngineOracleTest` checks it: `SYNTAKT_SECTION7` names the user's section 7, `SYNTAKT_VECTORS` vector files recorded
 from the original code (exit 77 without them). Tools in `tools/`, run with Python and Unicorn 2.1.4 over SyntHack OS's
