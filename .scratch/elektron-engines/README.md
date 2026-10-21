@@ -72,6 +72,29 @@ real-time question moves to the SHARC core's speed (elektron-emu compiles the Di
   `.dnsnd`: `vendor/elektron_object.py`, LZ4) and of the +Drive's file listing over USB (`vendor/stfiles.py`, taken from
   a "digikit-syntakt-review" tree: digikit's author seems to work on the Syntakt too).
 
+## SyntHack OS (karigardarsson/Synthack-OS): the Syntakt's voice engine alone, MIT
+
+MIT, Syntakt OS 1.41, seven mods running on hardware. Its `docs/audio-path.md` is the map MoDule needs:
+
+- CPU #2 (section 7) is the voice engine alone: main `0x40000DB4`, all work in the audio interrupt `0x40000934`
+  (vector 96). Per block of 32 frames at 48 kHz it copies `0x1B0` bytes of parameters from shared RAM, renders the
+  **8 digital voices** with `0x40004324` and sends 8 x 32 int32 back by eDMA channel 47. **No mixing on CPU #2**: each
+  track's audio exists alone, at `0x80003D50` on CPU #1 (8 x 128 B).
+- 12 engines, tables at `0x400148F0` (render), `0x40014920` (update), `0x40014950` (machine id to engine): BD MODERN,
+  SD BASIC, CY ALLOY, PC CARBON, SY TONE, SY CHORD, SD VINTAGE, CP VINTAGE, SY TOY, SY BITS, SY SWARM, SP TWINSHOT.
+- The digital tracks' filter and amp run on CPU #2; their cutoff is computed on CPU #1 (`0x400956BC`). Delay
+  (`0x40096890`) and reverb (`0x40096E3C`) run on CPU #1, the same code as the Digitakt MK1's. Per-track parameters:
+  `0x800021B0 + 142 t`, word offset 28 + 2 x internal id. The final mix is analog (DACs into the analog mixer).
+- Its emulator (`tools/emu`, Unicorn plus an EMAC model in Python) boots section 7 alone with a simulated CPU #1
+  handshake and renders one engine to a WAV: `cli.py render --machine 5 --note 60`. That is a Syntakt voice without
+  its OS, but ~400x slower than real time (EMAC in Python).
+
+What it changes: the Syntakt moves first. MoDule's cut exists there by design (section 7 renders voices, CPU #1 mixes),
+and a voice already renders alone. What is left: a fast ColdFire with exact signed fractional EMAC in C (stock Unicorn
+gets it wrong; elektron-emu's patches do it but carry no license), CPU #1's per-track work in C++ (cutoff, sends),
+delay and reverb (CPU #1 code, to run or port), and the analog part (tracks 9-12, the analog mixer) to model.
+CPU estimate from elektron-emu's split: the DSP CPU 0.51 s of 3 s emulated, about 17 % of a core for 8 voices.
+
 ## CPU (elektron-emu's own figures)
 
 - Syntakt: 0.83 s of wall time per emulated second on an M3 Pro, "100 % paced" live; MAIN 62-68 M instr/s.
@@ -81,7 +104,10 @@ A full OS per machine therefore costs most of a core; a piecewise engine is what
 
 ## First ticket proposed
 
-Model:Cycles, one Track alone: find the voice routine and the buffer one Track writes before the mix (from the output
+Since SyntHack OS: the Syntakt's section 7 alone in C++ on a ColdFire core with exact EMAC, one engine rendering the same
+samples as SyntHack's emulator for the same parameter block, its CPU measured. Needs Syntakt OS 1.41 (SHA-256 above).
+
+Before it, Model:Cycles, one Track alone: find the voice routine and the buffer one Track writes before the mix (from the output
 stage backwards), run the OS once to a known Kit, then call that routine without the OS's scheduler and compare its
 samples with the full OS's, as `mdEngineFirmwareTest` does for the Machinedrum. Done when one Machine of one Track
 renders the same samples alone, with its CPU measured.
