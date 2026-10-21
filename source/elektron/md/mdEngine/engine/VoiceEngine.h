@@ -61,6 +61,13 @@ namespace md::engine
 		void installUserMachine(int _index, std::shared_ptr<const md::mds::Package> _package);
 		void removeUserMachine(int _index);
 
+		// md-drums: MDX X.20's built-in Machines (x20::Machine) from the user's X.20 OS, _voice its voice DSP program
+		// (fw::parseX20Os): its words at P:$13b600-$13bece and $147600-$147c00, which nothing of OS 1.63, the User
+		// Machines or the Samples reaches, then the INIT, TRIG and RENDER of each Machine in _ids (a bit per Machine id)
+		// from X.20's dispatch tables; the others keep OS 1.63's entries (research/01 of the map of X.20's built-in
+		// Machines). None to take them all back. reset() keeps them.
+		void installBuiltins(std::shared_ptr<const fw::DspImage> _voice, uint32_t _ids);
+
 		// md-drums: the Tracks (0-15) a NEIGHBOUR machine on _track hears as one, two, three and four back, by default the
 		// four before it (wrapping to the block before past Track 1); a source rendered after _track gives its block
 		// before (research/14 of the User Machines map). _track itself, or none, takes the default. Between blocks only,
@@ -88,6 +95,7 @@ namespace md::engine
 		void writeSources(int _track);	// a Track's descriptor and fourth source
 		void extendDispatch();
 		void writeUserMachine(int _index);
+		void writeBuiltins();
 		// md-drums: the Tracks whose voice runs User Machine _index's code made silent until their next Hit
 		void forgetUserMachine(int _index);
 		bool runUntilTx(size_t _words, uint64_t _maxInstructions);
@@ -101,6 +109,8 @@ namespace md::engine
 		std::unique_ptr<dsp56k::DSP> m_dsp;
 		std::string m_fault;
 		std::array<std::shared_ptr<const md::mds::Package>, kUserMachines> m_userMachines{};
+		std::shared_ptr<const fw::DspImage> m_x20Voice;
+		uint32_t m_x20Builtins = 0;
 		std::array<Sources, kTracks> m_sources = []
 		{
 			std::array<Sources, kTracks> sources{};

@@ -77,6 +77,14 @@ namespace md::engine
 				m_raw[_track][p] = package && p < package->parameters.size() ? package->parameters[p].defaultValue : 0;
 			return;
 		}
+		if(playsX20(_machineId))
+		{
+			// md-drums: an X.20 built-in's defaults, from X.20's Machine table (x20::info)
+			m_pendingMachine[_track] = _machineId;
+			for(size_t p = 0; p < 8; ++p)
+				m_raw[_track][p] = x20::info(_machineId).defaults[p];
+			return;
+		}
 		const auto* m = m_os.machine(_machineId);
 		if(!m) return;
 		m_pendingMachine[_track] = _machineId;
@@ -546,7 +554,16 @@ namespace md::engine
 			return;
 		}
 		const auto id = m_machine[_track];
-		if(isUserMachine(id))
+		if(playsX20(id))
+		{
+			// md-drums: an X.20 built-in's words from its ported coefficient routine (x20::compute), on the voice's array
+			// after the smoothing and the LFOs, in the DEFAULT tuning mode; word 0 the trigger flag, the type id + 1
+			uint32_t out[11] = {};
+			const int n = x20::compute(id, voiceParams(_track), 0, m_decay, kX20Tempo24, out + 1);
+			out[0] = m_trigger[_track] || m_started[_track] ? static_cast<uint32_t>(id) + 1 : 0;
+			m_voices.setSlot(_track, out, n + 1);
+		}
+		else if(isUserMachine(id))
 		{
 			// md-drums: a User Machine's words are its eight parameters, converted as its package says, from the voice's
 			// array after the smoothing and the LFOs (a setting between two steps falls between their words, as MDS allows);

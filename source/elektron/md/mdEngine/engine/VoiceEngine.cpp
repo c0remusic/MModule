@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <utility>
 #include <cstdio>
 #include <cstdlib>
@@ -421,6 +422,54 @@ namespace md::engine
 		m_dsp->memWriteP(kExtRender + type, base + package.renderOffset);
 	}
 
+	void VoiceEngine::installBuiltins(std::shared_ptr<const fw::DspImage> _voice, const uint32_t _ids)
+	{
+		m_x20Voice = std::move(_voice);
+		m_x20Builtins = m_x20Voice ? _ids : 0;
+		// A Machine taken back plays OS 1.63's entries again, as extendDispatch copied them
+		for(TWord type = 1; type < 32; ++type)
+		{
+			m_dsp->memWriteP(kExtInit + type, readP(kDispatchInit + type));
+			m_dsp->memWriteP(kExtTrig + type, readP(kDispatchTrig + type));
+			m_dsp->memWriteP(kExtRender + type, readP(kDispatchRender + type));
+		}
+		writeBuiltins();
+	}
+
+	void VoiceEngine::writeBuiltins()
+	{
+		if(!m_x20Voice || !m_x20Builtins)
+			return;
+		// X.20's code where X.20 has it: its built-ins' code and the table they read (research/01 of the map of X.20's
+		// built-in Machines), through memWriteP so that the JIT forgets what it compiled there
+		constexpr std::array<std::pair<TWord, TWord>, 2> regions{{{0x13b600, 0x13bece}, {0x147600, 0x147c00}}};
+		const auto find = [&](const TWord _addr) -> std::optional<TWord>
+		{
+			for(const auto& r : m_x20Voice->records)
+				if(r.space == fw::Space::P && _addr >= r.addr && _addr < r.addr + r.words.size())
+					return r.words[_addr - r.addr] & 0xffffff;
+			return std::nullopt;
+		};
+		for(const auto& [first, last] : regions)
+			for(TWord a = first; a <= last; ++a)
+				if(const auto w = find(a))
+					m_dsp->memWriteP(a, *w);
+		// Each Machine's three entries from X.20's own copies of OS 1.63's tables, at its type (id + 1)
+		for(TWord id = 0; id < 32; ++id)
+		{
+			if(!((m_x20Builtins >> id) & 1))
+				continue;
+			const auto type = id + 1;
+			const auto init = find(kDispatchInit + type), trig = find(kDispatchTrig + type),
+				render = find(kDispatchRender + type);
+			if(!init || !trig || !render)
+				throw std::runtime_error("voice DSP: X.20's program lacks Machine " + std::to_string(id) + "'s entries");
+			m_dsp->memWriteP(kExtInit + type, *init);
+			m_dsp->memWriteP(kExtTrig + type, *trig);
+			m_dsp->memWriteP(kExtRender + type, *render);
+		}
+	}
+
 	void VoiceEngine::writeP(const uint32_t _addr, const uint32_t* _words, const size_t _count)
 	{
 		for(size_t i = 0; i < _count && _addr + i < m_mem->sizeP(); ++i)
@@ -442,6 +491,7 @@ namespace md::engine
 		for(int i = 0; i < kUserMachines; ++i)
 			if(m_userMachines[static_cast<size_t>(i)])
 				writeUserMachine(i);
+		writeBuiltins();
 		for(int i = 0; i < 4; ++i)
 			m_periphX->write(0xfffff9 - static_cast<TWord>(i), kAar[i]);
 		m_dsp->regs().omr.var = kOmr;

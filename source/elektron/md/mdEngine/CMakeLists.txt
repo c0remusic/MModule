@@ -13,6 +13,7 @@ add_library(mdEngine STATIC
 	engine/Mixer.cpp engine/Mixer.h
 	engine/TrackFx.cpp engine/TrackFx.h
 	engine/VoiceEngine.cpp engine/VoiceEngine.h
+	engine/X20Builtins.cpp engine/X20Builtins.h
 	tools/mdfw/Firmware.cpp tools/mdfw/Firmware.h
 	tools/mdfw/Lzma.cpp tools/mdfw/Lzma.h
 	tools/mdfw/X20Os.cpp tools/mdfw/X20Os.h

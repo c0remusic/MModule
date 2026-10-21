@@ -128,6 +128,40 @@ namespace md::engine
 			m_host->setUserMachine(_index, nullptr);
 		}
 
+		// md-drums: MDX X.20's built-in Machines in _ids (a bit per x20::Machine id) from the user's X.20 OS, _voice its
+		// voice DSP program (fw::parseX20Os): their code into the voice DSP, the host model computing their words, then
+		// compiled as warmUpVoices compiles the others (a Hit at its defaults on the voice DSP alone, which then gets its
+		// memory and registers back). Never while render runs. None, or no id, takes them back.
+		void installX20Builtins(std::shared_ptr<const fw::DspImage> _voice, const uint32_t _ids, const int _blocks = 4)
+		{
+			const uint32_t ids = _voice ? _ids : 0;
+			m_voices->installBuiltins(std::move(_voice), ids);
+			m_host->setX20Builtins(ids);
+			const auto state = m_voices->saveState();
+			typename TVoices::Block block;
+			bool ok = true;
+			for(uint8_t id = 0; id < 32 && ok; ++id)
+			{
+				if(!((ids >> id) & 1) || !x20::isBuiltin(id))
+					continue;
+				std::array<uint16_t, 8> params{};
+				for(size_t p = 0; p < 8; ++p)
+					params[p] = static_cast<uint16_t>(x20::info(id).defaults[p] << 7);
+				for(int b = 0; b < _blocks && ok; ++b)
+				{
+					uint32_t words[11] = {};
+					const int n = x20::compute(id, params.data(), 0, m_host->decayTable(), HostModel<TVoices>::kX20Tempo24,
+						words + 1);
+					words[0] = b == 0 ? static_cast<uint32_t>(id) + 1 : 0;
+					m_voices->setSlot(0, words, n + 1);
+					ok = m_voices->renderBlock(block);
+				}
+			}
+			m_voices->restoreState(*state);
+			if(!ok)
+				throw std::runtime_error("voice DSP fault while compiling X.20's built-in Machines");
+		}
+
 		// md-drums: each voice's 32 samples of the last block, before its Track's effects (for the tests)
 		const typename TVoices::Block& voiceBlock() const { return m_voiceOut; }
 

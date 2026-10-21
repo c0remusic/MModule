@@ -17,6 +17,7 @@
 #include "MachineRunner.h"
 #include "MdsPackage.h"
 #include "VoiceEngine.h"
+#include "X20Builtins.h"
 
 namespace md::engine
 {
@@ -46,6 +47,11 @@ namespace md::engine
 		// conversions that turn its eight parameters into the words its code reads at Y:(R6+1..8). The voice DSP holds the
 		// code (VoiceEngine::installUserMachine).
 		void setUserMachine(int _index, std::shared_ptr<const md::mds::Package> _package);
+		// md-drums: the built-in Machines of MDX X.20 this model plays (a bit per x20::Machine id, the voice DSP holding
+		// their code: VoiceEngine::installBuiltins), their defaults and words from x20::info and x20::compute
+		void setX20Builtins(const uint32_t _ids) { m_x20Builtins = _ids; }
+		bool playsX20(const uint8_t _id) const { return x20::isBuiltin(_id) && ((m_x20Builtins >> _id) & 1); }
+		static constexpr uint32_t kX20Tempo24 = 125 * 24;	// NFX-EV's tempo until the host's reaches it
 		// md-drums: OS 1.63's decay table, which a User Machine's Decay parameters read, as the OS image holds it
 		const md::mds::DecayTable& decayTable() const { return m_decay; }
 		void setParam(int _track, int _param, int _value);	// 0-127, smoothed like the MD
@@ -247,6 +253,7 @@ namespace md::engine
 		bool m_masterPending = false;
 		std::array<std::shared_ptr<const md::mds::Package>, 16> m_userMachines{};
 		md::mds::DecayTable m_decay{};
+		uint32_t m_x20Builtins = 0;
 
 		// md-drums: locks (bit n = parameter n) waiting for a Hit in the block about to render, and those the track's
 		// last Hit plays; the smoothing target is the lock's value on a locked parameter, the Kit's elsewhere

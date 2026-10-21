@@ -66,6 +66,9 @@ if(BUILD_TESTING)
 	# The reader of MDX X.20's OS file: its LZMA decoder, refusals, and the user's own file where MD_X20_OS names it
 	add_md_drums_test(mdX20OsTest "FirmwareTest" 60)
 
+	# X.20's built-in Machines on the engine from the user's X.20 OS (MD_X20_OS): GND-SW sounds, the others unchanged
+	add_md_drums_test(mdX20BuiltinsTest "FirmwareTest;AudioIo" 180)
+
 	# Measurement, not a gate: what a second engine costs the Hit screen and the browser's preview (ticket 12)
 	add_md_drums_executable(mdDrumsPreviewTest)
 endif()
