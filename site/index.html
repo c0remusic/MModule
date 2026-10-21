@@ -157,7 +157,7 @@
 				with the voice DSP playing the 16 tracks and the mixer DSP the master effects. Your DAW sends the notes and
 				can automate any of the 608 parameters, while one window edits the whole Kit the way Overbridge does.</p>
 			<div class="get">
-				<a class="button" id="get" href="#download">Download for Windows or macOS</a>
+				<a class="button" href="#download">Download</a>
 				<a class="button quiet" href="https://github.com/c0remusic/MModule">Read the source</a>
 			</div>
 			<p class="need">You'll need your own Machinedrum UW firmware, the 8 MB flash image with OS 1.63; it doesn't
@@ -368,17 +368,6 @@ xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/MoDule.compon
 			add("windows", /Windows.*\.zip$/i, "Download the zip", !setup);
 			const pkg = add("macos", /macOS.*\.pkg$/i, "Download the installer", true);
 			add("macos", /macOS.*\.zip$/i, "Download the zip", !pkg);
-			// The hero's button: straight to this reader's file, the other system's below
-			const mac = /Mac/i.test(navigator.platform || navigator.userAgent);
-			const windows = /Win/i.test(navigator.platform || navigator.userAgent);
-			const mine = mac ? release.assets.find(a => /macOS.*\.pkg$/i.test(a.name))
-				: windows ? release.assets.find(a => /Windows.*setup\.exe$/i.test(a.name))
-					|| release.assets.find(a => /Windows.*\.zip$/i.test(a.name)) : null;
-			if (mine) {
-				const get = document.getElementById("get");
-				get.href = mine.browser_download_url;
-				get.textContent = "Download " + version + " for " + (mac ? "macOS" : "Windows");
-			}
 			const date = new Date(release.published_at).toLocaleDateString("en-GB",
 				{ year: "numeric", month: "long", day: "numeric" });
 			const note = document.getElementById("release-note");
