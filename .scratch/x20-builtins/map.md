@@ -20,6 +20,9 @@ demande de l'utilisateur.
     (une entrée du Menu, un lâcher sur la fenêtre, une copie dans le dossier de données) ; jamais dans le dépôt, une
     release ou un test commité ; sans lui, MoDule reste tel qu'aujourd'hui et les 6 restent cachées ;
   - GND-SN-PRO prend le numéro 1 comme sous X.20 : avec l'OS X.20 chargé, un Kit qui joue GND-SN joue GND-SN-PRO ;
+  - les routines 68k des 6 portées en C++ (choix de l'utilisateur du 2026-10-21, « portage C++ ») : les formules et
+    une trentaine de constantes d'X.20 dans le dépôt, comme `md::mds::convertFine`, aucun octet ni table de l'OS ;
+    testées contre les routines d'X.20 dans un 68k, sur `MD_X20_OS` ;
   - la référence du son : le code d'X.20 et l'oreille de l'utilisateur, X.20 ne bootant pas dans mdLib (research 02
     de la carte des Machines utilisateur).
 - Point de départ : `.scratch/user-machines/research/01-decoding-x20.md` (le fichier OS, ses quatre charges, le code
@@ -36,6 +39,14 @@ demande de l'utilisateur.
 
 ## Decisions so far
 
+- [Le code DSP des 6 dans le programme des voix que MoDule fait tourner](issues/01-code-dsp-des-6.md) : à ses
+  adresses d'X.20, libres ; 18 entrées réécrites après chaque `reset()` ; les NFX lisent le descripteur de MoDule ;
+  NFX-UC attend MACRI dans l'émulateur.
+- [Lire l'OS X.20 que l'utilisateur donne](issues/03-lire-l-os-x20.md) : `md::fw::parseX20Os` et un décodeur
+  LZMA1 ; les quatre charges vérifiées ; `mdX20OsTest` au garde-fou, le fichier de l'utilisateur par `MD_X20_OS`.
+- [Les routines 68k des 6 : les appeler ou les porter](issues/02-routines-68k-des-6.md) : petites, sans rien du
+  boot d'X.20, tables calculables ; un portage C++ bit pour bit (vérifié en Python, 0 différence) recommandé.
+
 ## Not yet specified
 
 - Ce que voit l'utilisateur : où il charge l'OS X.20 (Menu, lâcher, ligne d'état), un OS refusé, une autre version
@@ -43,7 +54,7 @@ demande de l'utilisateur.
 - Le navigateur : où vont GND-SW, GND-PU (famille GND) et les trois NFX, leurs noms, et GND-SN-PRO à la place de
   GND-SN.
 - Un set ou un Kit qui joue une des 6, ouvert sans l'OS X.20 : silence, GND-SN au lieu de PRO, la ligne d'état ?
-- Les NFX : le menu « hears » des NEIGHBOUR leur sert-il tel quel ; leur délai (une Track avant) et leur aperçu.
+- Les NFX : leur délai (une Track avant) et leur aperçu, le menu « hears » servant tel quel (research/01).
 - Le reste de la plomberie : les noms et défauts de leurs paramètres (Kit, MoDule Seq, Push), l'aperçu du Hit, la
   chauffe du JIT, ANTI-CLICK (X.20 adoucit-il les 6 ?).
 

@@ -1,8 +1,8 @@
 # Les routines 68k des 6 : les appeler ou les porter
 
 Type: research
-Status: open
-Assignee:
+Status: resolved
+Assignee: c0remusic (session du 2026-10-21)
 Blocked by:
 
 ## Question
@@ -21,3 +21,14 @@ adresses de la table du §9), qui lisent des tables RAM (`$2cdb00`, `$2cdc6c`) e
 
 Un document `research/02-routines-68k-des-6.md`, marques [V] [M] [I], avec une recommandation. Rien de commité depuis
 l'OS X.20 ; les sondes lisent `MD_X20_OS`.
+
+## Answer
+
+[research/02](../research/02-routines-68k-des-6.md) : les six routines sont petites et ne demandent rien au boot
+d'X.20. Elles lisent les 8 mots de la Track, le mode d'accordage (contexte `+$8c`) et la table de decay de 1.63
+(`+$90`, que `HostModel` lit déjà). `$2cdb00` est la base de trois tables d'accordage, calculables depuis le seul
+réglage TUNING ; `$2cdc6c` est le tempo fois 24 (NFX-EV seule). Un portage Python est bit pour bit avec les routines
+d'X.20 lancées dans Musashi : 0 différence sur 120 576 appels. Voie (a), un second 68k sur l'OS X.20 : environ 1 Mo par
+moteur, une séquence de chargement propre, une quinzaine d'adresses d'X.20 B, 1,5 à 2 jours ; voie (b), un portage C++
+testé contre la routine d'X.20 sur `MD_X20_OS` : environ 1,5 jour. Recommandation : (b). Noms et défauts des 8
+paramètres de chacune dans le document.

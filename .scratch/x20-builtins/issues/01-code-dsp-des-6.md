@@ -1,8 +1,8 @@
 # Le code DSP des 6 dans le programme des voix que MoDule fait tourner
 
 Type: research
-Status: open
-Assignee:
+Status: resolved
+Assignee: c0remusic (session du 2026-10-21)
 Blocked by:
 
 ## Question
@@ -22,3 +22,16 @@ B, entrées INIT, TRIG, RENDER des numéros 1, 4, 5, 7, 8, 9) y tourne :
 
 Un document `research/01-code-dsp-des-6.md` avec les marques [V] [M] [I] de la carte des Machines utilisateur et une
 recommandation. Rien de construit ni de commité depuis l'OS X.20 ; les sondes lisent `MD_X20_OS`.
+
+## Answer
+
+[research/01](../research/01-code-dsp-des-6.md) : la place est libre. Les 3 792 mots visés lisent 0 dans un moteur
+neuf, et rien de 1.63, des P-I, des Machines utilisateur ni des Samples ne les touche : le code reste à ses adresses
+d'X.20 (P:`$13b600-$13bece` et la table `$147600-$147c00`), sans relocation. Ses 18 entrées vont dans les tables
+étendues, que `extendDispatch` recopie à chaque `reset()` : un seul propriétaire dans `VoiceEngine` les réécrit après
+lui, comme les Machines utilisateur. GND-SN-PRO lit la table sinus de X:`$148000` que 1.63 construit ; les trois NFX ne
+lisent que les mots 1 et 2 du descripteur de Y:`$7F0`, celui que MoDule écrit déjà, et entendent sous X.20 les Tracks
+t-1 et t-2, les sources par défaut de MoDule : le menu « hears » sert tel quel. Aucun crochet de boucle d'X.20.
+Bloquant pour NFX-UC : l'émulateur n'a pas l'instruction MACRI (ni JIT ni interpréteur) ; réécrite en MACI + RND dans la
+sonde, elle sonne. Coût : 666 à ~4 700 cycles par voix ; sans chauffe, le premier Hit de GND-SW coûte 28 ms dans un
+bloc ; chauffer les 6 prend 48,6 ms.

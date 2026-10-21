@@ -14,6 +14,8 @@ add_library(mdEngine STATIC
 	engine/TrackFx.cpp engine/TrackFx.h
 	engine/VoiceEngine.cpp engine/VoiceEngine.h
 	tools/mdfw/Firmware.cpp tools/mdfw/Firmware.h
+	tools/mdfw/Lzma.cpp tools/mdfw/Lzma.h
+	tools/mdfw/X20Os.cpp tools/mdfw/X20Os.h
 	tools/mds/MdsHost.cpp tools/mds/MdsHost.h
 	tools/mds/MdsPackage.cpp tools/mds/MdsPackage.h
 )

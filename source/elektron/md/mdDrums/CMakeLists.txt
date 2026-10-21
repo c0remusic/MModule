@@ -63,6 +63,9 @@ if(BUILD_TESTING)
 	# machines were compiled ahead (ticket 31): the times are printed, the two engines' samples must be the same
 	add_md_drums_test(mdDrumsFirstHitTest "FirmwareTest" 120)
 
+	# The reader of MDX X.20's OS file: its LZMA decoder, refusals, and the user's own file where MD_X20_OS names it
+	add_md_drums_test(mdX20OsTest "FirmwareTest" 60)
+
 	# Measurement, not a gate: what a second engine costs the Hit screen and the browser's preview (ticket 12)
 	add_md_drums_executable(mdDrumsPreviewTest)
 endif()
