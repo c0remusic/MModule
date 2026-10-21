@@ -160,6 +160,32 @@ int main()
 			&& without.raw.host().machine(0) != md::engine::x20::GndSw,
 			"GND-SW is silent, or OS 1.63 took a machine 4");
 
+		// NFX-UC (ticket 05: MACRI, which the emulator lacked, silenced it) on Track 2 hears GND-SW on Track 1, its
+		// default source one back
+		{
+			md::engine::Engine raw(os.firmware, os.osImage);
+			raw.loadRomBank(bank);
+			mdDrums::applyEngineDefaults(raw.host());
+			raw.installX20Builtins(voice, 1u << md::engine::x20::GndSw | 1u << md::engine::x20::NfxUc);
+			raw.host().setMachine(0, md::engine::x20::GndSw);
+			raw.host().setMachine(1, md::engine::x20::NfxUc);
+			md::engine::Engine::Output out;
+			double peak = 0.0;
+			for(int b = 0; b < 300; ++b)
+			{
+				if(b == 1)
+				{
+					raw.host().trigger(0, 127);
+					raw.host().trigger(1, 127);
+				}
+				require(raw.render(out), "the engine faulted with NFX-UC");
+				for(const auto s : raw.voiceBlock()[1])
+					peak = std::max(peak, std::abs(s / 8388608.0));
+			}
+			std::printf("NFX-UC on Track 2, hearing GND-SW on Track 1: peak %.3f\n", peak);
+			require(peak > 0.01, "NFX-UC is silent");
+		}
+
 		othersUnchanged(os, bank, voice);
 
 		if(const auto* wav = std::getenv("MD_X20_WAV"); wav && *wav)

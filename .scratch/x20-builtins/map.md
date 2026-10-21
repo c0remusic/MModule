@@ -44,6 +44,8 @@ demande de l'utilisateur.
   NFX-UC attend MACRI dans l'émulateur.
 - [Premier son : GND-SW sur une Track](issues/04-premier-son-gnd-sw.md) : joué dans le moteur depuis l'OS X.20 ; à
   l'oreille, « ça semble ok » ; les 5 autres de la même façon.
+- [MACRI dans l'émulateur DSP56300](issues/05-macri.md) : dans le fork (77ebd463), sous le JIT et l'interpréteur ;
+  NFX-UC sonne.
 - [Le portage C++ contre les routines d'X.20 dans un 68k](issues/07-portage-contre-le-68k.md) : `mdX20PortTest`,
   72 576 appels, 0 différence.
 - [Lire l'OS X.20 que l'utilisateur donne](issues/03-lire-l-os-x20.md) : `md::fw::parseX20Os` et un décodeur
