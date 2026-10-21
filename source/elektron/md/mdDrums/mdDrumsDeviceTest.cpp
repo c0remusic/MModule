@@ -1041,8 +1041,28 @@ namespace
 				"a device silent for ForgetMs kept its file, or the other lost its own");
 		}
 		require(!std::filesystem::exists(folder.path() / "fedcba.kit"), "a file stayed after the object went");
+
+		// A device moved to another instance (MoDule Seq's report of 2026-10-21): the new one writes its file at the
+		// hello; the old one, silent for ForgetMs, deletes it; the new one writes it again at its next step
+		{
+			KitFiles old(folder.path()), moved(folder.path());
+			const auto c = old.file(0x123456);
+			old.hello(0x123456, 0.0);
+			old.step(KitFiles::text(kit), 0.0);
+			auto movedKit = kit;
+			movedKit.setName("MOVED");
+			const auto movedText = KitFiles::text(movedKit);
+			moved.hello(0x123456, 1000.0);
+			moved.step(movedText, 1000.0);
+			old.step(KitFiles::text(kit), 15100.0);
+			require(!std::filesystem::exists(c) && old.devices() == 0, "the old instance kept the device that moved");
+			moved.hello(0x123456, 15100.0);
+			moved.step(movedText, 15250.0);
+			require(std::filesystem::exists(c) && readFile<std::string>(c) == movedText,
+				"a file another instance deleted was not written again");
+		}
 		std::printf("kit files: written at once, a change at the next step, forgotten after %.0f s, gone with the"
-			" object\n", KitFiles::ForgetMs / 1000.0);
+			" object, written again when another instance deleted it\n", KitFiles::ForgetMs / 1000.0);
 	}
 
 	// Notes and CCs, inline SysEx included, on a prepared Plugin: no heap allocation

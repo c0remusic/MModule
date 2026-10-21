@@ -110,8 +110,10 @@ namespace mdDrums
 				it = m_devices.erase(it);
 				continue;
 			}
-			// A file the device holds open stays as it was until a later step
-			if(device.written != _text && write(it->first, _text))
+			// A file the device holds open stays as it was until a later step; one another instance deleted (the device
+			// moved here from it) is written again
+			std::error_code error;
+			if((device.written != _text || !std::filesystem::exists(file(it->first), error)) && write(it->first, _text))
 				device.written = _text;
 			++it;
 		}
