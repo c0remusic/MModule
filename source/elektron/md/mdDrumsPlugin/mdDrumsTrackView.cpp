@@ -194,31 +194,27 @@ namespace mdDrums
 		// instance
 		if(m_overlay != Overlay::Browser || !_frame.every(m_userCellsNextMs, 4))
 			return false;
-		// The browser's USR-01 to USR-16 lit where this instance holds a User Machine (ticket 25 of the User Machines
-		// map), ROM-33 to ROM-48 where it plays a user's Sample or the sample library holds one (ticket 18): bit n USR
-		// n + 1, bit 16 + n ROM 33 + n
+		// The browser's ROM-33 to ROM-48 lit where this instance plays a user's Sample or the sample library holds one
+		// (ticket 18 of the User Machines map): bit n ROM 33 + n
 		auto& processor = m_editor.processor();
 		const auto* samples = processor.getSampleLibrary();
 		const auto played = processor.samples();
 		uint32_t filled = 0;
 		for(int i = 0; i < 16; ++i)
 		{
-			if(processor.userMachine(i))
-				filled |= 1u << i;
 			const auto rom = 32 + i;
 			if(played[static_cast<size_t>(rom)] || (samples && samples->get(rom)))
-				filled |= 1u << (16 + i);
+				filled |= 1u << i;
 		}
 		if(filled == m_userCellsShown)
 			return false;
 		const auto changed = filled ^ m_userCellsShown;
 		m_userCellsShown = filled;
-		for(int bit = 0; bit < 32; ++bit)
+		for(int bit = 0; bit < 16; ++bit)
 		{
 			if(!(changed & (1u << bit)))
 				continue;
-			const auto id = bit < 16 ? Engine::FirstUserMachine + bit : 176 + bit - 16;
-			if(auto* cell = find("mach_" + std::to_string(id)))
+			if(auto* cell = find("mach_" + std::to_string(176 + bit)))
 				cell->SetClass("empty", !(filled & (1u << bit)));
 		}
 		return true;

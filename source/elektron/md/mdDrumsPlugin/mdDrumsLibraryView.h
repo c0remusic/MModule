@@ -20,8 +20,8 @@ namespace mdDrums
 	class Editor;
 	struct Frame;
 
-	// The Library in the machine browser (ticket 26 of the User Machines map, a prototype): the USR block's "all
-	// installed" opens every User Machine the Library holds over the browser's own families, laid out as those are (the
+	// The Library in the machine browser (ticket 26 of the User Machines map, a prototype): the USR block's "choose
+	// among N", its one line (no numbered cell: the Kit gives the numbers, ticket 25), opens every User Machine the Library holds over the browser's own families, laid out as those are (the
 	// user's choice of 2026-10-20, "comme pour le premier menu"): the package's category at the head with its count and
 	// what kind of Machines it holds, its code in each cell, 9 rows to a column at most, a longer family shared evenly
 	// over two or more columns under one head; a click puts the Track shown on it (Processor::chooseUserMachine), heard
@@ -65,6 +65,7 @@ namespace mdDrums
 		Rml::Element* m_browser = nullptr;
 		Rml::Element* m_library = nullptr;
 		Rml::Element* m_open = nullptr;
+		Rml::Element* m_count = nullptr;	// the USR head's count: how many the Library holds
 		Rml::Element* m_what = nullptr;
 		bool m_shown = false;
 		std::vector<std::shared_ptr<const md::mds::Package>> m_machines;	// the cells', as built

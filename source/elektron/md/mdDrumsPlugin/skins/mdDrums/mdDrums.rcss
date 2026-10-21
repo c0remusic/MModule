@@ -195,8 +195,8 @@ vknob { top: 84dp; width: 64dp; height: 64dp; drag: drag; cursor: pointer; }
    header, kind and cells moved down by 344 and 456 (multiples of 4); a number that holds nothing dimmed */
 .fam.lower { top: 592dp; }
 .kind.lower { top: 608dp; }
-.fam.lowest { top: 704dp; }
-.kind.lowest { top: 720dp; }
+.fam.lowest { top: 640dp; }
+.kind.lowest { top: 656dp; }
 .mach.empty { color: #6e7177; }
 /* The Library over the browser's own families (ticket 26 of the User Machines map, a prototype; LibraryView): those
    hidden while it shows, the preview kept; the cell of the User Machine the Track plays lit as a chosen machine is */

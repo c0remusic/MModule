@@ -57,6 +57,7 @@ namespace mdDrums
 		m_browser = m_editor.element("browser");
 		m_library = m_editor.element("library");
 		m_open = m_editor.element("library_open");
+		m_count = m_editor.element("library_count");
 		m_what = m_editor.element("browser_what");
 		m_editor.addClick("library_open", [this](Rml::Event&) { show(true); });
 		m_editor.addClick("browser_builtin", [this](Rml::Event&) { show(false); });
@@ -108,8 +109,9 @@ namespace mdDrums
 			if(m_countShown != m_machines.size())
 			{
 				m_countShown = m_machines.size();
-				wrote |= setText(m_open, m_machines.empty() ? std::string("none installed yet")
-					: "all " + std::to_string(m_machines.size()) + " installed");
+				const auto count = std::to_string(m_machines.size());
+				wrote |= setText(m_open, m_machines.empty() ? std::string("none installed yet") : "choose among " + count);
+				wrote |= setText(m_count, m_machines.empty() ? std::string() : count);
 			}
 		}
 		if(m_shown)

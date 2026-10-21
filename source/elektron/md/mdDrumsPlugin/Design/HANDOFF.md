@@ -123,8 +123,8 @@ Hit at y 176, Filter and EQ at y 392, LFO at y 608. Inside each, 16 px on every 
 | Family kind | 256, 264, 64 * n, 16 | "generators", "analog"... |
 | Machine cells | 256, 288, 64, 24 | then every 32 px down, column by column (ROM row by row) |
 | Preview group / name / listen | 896, 528 / 552 / 584, 384, 16 / 24 / 16 | "Listen while choosing" checkbox |
-| User Machines (added 2026-10-17, a prototype) | 256, 592 / 608, 624, 16; cells 256, 632 and 664, 64, 24 | "USR 16" and "user machines", the families' header moved down 344 px; USR-01 to -08 then -09 to -16, columns 4 to 11; an empty number dimmed (#6e7177) |
-| ROM-33 to ROM-48 (added 2026-10-17, a prototype) | 256, 704 / 720, 624, 16; cells 256, 744 and 776, 64, 24 | "ROM 33-48" and "your samples", moved down 456 px; a ROM without a user's Sample dimmed |
+| User Machines (added 2026-10-17; no cells since 2026-10-21) | 256, 592 / 608, 624, 16 | "USR" with the Library's count and "user machines" with "choose among N", which opens the Library; no numbered cell (the Kit gives the numbers) |
+| ROM-33 to ROM-48 (added 2026-10-17, a prototype) | 256, 640 / 656, 624, 16; cells 256, 680 and 712, 64, 24 | "ROM 33-48" and "your samples", under the USR line; a ROM without a user's Sample dimmed |
 | Preview screen | 896, 608, 400, 216 | the hit of the machine being tried |
 
 ## Mix tab

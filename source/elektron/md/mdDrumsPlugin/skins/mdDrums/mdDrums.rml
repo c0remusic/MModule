@@ -380,44 +380,28 @@
 					<button id="mach_157" class="a c16 mach" style="top: 448dp;" param="Machine" isToggle="1" valueOn="157">30</button>
 					<button id="mach_158" class="a c12 mach" style="top: 480dp;" param="Machine" isToggle="1" valueOn="158">31</button>
 					<button id="mach_159" class="a c13 mach" style="top: 480dp;" param="Machine" isToggle="1" valueOn="159">32</button>
-					<!-- md-drums: the User Machines (USR-01 to USR-16) and ROM-33 to ROM-48, which take the user's Samples, under the
-					     families (ticket 18 of the User Machines map, a prototype): empty ones dimmed (TrackView) -->
-					<div id="fam_USR" class="a c4 w8 grp fam lower"><span>USR<span class="count">16</span></span><div class="line"/></div>
-					<div id="kind_USR" class="a c4 w8 kind lower">user machines<span id="library_open" class="act libopen">all installed</span></div>
-					<button id="mach_194" class="a c4 mach" style="top: 632dp;" param="Machine" isToggle="1" valueOn="194">01</button>
-					<button id="mach_195" class="a c5 mach" style="top: 632dp;" param="Machine" isToggle="1" valueOn="195">02</button>
-					<button id="mach_196" class="a c6 mach" style="top: 632dp;" param="Machine" isToggle="1" valueOn="196">03</button>
-					<button id="mach_197" class="a c7 mach" style="top: 632dp;" param="Machine" isToggle="1" valueOn="197">04</button>
-					<button id="mach_198" class="a c8 mach" style="top: 632dp;" param="Machine" isToggle="1" valueOn="198">05</button>
-					<button id="mach_199" class="a c9 mach" style="top: 632dp;" param="Machine" isToggle="1" valueOn="199">06</button>
-					<button id="mach_200" class="a c10 mach" style="top: 632dp;" param="Machine" isToggle="1" valueOn="200">07</button>
-					<button id="mach_201" class="a c11 mach" style="top: 632dp;" param="Machine" isToggle="1" valueOn="201">08</button>
-					<button id="mach_202" class="a c4 mach" style="top: 664dp;" param="Machine" isToggle="1" valueOn="202">09</button>
-					<button id="mach_203" class="a c5 mach" style="top: 664dp;" param="Machine" isToggle="1" valueOn="203">10</button>
-					<button id="mach_204" class="a c6 mach" style="top: 664dp;" param="Machine" isToggle="1" valueOn="204">11</button>
-					<button id="mach_205" class="a c7 mach" style="top: 664dp;" param="Machine" isToggle="1" valueOn="205">12</button>
-					<button id="mach_206" class="a c8 mach" style="top: 664dp;" param="Machine" isToggle="1" valueOn="206">13</button>
-					<button id="mach_207" class="a c9 mach" style="top: 664dp;" param="Machine" isToggle="1" valueOn="207">14</button>
-					<button id="mach_208" class="a c10 mach" style="top: 664dp;" param="Machine" isToggle="1" valueOn="208">15</button>
-					<button id="mach_209" class="a c11 mach" style="top: 664dp;" param="Machine" isToggle="1" valueOn="209">16</button>
+					<!-- md-drums: the User Machines, whose line opens the Library (LibraryView), and ROM-33 to ROM-48, which take the
+					     user's Samples, under the families (ticket 18 of the User Machines map); empty ROM cells dimmed (TrackView) -->
+					<div id="fam_USR" class="a c4 w8 grp fam lower"><span>USR<span id="library_count" class="count"></span></span><div class="line"/></div>
+					<div id="kind_USR" class="a c4 w8 kind lower">user machines<span id="library_open" class="act libopen">choose one</span></div>
 					<div id="fam_ROMU" class="a c4 w8 grp fam lowest"><span>ROM<span class="count">33-48</span></span><div class="line"/></div>
 					<div id="kind_ROMU" class="a c4 w8 kind lowest">your samples</div>
-					<button id="mach_176" class="a c4 mach" style="top: 744dp;" param="Machine" isToggle="1" valueOn="176">33</button>
-					<button id="mach_177" class="a c5 mach" style="top: 744dp;" param="Machine" isToggle="1" valueOn="177">34</button>
-					<button id="mach_178" class="a c6 mach" style="top: 744dp;" param="Machine" isToggle="1" valueOn="178">35</button>
-					<button id="mach_179" class="a c7 mach" style="top: 744dp;" param="Machine" isToggle="1" valueOn="179">36</button>
-					<button id="mach_180" class="a c8 mach" style="top: 744dp;" param="Machine" isToggle="1" valueOn="180">37</button>
-					<button id="mach_181" class="a c9 mach" style="top: 744dp;" param="Machine" isToggle="1" valueOn="181">38</button>
-					<button id="mach_182" class="a c10 mach" style="top: 744dp;" param="Machine" isToggle="1" valueOn="182">39</button>
-					<button id="mach_183" class="a c11 mach" style="top: 744dp;" param="Machine" isToggle="1" valueOn="183">40</button>
-					<button id="mach_184" class="a c4 mach" style="top: 776dp;" param="Machine" isToggle="1" valueOn="184">41</button>
-					<button id="mach_185" class="a c5 mach" style="top: 776dp;" param="Machine" isToggle="1" valueOn="185">42</button>
-					<button id="mach_186" class="a c6 mach" style="top: 776dp;" param="Machine" isToggle="1" valueOn="186">43</button>
-					<button id="mach_187" class="a c7 mach" style="top: 776dp;" param="Machine" isToggle="1" valueOn="187">44</button>
-					<button id="mach_188" class="a c8 mach" style="top: 776dp;" param="Machine" isToggle="1" valueOn="188">45</button>
-					<button id="mach_189" class="a c9 mach" style="top: 776dp;" param="Machine" isToggle="1" valueOn="189">46</button>
-					<button id="mach_190" class="a c10 mach" style="top: 776dp;" param="Machine" isToggle="1" valueOn="190">47</button>
-					<button id="mach_191" class="a c11 mach" style="top: 776dp;" param="Machine" isToggle="1" valueOn="191">48</button>
+					<button id="mach_176" class="a c4 mach" style="top: 680dp;" param="Machine" isToggle="1" valueOn="176">33</button>
+					<button id="mach_177" class="a c5 mach" style="top: 680dp;" param="Machine" isToggle="1" valueOn="177">34</button>
+					<button id="mach_178" class="a c6 mach" style="top: 680dp;" param="Machine" isToggle="1" valueOn="178">35</button>
+					<button id="mach_179" class="a c7 mach" style="top: 680dp;" param="Machine" isToggle="1" valueOn="179">36</button>
+					<button id="mach_180" class="a c8 mach" style="top: 680dp;" param="Machine" isToggle="1" valueOn="180">37</button>
+					<button id="mach_181" class="a c9 mach" style="top: 680dp;" param="Machine" isToggle="1" valueOn="181">38</button>
+					<button id="mach_182" class="a c10 mach" style="top: 680dp;" param="Machine" isToggle="1" valueOn="182">39</button>
+					<button id="mach_183" class="a c11 mach" style="top: 680dp;" param="Machine" isToggle="1" valueOn="183">40</button>
+					<button id="mach_184" class="a c4 mach" style="top: 712dp;" param="Machine" isToggle="1" valueOn="184">41</button>
+					<button id="mach_185" class="a c5 mach" style="top: 712dp;" param="Machine" isToggle="1" valueOn="185">42</button>
+					<button id="mach_186" class="a c6 mach" style="top: 712dp;" param="Machine" isToggle="1" valueOn="186">43</button>
+					<button id="mach_187" class="a c7 mach" style="top: 712dp;" param="Machine" isToggle="1" valueOn="187">44</button>
+					<button id="mach_188" class="a c8 mach" style="top: 712dp;" param="Machine" isToggle="1" valueOn="188">45</button>
+					<button id="mach_189" class="a c9 mach" style="top: 712dp;" param="Machine" isToggle="1" valueOn="189">46</button>
+					<button id="mach_190" class="a c10 mach" style="top: 712dp;" param="Machine" isToggle="1" valueOn="190">47</button>
+					<button id="mach_191" class="a c11 mach" style="top: 712dp;" param="Machine" isToggle="1" valueOn="191">48</button>
 					<!-- md-drums: the Library over the families, "all installed" opening it (ticket 26 of the User Machines map, a
 					     prototype): its families and cells made by mdDrumsLibraryView.cpp -->
 					<div id="library" class="a"/>

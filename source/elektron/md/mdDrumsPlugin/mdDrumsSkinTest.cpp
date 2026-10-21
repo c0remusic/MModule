@@ -1486,21 +1486,21 @@ namespace
 		require(label("n_SYN1") == "<span>PTCH</span>" && label("n_SYN2") == "<span>DEC</span>"
 			&& _f.find("n_SYN3")->IsClassSet("unused"), "SYN1-8 do not carry the package's names");
 
-		// The browser (ticket 18 of the User Machines map): USR-01 lit, USR-02 and ROM-33 (its Sample taken away) dimmed,
-		// on the 4 px grid as the families above them
+		// The browser (ticket 18 of the User Machines map): no numbered USR cell, the USR head counting the Library (the
+		// user's choice of 2026-10-21: the Library in their place); ROM-33 (its Sample taken away) dimmed, on the 4 px grid
+		// as the families above it
 		_f.editor->getTrackView()->setOverlay(mdDrums::TrackView::Overlay::Browser);
 		look(300);
-		const auto usr1 = _f.find("mach_194"), usr2 = _f.find("mach_195"), rom33 = _f.find("mach_176");
-		require(usr1 && usr2 && rom33, "the browser has no USR or ROM-33 cell");
-		std::printf("browser: USR-01 %s at %g, %g; USR-02 %s; ROM-33 %s at %g, %g\n", usr1->IsClassSet("empty") ? "dimmed" : "lit",
-			_f.box(*usr1).x, _f.box(*usr1).y, usr2->IsClassSet("empty") ? "dimmed" : "lit",
-			rom33->IsClassSet("empty") ? "dimmed" : "lit", _f.box(*rom33).x, _f.box(*rom33).y);
-		require(!usr1->IsClassSet("empty") && usr2->IsClassSet("empty") && rom33->IsClassSet("empty"),
-			"the browser does not dim the empty User Machines and ROM Machines");
-		require(_f.box(*usr1).x == 256 && _f.box(*usr1).y == 632 && _f.box(*rom33).y == 744,
-			"the USR and ROM 33-48 cells are not where the prototype puts them");
+		const auto rom33 = _f.find("mach_176");
+		require(rom33 && !_f.find("mach_194") && !_f.find("mach_209"), "the browser has no ROM-33 cell, or a USR cell");
+		std::printf("browser: USR head %s, \"%s\"; ROM-33 %s at %g, %g\n", _f.text("library_count").c_str(),
+			_f.text("library_open").c_str(), rom33->IsClassSet("empty") ? "dimmed" : "lit", _f.box(*rom33).x,
+			_f.box(*rom33).y);
+		require(rom33->IsClassSet("empty") && _f.text("library_count") == "1",
+			"the browser does not dim the empty ROM Machines, or the USR head does not count the Library");
+		require(_f.box(*rom33).x == 256 && _f.box(*rom33).y == 680, "the ROM 33-48 cells are not under the USR line");
 
-		// The Library over the families (ticket 26 of the User Machines map, a prototype): "all 1 installed" opens it, its
+		// The Library over the families (ticket 26 of the User Machines map, a prototype): "choose among 1" opens it, its
 		// family TST in the first column with the one dropped lit, the built-in cells hidden, the preview kept; another
 		// package installed shows at the next look; chosen, it takes the Track's number, which no other Track plays; Esc
 		// goes back to the built-in machines, the browser still open
@@ -1511,13 +1511,13 @@ namespace
 				const auto* e = _f.find(_id);
 				return e && e->GetComputedValues().display() == Rml::Style::Display::None;
 			};
-			require(_f.text("library_open") == "all 1 installed", "the USR block says \"" + _f.text("library_open") + "\"");
+			require(_f.text("library_open") == "choose among 1", "the USR block says \"" + _f.text("library_open") + "\"");
 			click(_f, "library_open");
 			look(300);
 			require(library.isShown() && library.machines().size() == 1 && library.cell(0)
 				&& library.cell(0)->IsClassSet("chosen"), "the Library does not show the User Machine Track 1 plays, lit");
 			const auto cell = _f.box(*library.cell(0));
-			require(cell.x == 256 && cell.y == 288 && hidden("mach_16") && hidden("fam_TRX") && hidden("mach_194")
+			require(cell.x == 256 && cell.y == 288 && hidden("mach_16") && hidden("fam_TRX") && hidden("mach_176")
 				&& !hidden("preview_group") && !hidden("browser_builtin") && _f.text("browser_what") == "Choose a user machine",
 				"the Library is not over the families, or the browser's own still show");
 			const auto other = mdDrums::test::sawPackage(60);
