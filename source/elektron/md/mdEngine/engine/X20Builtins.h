@@ -25,6 +25,12 @@ namespace md::engine::x20
 		return _id == GndSnPro || _id == GndSw || _id == GndPu || _id == NfxEv || _id == NfxCo || _id == NfxUc;
 	}
 
+	// The NFX built-ins read the Tracks their descriptor names, as NEIGHBOUR User Machines do (research/01 of the map)
+	constexpr bool hearsTracks(const uint8_t _id) { return _id == NfxEv || _id == NfxCo || _id == NfxUc; }
+
+	// Every built-in's bit, for EngineT::installX20Builtins
+	constexpr uint32_t kAll = 1u << GndSnPro | 1u << GndSw | 1u << GndPu | 1u << NfxEv | 1u << NfxCo | 1u << NfxUc;
+
 	// The 8 parameters' names (5 characters at most) and defaults (0-127), from X.20's Machine table ($2b31a6)
 	struct Info
 	{

@@ -128,6 +128,12 @@ namespace mdDrums
 		for(int t = 0; t < TrackCount && sampleAccurate; ++t)
 		{
 			const auto id = host.machine(t);
+			// X.20's NFX built-ins read their sources as NEIGHBOUR User Machines do (the map of X.20's built-in Machines)
+			if(host.playsX20(id) && md::engine::x20::hearsTracks(id))
+			{
+				delay[t] = delay[engine.voices().sources(t)[0]];
+				continue;
+			}
 			if(!md::engine::isUserMachine(id))
 				continue;
 			const auto& package = userMachines[static_cast<size_t>(id - md::engine::kFirstUserMachine)];
@@ -374,6 +380,8 @@ namespace mdDrums
 
 	bool Engine::isNeighbour(const uint8_t _machineId) const
 	{
+		if(m_state->engine.host().playsX20(_machineId))
+			return md::engine::x20::hearsTracks(_machineId);
 		if(!md::engine::isUserMachine(_machineId))
 			return false;
 		const auto& package = m_state->userMachines[static_cast<size_t>(_machineId - FirstUserMachine)];
@@ -416,8 +424,25 @@ namespace mdDrums
 			? m_state->userMachines[static_cast<size_t>(_index)] : nullptr;
 	}
 
+	void Engine::installX20(std::shared_ptr<const md::fw::DspImage> _voice)
+	{
+		m_state->engine.installX20Builtins(std::move(_voice), md::engine::x20::kAll);
+		// An NFX a Track already plays starts at once, as a NEIGHBOUR User Machine does
+		auto& host = m_state->engine.host();
+		for(int t = 0; t < TrackCount; ++t)
+			if(isNeighbour(host.machine(t)))
+				host.start(t);
+	}
+
+	bool Engine::playsX20(const uint8_t _id) const
+	{
+		return m_state->engine.host().playsX20(_id);
+	}
+
 	std::optional<std::array<uint8_t, 8>> Engine::machineDefaults(const uint8_t _id) const
 	{
+		if(playsX20(_id))
+			return md::engine::x20::info(_id).defaults;
 		if(md::engine::isUserMachine(_id))
 		{
 			std::array<uint8_t, 8> defaults{};

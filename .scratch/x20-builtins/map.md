@@ -44,6 +44,8 @@ demande de l'utilisateur.
   NFX-UC attend MACRI dans l'émulateur.
 - [Premier son : GND-SW sur une Track](issues/04-premier-son-gnd-sw.md) : joué dans le moteur depuis l'OS X.20 ; à
   l'oreille, « ça semble ok » ; les 5 autres de la même façon.
+- [GND-SN-PRO, GND-PU, NFX-EV, NFX-CO et NFX-UC sur le moteur](issues/06-les-autres-sur-le-moteur.md) : les six
+  sonnent sur le moteur ; les NFX entendent leurs sources ; les 104 autres inchangées.
 - [MACRI dans l'émulateur DSP56300](issues/05-macri.md) : dans le fork (77ebd463), sous le JIT et l'interpréteur ;
   NFX-UC sonne.
 - [Le portage C++ contre les routines d'X.20 dans un 68k](issues/07-portage-contre-le-68k.md) : `mdX20PortTest`,
@@ -56,9 +58,8 @@ demande de l'utilisateur.
 ## Not yet specified
 
 - Une autre version qu'X.20 B (les adresses bougent : chercher par forme).
-- Les NFX : leur délai (une Track avant) et leur aperçu, le menu « hears » servant tel quel (research/01).
-- Le reste de la plomberie : les noms et défauts de leurs paramètres (Kit, MoDule Seq, Push), l'aperçu du Hit, la
-  chauffe du JIT, ANTI-CLICK (X.20 adoucit-il les 6 ?).
+- Le reste de la plomberie : le tempo de l'hôte pour NFX-EV, le début de voix de chacune (`Engine::voiceStart`),
+  l'aperçu du Hit et du navigateur (`HitPreview`).
 
 ## Out of scope
 

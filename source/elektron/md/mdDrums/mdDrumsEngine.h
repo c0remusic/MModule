@@ -98,8 +98,14 @@ namespace mdDrums
 		void installUserMachine(int _index, std::shared_ptr<const md::mds::Package> _package);
 		void removeUserMachine(int _index);
 		std::shared_ptr<const md::mds::Package> userMachine(int _index) const;	// as installed, or none
-		// A User Machine installed at _machineId's number that is an effect on the Tracks before (NEIGHBOUR)
+		// A User Machine installed at _machineId's number that is an effect on the Tracks before (NEIGHBOUR), or an NFX
+		// built-in of X.20 installed (installX20)
 		bool isNeighbour(uint8_t _machineId) const;
+		// MDX X.20's six built-in Machines (md::engine::x20) from the user's X.20 OS, _voice its voice DSP program
+		// (md::fw::parseX20Os), compiled now; GND-SN-PRO then plays at GND-SN's number, as under X.20. None takes them
+		// back. Never while render runs.
+		void installX20(std::shared_ptr<const md::fw::DspImage> _voice);
+		bool playsX20(uint8_t _id) const;
 		// SYN1-8 as assigning _id gives them (sysex::applyKitChange): an OS machine's own, a User Machine's package's
 		// (0 past its parameters, and everywhere while its number holds none); none for an id that is neither
 		std::optional<std::array<uint8_t, 8>> machineDefaults(uint8_t _id) const;
