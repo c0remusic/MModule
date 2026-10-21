@@ -40,6 +40,26 @@ Rytm `native/rytm_dsp.c:472-518`; Digitone II `dsp/dn_gensrc.inc:1-11`, README.
 - Factory samples and presets (Digitakt, Rytm, Model:Samples, Cycles' 512 presets) are not in any OS file: user-imported
   only.
 
+## digikit (ElekLabs/digikit): Digitakt II and Digitone II, under AGPL
+
+AGPL-3.0-or-later, so usable in MoDule, with section 7 terms: keep its NOTICE, show "digikit by Em D -
+https://github.com/ElekLabs/digikit" in the About of any interface, mark changes, do not use the name "digikit".
+
+- Targets Digitakt II OS 1.17 and Digitone II OS 1.12, the versions Elektron's site serves today.
+- Emulates both the ColdFire and the SHARC+ DSP (where elektron-emu replaces the Digitakt II's SHARC with a stand-in),
+  but its DSP does not run in real time yet ("audio plays slower than on the device").
+- Reverse engineering documented in `docs/findings/` with evidence classes: the ColdFire-SHARC frame (trig mask 0x22,
+  release mask 0x24), the per-track machine dispatch, the voice record contract, the effect stages and master, the
+  6-tap polyphase voice render loop (`06-sharc-engine-and-startup.md`).
+- Device facts (`.agents/skills/digikit-module/references/devices.md`): blocks of 32 samples at 48 kHz; on the Digitakt
+  II 32 voice records (L and R of 16 tracks), the voice rendered then the stock filter, amp, track FX, sends and master;
+  the stock DSP busy about 211,000 of about 666,000 instructions per block (Digitone II about 335,000).
+- Its voice contract (`render` per voice per block, then the stock chain) is the cut MoDule needs: a voice alone, before
+  the Track's chain.
+
+What it changes: the Digitakt II becomes a real target (its SHARC code, not a stand-in), and with the Digitone II the
+real-time question moves to the SHARC core's speed (elektron-emu compiles the Digitone II's SHARC code to C for that).
+
 ## CPU (elektron-emu's own figures)
 
 - Syntakt: 0.83 s of wall time per emulated second on an M3 Pro, "100 % paced" live; MAIN 62-68 M instr/s.
