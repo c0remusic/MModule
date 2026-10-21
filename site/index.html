@@ -203,8 +203,9 @@
 					<div class="what">Max for Live, Windows</div>
 				</div>
 				<p class="about">A step sequencer for Live 12, written for MoDule: Locks, conditions, ratchets,
-					micro-timing and swing over 16 Patterns, with each Track named after the machine your Kit puts on it.
-					It can also print a Pattern into clips. <b>Windows only</b> for now; it needs Max for Live.</p>
+					micro-timing, swing, the Machinedrum's Accent and Slide, and chains over 16 Patterns, with each Track
+					named after the machine your Kit puts on it. It plays from Push 2, prints a Pattern or captures what it
+					played into clips. <b>Windows only</b> for now; it needs Max for Live.</p>
 				<div class="links" id="seq">
 					<a class="button quiet" href="https://github.com/c0remusic/MModuleSeq#readme">How to use it</a>
 					<a class="button quiet" href="https://github.com/c0remusic/MModuleSeq/releases">All releases</a>
@@ -249,8 +250,9 @@ xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/MoDule.compon
 
 		<p class="note" id="install-seq"><b>MoDule Seq</b>: unzip it and put its <code>MoDule Seq</code> folder in
 			Live's User Library, under <code>Presets/MIDI Effects/Max MIDI Effect/</code>, then restart Live. Put
-			<b>MoDule Seq</b> on a MIDI track in front of MoDule. Releases before 0.1.2 still say md-drums-seq: their
-			folder is <code>md-drums-seq</code> and the device <b>MD Drums Seq</b>.</p>
+			<b>MoDule Seq</b> on a MIDI track in front of MoDule. Releases before 0.2.0 still say md-drums-seq: their
+			folder is <code>md-drums-seq</code> and the device <b>MD Drums Seq</b>; remove that folder when you install
+			0.2.0, as Max loads only one of the two.</p>
 
 		<div class="rom" id="rom">
 			<b>Then give MoDule your Machinedrum UW firmware</b>: the 8 MB flash image with OS 1.63, the same one
@@ -297,12 +299,12 @@ xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/MoDule.compon
 	<section class="seqshots" aria-label="MoDule Seq">
 		<h2>MoDule Seq</h2>
 		<figure>
-			<a class="zoom" href="images/md-drums-seq-strip.png"><img src="images/md-drums-seq-strip.png" alt="MoDule Seq in Live's device chain, beside MoDule: Patterns, Tracks and the steps of Track 1" loading="lazy" width="1048" height="206"></a>
-			<figcaption>In Live's device chain: the Patterns, the Tracks named after their machines, the steps of the Track shown</figcaption>
+			<a class="zoom" href="images/module-seq-strip.png"><img src="images/module-seq-strip.png" alt="MoDule Seq in Live's device chain, beside MoDule: Patterns, Tracks named after their machines, and the steps of Track 1 with two accented Hits" loading="lazy" width="1048" height="206"></a>
+			<figcaption>In Live's device chain: the Patterns, the Tracks named after their machines, the steps of the Track shown, Fill, Chain and Capture</figcaption>
 		</figure>
 		<figure>
-			<a class="zoom" href="images/md-drums-seq-edit.png"><img src="images/md-drums-seq-edit.png" alt="MoDule Seq's edit window: 16 Tracks by 32 steps with Locks, Conditions and ratchets, and the step panel" loading="lazy" width="1440" height="868"></a>
-			<figcaption>The edit window: Locks, Conditions, ratchets and micro-timing, and the step panel with the Kit's values</figcaption>
+			<a class="zoom" href="images/module-seq-edit.png"><img src="images/module-seq-edit.png" alt="MoDule Seq's edit window: 16 Tracks by 32 steps with Locks, Conditions and ratchets, the trig row, and the step panel" loading="lazy" width="1440" height="868"></a>
+			<figcaption>The edit window: Locks, Conditions, ratchets and micro-timing, the swing, Accent or Slide row, and the step panel with the Kit's values</figcaption>
 		</figure>
 	</section>
 
