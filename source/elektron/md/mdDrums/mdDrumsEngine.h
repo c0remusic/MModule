@@ -180,6 +180,13 @@ namespace mdDrums
 		// capture of it starts on its Track's output, as many samples before that as most machines' voices take
 		static constexpr int HitDelay = SampleAccurateDelay + AlignedStart + MasterDelay;
 		static constexpr int CaptureDelay = HitDelay - CommonVoiceStart;
+		// X.20's ANTI-CLICK (ticket 33 of the User Machines map): 0, 64 or 128 samples. A Hit of a machine X.20 fades
+		// waits that long while the Track's sound fades out (md::engine::HostModel::setFadeBlocks); every other Hit waits as
+		// long, so that each one still sounds the same time after its note: hitDelay() samples, HitDelay plus the fade
+		static constexpr int MaxFade = 4 * BlockSize;
+		void setFade(int _samples);
+		int fade() const;
+		int hitDelay() const { return HitDelay + fade(); }
 		// Factory Kit 1's, which the engine starts with
 		static const std::array<uint8_t, MasterCount>& masterDefaults();
 		void setMaster(int _index, int _value);

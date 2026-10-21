@@ -486,6 +486,26 @@ namespace mdDrums
 		jucePluginEditorLib::Processor::onDeviceCreationFailed(_e);
 	}
 
+	int Processor::getAntiClick()
+	{
+		const auto samples = getConfig().getIntValue(AntiClickKey, 0);
+		return samples >= 128 ? 128 : samples >= 64 ? 64 : 0;
+	}
+
+	void Processor::setAntiClick(const int _samples)
+	{
+		getConfig().setValue(AntiClickKey, _samples);
+		const auto samples = getAntiClick();
+		getPlugin().withDeviceLocked([&](synthLib::Device* _device)
+		{
+			if(auto* device = dynamic_cast<Device*>(_device))
+				device->setAntiClick(samples);
+			return true;
+		});
+		getPlugin().refreshDeviceLatency();
+		updateLatencySamples();
+	}
+
 	synthLib::Device* Processor::createDevice()
 	{
 		auto flash = m_chosenFlash;
@@ -513,6 +533,7 @@ namespace mdDrums
 		params.romData = std::move(flash);
 		params.homePath = getDataFolder();
 		auto* device = new Device(params, m_telemetry);
+		device->setAntiClick(getAntiClick());
 		std::atomic_store(&m_fxTables, device->fxTables());
 		std::atomic_store(&m_machines, std::make_shared<const Machines>(device->machines()));
 		return device;

@@ -57,11 +57,14 @@ namespace mdDrums
 			pending.fill(-1);
 		}
 
-		// A block, plus the longest delay: the rest of a block, a voice held back to AlignedStart, MasterDelay on a
-		// Track's own output
-		static constexpr int Ring = 128;
-		static constexpr int Mask = Ring - 1;
-		static_assert(BlockSize + SampleAccurateDelay + AlignedStart + MasterDelay <= Ring);
+		// A block, plus the longest delay: the rest of a block, a voice held back to AlignedStart, ANTI-CLICK's wait,
+		// MasterDelay on a Track's own output
+		static constexpr int Ring = 256;
+		static_assert(BlockSize + SampleAccurateDelay + AlignedStart + MaxFade + MasterDelay <= Ring);
+		// Without ANTI-CLICK, half of it, as before the fade: the lanes touch no more memory than they did
+		static constexpr int ShortRing = Ring / 2;
+		static_assert(BlockSize + SampleAccurateDelay + AlignedStart + MasterDelay <= ShortRing);
+		int mask = ShortRing - 1;
 		static constexpr int Channels = 6;	// main L R, REV L R, DEL L R
 
 		struct Lane
@@ -80,6 +83,8 @@ namespace mdDrums
 		int64_t blockStart = 0;	// the engine's time at the next block it renders
 		std::array<int, TrackCount> delay{};
 		std::array<int, TrackCount> pending{};		// the delay a Hit set, from the block it lands in; -1 none
+		std::array<int, TrackCount> heldDelay{};	// a Hit waiting for ANTI-CLICK's fade: its delay when it fires
+		int fade = 0;								// ANTI-CLICK's wait, in samples
 		std::array<Lane, TrackCount> lanes{};
 		std::array<std::array<uint32_t, 5>, TrackCount> lastWords{};	// each Track's mixer words in the last block
 
@@ -104,6 +109,11 @@ namespace mdDrums
 		blockStart += BlockSize;
 		auto& host = engine.host();
 
+		// A Hit that waited for ANTI-CLICK's fade fires in this block with its own delay: it lands as late after its note as
+		// every other Hit
+		for(int t = 0; t < TrackCount; ++t)
+			if(host.firedHeld(t))
+				pending[t] = heldDelay[t];
 		std::array<bool, TrackCount> struck{};
 		for(int t = 0; t < TrackCount; ++t)
 		{
@@ -140,8 +150,8 @@ namespace mdDrums
 			// Up to the furthest a block written before this one reaches (its own output MasterDelay further)
 			for(auto time = start + delay[by]; time < start + SampleAccurateDelay + AlignedStart; ++time)
 			{
-				lanes[t].mix[time & Mask] = {};
-				lanes[t].solo[(time + MasterDelay) & Mask] = 0;
+				lanes[t].mix[time & mask] = {};
+				lanes[t].solo[(time + MasterDelay) & mask] = 0;
 			}
 			if(!struck[t])
 				extend[t] = std::max(0, delay[by] - delay[t]);
@@ -164,12 +174,12 @@ namespace mdDrums
 				const auto vol = sx24(_words[1]);
 				for(int i = _from; i < _to; ++i)
 				{
-					const auto slot = (start + i + delay[t]) & Mask;
+					const auto slot = (start + i + delay[t]) & mask;
 					if(main)
 						for(int c = 0; c < Channels; ++c)
 							lane.mix[slot][c] = add(lane.mix[slot][c], mpy(gains[c], samples[i]));
 					// Mixer::solo, before its limiter, as late as Main
-					auto& solo = lane.solo[(slot + MasterDelay) & Mask];
+					auto& solo = lane.solo[(slot + MasterDelay) & mask];
 					solo = add(solo, asl(mpy(samples[i], vol), 4));
 				}
 			};
@@ -179,7 +189,7 @@ namespace mdDrums
 
 		for(int i = 0; i < BlockSize; ++i)
 		{
-			const auto slot = (start + i) & Mask;
+			const auto slot = (start + i) & mask;
 			std::array<Acc, Channels> sum{};
 			for(int t = 0; t < TrackCount; ++t)
 			{
@@ -537,11 +547,44 @@ namespace mdDrums
 
 		// The Hit lands BlockSize - used samples from now: each Track it struck, its own and its Link's, waits the rest
 		// of the 31, then what its machine's voice is quicker than the latest
+		// With ANTI-CLICK, a Hit that waits for the fade keeps that delay for the block it fires in, and every other one
+		// waits as long as the fade
 		const auto delay = static_cast<int>(state.used) - 1;
+		auto& host = state.engine.host();
 		for(int t = 0; t < TrackCount; ++t)
-			if(struck & (1u << t))
-				state.pending[t] = delay + std::max(0, AlignedStart - voiceStart(state.engine.host().machine(t)));
+		{
+			if(!(struck & (1u << t)))
+				continue;
+			if(host.holds(t))
+			{
+				const auto id = host.pendingOrMachine(t);
+				state.heldDelay[t] = delay + std::max(0, AlignedStart - voiceStart(id));
+				continue;
+			}
+			state.pending[t] = delay + std::max(0, AlignedStart - voiceStart(host.machine(t))) + state.fade;
+		}
 		return struck;
+	}
+
+	void Engine::setFade(const int _samples)
+	{
+		const int fade = _samples >= 128 ? 128 : _samples >= 64 ? 64 : 0;
+		auto& state = *m_state;
+		state.fade = fade;
+		state.engine.host().setFadeBlocks(fade / BlockSize);
+		// The lanes' ring as long as the delays need: what they held is dropped when it changes
+		const int mask = (fade ? State::Ring : State::ShortRing) - 1;
+		if(mask != state.mask)
+		{
+			state.mask = mask;
+			for(auto& lane : state.lanes)
+				lane = {};
+		}
+	}
+
+	int Engine::fade() const
+	{
+		return m_state->fade;
 	}
 
 	int Engine::voiceStart(const uint8_t _machine)

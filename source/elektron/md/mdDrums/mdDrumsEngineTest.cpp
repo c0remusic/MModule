@@ -1186,6 +1186,126 @@ namespace
 		lineUp(4, 5, 0, false);
 	}
 
+	// X.20's ANTI-CLICK (ticket 33 of the User Machines map), at 64 and 128 samples: a Hit of TRX-SD, which X.20 fades,
+	// waits 2 or 4 blocks, its first one too; struck again while it sounds, the Track's raw voice falls in X.20's straight
+	// line over the wait (gain 1 - i/64 or 1 - i/128, truncated), the old voice's words kept, then the new Hit plays; a
+	// second Hit during the wait replaces the first and the count goes on; TRX-BD, continuous in X.20, is not held; on
+	// mdDrums::Engine every Hit, faded or not, sounds the fade later after its note
+	void antiClick(const md::fw::FlashOs& _os, const md::fw::RomBank& _bank)
+	{
+		constexpr int blocks = 40;
+		constexpr int track = 1;
+		using Voice = std::vector<std::array<int32_t, mdDrums::Engine::BlockSize>>;
+		const auto play = [&](const uint8_t _machine, const int _fadeBlocks, const std::vector<int>& _hits)
+		{
+			md::engine::Engine raw(_os.firmware, _os.osImage);
+			raw.loadRomBank(_bank);
+			mdDrums::applyEngineDefaults(raw.host());
+			raw.host().setMachine(track, _machine);
+			raw.host().setFadeBlocks(_fadeBlocks);
+			md::engine::Engine::Output out;
+			Voice voice(blocks);
+			for(int b = 0; b < blocks; ++b)
+			{
+				for(const auto at : _hits)
+					if(at == b)
+						raw.host().trigger(track, 100);
+				require(raw.render(out), "the engine faulted");
+				voice[static_cast<size_t>(b)] = raw.voiceBlock()[static_cast<size_t>(track)];
+			}
+			return voice;
+		};
+		const auto sounds = [](const Voice& _v, const int _block)
+		{
+			const auto& b = _v[static_cast<size_t>(_block)];
+			return std::any_of(b.begin(), b.end(), [](const int32_t _s) { return _s != 0; });
+		};
+		for(const int w : {2, 4})
+		{
+			const auto once = play(17, w, {2});			// TRX-SD struck once
+			const auto twice = play(17, w, {2, 20});	// and again while it sounds
+			const auto merged = play(17, w, {2, 20, 21});	// and once more during the wait
+			int first = -1;
+			for(int b = 0; b < blocks && first < 0; ++b)
+				if(sounds(once, b))
+					first = b;
+			require(first == 2 + w, "TRX-SD's first Hit did not wait " + std::to_string(w) + " blocks");
+			// The wait's blocks: the old voice, as it plays without a second Hit, times X.20's ramp
+			const int32_t step = w == 2 ? 0x1ffff : 0xffff;
+			size_t wrong = 0;
+			for(int b = 20; b < 20 + w; ++b)
+			{
+				const int64_t start = 0x7fffff - static_cast<int64_t>(32) * step * (b - 20);
+				for(size_t i = 0; i < mdDrums::Engine::BlockSize; ++i)
+				{
+					const auto gain = start - static_cast<int64_t>(i) * step;
+					const auto expected = static_cast<int32_t>((static_cast<int64_t>(once[static_cast<size_t>(b)][i]) * gain) >> 23);
+					wrong += twice[static_cast<size_t>(b)][i] != expected;
+				}
+			}
+			const auto& last = twice[static_cast<size_t>(19 + w)];
+			const auto tail = std::abs(last.back());
+			std::printf("ANTI-CLICK %d: TRX-SD's first Hit sounds at block %d; struck again, %zu of %d faded samples differ from"
+				" X.20's ramp on the old voice, %d at the wait's end; the new Hit %s at block %d\n", 32 * w, first, wrong,
+				32 * w, tail, sounds(twice, 20 + w) && twice[static_cast<size_t>(20 + w)] != once[static_cast<size_t>(20 + w)]
+				? "plays" : "does not play", 20 + w);
+			require(wrong == 0, "the fade is not X.20's ramp on the old voice");
+			require(twice[static_cast<size_t>(20 + w)] != once[static_cast<size_t>(20 + w)] && sounds(twice, 20 + w),
+				"the waiting Hit did not fire after the fade");
+			require(merged == twice, "a second Hit during the wait did not replace the first, the count going on");
+			// TRX-BD, continuous: never held
+			require(play(16, w, {2, 20}) == play(16, 0, {2, 20}), "TRX-BD, continuous in X.20, waited for the fade");
+		}
+
+		// mdDrums::Engine: TRX-BD on Track 1 and TRX-SD on Track 2 struck at the same sample sound 128 samples later with
+		// ANTI-CLICK at 128 than without, each on its own output (where the two outputs line up best: the faded Hit fires
+		// at another phase of the engine's ticks, so its first samples need not be the same)
+		const auto renderBoth = [&](const int _fade)
+		{
+			mdDrums::Engine engine(_os, _bank, false);
+			engine.setFade(_fade);
+			engine.setMachine(0, 16);
+			engine.setMachine(1, 17);
+			engine.setSeparateOutputs(3);
+			constexpr size_t length = 22050;
+			std::vector<float> one(length), two(length);
+			std::array<float*, mdDrums::Engine::OutputCount> outputs{};
+			outputs[2] = one.data();
+			outputs[3] = two.data();
+			engine.render(outputs.data(), 1000);
+			engine.trigger(0, 100);
+			engine.trigger(1, 100);
+			outputs[2] = one.data() + 1000;
+			outputs[3] = two.data() + 1000;
+			engine.render(outputs.data(), length - 1000);
+			return std::make_pair(one, two);
+		};
+		const auto lagOf = [](const std::vector<float>& _plain, const std::vector<float>& _faded)
+		{
+			int best = 0;
+			double top = -1;
+			for(int lag = 0; lag <= 256; ++lag)
+			{
+				double c = 0;
+				for(size_t i = 1000; i < 9000; ++i)
+					c += double(_plain[i]) * double(_faded[i + static_cast<size_t>(lag)]);
+				if(c > top)
+				{
+					top = c;
+					best = lag;
+				}
+			}
+			return best;
+		};
+		const auto plain = renderBoth(0);
+		const auto faded = renderBoth(128);
+		const auto bd = lagOf(plain.first, faded.first);
+		const auto sd = lagOf(plain.second, faded.second);
+		std::printf("ANTI-CLICK 128 on mdDrums::Engine: TRX-BD %d and TRX-SD %d samples later (hitDelay %d)\n", bd, sd,
+			mdDrums::Engine::HitDelay + 128);
+		require(bd == 128 && sd == 128, "ANTI-CLICK did not delay every Hit by the fade");
+	}
+
 	// By hand: the user's own NEIGHBOUR User Machines (X.20 B's NFX and SYN-F) where MD_X20_MACHINES names a folder of
 	// .syx or .mds files, as the ROM is read, never carried. Each one on Track 6 over Tracks 1 to 5 struck: no voice DSP
 	// fault, and what its own output peaks at. Nothing without the variable.
@@ -1471,6 +1591,7 @@ int main()
 		conversions(os);
 		userMachines(os, bank);
 		neighbours(os, bank);
+		antiClick(os, bank);
 		userNeighbours(os, bank);
 		sampleWrite(_flash, os, bank);
 		userSamples(_flash, os, bank);

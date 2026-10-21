@@ -331,7 +331,144 @@ namespace md::engine
 	}
 
 	template<class TVoices>
+	bool HostModel<TVoices>::fades(const uint8_t _machine, const md::mds::Package* _package)
+	{
+		if(isUserMachine(_machine))
+			return !_package || !(_package->flags & md::mds::FlagContinuousRetrigger);
+		// X.20's continuous built-ins ($2b371a, research/13 §3): NFX-EV, -CO, -UC; TRX-BD, -XT, -CB, -XC, -B2; P-I-BD,
+		// -RC, -CC, -HH; INP-GA to -CB
+		switch(_machine)
+		{
+		case 7: case 8: case 9:
+		case 16: case 18: case 21: case 27: case 28:
+		case 64: case 70: case 71: case 72:
+		case 80: case 81: case 82: case 83: case 84: case 85: case 86: case 87:
+			return false;
+		default:
+			return true;
+		}
+	}
+
+	template<class TVoices>
+	bool HostModel<TVoices>::holdsHit(const int _track) const
+	{
+		if(!m_fadeBlocks)
+			return false;
+		// The machine the Hit brings decides
+		const auto id = static_cast<uint8_t>(m_pendingMachine[_track] >= 0 ? m_pendingMachine[_track] : m_machine[_track]);
+		const auto* package = isUserMachine(id) ? m_userMachines[id - kFirstUserMachine].get() : nullptr;
+		return fades(id, package);
+	}
+
+	template<class TVoices>
+	void HostModel<TVoices>::hold(const int _track, const int _velocity, const bool _accent)
+	{
+		auto& held = m_held[_track];
+		// A Hit during the wait replaces the waiting one; the count and the fade go on
+		if(!held.waiting)
+		{
+			held.waiting = true;
+			held.count = m_fadeBlocks;
+			m_fadeGain[_track] = 0x7fffff;
+		}
+		held.fresh = true;
+		held.velocity = static_cast<uint8_t>(std::clamp(_velocity, 1, 127));
+		held.accent = _accent;
+	}
+
+	template<class TVoices>
+	void HostModel<TVoices>::setFadeBlocks(const int _blocks)
+	{
+		m_fadeBlocks = _blocks == 2 || _blocks == 4 ? _blocks : 0;
+	}
+
+	template<class TVoices>
+	void HostModel<TVoices>::takeHeld()
+	{
+		// The block's waiting Hits: one taken since the last block takes the locks, accent and slide its block gave it; one
+		// whose count has run out fires now, as a Hit of this block with them; the others count down
+		m_firedHeld = 0;
+		for(int t = 0; t < kTracks; ++t)
+		{
+			auto& held = m_held[t];
+			if(!held.waiting)
+				continue;
+			const auto bit = 1u << t;
+			if(held.fresh)
+			{
+				held.fresh = false;
+				held.locks = m_lockPending[t];
+				held.lockValues = m_lockPendingValue[t];
+				held.accented = (m_accentPending & bit) != 0;
+				held.accentAmount = m_accentPendingAmount;
+				held.slide = m_slidePending[t];
+				held.slideExtension = m_slideExtension[t];
+				held.slideTargets = m_slideTargetPending[t];
+				held.slideTargetValues = m_slideTargetValue[t];
+				m_lockPending[t] = 0;
+				m_accentPending &= ~bit;
+				m_slidePending[t] = 0;
+				m_slideExtension[t] = 0;
+				m_slideTargetPending[t] = 0;
+			}
+			if(held.count > 0)
+			{
+				--held.count;
+				continue;
+			}
+			held.waiting = false;
+			m_firedHeld |= bit;
+			hitNow(t, held.velocity, held.accent);
+			m_lockPending[t] = held.locks;
+			m_lockPendingValue[t] = held.lockValues;
+			if(held.accented)
+			{
+				m_accentPending |= bit;
+				m_accentPendingAmount = held.accentAmount;
+			}
+			m_slidePending[t] = held.slide;
+			m_slideExtension[t] = held.slideExtension;
+			m_slideTargetPending[t] = held.slideTargets;
+			m_slideTargetValue[t] = held.slideTargetValues;
+		}
+	}
+
+	template<class TVoices>
+	void HostModel<TVoices>::fade(typename TVoices::Block& _out)
+	{
+		// X.20's mixer ramp on the raw voice (P:$D88-$DA0): out[i] = in[i] x (g - i·s), the high word of mpy (2·x·y),
+		// s $1FFFF for 64 samples, $FFFF for 128; g falls by 32·s a block and is cleared below $10000
+		const int32_t step = m_fadeBlocks == 2 ? 0x1ffff : 0xffff;
+		for(int t = 0; t < kTracks; ++t)
+		{
+			auto gain = m_fadeGain[t];
+			if(!gain)
+				continue;
+			auto& block = _out[static_cast<size_t>(t)];
+			for(size_t i = 0; i < block.size(); ++i)
+			{
+				const auto g = static_cast<int64_t>(gain) - static_cast<int64_t>(i) * step;
+				block[i] = static_cast<int32_t>((static_cast<int64_t>(block[i]) * g) >> 23);
+			}
+			gain -= static_cast<int32_t>(block.size()) * step;
+			m_fadeGain[t] = gain < 0x10000 ? 0 : gain;
+		}
+	}
+
+	template<class TVoices>
 	void HostModel<TVoices>::hit(const int _track, const int _velocity, const bool _accent)
+	{
+		// md-drums: ANTI-CLICK holds it back
+		if(holdsHit(_track))
+		{
+			hold(_track, _velocity, _accent);
+			return;
+		}
+		hitNow(_track, _velocity, _accent);
+	}
+
+	template<class TVoices>
+	void HostModel<TVoices>::hitNow(const int _track, const int _velocity, const bool _accent)
 	{
 		m_trigger[_track] = true;
 		m_velocity[_track] = static_cast<uint8_t>(std::clamp(_velocity, 1, 127));
@@ -394,6 +531,14 @@ namespace md::engine
 		{
 			m_os.call(kLfoWave, {static_cast<uint32_t>(_track)});
 			m_os.call(kLfoApplyOne, {static_cast<uint32_t>(_track)});
+		}
+		// md-drums: a track whose Hit waits for ANTI-CLICK's fade keeps its voice's words, as X.20 diverts its slot's DMA
+		if(m_held[_track].waiting)
+		{
+			updateMixer(_track);
+			m_trigger[_track] = false;
+			m_started[_track] = false;
+			return;
 		}
 		const auto id = m_machine[_track];
 		if(isUserMachine(id))
@@ -519,6 +664,9 @@ namespace md::engine
 		// Ticks on a fixed block schedule; a trigger between ticks updates just its voice, so it starts on this
 		// block rather than waiting for the next tick.
 		const auto t0 = timingOn ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+		// md-drums: ANTI-CLICK's waiting Hits first: a new one takes its block's locks, accent and slide along, one whose
+		// wait is over fires in this block
+		takeHeld();
 		// md-drums: the block's Hits take their locks and slides before any voice is updated, whichever came first; the
 		// rest drop
 		for(int t = 0; t < kTracks; ++t)
@@ -538,6 +686,7 @@ namespace md::engine
 					updateVoice(t);
 		const auto t1 = timingOn ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 		const bool ok = m_voices.renderBlock(_out);
+		fade(_out);
 		if(timingOn)
 		{
 			const auto t2 = std::chrono::steady_clock::now();

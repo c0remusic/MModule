@@ -118,8 +118,8 @@ vérifié à la main). Pas de tag : 0.1.2 sort à la demande de l'utilisateur, a
 - [Construire le choix des sources d'une NFX](issues/31-construire-les-sources.md) : construit ; message Sources, état,
   Bank, aperçu, délai de la première source.
 - [Une NFX qui travaille dès qu'on la choisit](issues/32-nfx-sans-hit.md) : construit ; `HostModel::start`, sans Hit.
-- L'ANTI-CLICK d'X.20 ([ticket 33](issues/33-anti-click.md), ouvert) : un réglage OFF / 64 / 128 global, les Machines
-  d'X.20, tous les Hits alignés avec la latence annoncée (choix de l'utilisateur du 2026-10-20).
+- [L'ANTI-CLICK d'X.20, réglable](issues/33-anti-click.md) : construit ; OFF / 64 / 128 dans le Menu, pour toutes
+  les instances ; les Machines qu'X.20 adoucit attendent sous sa rampe, tout Hit sonne 64 ou 128 plus tard, annoncé.
 - [Un Kit du Bank se souvient de ses Machines utilisateur](issues/27-kit-du-bank-et-ses-machines.md) : construit ;
   `Bank.machines` à côté du Bank, l'id et le nom du paquet par numéro ; rechargé, il les reprend, ou dit ce qui manque.
 

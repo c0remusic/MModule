@@ -538,6 +538,25 @@ namespace
 		std::printf("%.0f Hz: note to sound (TRXBD, 48 notes): %d-%d samples, mean %.1f (%.2f ms), jitter %d (%.2f ms),"
 			" reported %d\n", _rate, minimum, maximum, sum / 48, sum / 48 * 1000.0 / _rate, maximum - minimum,
 			(maximum - minimum) * 1000.0 / _rate, _processor.getLatencySamples());
+
+		// X.20's ANTI-CLICK at 128 samples (ticket 33 of the User Machines map), set from the menu: the latency reported
+		// and the note to sound both grow by the fade, as many samples at the host's rate as 128 are at the Device's; off
+		// again, both come back (the note to sound within the jitter measured above, the resampler's off 44.1 kHz)
+		const auto reported = _processor.getLatencySamples();
+		const auto before = play(_processor, 36, 0, _rate);
+		_processor.setAntiClick(128);
+		const auto longer = _processor.getLatencySamples();
+		const auto faded = play(_processor, 36, 0, _rate);
+		_processor.setAntiClick(0);
+		const auto after = play(_processor, 36, 0, _rate);
+		const auto expected = static_cast<int>(std::ceil(128.0 * _rate / 44100.0));
+		std::printf("%.0f Hz: ANTI-CLICK 128: reported %d then %d, note to sound %d then %d, off again %d (%d expected more)\n",
+			_rate, reported, longer, before.first, faded.first, after.first, expected);
+		const auto jitter = maximum - minimum;
+		require(std::abs(longer - reported - expected) <= 1
+			&& std::abs(faded.first - before.first - (longer - reported)) <= 1 + jitter
+			&& std::abs(after.first - before.first) <= jitter && _processor.getLatencySamples() == reported,
+			"ANTI-CLICK did not add its fade to the latency reported and to the note's sound");
 	}
 }
 

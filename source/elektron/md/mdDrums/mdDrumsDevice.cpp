@@ -308,7 +308,7 @@ namespace mdDrums
 					continue;
 				m_telemetry->hit(t);
 				m_telemetry->beginCapture(t, _event.c);
-				m_captures[static_cast<size_t>(t)] = {true, m_position + Engine::CaptureDelay, {}};
+				m_captures[static_cast<size_t>(t)] = {true, m_position + Engine::CaptureDelay + m_engine->fade(), {}};
 			}
 			return;
 		}

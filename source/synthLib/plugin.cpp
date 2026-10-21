@@ -457,6 +457,12 @@ namespace synthLib
 		updateDeviceLatency();
 	}
 
+	void Plugin::refreshDeviceLatency()
+	{
+		std::lock_guard lock(m_lock);
+		updateDeviceLatency();
+	}
+
 	uint32_t Plugin::getLatencyMidiToOutput() const
 	{
 		std::lock_guard lock(m_lock);

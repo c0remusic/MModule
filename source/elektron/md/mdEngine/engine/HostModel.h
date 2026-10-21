@@ -94,6 +94,22 @@ namespace md::engine
 		// Choke): a NEIGHBOUR effect works from then on without waiting for a Hit (ticket 32 of the User Machines map)
 		void start(int _track);
 
+		// md-drums: X.20's ANTI-CLICK (ticket 33 of the User Machines map, research/13): 0 off, or 2 or 4 blocks (64 or
+		// 128 samples). A Hit on a track whose machine X.20 fades (all but its 20 continuous built-ins and the User
+		// Machines that set CONTINUOUS RETRIGGER, the machine the Hit brings deciding) waits that many blocks with its
+		// locks, accent and slide, while the track's voice keeps its words and its raw output falls in a straight line to
+		// zero, as X.20's mixer ramps it (gain 1 - i/64 or 1 - i/128, truncated as the DSP's mpy); a Hit during the wait
+		// replaces the waiting one and the count goes on. The track's Link is struck at the note, as ever.
+		void setFadeBlocks(int _blocks);
+		int fadeBlocks() const { return m_fadeBlocks; }
+		// Whether _track has a Hit waiting for the fade
+		bool holds(int _track) const { return m_held[_track].waiting; }
+		// Whether a waiting Hit of _track fired in the block just rendered
+		bool firedHeld(int _track) const { return (m_firedHeld >> _track) & 1; }
+		// Whether X.20 fades a Hit of _machine: not its 20 continuous built-ins, nor a User Machine that sets CONTINUOUS
+		// RETRIGGER (_package, none for an empty number)
+		static bool fades(uint8_t _machine, const md::mds::Package* _package);
+
 		// md-drums: Links and Chokes, the Kit's trig and mute groups, played as OS 1.63 plays them
 		// (.scratch/md-drums-editor/research/06-groupes.md). A Hit of _track also hits its Link, at the same velocity
 		// and in the same block, one step only (the Link's own Link does not fire), and silences its Choke until that
@@ -111,6 +127,11 @@ namespace md::engine
 		uint8_t cutBy(int _track) const { return m_cutBy[_track]; }
 		// md-drums: the machine _track plays: from its trigger on, the one its Hit brought (a pending setMachine)
 		uint8_t machine(int _track) const { return m_machine[_track]; }
+		// md-drums: the machine _track's next Hit brings: the pending one, else the one it plays
+		uint8_t pendingOrMachine(int _track) const
+		{
+			return static_cast<uint8_t>(m_pendingMachine[_track] >= 0 ? m_pendingMachine[_track] : m_machine[_track]);
+		}
 		void setAccentAmount(int _amount) { m_accentAmount = std::clamp(_amount, 0, 127); }
 
 		// Track level (kit LEV, 0-127; smoothed by the OS's level slew $100029e, and set at once by every Hit, as the
@@ -181,6 +202,33 @@ namespace md::engine
 		std::array<bool, kTracks> m_trigger{};
 		std::array<bool, kTracks> m_started{};	// start()'s, for the next tick
 		void applyPendingMachine(int _track);
+
+		// ANTI-CLICK: each track's waiting Hit, with what came with it
+		struct Held
+		{
+			bool waiting = false;
+			bool fresh = false;		// taken since the last block: its locks, accent and slide still to take
+			int count = 0;			// blocks before it fires
+			uint8_t velocity = 0;
+			bool accent = false;
+			bool accented = false;
+			uint8_t accentAmount = 0;
+			uint32_t locks = 0;
+			std::array<uint8_t, kParams> lockValues{};
+			uint8_t slide = 0;
+			uint8_t slideExtension = 0;
+			uint32_t slideTargets = 0;
+			std::array<uint8_t, kParams> slideTargetValues{};
+		};
+		int m_fadeBlocks = 0;
+		std::array<Held, kTracks> m_held{};
+		std::array<int32_t, kTracks> m_fadeGain{};	// the gain at the next block's first sample, Q23; 0: no fade
+		uint32_t m_firedHeld = 0;
+		bool holdsHit(int _track) const;
+		void hitNow(int _track, int _velocity, bool _accent);
+		void hold(int _track, int _velocity, bool _accent);
+		void takeHeld();
+		void fade(typename TVoices::Block& _out);
 		std::array<uint8_t, kTracks> m_velocity{};	// last trigger's velocity (0 until triggered, as on the MD)
 		std::array<bool, kTracks> m_accent{};
 		std::array<bool, kTracks> m_mute{};

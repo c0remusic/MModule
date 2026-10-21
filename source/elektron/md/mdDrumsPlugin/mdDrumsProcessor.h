@@ -144,6 +144,13 @@ namespace mdDrums
 		// line: its number (0-15) and what it is, or -1 and none; valid until the next state restored
 		std::pair<int, const Device::Kept*> keptUserMachine();
 
+		// X.20's ANTI-CLICK (ticket 33 of the User Machines map): 0 (off), 64 or 128 samples, one setting for every
+		// MoDule as X.20's is machine-wide (the plug-in's configuration, read when a Device is made); the latency
+		// reported grows as much. On the message thread.
+		static constexpr const char* AntiClickKey = "antiClick";
+		int getAntiClick();
+		void setAntiClick(int _samples);
+
 		// The Samples this instance's Device plays, for the Hit preview; none without a Device. On the message thread.
 		std::array<std::shared_ptr<const Sample>, Samples::RomCount> samples();
 

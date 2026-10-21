@@ -262,6 +262,16 @@ namespace mdDrums
 				if(auto* status = editor->getStatusView())
 					status->chooseFlashImage();
 		});
+		// X.20's ANTI-CLICK, for every MoDule (ticket 33 of the User Machines map)
+		auto& processor = static_cast<Processor&>(m_processor);
+		const auto antiClick = processor.getAntiClick();
+		for(const auto& [samples, label] : std::initializer_list<std::pair<int, const char*>>{
+			{0, "Anti-click: off"}, {64, "Anti-click: 64 samples"}, {128, "Anti-click: 128 samples"}})
+			menu.addEntry(label, antiClick == samples, [&processor, samples = samples]
+			{
+				processor.setAntiClick(samples);
+			});
+		menu.addSeparator();
 		menu.addEntry("Install User Machines...", [this]
 		{
 			if(auto* editor = dynamic_cast<Editor*>(getEditor()))

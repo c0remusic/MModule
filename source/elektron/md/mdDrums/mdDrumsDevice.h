@@ -52,10 +52,14 @@ namespace mdDrums
 		// Main left and right, then Out 01 to 15, each the sum of the Tracks the mixer puts on it (messages::OutCount)
 		static constexpr int OutCount = messages::OutCount;
 		static constexpr int OutputCount = 2 + OutCount;
-		// Every Hit sounds Engine::HitDelay samples after its note, on Main and on its Out, whatever its machine
+		// Every Hit sounds Engine::hitDelay() samples after its note, on Main and on its Out, whatever its machine
 		// (ticket 36): the 31 samples of a block, the latest voice's start (TRX-BD's, which sounds a block after its
-		// trigger), Dynamix's look-ahead. That is the latency reported.
+		// trigger), ANTI-CLICK's wait (0 by default), Dynamix's look-ahead. That is the latency reported.
 		static constexpr uint32_t InternalLatency = Engine::HitDelay;
+		// X.20's ANTI-CLICK, 0, 64 or 128 samples (Engine::setFade): the latency grows as much. Between blocks only: the
+		// caller holds the Device (Plugin::withDeviceLocked), then has the Plugin read its latency again.
+		void setAntiClick(int _samples) { m_engine->setFade(_samples); }
+		int antiClick() const { return m_engine->fade(); }
 
 		// _params.romData: the 8 MB Machinedrum UW flash image with OS 1.63. Throws synthLib::DeviceException without
 		// a usable one. _telemetry takes its outputs' peaks and its Hits (none without it); the Device shares it, so that it
@@ -76,7 +80,10 @@ namespace mdDrums
 		uint64_t getDspClockHz() const override { return 0; }
 
 		uint32_t getDefaultLatencyBlocks() const override { return 0; }
-		uint32_t getInternalLatencyMidiToOutput() const override { return InternalLatency; }
+		uint32_t getInternalLatencyMidiToOutput() const override
+		{
+			return static_cast<uint32_t>(m_engine->hitDelay());
+		}
 
 		void process(const synthLib::TAudioInputs& _inputs, const synthLib::TAudioOutputs& _outputs, size_t _size,
 			const std::vector<synthLib::SMidiEvent>& _midiIn, std::vector<synthLib::SMidiEvent>& _midiOut) override;

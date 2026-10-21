@@ -43,6 +43,8 @@ namespace synthLib
 		void reserveMidiEventCapacity(size_t _capacity = RealtimeMidiEventCapacity);
 
 		uint32_t getLatencyMidiToOutput() const;
+		// md-drums: the device's latency read again, after it changed it (MoDule's ANTI-CLICK)
+		void refreshDeviceLatency();
 		uint32_t getLatencyInputToOutput() const;
 		// Counts visits to explicitly unsupported RT allocation paths: a host block
 		// larger than setBlockSize, or dynamically sized SysEx processed/emitted by
