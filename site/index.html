@@ -176,9 +176,11 @@
 			<h2>What you get</h2>
 			<ul>
 				<li><b>16 tracks</b>with every machine OS 1.63 has; the ROM machines play the UW sample bank in your flash image.</li>
+				<li><b>User Machines</b>from MDX X.20's MDS packages on any track: drums, synths, physical models, and NFX effects that hear the tracks you choose.</li>
+				<li><b>Your own Samples</b>in WAV, AIFF or FLAC on any ROM machine, made as a Machinedrum UW makes them: drop them on the window.</li>
 				<li><b>The master effects</b>Rhythm Echo, Gate Box, EQ and Dynamix, running on the mixer DSP's own code.</li>
 				<li><b>An editor</b>with Track, Mix and Master tabs and a machine browser you can hear before you choose.</li>
-				<li><b>Kits</b>in a bank of 64 slots that starts with the 16 factory Kits and reads and writes <code>.syx</code> dumps.</li>
+				<li><b>Kits</b>in a bank of 64 slots that starts with the 16 factory Kits, reads and writes <code>.syx</code> dumps, and remembers the User Machines each Kit plays.</li>
 				<li><b>16 outputs</b>Main, then Out 01 to Out 15; any track can go to any of them.</li>
 			</ul>
 		</div>
@@ -187,7 +189,10 @@
 			<ul>
 				<li><b>Notes 36 to 51</b>play tracks 1 to 16 with their velocity, and every Hit lands 1.88 ms after its note, whatever the machine.</li>
 				<li><b>Locks</b>come from notes 64 to 87: each sets one parameter for a single Hit, its velocity giving the value.</li>
+				<li><b>Accent and Slide</b>as the Machinedrum's sequencer plays them: note 88 accents a Hit, note 89 slides its Locks to the next Hit on your DAW's clock.</li>
+				<li><b>Anti-click</b>as on X.20, off by default: a retriggered track fades out over 64 or 128 samples before its new Hit.</li>
 				<li><b>Push 2</b>gets a page of eight per track, or relays that follow whichever track the editor shows.</li>
+				<li><b>37 MB per instance</b>so that a set can hold many of them.</li>
 			</ul>
 		</div>
 	</section>
@@ -213,6 +218,27 @@
 			<a class="zoom" href="images/module-seq-edit.png"><img src="images/module-seq-edit.png" alt="MoDule Seq's edit window: 16 Tracks by 32 steps with Locks, Conditions and ratchets, the trig row, and the step panel" loading="lazy" width="1440" height="868"></a>
 			<figcaption>The edit window: Locks, Conditions, ratchets and micro-timing, the swing, Accent or Slide row, and the step panel with the Kit's values</figcaption>
 		</figure>
+	</section>
+
+	<section class="lists" aria-label="What MoDule Seq does">
+		<div>
+			<h2>What MoDule Seq sequences</h2>
+			<ul>
+				<li><b>16 Patterns</b>of 16 tracks and up to 64 steps, at scales from 1/8x to 2x, with swing.</li>
+				<li><b>Every step</b>with its velocity, Locks on all 24 parameters, a Condition (50%, 1:4, FILL, PRE, NEI...), up to 8 ratchets with a velocity curve, and micro-timing in 24ths of a step.</li>
+				<li><b>Accent and Slide</b>rows, the Machinedrum's way, which MoDule 0.1.2 or later plays.</li>
+				<li><b>Tracks named</b>after the machines your Kit puts on them, and Lock knobs that show the Kit's values.</li>
+			</ul>
+		</div>
+		<div>
+			<h2>How you play it</h2>
+			<ul>
+				<li><b>Patterns and chains</b>A Pattern chosen follows at the end of the Pass; a chain plays up to 16 of them, one Pass each, round and round.</li>
+				<li><b>Push 2</b>shows the steps, tracks and Patterns on its pads, and a held step's Locks on its encoders.</li>
+				<li><b>Print and Capture</b>write a Pattern over 1 to 16 Passes, or what the device just played, into a Session clip per track.</li>
+				<li><b>Clips only</b>leaves those clips to play MoDule alone.</li>
+			</ul>
+		</div>
 	</section>
 
 	<section id="download">
