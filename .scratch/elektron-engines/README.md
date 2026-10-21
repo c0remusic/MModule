@@ -60,6 +60,18 @@ https://github.com/ElekLabs/digikit" in the About of any interface, mark changes
 What it changes: the Digitakt II becomes a real target (its SHARC code, not a stand-in), and with the Digitone II the
 real-time question moves to the SHARC core's speed (elektron-emu compiles the Digitone II's SHARC code to C for that).
 
+## Synfact (GSM1980/Synfact-release): a Syntakt OS 1.41 mod, MIT
+
+- A binary patch only: a zlib XOR mask over the stock `.syx` plus a machines file downloaded from Google Drive. No source
+  and no notes on how the Syntakt's machines work: nothing to port.
+- What it proves: the Syntakt's digital engine takes new machines (Digitakt MK1 sample machines, Digitone MK1's FM TONE,
+  polyphony from neighbouring tracks). Its manifest keeps sections 1, 2, 4, 5, 6 and 8 intact, so the changes are in
+  section 3 (MAIN OS) and 7 (the DSP ColdFire's code), the two CPUs elektron-emu co-simulates.
+- Useful as it is (MIT): the stock Syntakt OS 1.41 file's SHA-256, `8e2488f462c4a5656396a895f113bcd415e9900fa8709340dccf45d4cb9ed19e`,
+  2,571,424 bytes, to check a copy found elsewhere; and host-side readers of Syntakt and Digitone sound files (`.stsnd`,
+  `.dnsnd`: `vendor/elektron_object.py`, LZ4) and of the +Drive's file listing over USB (`vendor/stfiles.py`, taken from
+  a "digikit-syntakt-review" tree: digikit's author seems to work on the Syntakt too).
+
 ## CPU (elektron-emu's own figures)
 
 - Syntakt: 0.83 s of wall time per emulated second on an M3 Pro, "100 % paced" live; MAIN 62-68 M instr/s.
