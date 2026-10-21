@@ -76,7 +76,13 @@ Digitone MK1 second CPU), [ethernet8023/rytm-fw-re](https://github.com/ethernet8
 - Analog drums: Werner-Abel-Smith [TR-808 bass drum](https://dafx14.fau.de/papers/dafx14_kurt_james_werner_a_physically_informed,_ci.pdf)
   and [cymbal](https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1453.pdf); Werner's
   [WDF thesis](https://purl.stanford.edu/jy057cz8322); Mutable Plaits (MIT) analog drum models. Nothing published on
-  the TR-909, the Steiner-Parker, or Elektron's analog circuits.
+  the TR-909 or Elektron's analog circuits.
+- Steiner-Parker: Leonardo Laguna Ruiz's (Vult) [schematic](https://modlfo.github.io/images/vult-analog-steiner-parker-diagram.pdf)
+  (2017, "based on yusynth improved version", no licence stated; a circuit's values are facts): ten-diode ladder D1-D10
+  biased through R9/R13 (1.8k), three 1.5 nF capacitors (C9-C11), a THAT300 matched pair as the exponential current
+  source (CV1, CV2, CV summed through 220k/150k), the input sent to node A, B or C (SelDestA/B/C, through 2.2 uF and
+  180k) to choose low-, band- or high-pass, resonance fed back through IC1C/IC1D (TL074). Enough component values to
+  model it with Werner's WDF method or Zavalishin's TPT.
 - Effects: Dattorro, [Effect Design Part 1](https://ccrma.stanford.edu/~dattorro/EffectDesignPart1.pdf) (plate) and
   Part 2 (modulated delays); Välimäki et al. "Fifty Years of Artificial Reverberation"; Giannoulis-Massberg-Reiss
   compressor (JAES 2012); antiderivative antialiasing (Parker et al. DAFx-16, Bilbao et al. IEEE SPL 2017), BLAMP
