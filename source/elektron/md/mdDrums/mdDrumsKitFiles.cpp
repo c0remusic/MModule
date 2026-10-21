@@ -9,18 +9,47 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <mutex>
 
 namespace mdDrums
 {
+	namespace
+	{
+		// Which KitFiles of this process heard each device's last hello, by the device's file: only that one writes the
+		// file and deletes it, so that a device moved to another MoDule keeps the new one's Kit (MoDule Seq's report of
+		// 2026-10-21) whatever the old one does until it forgets the device
+		std::mutex g_ownersMutex;
+		std::map<std::filesystem::path, const KitFiles*> g_owners;
+
+		bool owns(const std::filesystem::path& _file, const KitFiles* _files)
+		{
+			std::lock_guard lock(g_ownersMutex);
+			const auto it = g_owners.find(_file);
+			return it == g_owners.end() || it->second == _files;
+		}
+
+		// Deletes the file and forgets its owner when _files owns it
+		void release(const std::filesystem::path& _file, const KitFiles* _files)
+		{
+			std::lock_guard lock(g_ownersMutex);
+			const auto it = g_owners.find(_file);
+			if(it != g_owners.end() && it->second != _files)
+				return;
+			if(it != g_owners.end())
+				g_owners.erase(it);
+			std::error_code error;
+			std::filesystem::remove(_file, error);
+		}
+	}
+
 	KitFiles::KitFiles(std::filesystem::path _folder) : m_folder(std::move(_folder))
 	{
 	}
 
 	KitFiles::~KitFiles()
 	{
-		std::error_code error;
 		for(const auto& [id, device] : m_devices)
-			std::filesystem::remove(file(id), error);
+			release(file(id), this);
 	}
 
 	std::filesystem::path KitFiles::defaultFolder()
@@ -93,6 +122,17 @@ namespace mdDrums
 	{
 		const auto [device, isNew] = m_devices.try_emplace(_id);
 		device->second.lastHello = _nowMs;
+		{
+			// Back from another instance, whose Kit its file now holds: written again at the next step
+			std::lock_guard lock(g_ownersMutex);
+			auto& owner = g_owners[file(_id)];
+			if(owner && owner != this)
+			{
+				device->second.written.clear();
+				m_nextStep = std::min(m_nextStep, _nowMs);
+			}
+			owner = this;
+		}
 		if(isNew)
 			m_nextStep = std::min(m_nextStep, _nowMs);
 	}
@@ -103,17 +143,18 @@ namespace mdDrums
 		for(auto it = m_devices.begin(); it != m_devices.end();)
 		{
 			auto& device = it->second;
+			const auto path = file(it->first);
 			if(_nowMs - device.lastHello > ForgetMs)
 			{
-				std::error_code error;
-				std::filesystem::remove(file(it->first), error);
+				release(path, this);
 				it = m_devices.erase(it);
 				continue;
 			}
-			// A file the device holds open stays as it was until a later step; one another instance deleted (the device
-			// moved here from it) is written again
+			// A device another instance heard since writes nothing here; a file the device holds open stays as it was
+			// until a later step; one deleted from elsewhere (another process, the user) is written again
 			std::error_code error;
-			if((device.written != _text || !std::filesystem::exists(file(it->first), error)) && write(it->first, _text))
+			if(owns(path, this) && (device.written != _text || !std::filesystem::exists(path, error))
+				&& write(it->first, _text))
 				device.written = _text;
 			++it;
 		}

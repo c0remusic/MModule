@@ -21,9 +21,10 @@ namespace mdDrums
 	// What md-drums-seq shows of the Kit played (its ADR 0003; ours amended): a device names itself with a hello, four
 	// notes the Device takes (Device::FirstHelloNote, Telemetry::takeHello), and reads <id>.kit in <temp>/md-drums-seq:
 	// the Kit's name, each Track's Machine and SYN1-8 names, its 24 values. One file per device heard, written whole
-	// (baseLib::filesystem::writeFileAtomic) when its device is new, the Kit changed or the file is gone (another
-	// instance the device left deleted it), looked at every StepMs; deleted ForgetMs after its device's last hello, and
-	// with this object. On the message thread; the clock is the caller's.
+	// (baseLib::filesystem::writeFileAtomic) when its device is new, the Kit changed or the file is gone, looked at every
+	// StepMs; deleted ForgetMs after its device's last hello, and with this object. A device belongs to the KitFiles of
+	// this process that heard its last hello: another one that still holds it (the device moved to another MoDule)
+	// neither writes nor deletes its file. On the message thread; the clock is the caller's.
 	class KitFiles
 	{
 	public:

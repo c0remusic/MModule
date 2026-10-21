@@ -1043,7 +1043,8 @@ namespace
 		require(!std::filesystem::exists(folder.path() / "fedcba.kit"), "a file stayed after the object went");
 
 		// A device moved to another instance (MoDule Seq's report of 2026-10-21): the new one writes its file at the
-		// hello; the old one, silent for ForgetMs, deletes it; the new one writes it again at its next step
+		// hello; the old one, which still holds it, neither writes its own Kit there when it changes nor deletes the file
+		// when it forgets the device; back to the old one, the file is the old one's Kit again at its next step
 		{
 			KitFiles old(folder.path()), moved(folder.path());
 			const auto c = old.file(0x123456);
@@ -1054,15 +1055,22 @@ namespace
 			const auto movedText = KitFiles::text(movedKit);
 			moved.hello(0x123456, 1000.0);
 			moved.step(movedText, 1000.0);
-			old.step(KitFiles::text(kit), 15100.0);
-			require(!std::filesystem::exists(c) && old.devices() == 0, "the old instance kept the device that moved");
+			auto oldKit = kit;
+			oldKit.setName("OLD CHANGED");
+			old.step(KitFiles::text(oldKit), 5000.0);
+			require(readFile<std::string>(c) == movedText, "the instance the device left wrote its Kit into its file");
+			old.step(KitFiles::text(oldKit), 15100.0);
+			require(old.devices() == 0 && std::filesystem::exists(c) && readFile<std::string>(c) == movedText,
+				"the instance the device left kept it, or deleted its file");
 			moved.hello(0x123456, 15100.0);
-			moved.step(movedText, 15250.0);
-			require(std::filesystem::exists(c) && readFile<std::string>(c) == movedText,
-				"a file another instance deleted was not written again");
+			old.hello(0x123456, 16000.0);
+			old.step(KitFiles::text(oldKit), 16000.0);
+			moved.step(movedText, 16250.0);
+			require(readFile<std::string>(c) == KitFiles::text(oldKit),
+				"the device back on the old instance does not show its Kit, or the other one wrote over it");
 		}
 		std::printf("kit files: written at once, a change at the next step, forgotten after %.0f s, gone with the"
-			" object, written again when another instance deleted it\n", KitFiles::ForgetMs / 1000.0);
+			" object, left to the instance a device moved to\n", KitFiles::ForgetMs / 1000.0);
 	}
 
 	// Notes and CCs, inline SysEx included, on a prepared Plugin: no heap allocation
