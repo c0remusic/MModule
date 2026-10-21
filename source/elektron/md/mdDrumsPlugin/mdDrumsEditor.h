@@ -105,8 +105,8 @@ namespace mdDrums
 
 		// Esc, before the stack's own (which opens its settings): disarms ASSIGN, else leaves a Kit's renaming or a second-
 		// click question, else closes the open overlay. Ctrl+S saves the Kit played. The other keys go to KitsView::key
-		// (the Kits' arrows and Enter, a name typed), then TrackView::key (Space, the browser's arrows and Enter, the
-		// machine's arrows)
+		// (the Kits' arrows and Enter, a name typed), then TrackView::key (the browser's arrows and Enter, the machine's
+		// arrows); Space goes on to the host
 		bool escape() const;
 
 	private:

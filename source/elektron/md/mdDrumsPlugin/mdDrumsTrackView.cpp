@@ -334,14 +334,6 @@ namespace mdDrums
 		const auto key = juceRmlUi::helper::getKeyIdentifier(_event);
 		auto* context = m_editor.getRmlComponent() ? m_editor.getRmlComponent()->getContext() : nullptr;
 		const auto* focus = context ? context->GetFocusElement() : nullptr;
-		if(key == Rml::Input::KI_SPACE)
-		{
-			// Every element takes the focus when clicked: only a text field keeps Space for itself
-			if(focus && (focus->GetTagName() == "input" || focus->GetTagName() == "textarea"))
-				return false;
-			play();
-			return true;
-		}
 		const bool up = key == Rml::Input::KI_UP, down = key == Rml::Input::KI_DOWN;
 		if(m_overlay == Overlay::Browser)
 		{

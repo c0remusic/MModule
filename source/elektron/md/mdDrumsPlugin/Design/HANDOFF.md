@@ -246,7 +246,7 @@ tabular figures.
 | ↑ ↓ on a focused knob | 1 step, 10 with Shift |
 | Double-click a knob | back to its default (the machine's for SYN) |
 | Wheel or ↑ ↓ on the machine's name | the next machine |
-| Space, nothing focused | plays the shown track |
+| Space | left to the host: Live starts or stops its transport (the play key plays the shown track) |
 | Esc | closes the open overlay (the LFO menu, ASSIGN, the browser: Cancel, the kits, a second-click question) |
 | Ctrl+S | saves the kit in its slot when it has changed |
 | Kits: click / double-click or Enter / arrows | choose / load / ↑ ↓ next slot, ← → next column |

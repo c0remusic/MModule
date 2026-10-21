@@ -32,7 +32,7 @@ namespace mdDrums
 	// the machine's family, where it plays, the machine's names for SYN1-8 and in the LFO's menu); the overlays opened
 	// and closed (the machine browser, the LFO's target menu, the Kits, the Links and Chokes menu; Esc closes them, the
 	// browser as Cancel), and the browser's "Listen while choosing", with which a machine chosen plays the Track; playing
-	// the Track (the play key and Space, at the head band's velocity, which a drag sets) and stepping its machine (the
+	// the Track (the play key, at the head band's velocity, which a drag sets) and stepping its machine (the
 	// wheel or the arrows on its name, the arrows in the browser: ticket 23); and the top bar's Menu, which opens the
 	// editor's menu (EditorState::openMenu). The editor's frame draws the Track shown, its machine, every Track's Out and
 	// the open LFO menu where they changed (step); its clicks and keys write at once.
@@ -76,7 +76,7 @@ namespace mdDrums
 		bool isListening() const;
 		void setListening(bool _on) const;
 
-		// The head band's velocity, 1-127, kept in the plug-in's settings: what the play key and Space play with
+		// The head band's velocity, 1-127, kept in the plug-in's settings: what the play key plays with
 		static constexpr float PixelsPerVelocityStep = 1.5f;
 		int getPlayVelocity() const;
 		void setPlayVelocity(int _velocity) const;
@@ -87,8 +87,9 @@ namespace mdDrums
 		void stepMachine(int _delta);
 		void stepFamily(int _delta);
 
-		// A key, before the stack's handling: Space plays (unless a text field has the focus); with the browser open the
-		// arrows step its machines and families and Enter keeps it; on the machine's name ↑ ↓ step it. False: not handled
+		// A key, before the stack's handling: with the browser open the arrows step its machines and families and Enter
+		// keeps it; on the machine's name ↑ ↓ step it. False: not handled, as Space always is, so that the host
+		// takes it (Live starts or stops its transport)
 		bool key(Rml::Event& _event);
 
 	private:

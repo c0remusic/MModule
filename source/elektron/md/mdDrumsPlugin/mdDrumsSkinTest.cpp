@@ -12,8 +12,8 @@
 //   a change of the shown Track's sound previews its Hit there and in the machine browser (ticket 28);
 // - the Filter and EQ and LFO screens draw what the shown Track's parameters give, an LFO's target is underlined, ASSIGN
 //   and Esc work as the HANDOFF says, and a machine chosen in the browser plays its Track (ticket 22);
-// - the play key and Space play the shown Track at the velocity a drag sets, the wheel and the arrows step its machine
-//   (ticket 23);
+// - the play key plays the shown Track at the velocity a drag sets, Space goes to the host, the wheel and the arrows step
+//   its machine (ticket 23);
 // - the head band's Link and Choke lines open their menu, whose cells set the Kit played's values (ticket 29);
 // - the editor's frame: what the host changes shows after one frame, what piled up while no frame ran shows nothing,
 //   a frame with nothing new writes nothing, and what a frame costs.
@@ -923,8 +923,8 @@ namespace
 		click(_f, "browser_cancel");
 	}
 
-	// Playing the Track and stepping its machine (ticket 23): the play key and Space at the head band's velocity, which a
-	// drag sets; the wheel on the machine's name; the browser's arrows and Enter
+	// Playing the Track and stepping its machine (ticket 23): the play key at the head band's velocity, which a drag sets,
+	// Space left to the host; the wheel on the machine's name; the browser's arrows and Enter
 	void playAndStep(Fixture& _f)
 	{
 		auto& controller = _f.controller();
@@ -951,7 +951,8 @@ namespace
 		require(tracks->getPlayVelocity() == 110 && _f.find("velocity")->GetInnerRML() == "110" && std::abs(fill - 55.0f) < 0.5f,
 			"the drag did not set the velocity 1.5 px a step");
 
-		// The play key, as it goes down, and Space: the shown Track at that velocity
+		// The play key, as it goes down: the shown Track at that velocity. Space, the play key focused by that click, plays
+		// nothing and goes on to the host, whose transport it starts in Live: neither the key nor its text is consumed
 		auto* play = _f.find("play");
 		const auto pb = _f.box(*play);
 		_f.moveTo(pb.x + 32, pb.y + 32);
@@ -960,11 +961,14 @@ namespace
 		context.ProcessMouseButtonUp(0, 0);
 		flush();
 		_f.editor->setCurrentPart(3);
-		context.ProcessKeyDown(Rml::Input::KI_SPACE, 0);
-		require((controller.pendingAuditions() & 8) && controller.auditionVelocity(3) == 110, "Space does not play the shown Track");
+		const bool keyLeft = context.ProcessKeyDown(Rml::Input::KI_SPACE, 0);
+		const bool textLeft = context.ProcessTextInput(" ");
+		context.ProcessKeyUp(Rml::Input::KI_SPACE, 0);
+		require(keyLeft && textLeft && !(controller.pendingAuditions() & 8),
+			"Space played the shown Track, or the editor kept it from the host");
 		flush();
 		_f.editor->setCurrentPart(0);
-		std::printf("play: the key and Space play the shown Track at 110\n");
+		std::printf("play: the key plays the shown Track at 110; Space is left to the host\n");
 
 		// The wheel down on the machine's name: the browser's next machine, and the Track plays
 		auto* machine = controller.getParameter("Machine", 0);
