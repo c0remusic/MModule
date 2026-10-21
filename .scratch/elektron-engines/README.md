@@ -115,6 +115,41 @@ CPU estimate from elektron-emu's split: the DSP CPU 0.51 s of 3 s emulated, abou
 
 A full OS per machine therefore costs most of a core; a piecewise engine is what made MoDule a tenth of the firmware.
 
+## The port (source/elektron/syntakt/stEngine)
+
+BD MODERN (engine 0), the stages most engines share and the voice CPU's per-block dispatch, ported to C++ from OS
+1.41's section 7 and equal word for word to the original routines. No emulator, firmware or OS runs in the port; it
+reads its constant tables from the user's section 7 (`Rom`).
+
+- The port keeps the voice CPU's memory map: `Sram` is its 64 KB as words, a `Voice` a view at 0x80000000 + 0x708 v.
+  The routines rely on that map (units 0x80 apart overlap, voices keep pointers to buffers, voices share scratch
+  buffers); named structures can replace it once every engine is ported and checked.
+- `stEmac.h`: the EMAC as MACSR 0xA0 runs it (Q39 accumulators in 48 bits, truncating, saturating, the overflow that
+  freezes an accumulator).
+- `stStages.*`: interpolate (0x40004dc6), unitEnvelopes (3c0e), ampEnvelope (3d42), vca (45a0), driveClip (47ea),
+  onePole (4e6c), mix (49f4), modulatorVca (4674), modulatorEnvelope (3df2), sweepEnvelope (3cda),
+  phaseIncrements48k (2596), feedbackOscillator (35de), pmOscillator (290e). `stVoice.*`: initVoice (3ee0),
+  restartPhases (255e), drawRandom (3eb4). `stBdModern.*`: update (6968), render (6c9e), click (4ee6), sum (46dc).
+  `stEngine.*`: renderVoices (4324).
+- Not ported yet: the boot's RAM tables (the sine at 0x80004b70 and the exp2 table at 0x8000a888, which the tests take
+  from the original's SRAM), the audio ISR's scatter of CPU #1's block, CPU #1's side (parameters, per-track filter,
+  sends), the other eleven engines.
+
+`stEngineOracleTest` checks it: `SYNTAKT_SECTION7` names the user's section 7, `SYNTAKT_VECTORS` vector files recorded
+from the original code (exit 77 without them). Tools in `tools/`, run with Python and Unicorn 2.1.4 over SyntHack OS's
+harness (clone at `C:\dev\Synthack-OS`, its `unpacked/Syntakt_OS1.41/section_7_blob.raw` the user's section 7, which
+digiemu's `emu.extract` takes out of the `.syx`):
+
+- `vectors.py OUT ROUTINES --engines ...`: every call of the routines in random scenarios (machine bytes, notes, trigs,
+  gate-offs, knob moves), with SRAM and the noise generator before and after.
+- `fuzz.py OUT`: the shared routines and the voice init called on random states and loud blocks.
+- `oracle.py`: a snapshot at a routine's entry, and any routine called alone on it.
+- `cfdis.py`: section 7 disassembled, EMAC and ColdFire ISA_C included.
+
+Measured 2026-10-22, all against the original: 8,500 recorded and fuzzed calls of the 19 ported routines, 0 words
+differing; and 300 consecutive blocks of the eight voices where the port carries its own voice states, 0 differing.
+The vectors are firmware-derived and stay outside the repository (`C:\dev\elektron-work\vectors`).
+
 ## First ticket proposed
 
 Since SyntHack OS: the Syntakt's section 7 alone in C++ on a ColdFire core with exact EMAC, one engine rendering the same
