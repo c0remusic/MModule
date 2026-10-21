@@ -74,11 +74,20 @@ namespace mdDrums
 		// Writes Slots in the list's order, as an import does, after reading the file again once for them all. False
 		// when a Slot is out of range or the file cannot be written.
 		bool write(const std::vector<SlotKit>& _slots);
-		// Writes a Slot, an empty one for no Kit
-		bool write(const int _slot, const std::optional<Kit>& _kit, const Machines& _machines = {},
-			const std::optional<Sources>& _sources = std::nullopt)
+		// Writes a Slot, an empty one for no Kit (overloads, not default arguments: clang takes no default argument of
+		// a type whose member initializers the class is still defining)
+		bool write(const int _slot, const std::optional<Kit>& _kit, const Machines& _machines,
+			const std::optional<Sources>& _sources)
 		{
 			return write(std::vector<SlotKit>{{_slot, _kit, _machines, _sources}});
+		}
+		bool write(const int _slot, const std::optional<Kit>& _kit, const Machines& _machines)
+		{
+			return write(_slot, _kit, _machines, std::nullopt);
+		}
+		bool write(const int _slot, const std::optional<Kit>& _kit)
+		{
+			return write(_slot, _kit, Machines{}, std::nullopt);
 		}
 
 		const std::filesystem::path& file() const { return m_file; }
