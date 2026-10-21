@@ -59,17 +59,23 @@ git -c protocol.file.allow=always \
 
 ## Gate
 
-Before every commit and push; ctest only after the build exits 0:
+Before every commit and push, one script (its test list is the gate's: add a new test there):
 
 ```powershell
-$rom = "$env:LOCALAPPDATA\Programs\Gearmulator-Elektron"
-$env:GEARMULATOR_MD_FIRMWARE_BIN = "$rom\elektron_sps1-1uw_os1.63.bin"
-$env:GEARMULATOR_MM_FIRMWARE_BIN = "$rom\elektron_sfx6-60_os1.32b.bin"
-$env:MD_X20_OS = "$rom\Machinedrum_SPS1-UW_OS_X.20_B.syx"
-cmake --build temp\cmake_vs22 --config Release -j 6 --target mdAutomationMidiTest mdKitDumpFirmwareTest mdTrigLatencyFirmwareTest mdEngineFirmwareTest mdDrumsEngineTest mdDrumsDeviceTest mdDrumsProcessorTest mdDrumsSkinTest mdDrumsScreensTest mdDrumsBankTest mdDrumsHitPreviewTest mdDrumsFirstHitTest mdDrumsVst3HostTest mdDrumsUpdateTest mdX20OsTest mdX20BuiltinsTest mdX20PortTest synthLibResamplerTimingTest synthLibOutputChannelsTest mdProtocolKitTest
-cd temp\cmake_vs22
-ctest -C Release -R "^(mdAutomationMidiTest|mdKitDumpFirmwareTest|mdEngineFirmwareTest|mdSlideFirmwareTest|mdDrumsEngineTest|mdDrumsDeviceTest|mdDrumsProcessorTest|mdDrumsSkinTest|mdDrumsScreensTest|mdDrumsBankTest|mdDrumsHitPreviewTest|mdDrumsFirstHitTest|mdDrumsVst3HostTest|mdDrumsUpdateTest|mdX20OsTest|mdX20BuiltinsTest|mdX20PortTest|synthLibResamplerTimingTest|synthLibOutputChannelsTest|mdProtocolKitTest)$"
+pwsh -NoProfile -File scripts\windows\gate.ps1 -Log <file>
 ```
+
+It builds the gate's targets, runs ctest on them with `--output-on-failure`, and ends on `GATE GREEN` (exit 0) or
+`GATE RED` (exit 1). The log holds the build's errors, the machine's load before the tests, each test's line, the failing
+tests' own messages (the whole ctest output beside it, `<log>.ctest.txt`), and the elapsed time. It keeps the display on
+while it runs (`mdDrumsVst3HostTest` captures the editor's window, which a sleeping display leaves blank).
+
+The timing tests (`mdDrumsVst3HostTest`, `mdDrumsEngineTest`) bound the audio thread's wall-clock time, so other programs
+that take the processor make them fail: on 2026-10-21, with Ableton Live playing (2.6 cores) and another session's
+survey on six processes, `mdDrumsVst3HostTest` failed 5 runs of 10 on "a block stalled the audio thread" (worst blocks
+12 to 63 ms against the 10 ms bound). The gate writes the load it measured; a timing test that fails alone runs once
+more, and passing then, the gate is green and says "timing test failed under load, passed on its second run". Any other
+failure, or a timing test failing twice, is red. Gate on a quiet machine whenever possible.
 
 Green is 24 passed out of 24: ctest adds the 4 fixture tests `mdEngineFirmwareTest` requires (`mdEngineFirmwareHits`, `mdEngineFirmwareRomBank`, `mdEngineFirmwareGroups` and `mdEngineFirmwareMaster` boot the firmware to record the hits, the voice DSP's UW bank, the Link and Choke scenarios and the master effect scenarios with the mixer DSP's memory, which `mdEngineFirmwareTest` compares the engine with).
 
