@@ -66,14 +66,14 @@ $rom = "$env:LOCALAPPDATA\Programs\Gearmulator-Elektron"
 $env:GEARMULATOR_MD_FIRMWARE_BIN = "$rom\elektron_sps1-1uw_os1.63.bin"
 $env:GEARMULATOR_MM_FIRMWARE_BIN = "$rom\elektron_sfx6-60_os1.32b.bin"
 $env:MD_X20_OS = "$rom\Machinedrum_SPS1-UW_OS_X.20_B.syx"
-cmake --build temp\cmake_vs22 --config Release -j 6 --target mdAutomationMidiTest mdKitDumpFirmwareTest mdTrigLatencyFirmwareTest mdEngineFirmwareTest mdDrumsEngineTest mdDrumsDeviceTest mdDrumsProcessorTest mdDrumsSkinTest mdDrumsScreensTest mdDrumsBankTest mdDrumsHitPreviewTest mdDrumsFirstHitTest mdDrumsVst3HostTest mdDrumsUpdateTest mdX20OsTest mdX20BuiltinsTest synthLibResamplerTimingTest synthLibOutputChannelsTest mdProtocolKitTest
+cmake --build temp\cmake_vs22 --config Release -j 6 --target mdAutomationMidiTest mdKitDumpFirmwareTest mdTrigLatencyFirmwareTest mdEngineFirmwareTest mdDrumsEngineTest mdDrumsDeviceTest mdDrumsProcessorTest mdDrumsSkinTest mdDrumsScreensTest mdDrumsBankTest mdDrumsHitPreviewTest mdDrumsFirstHitTest mdDrumsVst3HostTest mdDrumsUpdateTest mdX20OsTest mdX20BuiltinsTest mdX20PortTest synthLibResamplerTimingTest synthLibOutputChannelsTest mdProtocolKitTest
 cd temp\cmake_vs22
-ctest -C Release -R "^(mdAutomationMidiTest|mdKitDumpFirmwareTest|mdEngineFirmwareTest|mdSlideFirmwareTest|mdDrumsEngineTest|mdDrumsDeviceTest|mdDrumsProcessorTest|mdDrumsSkinTest|mdDrumsScreensTest|mdDrumsBankTest|mdDrumsHitPreviewTest|mdDrumsFirstHitTest|mdDrumsVst3HostTest|mdDrumsUpdateTest|mdX20OsTest|mdX20BuiltinsTest|synthLibResamplerTimingTest|synthLibOutputChannelsTest|mdProtocolKitTest)$"
+ctest -C Release -R "^(mdAutomationMidiTest|mdKitDumpFirmwareTest|mdEngineFirmwareTest|mdSlideFirmwareTest|mdDrumsEngineTest|mdDrumsDeviceTest|mdDrumsProcessorTest|mdDrumsSkinTest|mdDrumsScreensTest|mdDrumsBankTest|mdDrumsHitPreviewTest|mdDrumsFirstHitTest|mdDrumsVst3HostTest|mdDrumsUpdateTest|mdX20OsTest|mdX20BuiltinsTest|mdX20PortTest|synthLibResamplerTimingTest|synthLibOutputChannelsTest|mdProtocolKitTest)$"
 ```
 
-Green is 23 passed out of 23: ctest adds the 4 fixture tests `mdEngineFirmwareTest` requires (`mdEngineFirmwareHits`, `mdEngineFirmwareRomBank`, `mdEngineFirmwareGroups` and `mdEngineFirmwareMaster` boot the firmware to record the hits, the voice DSP's UW bank, the Link and Choke scenarios and the master effect scenarios with the mixer DSP's memory, which `mdEngineFirmwareTest` compares the engine with).
+Green is 24 passed out of 24: ctest adds the 4 fixture tests `mdEngineFirmwareTest` requires (`mdEngineFirmwareHits`, `mdEngineFirmwareRomBank`, `mdEngineFirmwareGroups` and `mdEngineFirmwareMaster` boot the firmware to record the hits, the voice DSP's UW bank, the Link and Choke scenarios and the master effect scenarios with the mixer DSP's memory, which `mdEngineFirmwareTest` compares the engine with).
 
-`MD_X20_OS` names the user's own MDX X.20 OS file, kept beside the ROMs on this PC and never in the repository: `mdX20OsTest` reads it where it is set, and runs only its LZMA and refusal checks without it; `mdX20BuiltinsTest` plays X.20's built-in Machines from it, and nothing without it.
+`MD_X20_OS` names the user's own MDX X.20 OS file, kept beside the ROMs on this PC and never in the repository: `mdX20OsTest` reads it where it is set, and runs only its LZMA and refusal checks without it; `mdX20BuiltinsTest` plays X.20's built-in Machines from it, and nothing without it; `mdX20PortTest` compares the port of their routines with X.20's own run in a 68k (exit 77 without it).
 
 The ROM is required. A firmware test exits 77 without its ROM and ctest reports it Skipped, which proves nothing:
 - The firmware tests read `GEARMULATOR_MD_FIRMWARE_BIN`; MoDule's tests find the flash image as `mdDrums::Engine::findFlashImage` says.

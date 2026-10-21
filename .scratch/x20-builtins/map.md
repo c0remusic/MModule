@@ -42,6 +42,10 @@ demande de l'utilisateur.
 - [Le code DSP des 6 dans le programme des voix que MoDule fait tourner](issues/01-code-dsp-des-6.md) : à ses
   adresses d'X.20, libres ; 18 entrées réécrites après chaque `reset()` ; les NFX lisent le descripteur de MoDule ;
   NFX-UC attend MACRI dans l'émulateur.
+- [Premier son : GND-SW sur une Track](issues/04-premier-son-gnd-sw.md) : joué dans le moteur depuis l'OS X.20 ; à
+  l'oreille, « ça semble ok » ; les 5 autres de la même façon.
+- [Le portage C++ contre les routines d'X.20 dans un 68k](issues/07-portage-contre-le-68k.md) : `mdX20PortTest`,
+  72 576 appels, 0 différence.
 - [Lire l'OS X.20 que l'utilisateur donne](issues/03-lire-l-os-x20.md) : `md::fw::parseX20Os` et un décodeur
   LZMA1 ; les quatre charges vérifiées ; `mdX20OsTest` au garde-fou, le fichier de l'utilisateur par `MD_X20_OS`.
 - [Les routines 68k des 6 : les appeler ou les porter](issues/02-routines-68k-des-6.md) : petites, sans rien du
@@ -49,11 +53,7 @@ demande de l'utilisateur.
 
 ## Not yet specified
 
-- Ce que voit l'utilisateur : où il charge l'OS X.20 (Menu, lâcher, ligne d'état), un OS refusé, une autre version
-  qu'X.20 B (les adresses bougent : chercher par forme).
-- Le navigateur : où vont GND-SW, GND-PU (famille GND) et les trois NFX, leurs noms, et GND-SN-PRO à la place de
-  GND-SN.
-- Un set ou un Kit qui joue une des 6, ouvert sans l'OS X.20 : silence, GND-SN au lieu de PRO, la ligne d'état ?
+- Une autre version qu'X.20 B (les adresses bougent : chercher par forme).
 - Les NFX : leur délai (une Track avant) et leur aperçu, le menu « hears » servant tel quel (research/01).
 - Le reste de la plomberie : les noms et défauts de leurs paramètres (Kit, MoDule Seq, Push), l'aperçu du Hit, la
   chauffe du JIT, ANTI-CLICK (X.20 adoucit-il les 6 ?).

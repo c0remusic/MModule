@@ -69,6 +69,18 @@ if(BUILD_TESTING)
 	# X.20's built-in Machines on the engine from the user's X.20 OS (MD_X20_OS): GND-SW sounds, the others unchanged
 	add_md_drums_test(mdX20BuiltinsTest "FirmwareTest;AudioIo" 180)
 
+	# The port of X.20's coefficient routines against the routines run in a 68k on the user's X.20 OS (MD_X20_OS, exit 77
+	# without). Musashi serves one CPU class per executable: the port, the OS reader and the 68k alone, no engine
+	set(MD_ENGINE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../mdEngine)
+	add_executable(mdX20PortTest mdX20PortTest.cpp ${MD_ENGINE_DIR}/engine/X20Builtins.cpp
+		${MD_ENGINE_DIR}/tools/mdfw/X20Os.cpp ${MD_ENGINE_DIR}/tools/mdfw/Lzma.cpp ${MD_ENGINE_DIR}/tools/mdfw/Firmware.cpp)
+	target_include_directories(mdX20PortTest PRIVATE ${MD_ENGINE_DIR}/engine ${MD_ENGINE_DIR}/tools/mdfw
+		${CMAKE_CURRENT_SOURCE_DIR}/../../.. ${CMAKE_CURRENT_SOURCE_DIR}/../../../mc68k)
+	target_link_libraries(mdX20PortTest PRIVATE 68kEmu)
+	set_property(TARGET mdX20PortTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME mdX20PortTest COMMAND mdX20PortTest)
+	set_tests_properties(mdX20PortTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
+
 	# Measurement, not a gate: what a second engine costs the Hit screen and the browser's preview (ticket 12)
 	add_md_drums_executable(mdDrumsPreviewTest)
 endif()
