@@ -59,12 +59,10 @@ namespace mdDrums
 
 		// A block, plus the longest delay: the rest of a block, a voice held back to AlignedStart, ANTI-CLICK's wait,
 		// MasterDelay on a Track's own output
+		// The same whatever the setting, so that a Hit on its way when it changes still fits, and no tail is cut
 		static constexpr int Ring = 256;
 		static_assert(BlockSize + SampleAccurateDelay + AlignedStart + MaxFade + MasterDelay <= Ring);
-		// Without ANTI-CLICK, half of it, as before the fade: the lanes touch no more memory than they did
-		static constexpr int ShortRing = Ring / 2;
-		static_assert(BlockSize + SampleAccurateDelay + AlignedStart + MasterDelay <= ShortRing);
-		int mask = ShortRing - 1;
+		static constexpr int mask = Ring - 1;
 		static constexpr int Channels = 6;	// main L R, REV L R, DEL L R
 
 		struct Lane
@@ -572,14 +570,6 @@ namespace mdDrums
 		auto& state = *m_state;
 		state.fade = fade;
 		state.engine.host().setFadeBlocks(fade / BlockSize);
-		// The lanes' ring as long as the delays need: what they held is dropped when it changes
-		const int mask = (fade ? State::Ring : State::ShortRing) - 1;
-		if(mask != state.mask)
-		{
-			state.mask = mask;
-			for(auto& lane : state.lanes)
-				lane = {};
-		}
 	}
 
 	int Engine::fade() const

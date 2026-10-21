@@ -496,6 +496,7 @@ namespace mdDrums
 	{
 		getConfig().setValue(AntiClickKey, _samples);
 		const auto samples = getAntiClick();
+		m_antiClickPlayed = samples;
 		getPlugin().withDeviceLocked([&](synthLib::Device* _device)
 		{
 			if(auto* device = dynamic_cast<Device*>(_device))
@@ -533,7 +534,8 @@ namespace mdDrums
 		params.romData = std::move(flash);
 		params.homePath = getDataFolder();
 		auto* device = new Device(params, m_telemetry);
-		device->setAntiClick(getAntiClick());
+		m_antiClickPlayed = getAntiClick();
+		device->setAntiClick(m_antiClickPlayed);
 		std::atomic_store(&m_fxTables, device->fxTables());
 		std::atomic_store(&m_machines, std::make_shared<const Machines>(device->machines()));
 		return device;

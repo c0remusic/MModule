@@ -370,6 +370,8 @@ namespace md::engine
 			held.waiting = true;
 			held.count = m_fadeBlocks;
 			m_fadeGain[_track] = 0x7fffff;
+			// The ramp keeps the slope it started with, whatever the setting does meanwhile
+			m_fadeStep[_track] = m_fadeBlocks == 2 ? 0x1ffff : 0xffff;
 		}
 		held.fresh = true;
 		held.velocity = static_cast<uint8_t>(std::clamp(_velocity, 1, 127));
@@ -438,12 +440,12 @@ namespace md::engine
 	{
 		// X.20's mixer ramp on the raw voice (P:$D88-$DA0): out[i] = in[i] x (g - i·s), the high word of mpy (2·x·y),
 		// s $1FFFF for 64 samples, $FFFF for 128; g falls by 32·s a block and is cleared below $10000
-		const int32_t step = m_fadeBlocks == 2 ? 0x1ffff : 0xffff;
 		for(int t = 0; t < kTracks; ++t)
 		{
 			auto gain = m_fadeGain[t];
 			if(!gain)
 				continue;
+			const auto step = m_fadeStep[t];
 			auto& block = _out[static_cast<size_t>(t)];
 			for(size_t i = 0; i < block.size(); ++i)
 			{
@@ -464,6 +466,9 @@ namespace md::engine
 			hold(_track, _velocity, _accent);
 			return;
 		}
+		// A Hit that does not fade (its machine brought by it) replaces a waiting one at once, and ends its fade
+		m_held[_track] = {};
+		m_fadeGain[_track] = 0;
 		hitNow(_track, _velocity, _accent);
 	}
 
@@ -535,9 +540,9 @@ namespace md::engine
 		// md-drums: a track whose Hit waits for ANTI-CLICK's fade keeps its voice's words, as X.20 diverts its slot's DMA
 		if(m_held[_track].waiting)
 		{
+			// A start() waits with it: the Hit's trigger path runs INIT when it fires
 			updateMixer(_track);
 			m_trigger[_track] = false;
-			m_started[_track] = false;
 			return;
 		}
 		const auto id = m_machine[_track];

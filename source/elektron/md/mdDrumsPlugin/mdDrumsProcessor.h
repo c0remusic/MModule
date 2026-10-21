@@ -150,6 +150,9 @@ namespace mdDrums
 		static constexpr const char* AntiClickKey = "antiClick";
 		int getAntiClick();
 		void setAntiClick(int _samples);
+		// What this instance's Device plays: the configuration's when it was made or set here, which another instance
+		// may have changed since; what the menu ticks
+		int antiClickPlayed() const { return m_antiClickPlayed; }
 
 		// The Samples this instance's Device plays, for the Hit preview; none without a Device. On the message thread.
 		std::array<std::shared_ptr<const Sample>, Samples::RomCount> samples();
@@ -176,6 +179,7 @@ namespace mdDrums
 		std::shared_ptr<const Machines> m_machines;
 		std::atomic<float> m_bpm{0.0f};
 		bool m_forTests = false;
+		int m_antiClickPlayed = 0;
 		std::unique_ptr<Bank> m_bank;
 		std::unique_ptr<Library> m_library;
 		// kitMachines' ids, by the package they were taken from: a frame of the head band reads them ten times a second

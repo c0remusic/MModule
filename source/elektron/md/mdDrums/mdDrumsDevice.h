@@ -54,8 +54,8 @@ namespace mdDrums
 		static constexpr int OutputCount = 2 + OutCount;
 		// Every Hit sounds Engine::hitDelay() samples after its note, on Main and on its Out, whatever its machine
 		// (ticket 36): the 31 samples of a block, the latest voice's start (TRX-BD's, which sounds a block after its
-		// trigger), ANTI-CLICK's wait (0 by default), Dynamix's look-ahead. That is the latency reported.
-		static constexpr uint32_t InternalLatency = Engine::HitDelay;
+		// trigger), ANTI-CLICK's wait (0 by default), Dynamix's look-ahead. That is the latency reported
+		// (getInternalLatencyMidiToOutput).
 		// X.20's ANTI-CLICK, 0, 64 or 128 samples (Engine::setFade): the latency grows as much. Between blocks only: the
 		// caller holds the Device (Plugin::withDeviceLocked), then has the Plugin read its latency again.
 		void setAntiClick(int _samples) { m_engine->setFade(_samples); }

@@ -223,6 +223,7 @@ namespace md::engine
 		int m_fadeBlocks = 0;
 		std::array<Held, kTracks> m_held{};
 		std::array<int32_t, kTracks> m_fadeGain{};	// the gain at the next block's first sample, Q23; 0: no fade
+		std::array<int32_t, kTracks> m_fadeStep{};	// its fall per sample, from the setting when the fade began
 		uint32_t m_firedHeld = 0;
 		bool holdsHit(int _track) const;
 		void hitNow(int _track, int _velocity, bool _accent);
