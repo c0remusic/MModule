@@ -964,7 +964,9 @@ namespace
 		const bool keyLeft = context.ProcessKeyDown(Rml::Input::KI_SPACE, 0);
 		const bool textLeft = context.ProcessTextInput(" ");
 		context.ProcessKeyUp(Rml::Input::KI_SPACE, 0);
-		require(keyLeft && textLeft && !(controller.pendingAuditions() & 8),
+		// And as JUCE hands it to the window: keyPressed false, so that JUCE passes it on to the host
+		const bool componentTook = _f.component->keyPressed(juce::KeyPress(juce::KeyPress::spaceKey, 0, ' '));
+		require(keyLeft && textLeft && !componentTook && !(controller.pendingAuditions() & 8),
 			"Space played the shown Track, or the editor kept it from the host");
 		flush();
 		_f.editor->setCurrentPart(0);
