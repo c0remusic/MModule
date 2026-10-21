@@ -286,7 +286,16 @@
 				<div id="browser" class="layer overlay" data-model="partCurrent">
 					<div id="browser_title" class="a c4 w8 bhead"><span id="browser_what" class="big">Choose a machine</span><span id="browser_for">for track 01</span></div>
 					<div id="browser_actions" class="a c12 bact"><span id="browser_builtin" class="act">Built-in machines</span><span id="browser_cancel" class="act">Cancel</span><span id="browser_keep" class="act keep">Keep</span></div>
-					<div id="fam_GND" class="a c4 w1 grp fam"><span>GND<span class="count">4</span></span></div>
+					<div id="fam_GND" class="a c4 w1 grp fam"><span>GND<span id="gnd_count" class="count">4</span></span></div>
+					<!-- md-drums: MDX X.20's built-in Machines (the map of X.20's built-in Machines), shown while the Device plays
+					     them (TrackView): GND-SW and GND-PU under GND, the NFX effects in column 11 -->
+					<div id="fam_NFX" class="a c11 w1 grp fam x20"><span>NFX<span class="count">3</span></span></div>
+					<div id="kind_NFX" class="a c11 w1 kind x20">effects</div>
+					<button id="mach_4" class="a c4 mach x20" style="top: 416dp;" param="Machine" isToggle="1" valueOn="4">SW</button>
+					<button id="mach_5" class="a c4 mach x20" style="top: 448dp;" param="Machine" isToggle="1" valueOn="5">PU</button>
+					<button id="mach_7" class="a c11 mach x20" style="top: 288dp;" param="Machine" isToggle="1" valueOn="7">EV</button>
+					<button id="mach_8" class="a c11 mach x20" style="top: 320dp;" param="Machine" isToggle="1" valueOn="8">CO</button>
+					<button id="mach_9" class="a c11 mach x20" style="top: 352dp;" param="Machine" isToggle="1" valueOn="9">UC</button>
 					<div id="fam_TRX" class="a c5 w2 grp fam"><span>TRX<span class="count">13</span></span><div class="line"/></div>
 					<div id="fam_EFM" class="a c7 w1 grp fam"><span>EFM<span class="count">8</span></span></div>
 					<div id="fam_E12" class="a c8 w2 grp fam"><span>E12<span class="count">16</span></span><div class="line"/></div>

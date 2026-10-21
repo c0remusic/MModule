@@ -64,7 +64,11 @@ namespace mdDrums
 		// _params.romData: the 8 MB Machinedrum UW flash image with OS 1.63. Throws synthLib::DeviceException without
 		// a usable one. _telemetry takes its outputs' peaks and its Hits (none without it); the Device shares it, so that it
 		// stays valid while the Device lives, whoever goes first.
-		explicit Device(const synthLib::DeviceCreateParams& _params, std::shared_ptr<Telemetry> _telemetry = {});
+		// _x20Voice: MDX X.20's voice DSP program from the user's X.20 OS (md::fw::parseX20Os), whose six built-in Machines
+		// the Device then plays (Engine::installX20); none without
+		explicit Device(const synthLib::DeviceCreateParams& _params, std::shared_ptr<Telemetry> _telemetry = {},
+			std::shared_ptr<const md::fw::DspImage> _x20Voice = {});
+		bool playsX20() const { return m_engine->playsX20(4); }
 		~Device() override;
 
 		float getSamplerate() const override { return static_cast<float>(Engine::SampleRate); }

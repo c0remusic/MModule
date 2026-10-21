@@ -190,6 +190,10 @@ vknob { top: 84dp; width: 64dp; height: 64dp; drag: drag; cursor: pointer; }
 .mach { box-sizing: border-box; width: 64dp; height: 24dp; line-height: 22dp; font-size: 14dp; letter-spacing: 1dp; color: #a7aaaf; border-bottom: 2dp transparent; cursor: pointer; }
 .mach:hover { color: #f2f2f2; }
 .mach:checked { color: #f2f2f2; border-bottom-color: #f2f2f2; }
+/* md-drums: MDX X.20's built-in Machines, offered while the Device plays them (TrackView sets "on") */
+.x20 { display: none; }
+.x20.on { display: block; }
+.grp.x20.on { display: flex; }
 .fam.preview { top: 528dp; }
 /* The User Machines and ROM-33 to ROM-48 under the families (ticket 18 of the User Machines map), as the families' own
    header, kind and cells moved down by 344 and 456 (multiples of 4); a number that holds nothing dimmed */

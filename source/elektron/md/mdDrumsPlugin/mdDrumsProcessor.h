@@ -59,6 +59,13 @@ namespace mdDrums
 		// stand-in kept, if any), the parameters following the Device's Kit, then written into the data folder's roms
 		// under the name MD Drums looks for. Empty when it went, else why not, for the editor.
 		std::string loadFlashImage(const std::filesystem::path& _file);
+		// The user's MDX X.20 OS (the map of X.20's built-in Machines): checked (md::fw::parseX20Os), written into the data
+		// folder's roms as X20OsName, then the Device made again, playing X.20's six built-in Machines. Empty when it
+		// went, else why not, for the editor. Each Device this Processor makes finds it there.
+		static constexpr const char* X20OsName = "mdx_x20_os.syx";
+		std::string loadX20Os(const std::filesystem::path& _file);
+		// Whether the Device plays X.20's built-in Machines
+		bool playsX20();
 
 		// What the editor shows of the sound, which every Device this Processor creates writes (ticket 16)
 		Telemetry& getTelemetry() const { return *m_telemetry; }
@@ -124,7 +131,8 @@ namespace mdDrums
 		{
 			None,
 			Audio,			// WAV, AIFF, FLAC
-			UserMachine		// .syx, .mds
+			UserMachine,	// .syx, .mds
+			X20Os			// a .syx of an OS's size: MDX X.20's OS (loadX20Os)
 		};
 		// What a file is to importFile, by its extension: what the editor's drop targets take
 		static ImportKind importKind(const std::filesystem::path& _file);
@@ -186,5 +194,9 @@ namespace mdDrums
 		std::array<std::pair<const md::mds::Package*, uint64_t>, Bank::MachineCount> m_machineIds{};
 		std::unique_ptr<SampleLibrary> m_samples;
 		std::vector<uint8_t> m_chosenFlash;		// loadFlashImage's, for createDevice, while it makes the Device
+		// X.20's voice DSP program from the OS kept in the roms, read once; createDevice's
+		std::shared_ptr<const md::fw::DspImage> m_x20Voice;
+		bool m_x20Read = false;
+		std::shared_ptr<const md::fw::DspImage> x20Voice();
 	};
 }

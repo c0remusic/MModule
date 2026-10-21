@@ -28,6 +28,7 @@
 #include "mdDrumsEngine.h"
 #include "mdDrumsFilterView.h"
 #include "mdDrumsHitView.h"
+#include "mdDrumsHostDriver.h"
 #include "mdDrumsKitsView.h"
 #include "mdDrumsKnob.h"
 #include "mdDrumsLfoView.h"
@@ -1787,6 +1788,72 @@ namespace
 		}
 	}
 
+	// MDX X.20's built-in Machines in the browser (the map of X.20's built-in Machines, ticket 08), where MD_X20_OS names
+	// the user's own X.20 OS (never in this repository), in a data folder of the test's own: hidden before X.20's OS,
+	// GND-SW and GND-PU under GND and the NFX family in column 11 after it, on the 4 px grid; GND-SW chosen plays on the
+	// Track shown with X.20's names on SYN1-8; the wheel steps over them without X.20's OS. A picture with _png.
+	void x20Browser(const char* _png)
+	{
+		const auto* path = std::getenv("MD_X20_OS");
+		if(!path || !*path)
+		{
+			std::printf("X.20 browser: MD_X20_OS unset, skipped\n");
+			return;
+		}
+		const mdDrums::hostDriver::ScopedDataRoot data("MDDrumsSkinX20_");
+		mdDrums::Processor processor(true);
+		require(processor.hasDevice(), "no Device in the X.20 browser's data folder");
+		Fixture f(processor);
+		auto& tracks = *f.editor->getTrackView();
+		const auto shown = [&](const char* _id)
+		{
+			const auto* e = f.find(_id);
+			return e && e->GetComputedValues().display() != Rml::Style::Display::None;
+		};
+		f.showView("track");
+		tracks.setOverlay(mdDrums::TrackView::Overlay::Browser);
+		f.step(300);
+		f.layout();
+		require(!shown("mach_4") && !shown("fam_NFX") && f.text("gnd_count") == "4",
+			"X.20's built-ins show without X.20's OS");
+		auto* machine = f.processor.getController().getParameter("Machine", 0);
+		set(f, "Machine", 0, 3);	// GND-IM, the last of GND without X.20
+		tracks.stepMachine(1);
+		const auto after = static_cast<int>(machine->getUnnormalizedValue());
+		require(after == 16, "the wheel stepped into X.20's built-ins without X.20's OS: " + std::to_string(after));
+
+		require(processor.loadX20Os(std::filesystem::u8path(path)).empty(), "X.20's OS was refused");
+		require(processor.playsX20(), "the Device made again does not play X.20's built-ins");
+		// Making the Device again closes the browser (Controller::followDevice): open it again
+		tracks.setOverlay(mdDrums::TrackView::Overlay::Browser);
+		f.step(300);
+		f.layout();
+		require(shown("mach_4") && shown("mach_5") && shown("fam_NFX") && shown("mach_9") && f.text("gnd_count") == "6",
+			"X.20's built-ins do not show with X.20's OS");
+		const auto sw = f.box(*f.find("mach_4")), uc = f.box(*f.find("mach_9"));
+		std::printf("X.20 browser: GND-SW at %g, %g, NFX-UC at %g, %g\n", sw.x, sw.y, uc.x, uc.y);
+		require(sw.x == 256 && sw.y == 416 && uc.x == 816 && uc.y == 352, "X.20's cells are not where the prototype puts them");
+		click(f, "mach_4");
+		f.step(100);
+		require(static_cast<int>(machine->getUnnormalizedValue()) == 4 && f.text("n_SYN1").find("PTC1") != std::string::npos,
+			"GND-SW chosen does not play with X.20's names: " + f.text("n_SYN1"));
+		set(f, "Machine", 0, 3);
+		tracks.stepMachine(1);
+		require(static_cast<int>(machine->getUnnormalizedValue()) == 4, "the wheel does not reach GND-SW with X.20's OS");
+		std::printf("X.20 browser: hidden without X.20's OS, the wheel past them; shown with it, GND-SW chosen with PTC1\n");
+		if(_png && *_png)
+		{
+			tracks.setOverlay(mdDrums::TrackView::Overlay::Browser);
+			for(int i = 0; i < 3; ++i)
+				f.frame();
+			juce::FileOutputStream out{juce::File(juce::String(std::string(_png) + "browser_x20.png"))};
+			out.setPosition(0);
+			out.truncate();
+			juce::PNGImageFormat().writeImageToStream(f.image, out);
+		}
+		tracks.setOverlay(mdDrums::TrackView::Overlay::None);
+	}
+
 	void pictures(Fixture& _f, const std::string& _prefix)
 	{
 		const auto save = [&](const std::string& _name)
@@ -1902,6 +1969,14 @@ int main()
 		// After the checks: the views as they left them (the Hit screen with its capture)
 		if(const auto* png = std::getenv("MD_DRUMS_SKIN_PNG"); png && *png)
 			pictures(f, png);
+		try
+		{
+			x20Browser(std::getenv("MD_DRUMS_SKIN_PNG"));
+		}
+		catch(const std::exception& e)
+		{
+			failures += std::string("\n  X.20 browser: ") + e.what();
+		}
 		if(!failures.empty())
 		{
 			std::cout << "mdDrumsSkinTest: FAIL" << failures << '\n';

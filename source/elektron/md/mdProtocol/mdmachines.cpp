@@ -110,7 +110,8 @@ namespace md::machines
 		// 8 names of 4), Monomachine OS 1.32b from $257fc4 (records of 176 bytes: id, family, model,
 		// 8 names of 6). Read with mdPlayheadProbe --dump. An empty name: the machine does not use the
 		// parameter (the Monomachine's table says "---"). The Machinedrum's GND-SW, GND-PU, NFX-* and
-		// INP-CA/CB are not in its table.
+		// INP-CA/CB are not in its table: md-drums gives GND-SW, GND-PU and the three NFX MDX X.20's names, from its
+		// Machine table ($2b31a6), which MoDule plays them from (md::engine::x20); INP-CA/CB stay without.
 		using Names = std::pair<uint16_t, ParameterNames>;
 
 		const std::vector<Names> g_mdParameterNames =
@@ -119,6 +120,11 @@ namespace md::machines
 			{1, {"PTCH", "DEC", "RAMP", "RDEC", "", "", "", ""}},
 			{2, {"DEC", "", "", "", "", "", "", ""}},
 			{3, {"UP", "UVAL", "DOWN", "DVAL", "", "", "", ""}},
+			{4, {"PTC1", "DEC", "RAMP", "RDEC", "PTC2", "PTC3", "SKEW", "UNIS"}},
+			{5, {"PTC1", "DEC", "RAMP", "RDEC", "PTC2", "PTC3", "WIDT", "UNIS"}},
+			{7, {"DEL", "ATK", "DEC", "SUS", "HOLD", "REL", "RING", "NBAL"}},
+			{8, {"ATK", "REL", "THRE", "RTIO", "KNEE", "SIDE", "MKUP", "NBAL"}},
+			{9, {"TIM1", "TIM2", "TD", "TI", "FF", "FB", "DMIX", "NBAL"}},
 			{16, {"PTCH", "DEC", "RAMP", "RDEC", "STRT", "NOIS", "HARM", "CLIP"}},
 			{17, {"PTCH", "DEC", "BUMP", "BENV", "SNAP", "TONE", "TUNE", "CLIP"}},
 			{18, {"PTCH", "DEC", "RAMP", "RDEC", "DAMP", "DIST", "DTYP", ""}},

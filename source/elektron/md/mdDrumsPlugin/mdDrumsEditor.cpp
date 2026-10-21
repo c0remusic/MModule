@@ -262,6 +262,13 @@ namespace mdDrums
 				if(auto* status = editor->getStatusView())
 					status->chooseFlashImage();
 		});
+		// X.20's six built-in Machines (the map of X.20's built-in Machines)
+		menu.addEntry("Load MDX X.20 OS...", [this]
+		{
+			if(auto* editor = dynamic_cast<Editor*>(getEditor()))
+				if(auto* status = editor->getStatusView())
+					status->chooseX20Os();
+		});
 		// X.20's ANTI-CLICK, for every MoDule (ticket 33 of the User Machines map)
 		auto& processor = static_cast<Processor&>(m_processor);
 		const auto antiClick = processor.antiClickPlayed();

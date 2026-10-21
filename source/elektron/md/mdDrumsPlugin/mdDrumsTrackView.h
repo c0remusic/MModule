@@ -120,6 +120,7 @@ namespace mdDrums
 		Overlay m_overlay = Overlay::None;
 		int m_machineBeforeBrowser = -1;
 		std::vector<int> m_machines;	// the browser's, in its order
+		std::vector<int> offeredMachines() const;	// m_machines, X.20's built-ins only while the Device plays them
 		// Per Track, what shows it is the one shown: the list row's number and name ("tsel"), the strip's and the
 		// send's numbers ("on")
 		std::array<std::array<Rml::Element*, 4>, 16> m_shownMarks{};
@@ -136,6 +137,7 @@ namespace mdDrums
 		std::shared_ptr<const md::mds::Package> m_packageShown;
 		uint32_t m_userCellsShown = ~0u;		// followUserCells's, all lit until the first frame dims what is empty
 		double m_userCellsNextMs = 0.0;
+		bool m_x20Shown = false;	// X.20's built-in Machines in the browser; hidden in the skin until the Device plays them
 		int m_outShown = -1;
 		std::array<int, 16> m_outs{};
 		std::array<int, 3> m_menuKey{};

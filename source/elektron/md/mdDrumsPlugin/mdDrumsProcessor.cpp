@@ -19,6 +19,7 @@
 #include "synthLib/os.h"
 
 #include "MdsPackage.h"
+#include "X20Os.h"
 
 #include <algorithm>
 #include <cctype>
@@ -150,6 +151,69 @@ namespace mdDrums
 		if(!baseLib::filesystem::writeFileAtomic(target, flash.data(), flash.size()))
 			return "MoDule plays it, but could not keep it as " + target;
 		return {};
+	}
+
+	std::shared_ptr<const md::fw::DspImage> Processor::x20Voice()
+	{
+		if(m_x20Read)
+			return m_x20Voice;
+		m_x20Read = true;
+		for(const auto& folder : romFolders())
+		{
+			std::error_code error;
+			const auto file = folder / X20OsName;
+			if(!std::filesystem::exists(file, error))
+				continue;
+			try
+			{
+				m_x20Voice = std::make_shared<const md::fw::DspImage>(md::fw::parseX20Os(md::fw::readFile(file)).voice);
+				break;
+			}
+			catch(const std::exception&)
+			{
+				// A file that is not X.20's OS any more: MoDule plays without
+			}
+		}
+		return m_x20Voice;
+	}
+
+	std::string Processor::loadX20Os(const std::filesystem::path& _file)
+	{
+		std::vector<uint8_t> bytes;
+		std::shared_ptr<const md::fw::DspImage> voice;
+		try
+		{
+			bytes = md::fw::readFile(_file);
+			voice = std::make_shared<const md::fw::DspImage>(md::fw::parseX20Os(bytes).voice);
+		}
+		catch(const std::exception& _e)
+		{
+			return std::string("Not MDX X.20's OS: ") + _e.what();
+		}
+		const auto target = getPublicRomFolder() + X20OsName;
+		if(!baseLib::filesystem::writeFileAtomic(target, bytes.data(), bytes.size()))
+			return "MoDule could not keep it as " + target;
+		m_x20Voice = std::move(voice);
+		m_x20Read = true;
+		if(!hasDevice())
+			return {};
+		// The Device made again, with the Kit the old one played, now playing X.20's six
+		try
+		{
+			setDeviceType(pluginLib::DeviceType::Local, true);
+		}
+		catch(const std::exception& _e)
+		{
+			return std::string("MoDule kept X.20's OS but could not start again: ") + _e.what();
+		}
+		controller().followDevice();
+		return {};
+	}
+
+	bool Processor::playsX20()
+	{
+		const auto* device = dynamic_cast<const Device*>(getPlugin().getDevice());
+		return device && device->playsX20();
 	}
 
 	std::string Processor::installUserMachine(const int _index, const std::vector<uint8_t>& _file)
@@ -344,6 +408,10 @@ namespace mdDrums
 		auto extension = _file.extension().u8string();
 		std::transform(extension.begin(), extension.end(), extension.begin(),
 			[](const char _c) { return static_cast<char>(std::tolower(static_cast<unsigned char>(_c))); });
+		// An OS's .syx is over a megabyte, a User Machine's a few kilobytes
+		std::error_code error;
+		if(extension == ".syx" && std::filesystem::file_size(_file, error) > 512 * 1024 && !error)
+			return ImportKind::X20Os;
 		if(extension == ".syx" || extension == ".mds")
 			return ImportKind::UserMachine;
 		// What JUCE reads as built (source/juce.cmake): WAV (.wav, .bwf), AIFF, FLAC
@@ -368,6 +436,14 @@ namespace mdDrums
 				machine->setUnnormalizedValueNotifyingHost(_id, pluginLib::Parameter::Origin::Ui);
 		};
 		const auto onTrack = machine ? ", Track " + std::to_string(_track + 1) : std::string();
+
+		if(kind == ImportKind::X20Os)
+		{
+			const auto error = loadX20Os(_file);
+			if(!error.empty())
+				return {false, -1, error};
+			return {true, -1, "MDX X.20's OS: GND-SN-PRO, GND-SW, GND-PU, NFX-EV, NFX-CO and NFX-UC play", "X.20"};
+		}
 
 		if(kind == ImportKind::UserMachine)
 		{
@@ -533,7 +609,7 @@ namespace mdDrums
 		params.romName = Engine::FlashImageName;
 		params.romData = std::move(flash);
 		params.homePath = getDataFolder();
-		auto* device = new Device(params, m_telemetry);
+		auto* device = new Device(params, m_telemetry, x20Voice());
 		m_antiClickPlayed = getAntiClick();
 		device->setAntiClick(m_antiClickPlayed);
 		std::atomic_store(&m_fxTables, device->fxTables());

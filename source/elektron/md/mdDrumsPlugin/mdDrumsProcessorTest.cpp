@@ -511,6 +511,53 @@ namespace
 		}
 	}
 
+	// MDX X.20's OS loaded in the editor (the map of X.20's built-in Machines, ticket 08), where MD_X20_OS names the
+	// user's own (never in this repository): before it, the Machine parameter's GND-SW (4) is refused by the Device; a
+	// file that is no X.20 OS is refused, with why; X.20's OS makes the Device again, which then plays GND-SW on Track 1
+	// with X.20's defaults and SYN names, and is written into the data folder's roms, where a second Processor finds it.
+	// The data folder is a temporary one (GEARMULATOR_DATA_ROOT), never the user's.
+	void x20Loader(const double _rate)
+	{
+		const auto* path = std::getenv("MD_X20_OS");
+		if(!path || !*path)
+		{
+			std::printf("X.20 loader: MD_X20_OS unset, skipped\n");
+			return;
+		}
+		const mdDrums::hostDriver::ScopedDataRoot data("MDDrumsX20_");
+		{
+			mdDrums::Processor processor(true);
+			require(prepare(processor, _rate, g_block), "no Device to start from");
+			require(!processor.playsX20(), "a Device plays X.20's built-ins without X.20's OS");
+			automate(processor, "Machine", 0, 4);
+			require(device(processor).kit().machine(0) != 4, "the Device took GND-SW without X.20's OS");
+
+			const auto wrong = data.path() / "not-an-os.syx";
+			std::ofstream(wrong, std::ios::binary) << "MDX";
+			const auto refused = processor.loadX20Os(wrong);
+			require(!refused.empty() && !processor.playsX20(), "a file that is no X.20 OS was taken");
+
+			const auto loaded = processor.loadX20Os(std::filesystem::u8path(path));
+			require(loaded.empty(), "X.20's OS was refused: " + loaded);
+			require(processor.playsX20(), "the Device does not play X.20's built-ins");
+			juce::AudioProcessor& host = processor;
+			host.prepareToPlay(_rate, g_block);
+			automate(processor, "Machine", 0, 4);
+			require(device(processor).kit().machine(0) == 4, "the Device did not take GND-SW from the Machine parameter");
+			require(device(processor).kit().parameters[0][0] == 73, "GND-SW did not take X.20's defaults (PTC1 73)");
+			const auto hit = play(processor, 36, 0, _rate);
+			std::printf("X.20 loader: \"%s\" refused (%s); X.20's OS loaded, GND-SW on Track 1 with PTC1 73, note 36 peak "
+				"%.3f\n", wrong.filename().string().c_str(), refused.c_str(), hit.peak);
+			require(hit.peak > 0.01f, "GND-SW is silent in the plug-in");
+		}
+		{
+			mdDrums::Processor again(true);
+			require(prepare(again, _rate, g_block) && again.playsX20(),
+				"a second Processor did not find X.20's OS in the data folder's roms");
+			std::printf("X.20 loader: a second Processor plays X.20's built-ins from the data folder's roms\n");
+		}
+	}
+
 	// Note to sound: two seconds from one note to the next (Main below -100 dBFS in the block before each). A second
 	// is not enough: the last note's tail, under the threshold, moves the next one's first sample at 48 kHz
 	void latency(mdDrums::Processor& _processor, const double _rate)
@@ -1159,6 +1206,7 @@ int main()
 			latency(processor, rate);
 		}
 		flashLoader(44100.0);
+		x20Loader(44100.0);
 		everyParameter();
 		kitFile();
 		std::cout << "mdDrumsProcessorTest: PASS\n";

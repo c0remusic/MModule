@@ -427,7 +427,9 @@ namespace
 		require(name(md, 150, 2) == "HOLD" && name(md, 162, 2) == "HOLD" && name(md, 166, 0) == "MLEV" && name(md, 105, 0) == "NOTE",
 			"ROM, RAM or MID machines do not share their family's names");
 		require(name(mm, 3, 0) == "PW" && name(mm, 4, 3).empty() && name(mm, 18, 0) == "CNTR", "wrong Monomachine names");
-		require(!md::machines::parameterNames(md, 86) && !md::machines::parameterNames(md, 4), "names for a machine the OS lacks");
+		// INP-CA: no table holds its names; GND-SW: MDX X.20's (md-drums: the map of X.20's built-in Machines)
+		require(!md::machines::parameterNames(md, 86) && name(md, 4, 6) == "SKEW",
+			"names for INP-CA, or GND-SW without X.20's");
 	}
 
 	void testBackupFile(const char* const _path, const md::MachineModel _model)

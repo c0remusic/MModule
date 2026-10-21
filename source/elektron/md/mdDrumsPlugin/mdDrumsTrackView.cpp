@@ -11,6 +11,7 @@
 #include "mdDrumsProcessor.h"
 
 #include "MdsPackage.h"
+#include "X20Builtins.h"
 
 #include "jucePluginEditorLib/pluginEditorState.h"
 #include "jucePluginEditorLib/pluginProcessor.h"
@@ -197,6 +198,18 @@ namespace mdDrums
 		// The browser's ROM-33 to ROM-48 lit where this instance plays a user's Sample or the sample library holds one
 		// (ticket 18 of the User Machines map): bit n ROM 33 + n
 		auto& processor = m_editor.processor();
+		// MDX X.20's built-in Machines, offered while the Device plays them (the map of X.20's built-in Machines)
+		bool wroteX20 = false;
+		if(const auto x20 = processor.playsX20(); x20 != m_x20Shown)
+		{
+			m_x20Shown = x20;
+			for(const auto* id : {"fam_NFX", "kind_NFX", "mach_4", "mach_5", "mach_7", "mach_8", "mach_9"})
+				if(auto* e = find(id))
+					e->SetClass("on", x20);
+			if(auto* count = find("gnd_count"))
+				count->SetInnerRML(x20 ? "6" : "4");
+			wroteX20 = true;
+		}
 		const auto* samples = processor.getSampleLibrary();
 		const auto played = processor.samples();
 		uint32_t filled = 0;
@@ -207,7 +220,7 @@ namespace mdDrums
 				filled |= 1u << i;
 		}
 		if(filled == m_userCellsShown)
-			return false;
+			return wroteX20;
 		const auto changed = filled ^ m_userCellsShown;
 		m_userCellsShown = filled;
 		for(int bit = 0; bit < 16; ++bit)
@@ -289,22 +302,36 @@ namespace mdDrums
 			m_editor.controller().audition(m_part, ListenVelocity);
 	}
 
+	std::vector<int> TrackView::offeredMachines() const
+	{
+		// X.20's built-ins only while the Device plays them (GND-SN's number always: GND-SN-PRO or GND-SN)
+		if(m_editor.processor().playsX20())
+			return {m_machines.begin(), m_machines.end()};
+		std::vector<int> offered;
+		for(const auto id : m_machines)
+			if(id == md::engine::x20::GndSnPro || !md::engine::x20::isBuiltin(static_cast<uint8_t>(id)))
+				offered.push_back(id);
+		return offered;
+	}
+
 	void TrackView::stepMachine(const int _delta)
 	{
-		if(m_machines.empty())
+		const auto machines = offeredMachines();
+		if(machines.empty())
 			return;
 		const auto current = value(m_machineParameters[m_part]);
-		const auto n = static_cast<int>(m_machines.size());
+		const auto n = static_cast<int>(machines.size());
 		// A machine the browser does not offer steps from where it would sit among them
-		const auto at = static_cast<int>(std::lower_bound(m_machines.begin(), m_machines.end(), current) - m_machines.begin());
-		const auto offered = at < n && m_machines[static_cast<size_t>(at)] == current;
+		const auto at = static_cast<int>(std::lower_bound(machines.begin(), machines.end(), current) - machines.begin());
+		const auto offered = at < n && machines[static_cast<size_t>(at)] == current;
 		const auto next = _delta > 0 ? (offered ? at + 1 : at) : at - 1;
-		choose(m_machines[static_cast<size_t>((next % n + n) % n)]);
+		choose(machines[static_cast<size_t>((next % n + n) % n)]);
 	}
 
 	void TrackView::stepFamily(const int _delta)
 	{
-		if(m_machines.empty())
+		const auto machines = offeredMachines();
+		if(machines.empty())
 			return;
 		const auto familyName = [](const int _id)
 		{
@@ -313,7 +340,7 @@ namespace mdDrums
 		};
 		// The browser's families in its order, each by its first machine
 		std::vector<std::pair<std::string, int>> families;
-		for(const auto id : m_machines)
+		for(const auto id : machines)
 			if(families.empty() || families.back().first != familyName(id))
 				families.emplace_back(familyName(id), id);
 		const auto current = familyName(value(m_machineParameters[m_part]));

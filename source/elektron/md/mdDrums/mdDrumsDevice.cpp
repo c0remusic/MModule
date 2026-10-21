@@ -21,7 +21,8 @@ namespace mdDrums
 		static_assert(Telemetry::OutputCount == Engine::OutputCount && Telemetry::TrackCount == Engine::TrackCount);
 	}
 
-	Device::Device(const synthLib::DeviceCreateParams& _params, std::shared_ptr<Telemetry> _telemetry)
+	Device::Device(const synthLib::DeviceCreateParams& _params, std::shared_ptr<Telemetry> _telemetry,
+		std::shared_ptr<const md::fw::DspImage> _x20Voice)
 		: synthLib::Device(_params), m_telemetry(std::move(_telemetry))
 	{
 		const auto kit = messages::factoryKit(_params.romData);
@@ -38,6 +39,9 @@ namespace mdDrums
 			throw synthLib::DeviceException(synthLib::DeviceError::FirmwareMissing,
 				"The Machinedrum UW flash image holds no factory Kits.");
 		m_kit = *kit;
+		// X.20's built-in Machines before the Kit, whose Tracks may play them
+		if(_x20Voice)
+			m_engine->installX20(std::move(_x20Voice));
 		applyKit();
 		applyMixer();
 		m_valid = true;

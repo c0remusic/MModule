@@ -236,6 +236,20 @@ namespace mdDrums
 			});
 	}
 
+	void StatusView::chooseX20Os()
+	{
+		// As a drop of the file does: importFiles tells MDX X.20's OS by its size (Processor::importKind)
+		m_chooser = std::make_unique<juce::FileChooser>("Choose MDX X.20's OS (Machinedrum_SPS1-UW_OS_X.20_B.syx)",
+			juce::File::getSpecialLocation(juce::File::userDocumentsDirectory), "*.syx");
+		m_chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+			[this](const juce::FileChooser& _chooser)
+			{
+				const auto file = _chooser.getResult();
+				if(file != juce::File())
+					importFiles({pathOf(file)});
+			});
+	}
+
 	void StatusView::chooseFlashImage()
 	{
 		// A FileChooser deleted drops its callback: the one this replaces, or this view's when the editor closes

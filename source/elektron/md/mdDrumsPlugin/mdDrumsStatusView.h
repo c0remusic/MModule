@@ -48,6 +48,8 @@ namespace mdDrums
 
 		// Opens a file chooser for the flash image, then gives the file to Processor::loadFlashImage
 		void chooseFlashImage();
+		// MDX X.20's OS chosen in a file chooser, then loaded as a drop of it is (Processor::loadX20Os)
+		void chooseX20Os();
 		// Opens a file chooser for User Machines (.syx, .mds), one or many, then imports them (the Menu's "Install User
 		// Machines...")
 		void chooseUserMachine();
