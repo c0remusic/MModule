@@ -8,6 +8,19 @@ Status 2026-10-21: research only. Facts were read in xerydian/elektron-emu (comm
 facts (processors, addresses, formats, measures), which we re-implement ourselves. A license was requested on
 2026-10-21 in a comment on its commit 03961c6 (its issues and discussions are closed): no answer yet.
 
+## Scope (decided 2026-10-21)
+
+A drum plug-in. Each machine's engines are ported to C++ inside the plug-in, checked sample for sample against the
+original code run in an emulator in the tests only (as `mdX20PortTest` does for X.20's built-in Machines); no emulator,
+firmware or OS runs in the plug-in.
+
+- In: Machinedrum (MoDule), Syntakt (its 12 digital engines; its analog BD, SD, CY tracks modeled), Model:Cycles,
+  the sample machines of Digitakt MK1 and Model:Samples, Analog Rytm MKII (analog voices modeled, its sample layer).
+- Out for now: Digitone MK1 and II (FM synthesisers, not drums).
+- Consequence: every engine left to port runs on a ColdFire (Syntakt, Model:Cycles, Digitakt MK1, Model:Samples), so
+  one test oracle serves them all. SHARC+ (Digitakt II) is not needed unless its sampler's sound itself is wanted; the
+  sampler can be our own C++ or the Digitakt MK1's ported.
+
 ## What elektron-emu really emulates
 
 | Machine | Processors | Emulated | Real sound? | Per-track tap |
