@@ -117,8 +117,9 @@ A full OS per machine therefore costs most of a core; a piecewise engine is what
 
 ## The port (source/elektron/syntakt/stEngine)
 
-BD MODERN (engine 0), the stages most engines share and the voice CPU's per-block dispatch, ported to C++ from OS
-1.41's section 7 and equal word for word to the original routines. No emulator, firmware or OS runs in the port; it
+The twelve engines of the digital tracks (BD MODERN to SP TWINSHOT, one file each, listed in `PortedEngines`), the
+stages they share, the track stages and the voice CPU's per-block dispatch, ported to C++ from OS 1.41's section 7 and
+equal word for word to the original routines. No emulator, firmware or OS runs in the port; it
 reads its constant tables from the user's section 7 (`Rom`).
 
 - The port keeps the voice CPU's memory map: `Sram` is its 64 KB as words, a `Voice` a view at 0x80000000 + 0x708 v.
@@ -143,7 +144,8 @@ reads its constant tables from the user's section 7 (`Rom`).
 - `stVoiceCpu.*`: the voice CPU as one module over the boot and `runBlock`, which stRender drives: per track the
   machine, the note, the Machine, Filter and Amp words CPU #1's block holds, trigs and gate-offs for the next block,
   eight Q31 outputs at 48 kHz through a 32-sample buffer. `stVoiceCpuTest` checks its boot and BD MODERN's track 1
-  against the original's (`SYNTAKT_REFERENCES`), and that machine 4 (SY TONE, not ported) plays silence.
+  against the original's (`SYNTAKT_REFERENCES`), that every machine is ported and that each engine but SP TWINSHOT
+  sounds. `setSamples` gives SP TWINSHOT the sample memory it reads in DDR (a directory of 64 entries at 0x4404f754).
 - `stTrack.*`, `stTrackFilter.cpp`: the interrupt's per-track stages after the voices, in place on each track's
   block (`trackstages.md`): drive (0x4000112c, MACSR 0x20: wrapping stores, `Emac(false)`), BASE/WIDTH
   (0x40002320), the multimode filter (0x400019d6, paths A and B, its table square roots, second stage, type
@@ -158,7 +160,7 @@ reads its constant tables from the user's section 7 (`Rom`).
   (0x40004f74) and resonator (0x400054e6) stay private to their engine until a second engine uses them; then they
   move to `stStages`.
 - Not ported yet: CPU #1's side (parameter mapping and smoothing, LFOs, the cutoff it computes, level, pan, sends,
-  delay and reverb, the analog tracks and mix), the other eleven engines.
+  delay and reverb, the analog tracks and mix).
 
 `stEngineOracleTest` checks it: `SYNTAKT_SECTION7` names the user's section 7, `SYNTAKT_VECTORS` vector files recorded
 from the original code (exit 77 without them). Tools in `tools/`, run with Python and Unicorn 2.1.4 over SyntHack OS's
@@ -170,10 +172,46 @@ digiemu's `emu.extract` takes out of the `.syx`):
 - `fuzz.py OUT`: the shared routines and the voice init called on random states and loud blocks.
 - `oracle.py`: a snapshot at a routine's entry, and any routine called alone on it.
 - `cfdis.py`: section 7 disassembled, EMAC and ColdFire ISA_C included.
+- `inventory.py SECTION7 PORT_DIR`: the routines each engine reaches (tail calls and calls through a register
+  followed), and whether the port has each one shared, private to an engine, or not at all.
+- `vectors.py --samples FILE`: SP TWINSHOT's sample set (`twinshot_samples.py` writes it) loaded into DDR after the
+  boot. `--edge` mixes edge bytes and words, full-range notes with a fine part, extra trigs and gate-offs, small knob
+  nudges and the clap clock long (0x184) into the draws; `--bias K=v,...` draws given machine bytes half the time;
+  `--others` gives tracks 2-8 settings of their own. Without them its output is unchanged. `edge_recipes.py` prints
+  the command line of every edge file.
+- `coverage_insn.py`: replays the recipes with a code hook and reports, per engine and per track stage, the
+  instructions run inside recorded calls and each conditional branch's sides seen.
 
 Measured 2026-10-22, all against the original: 8,500 recorded and fuzzed calls of the 19 ported routines, 0 words
 differing; and 300 consecutive blocks of the eight voices where the port carries its own voice states, 0 differing.
 The vectors are firmware-derived and stay outside the repository (`C:\dev\elektron-work\vectors`).
+
+Measured 2026-10-22, with the twelve engines: 54 vector files, every routine 0 words differing, 9,145 renderVoices
+calls and 9,050 continuous blocks 0 differing. Coverage of the vectors (`coverage_insn.py`), instructions and branch
+sides, before and after the edge files:
+
+| | before | after |
+|---|---|---|
+| BD MODERN | 92.4 / 75.0 | 95.4 / 79.8 |
+| SD BASIC | 93.7 / 75.0 | 95.6 / 82.8 |
+| CY ALLOY | 96.2 / 80.8 | 97.4 / 84.6 |
+| PC CARBON | 92.6 / 76.6 | 96.4 / 86.2 |
+| SY TONE | 95.6 / 78.8 | 97.2 / 85.0 |
+| SY CHORD | 89.3 / 80.4 | 97.4 / 89.9 |
+| SD VINTAGE | 94.6 / 77.3 | 96.0 / 82.0 |
+| CP VINTAGE | 95.8 / 80.8 | 99.1 / 95.0 |
+| SY TOY | 95.8 / 78.2 | 97.4 / 84.6 |
+| SY BITS | 93.8 / 78.0 | 99.2 / 93.2 |
+| SY SWARM | 94.2 / 80.3 | 99.1 / 92.1 |
+| SP TWINSHOT | 94.5 / 75.9 | 96.0 / 83.9 |
+| track stages | 97.3 / 88.1 | 99.7 / 96.9 |
+
+What stays unreached is mostly unreachable, each case read in the disassembly (`coverage-unreachable.txt`): voice
+fields an engine never writes and so keeps constant (EnvDelay and 0x460 only cleared, AmpHalfStart and 0x3fc set once
+by initVoice, attack and sweep fields per engine always INT32_MIN or never), SP TWINSHOT clearing AmpHold before the
+amp envelope runs, CP VINTAGE's 0x5ac always 1, SY BITS's rate table below its clamp, filter types outside the 0-7
+CPU #1 sends. Reachable but not reached: the amp's HOLD 127 (10 s without a trig), BASE/WIDTH on a trig with the amp's
+RST at 0, two of SP TWINSHOT's sample entries in particular states, one side of SY BITS's amp envelope (0x40003de8).
 
 ## First ticket proposed
 

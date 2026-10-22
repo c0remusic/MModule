@@ -1,0 +1,41 @@
+The gaps left in after.txt, and why. Unreachable: no input CPU #1 sends gets there. Not recorded: reachable, not hit.
+
+Shared voice routines (every gap here is a field the engine never sets, so it keeps a constant)
+  40003c0e unitEnvelopes   c32 fall, c34-c4a, c42, c9a fall, c9c-ca6: stage 3 (delay) needs EnvDelay (unit +0x60) != 0.
+                           No code stores to it except initVoice, which clears it.
+                           c6e taken: stage 4 is never written (only 0, 1 and 3 are).
+                           cb8 taken (0-4, 8): EnvAttack stays INT32_MIN (initVoice's value; BD MODERN writes the same
+                           constant). cb8 fall (6): SD VINTAGE writes table values, never INT32_MIN.
+  40003cda sweepEnvelope   cee/cfc/d1a (0, 1, 3, 5): sweep rate 0x40c stays INT32_MIN (initVoice, or BD's constant).
+                           cee fall (6): SD VINTAGE's table never holds INT32_MIN. cfc taken: 0x3fc is set to 1 by
+                           initVoice and never written again.
+  40003d42 ampEnvelope     d5a/d86/d8c taken (all but 1, 3, 7): AmpAttack 0x3e8 stays INT32_MIN (initVoice, or a
+                           constant INT32_MIN in BD MODERN, CP VINTAGE, SP TWINSHOT). With an instant attack the release
+                           flag is always 0 when the level reaches full in the trig block, so d8c cannot be taken.
+                           d5a fall (1, 3): SD BASIC's attack table and PC CARBON's constant are never INT32_MIN.
+                           d6a: AmpHalfStart 0x3d8 is 1 from initVoice and never written.
+                           d92 fall, db4, dba (11): SP TWINSHOT clears AmpHold after copying it to its player's loop flag,
+                           so the hold stage never runs.
+                           de8 taken (9): not recorded (a gate-off without a trig pending, in a recorded SY BITS block).
+  40003df2 modulatorEnv    dfe/e0e/e1a/e80 (0, 1, 6): stage 3 needs 0x460 != 0; only cleared (initVoice, BD MODERN).
+                           e50 taken: stage 4 is never written. e9c: 0x458 is INT32_MIN in BD (constant), a non-MIN
+                           constant in SD VINTAGE.
+  400045a0 vca, 40004674 modulatorVca: the same constant attacks (0x3e8, 0x458) as above.
+
+Engines
+  40005728 (CP VINTAGE)    7cc taken: each clap unit's 0x5ac is 1 from initVoice, never written.
+  40005f9a (SY BITS)       fbc fall: 0x5a0 is interpolated from the table at 0x4003e038, whose largest value is
+                           0x1d0000 (29 < 30).
+  40006764 (SP TWINSHOT)   79e fall: a player plays only when its length is non-zero (set at the trig only then; knob
+                           changes write only non-zero lengths, below 0x7ffff << 12). 80e taken: the loop length is
+                           written non-zero only. 812 taken: not recorded (byte 12 must move to entry 9, no data, while
+                           player B plays and loops with AMP HOLD set, and the sample end).
+  400097dc (SP TWINSHOT)   8e8, 960, 99a falls: guards on values that cannot occur (a word below 0x4000 shifted right
+                           7 is at most 0x7f; the sample index after the sign fold is never negative).
+                           9da, a66 taken: not recorded (byte 12 on entry 7, the empty one, at a recorded update).
+
+Track stages
+  40001476 amp envelope    570 fall: HOLD 127 holds for table[127] = 0x75300 samples (10 s, 15000 blocks without a trig)
+                           before this test; not recorded.
+  400019d6 filter          c6e taken, 13a fall: a filter TYPE above 7 or negative; CPU #1 sends 0-7.
+  40002320 baseWidth       39a, 3be taken: not recorded (a track's trig flag with the amp's RST word, EC-ED, at 0).
