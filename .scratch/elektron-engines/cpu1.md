@@ -37,6 +37,27 @@ Each read in the code the C++ port matches bit for bit (0 differ, every reachabl
 - [CORR 3.7] 0x4550E1A8 + 4t holds env × ENV depth (what is added to the cutoff), not the envelope itself.
 - [CORR 1.11] The pitch loop's trig bit comes from the mask at −0x5C(a6), not d3; the LFOs get d5.
 
+### Corrections from the port of step 7 (2026-10-23, `stMainBlock`, the segment 0x400A49A6-0x400A4DB8)
+- [CORR 1.5] 0x400A49A6: `d3 &= ~(signed word 0x80003150)` (the mutes, 16 tracks; 0x80003151 is its low byte);
+  −0x5C(a6) = d3 then (the pitch's trigs); a track t < 12 whose settings long +0x60 is 3 and whose bit is set in
+  `Gates (0x80003152) & d3` loses its bit in a5, d3 and d5 only (the voice, filter envelope and LFOs do not restart;
+  the glide does) [INFER: legato]. −0x4C(a6) = d2. Then `0x4011A2FC(0x800033F8)`, an analog CV frame (7 below).
+- [CORR 1.7] The cut writes HOLD +0x6E = 0x7F00, DEC +0x70 = 0, **REL +0x74** = 0 (not ATK); bit 12 writes
+  +0x738/+0x73A/+0x73E instead; bits 13-15 land in the settings copy. Lowest bit first.
+- [CORR 1.8] `0x43BDC824 ≠ 0`: the eDMA of CPU #2's last output and byte 0x43BDD73C = 1 (0x400A2036, after the block,
+  waits on it and clears it); 0: `memset(0x80003D50, 0, 0x500)`.
+- [CORR 1.12] The reload, while 0x43BDC4C8 ≠ 0: tracks 0-11's HOLD = 0x7F00, DEC = REL = 0; the FX track's +0x706
+  fades (`w × 127 / 128` toward 0, kept at 0x43BDC808), +0x6EC, +0x6F4, +0x6FC = 0. At 2 it first saves +0x706,
+  sets d2 = d4 = −1, a5 = d3 = 0, word 0x80003154 = 0, and moves to 1.
+- [CORR 1.14] 0x400A4C02, t 8-12: bit t of d4 → long 0x454E3C58 + 0x20 (t − 8) = 4 and the long after it 0; else bit
+  t of a5 → both 0.
+- [CORR 1.15] `0x4009652C(a2, a5, d4, mute)`: **a5 is the filter trig mask, d4 the gate-off** (swapped above).
+- Tools: `oracle3.reach` did not follow a pc-relative `jsr $x(pc)` (cfdis.target does not parse it), so the EMAC
+  of 0x4011A1E4 was not a site and the rig skipped its `mac.l` without a fault; it follows them now (the earlier
+  steps' only such call, 0x40119266 → 0x40118EF8, was a root itself). `vectors3.segment_insns` decodes with capstone
+  alone, which stops at the first ColdFire-only instruction: pitchLoop's "22/22" counted 0x400A4ADE-0x400A4B20 only.
+  `block3.py` decodes the segment as cfdis does, the pitch loop included.
+
 ## 1. The audio interrupt 0x400A3856 (vector set at 0x400002FC; `rte` 0x400A54A8), per 32-sample block
 
 MACSR: saved, the accumulators saved, then **MACSR = 0x20** (fractional, no saturation, truncation) for the whole
@@ -69,7 +90,7 @@ Order, digital-track path in bold (everything else is sequencer, UI, analog or U
 5. 0x400A49A6-0x400A49F0: masks 0x80003150/52 and track setting +0x60 == 3 (per 124-byte settings struct
    0x80002904 + 124 t) clear trigs [INFER: MIDI-machine / mute handling].
 6. **0x400A4A00 `0x40097952(0x800021B0)`**: parameter smoothing → returns a2 = 0x80006348 (section 3.3).
-7. 0x400A4A10-0x400A4A6A: tracks whose bit is set in 0x43BDE440 get amp HOLD = 0x7F00, ATK = DEC = 0 (in the
+7. 0x400A4A10-0x400A4A6A: tracks whose bit is set in 0x43BDE440 get amp HOLD = 0x7F00, DEC = REL = 0 [CORR 1.7] (in the
    smoothed copy; t = 12 at +0x738..) [INFER: "kill/choke" fast release]. Same word low byte → block 0x182.
 8. 0x400A4A6C-0x400A4ABE: start eDMA of CPU #2's previous output to 0x80003D50 (8 × 128 B; TCD 0xFC0455E0, src
    0x100001B0), or clear it.
@@ -79,11 +100,11 @@ Order, digital-track path in bold (everything else is sequencer, UI, analog or U
 11. **0x400A4ADE-0x400A4B3E, t = 0..11: pitch**: `0x80004688[t] = 0x40119FE8(t, t, trigbit, 0x800046B8[t], a2)` +
     `(settings[t]+0x7A (signed byte) << 16) × (0x80004746[t] << 16)` (EMAC frac). Portamento in 3.5.
 12. 0x400A4B40-0x400A4BC2: kit reload state machine (`0x43BDC4C8`): on 2, every track's amp ATK/HOLD/DEC reset
-    (0, 0x7F00, 0).
+    (0, 0x7F00, 0). [CORR 1.12: HOLD/DEC/REL, while the state is not 0]
 13. **0x400A4BC6-0x400A4C00, t = 0..7**: smoothed `+0x3E = machine id (0x80002F50[t]) << 8`;
     `+0x4C = (AMP MODE +0x80 != 0) ? 1 : (HOLD +0x6E > 0x7EFF)` (= CPU #2's "hold until gate-off").
 14. 0x400A4C02-0x400A4C32: per-voice state 0x454E3C58 + 32 v for t 8..12 (analog).
-15. **0x400A4C54 `0x4009652C(a2, trig d4, gateoff a5, mute byte 0x80003151)`**: filter envelopes of t 0..7 (3.6).
+15. **0x400A4C54 `0x4009652C(a2, trig a5, gateoff d4, mute byte 0x80003151)`** [CORR 1.15]: filter envelopes of t 0..7 (3.6).
 16. **0x400A4C7A-0x400A4D74, block builder, t = 0..7** (source P = a2 + 142 t, block B = 0x80002000):
     - `B[20t .. 20t+19] = P[+0x3E .. +0x51]` (memcpy 0x40115F78); then unless machine id is 37 (SY BITS) or
       44 (SP TWINSHOT): `word B[20t+10] = 0x7F00 - P+0x48`.
@@ -113,13 +134,42 @@ What a plug-in gives in place of the sequencer and MIDI: the event fields (note,
 locks), the MIDI-performance arrays, tempo (0x402D7010 = BPM × 120), the masks (0x80003151 mute, 0x43BDE440 kill)
 and the kit (engine copy + settings). Everything from step 6 to 17 and step 20 is then deterministic code.
 
+### 1.1 The seam of the block (step 7 of the porting order, `stMainBlock.h`)
+
+The event loop ends at 0x400A49A6 with five masks of tracks (bit t = track t) in registers; the frame words the
+segment reads (−0x4C to −0x6C(a6)) it writes first. `syntakt::main::buildBlock(mem, BlockMasks)` runs
+0x400A49A6-0x400A4DB8 from them. Who sets them in the event loop:
+
+| Mask | Reg. | Set by |
+|---|---|---|
+| trigs | d3 | an event with flag 0x80 (a note trig) sets bit t (0x400A44C2); a reload clears it |
+| gate-offs | d2 | 0x400A487A: (~d3 & −0x50) or −0x5C, −0x50 = the tracks whose note length counter 0x80003050[t] (−tempo per block) reached 0, −0x5C = forced offs (0x43BDC4D4's, a cut's) |
+| LFO trigs | d5 | flag 0x400 (the trig's LFO trig) (0x400A43DA, 0x400A459A) |
+| filter trigs | a5 | flag 0x200 (the trig's filter trig) (0x400A43F2, 0x400A45A4) |
+| filter gate-offs | d4 | 0x400A487C: (~a5 & −0x34) or d6 or the cuts, −0x34 = the filter length counter 0x80003084[t] reached 0 |
+
+Memory the event loop writes before (the plug-in writes it in its place): `Notes` 0x800046B8[t] =
+clamp(note + transpose, 0, 127) << 16 and `Velocity` 0x80004670[t] = the event's word +0x14 on a trig; the locks,
+`lock(t, list, 0x800021B0)` (3.4); the MIDI sources (4); `Mutes` 0x80003150, `Gates` 0x80003152, `Held` 0x80003154;
+`Kills` 0x43BDE440 (the tracks a trig cuts, from a per-track word of the kit at 0x800030B8 + 0x15FE + 2 t [INFER]);
+`Reload` 0x43BDC4C8 (2 for the block a kit reloads, cleared by the event loop at 0x400A4706 when it is done);
+`Tempo` 0x402D7010; `0x43BDC824` (1: the voice CPU runs). The kit: the engine copy, its settings, the machine ids.
+A plug-in's note-on is a trig (and the LFO / filter trigs its trig settings give), its note-off a gate-off on both
+masks; Kills, Mutes and Reload stay 0 until it models cuts, mutes or kit loads.
+
+buildBlock then runs the rest in the interrupt's order: the legato filter (CORR 1.5), `0x4011A2FC` (the CV frame,
+analog only), the smoothing, the cuts, the eDMA flag or the clear, the matrix, the LFOs (d5), the pitch loop (the
+trigs after mutes), the reload, the machine words, the analog voices' state, the filter envelopes (a5, d4), the
+block of tracks 0-7 and its tail (0x180 = trigs & ~mute, 0x181 = gate-offs & ~mute, 0x182 = cuts & 0xFF,
+0x184 tempo, 0x1A8 = mute | cuts). The block's bytes 0x183 and 0x1A9-0x1AF are never written.
+
 ## 2. How each block field is computed
 
 | Block field | Source | Routines |
 |---|---|---|
 | machine bytes 20t | smoothed P+0x3E..0x51 (ids 17-26) incl. LFO / mod matrix / locks; byte 0 = id << 8; word 10 inverted except SY BITS, TWINSHOT; word 14 = hold flag | 0x40097952, 0x40119266, 0x40097AFC, 0x400A4BC6 |
 | filter 0xA0+8t | smoothed TYPE, RESO, BASE, WDTH (+ modulation) | same |
-| amp 0xE0+14t | smoothed ATK, HOLD, DEC, SUS, REL, MODE, AENR; kill (0x43BDE440) and kit reload overwrite ATK/HOLD/DEC | same, 0x400A4A10, 0x400A4B7A |
+| amp 0xE0+14t | smoothed ATK, HOLD, DEC, SUS, REL, MODE, AENR; kill (0x43BDE440) and kit reload overwrite HOLD/DEC/REL [CORR 1.7] | same, 0x400A4A10, 0x400A4B7A |
 | pitch 0x150+4t | note (event) → glide → + bend × range; **not** LFO/tune: TUNE is machine word 2 (id 18), modulated by LFO as a word | 0x40119FE8, 0x400A4AF2 |
 | velocity 0x170+2t | event +0x14 or MIDI setter | 0x400A4492, 0x400A36A4 |
 | trig 0x180, gate-off 0x181 | event loop masks & ~mute | event loop (out of scope) |
@@ -315,6 +365,15 @@ smoothing, matrix, LFOs, pitch loop, filter envelopes and cutoffs on one carried
 6. Filter envelope 0x4009652C, then cutoff 0x400956BC.
 7. Block builder: compare the whole 0x1B0 block with the interrupt segment 0x400A4A00-0x400A4DB8 over random kits,
    events and MIDI sources. With CPU #2 already ported this gives bit-exact per-track stems.
+   **Done 2026-10-23** (`stMainBlock`, seam in 1.1): the segment 0x400A49A6-0x400A4DB8 and 0x4011A2FC, checked by
+   `stMainOracleTest` on `vectors-main/block.stv` (`tools/block3.py cases`) and `block_sequence.stv` (`block3.py
+   sequence`: consecutive blocks with locks, cuts, mutes, reloads), and end to end: the original voice CPU
+   (SyntHack's harness) plays each original block into `block_sequence.sto`, the test plays the port's own blocks on
+   `syntakt::runBlock` (SYNTAKT_MAIN_OUTPUTS, SYNTAKT_SECTION7, SYNTAKT_SAMPLES) and compares the 8 tracks.
+   Results: 600 cases 0 differ; 3 × 300 blocks (2053 calls with the locks) 0 differ; end to end 900 blocks × 8
+   tracks × 32 samples 0 differ (every track sounding, peaks −53 to −23 dBFS). Coverage (`block_coverage.txt`):
+   the segment 308/308 instructions, 38/38 branch sides; 0x4011A2FC/1E4/250 whole; memset 0x401159A4 and memcpy
+   0x40115F78 all but their tails, dead (lengths 0x500 and 20, multiples of 16 and 4).
 8. Gains, pans, ramps and summing (0x4008F21E loop, 0x4008EF14 family): DAD0/DFD0 buses without FX.
 9. Delay (0x40097414, 0x40096890, 0x40096802) with the DDR ring modelled as the eDMA moves it.
 10. Reverb (0x40096E3C, 0x40096DBA).

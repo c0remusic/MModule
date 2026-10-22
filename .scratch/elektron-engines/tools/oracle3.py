@@ -78,7 +78,9 @@ def reach(blob: bytes, roots: list[int]) -> dict[int, list[str]]:
             continue
         lines, calls = cfdis.routine(blob, r, 4000, cs)
         out[r] = lines
-        todo += sorted(calls) + INDIRECT.get(r, [])
+        # cfdis.target does not parse a pc-relative jsr ("jsr $4011a1e4(pc)"): its EMAC sites were missed
+        pcrel = [int(line.split("$")[1].split("(")[0], 16) for line in lines if " jsr $" in line and "(pc)" in line]
+        todo += sorted(calls) + pcrel + INDIRECT.get(r, [])
     return out
 
 

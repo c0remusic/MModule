@@ -71,7 +71,10 @@ namespace syntakt::main
 			0x444da000,		// LFO state
 			0x444db000,		// last pitches
 			0x45565000,		// glides
-			0x43bdc000,		// filter envelopes
+			0x43bdc000,		// filter envelopes, the kit reload, the voice outputs' eDMA
+			0x43bdd000,		// the eDMA pending
+			0x43bde000,		// the cuts
+			0x454e3000,		// the analog voices' state
 		};
 
 		explicit Memory(const Section3& _rom) : m_rom(&_rom)

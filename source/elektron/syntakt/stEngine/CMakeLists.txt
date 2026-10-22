@@ -15,7 +15,7 @@ add_library(stEngine STATIC stEmac.h stMemoryMap.h stVoice.h stVoice.cpp stStage
 	stSyTone.cpp stSyChord.cpp stSyToy.cpp stSyBits.cpp stSySwarm.cpp stSpTwinshot.cpp stVoiceCpu.h stVoiceCpu.cpp
 	stMainMemory.h stMainMix.h stMainMix.cpp stMainControl.h stMainControl.cpp
 	stMainModulation.h stMainModulation.cpp stMainLfo.h stMainLfo.cpp
-	stMainPitch.h stMainPitch.cpp stMainFilter.h stMainFilter.cpp)
+	stMainPitch.h stMainPitch.cpp stMainFilter.h stMainFilter.cpp stMainBlock.h stMainBlock.cpp)
 target_include_directories(stEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(TARGET stEngine PROPERTY FOLDER "Elektron/syntakt")
 
