@@ -3,6 +3,7 @@
 #include <array>
 
 #include "stBdModern.h"
+#include "stEngines.h"
 
 namespace syntakt
 {
@@ -18,7 +19,13 @@ namespace syntakt
 	const EngineRoutines* engine(const uint32_t _id)
 	{
 		static const EngineRoutines bd{bdModern::update, bdModern::render};
-		static const std::array<const EngineRoutines*, Engines> engines{&bd};
+		static const EngineRoutines sd{sdBasic::update, sdBasic::render};
+		static const EngineRoutines cy{cyAlloy::update, cyAlloy::render};
+		static const EngineRoutines pc{pcCarbon::update, pcCarbon::render};
+		static const EngineRoutines sdv{sdVintage::update, sdVintage::render};
+		static const EngineRoutines cpv{cpVintage::update, cpVintage::render};
+		static const std::array<const EngineRoutines*, Engines> engines{&bd, &sd, &cy, &pc, nullptr, nullptr, &sdv,
+			&cpv};
 		return _id < static_cast<uint32_t>(Engines) ? engines[_id] : nullptr;
 	}
 
@@ -84,8 +91,8 @@ namespace syntakt
 			// The original runs engines 0 to 11 (an unsigned compare); a voice on one not ported stays silent
 			if(const auto* e = engine(static_cast<uint32_t>(voice.at(Voice::Engine))))
 			{
-				e->update(_sram.at(Pitch + 4 * static_cast<uint32_t>(v)), voice, params + 0x1c, _g, _rom);
-				e->render(_sram.ptr(_out + TrackOutStride * static_cast<uint32_t>(v)), voice, _g, _rom);
+				e->update(_sram.at(Pitch + 4 * static_cast<uint32_t>(v)), voice, params + 0x1c, _rom);
+				e->render(_sram.ptr(_out + TrackOutStride * static_cast<uint32_t>(v)), voice, _rom);
 			}
 			voice.at(Voice::TrigNow) = voice.at(Voice::TrigPending);
 		}

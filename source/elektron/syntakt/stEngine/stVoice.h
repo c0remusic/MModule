@@ -143,8 +143,8 @@ namespace syntakt
 		return _address >= Sram::Base ? _sram.ptr(_address) : _rom.ptr(_address);
 	}
 
-	// 0x40003eb4: draws _count values from the generator into _dst
-	void drawRandom(Sram& _sram, uint32_t _dst, int32_t _count, Globals& _g);
+	// 0x40003eb4: draws _count values from a generator (_state[0..1]: Globals::rng, or a voice's own) into _dst
+	void drawRandom(int32_t* _dst, int32_t _count, int32_t* _state);
 
 	// 0x40003ee0: a voice's state when its engine changes (on a trig)
 	void initVoice(Voice& _v, Globals& _g, const Rom& _rom);

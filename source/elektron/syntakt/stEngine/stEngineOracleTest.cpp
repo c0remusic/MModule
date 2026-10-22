@@ -21,6 +21,7 @@
 #include "stBdModern.h"
 #include "stSection7.h"
 #include "stEngine.h"
+#include "stEngines.h"
 #include "stStages.h"
 #include "stTrack.h"
 #include "stVoice.h"
@@ -191,14 +192,31 @@ namespace
 			{0x40006968, {"bdUpdate", false, [](Context& _c)
 				{
 					auto v = _c.voice(1);
-					syntakt::bdModern::update(static_cast<int32_t>(_c.args[0]), v, _c.args[2], _c.globals,
+					syntakt::bdModern::update(static_cast<int32_t>(_c.args[0]), v, _c.args[2],
 						_c.rom);
 				}}},
 			{0x40006c9e, {"bdRender", false, [](Context& _c)
 				{
 					auto v = _c.voice(1);
-					syntakt::bdModern::render(_c.block(0), v, _c.globals, _c.rom);
+					syntakt::bdModern::render(_c.block(0), v, _c.rom);
 				}}},
+#define ST_ENGINE(_update, _render, _name, _ns) \
+			{_update, {_name "Update", false, [](Context& _c) \
+				{ \
+					auto v = _c.voice(1); \
+					syntakt::_ns::update(static_cast<int32_t>(_c.args[0]), v, _c.args[2], _c.rom); \
+				}}}, \
+			{_render, {_name "Render", false, [](Context& _c) \
+				{ \
+					auto v = _c.voice(1); \
+					syntakt::_ns::render(_c.block(0), v, _c.rom); \
+				}}},
+			ST_ENGINE(0x40007c68, 0x40007f9e, "sdBasic", sdBasic)
+			ST_ENGINE(0x40006d7c, 0x40006ff2, "cyAlloy", cyAlloy)
+			ST_ENGINE(0x40007280, 0x400075a8, "pcCarbon", pcCarbon)
+			ST_ENGINE(0x40008074, 0x4000847a, "sdVintage", sdVintage)
+			ST_ENGINE(0x40008580, 0x40008988, "cpVintage", cpVintage)
+#undef ST_ENGINE
 			{0x4000112c, {"trackDrive", false, [](Context& _c)
 				{
 					syntakt::track::drive(_c.sram, _c.args[0], _c.args[1]);

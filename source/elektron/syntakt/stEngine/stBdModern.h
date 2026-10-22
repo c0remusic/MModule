@@ -10,10 +10,10 @@
 namespace syntakt::bdModern
 {
 	// 0x40006968: the voice's fields from the track's parameters (_params: P + 0x1c), every block
-	void update(int32_t _pitch, Voice& _v, uint32_t _params, Globals& _g, const Rom& _rom);
+	void update(int32_t _pitch, Voice& _v, uint32_t _params, const Rom& _rom);
 
 	// 0x40006c9e: one block of the voice into _out
-	void render(int32_t* _out, Voice& _v, Globals& _g, const Rom& _rom);
+	void render(int32_t* _out, Voice& _v, const Rom& _rom);
 
 	// 0x40004ee6: the click, a 10 ms ramp, high-passed then low-passed, into _buf
 	void click(int32_t* _buf, Voice& _v);

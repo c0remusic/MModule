@@ -55,4 +55,13 @@ namespace syntakt
 
 	// 0x4000290e: unit _k's oscillator phase-modulated by two buffers, 32 samples at 48 kHz
 	void pmOscillator(int32_t _k, Voice& _v, const Rom& _rom);
+
+	// 0x40003958: unit _k's sine with feedback from its scaled output, 32 samples at 48 kHz, into its buffers A
+	// (scaled by the unit's envelope) and B (raw). Unlike feedbackOscillator (0x400035de), the scaled sample feeds
+	// back
+	void scaledFeedbackOscillator(int32_t _k, Voice& _v, const Rom& _rom);
+
+	// 0x400044e2: 32 samples of noise from a lagged additive generator (_s[0..3]), gated: a sample is kept only
+	// when the generator's second sum is above _s[4], signed
+	void gatedNoise(int32_t* _out, int32_t* _s);
 }

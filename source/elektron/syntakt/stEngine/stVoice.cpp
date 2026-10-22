@@ -18,15 +18,14 @@ namespace syntakt
 		}
 	}
 
-	void drawRandom(Sram& _sram, uint32_t _dst, const int32_t _count, Globals& _g)
+	void drawRandom(int32_t* _dst, const int32_t _count, int32_t* _state)
 	{
 		for(int32_t i = 0; i < _count; ++i)
 		{
-			const int32_t a = addWrap(_g.rng[0], _g.rng[1]);
-			_g.rng[0] = a;
-			_g.rng[1] = addWrap(_g.rng[1], a);
-			_sram.at(_dst) = a;
-			_dst += 4;
+			const int32_t a = addWrap(_state[0], _state[1]);
+			_state[0] = a;
+			_state[1] = addWrap(_state[1], a);
+			_dst[i] = a;
 		}
 	}
 
@@ -108,7 +107,7 @@ namespace syntakt
 		clear(_v, {0x560, 0x564, 0x568});
 
 		for(uint32_t o = 0x570; o <= 0x584; o += 4)
-			drawRandom(_v.sram, _v.address + o, 1, _g);
+			drawRandom(&_v.at(o), 1, _g.rng.data());
 
 		clear(_v, {0x59c, 0x5a0, 0x594});
 		_v.at(0x588) = INT32_MAX;

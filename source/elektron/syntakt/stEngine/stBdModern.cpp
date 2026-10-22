@@ -70,7 +70,7 @@ namespace syntakt::bdModern
 			_out[n] = addSat(_b[n], _a[n]);
 	}
 
-	void update(const int32_t _pitch, Voice& _v, const uint32_t _params, Globals&, const Rom& _rom)
+	void update(const int32_t _pitch, Voice& _v, const uint32_t _params, const Rom& _rom)
 	{
 		const Sram& sram = _v.sram;
 		_v.at(0x40) = static_cast<int32_t>(0xffa80000);	// -88 semitones
@@ -173,7 +173,7 @@ namespace syntakt::bdModern
 		phaseIncrements48k(_pitch, _v, _params, 4);
 	}
 
-	void render(int32_t* _out, Voice& _v, Globals&, const Rom& _rom)
+	void render(int32_t* _out, Voice& _v, const Rom& _rom)
 	{
 		Sram& sram = _v.sram;
 		unitEnvelopes(_v, 4);

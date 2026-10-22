@@ -505,4 +505,66 @@ namespace syntakt
 		_v.unit(k, 0x94) = _v.unit(k, 0x8c);
 		_v.unit(k, 0x98) = _v.unit(k, 0x90);
 	}
+
+void scaledFeedbackOscillator(const int32_t _k, Voice& _v, const Rom& _rom)
+	{
+		const auto k = static_cast<uint32_t>(_k);
+		Sram& sram = _v.sram;
+		int32_t* a = sram.ptr(static_cast<uint32_t>(_v.unit(k, 0xc8)));
+		int32_t* b = sram.ptr(static_cast<uint32_t>(_v.unit(k, 0xcc)));
+		const int32_t* wave = table(sram, _rom, static_cast<uint32_t>(_v.unit(k, 0xb0)));
+
+		const int32_t target = frac(0x04000000, _v.at(0x2c));
+		int32_t fb = _v.at(0x30);
+		const int32_t fbStep = subWrap(target, fb) >> 5;
+		const int32_t inc = _v.unit(k, 0x78);
+		const int32_t level = _v.unit(k, Voice::EnvLevel);
+		int32_t amount = _v.unit(k, Voice::EnvLevelPrev);
+		const int32_t amountStep = subSat(level, amount) >> 5;
+		int32_t phase = _v.unit(k, Voice::Phase);
+		int32_t y = _v.at(0x28);
+
+		Emac acc1;
+		acc1.load(phase);
+		acc1.mac(fb, y);
+		for(int n = 0; n < BlockSize; ++n)
+		{
+			fb = addWrap(fb, fbStep);
+			const int32_t p = acc1.storeClear();
+			const int32_t i = (p & 0xffffff) >> 16;
+			const int32_t f = static_cast<int32_t>((static_cast<uint32_t>(p) & 0xffff) << 15);
+			Emac acc0;
+			acc0.load(wave[i]);
+			acc0.mac(f, wave[i + 1]);
+			acc0.msac(f, wave[i]);
+			phase = addWrap(phase, inc) & 0xffffff;
+			const int32_t s = acc0.storeClear();
+			acc0.msac(amount, s);
+			amount = addWrap(amount, amountStep);
+			acc1.load(phase);
+			b[n] = s;
+			y = acc0.storeClear();
+			acc1.mac(fb, y);
+			a[n] = y;
+		}
+
+		_v.at(0x28) = y;
+		_v.unit(k, Voice::Phase) = phase;
+		_v.unit(k, Voice::EnvLevelPrev) = level;
+		_v.at(0x30) = target;
+	}
+
+void gatedNoise(int32_t* _out, int32_t* _s)
+	{
+		for(int n = 0; n < BlockSize; ++n)
+		{
+			const int32_t d1 = addWrap(_s[1], _s[0]);
+			_s[1] = addWrap(_s[1], d1);
+			const int32_t a1 = addWrap(_s[3], _s[2]);
+			_s[0] = d1;
+			_s[3] = addWrap(_s[3], a1);
+			_s[2] = a1;
+			_out[n] = a1 > _s[4] ? d1 : 0;
+		}
+	}
 }

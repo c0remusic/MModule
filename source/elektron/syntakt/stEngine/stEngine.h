@@ -12,8 +12,8 @@ namespace syntakt
 	struct EngineRoutines
 	{
 		// _pitch: the track's note in semitones Q16; _params: the track's parameter words, P + 0x1c
-		void (*update)(int32_t _pitch, Voice& _v, uint32_t _params, Globals& _g, const Rom& _rom);
-		void (*render)(int32_t* _out, Voice& _v, Globals& _g, const Rom& _rom);
+		void (*update)(int32_t _pitch, Voice& _v, uint32_t _params, const Rom& _rom);
+		void (*render)(int32_t* _out, Voice& _v, const Rom& _rom);
 	};
 
 	// The engine numbered _id (0 BD MODERN ... 11 SP TWINSHOT), null where it is not ported yet or out of range
