@@ -60,7 +60,8 @@ SAVED = D[2:8] + A[2:7]                                     # callee-saved: d2-d
 MARK = 0x5A5A_0000
 
 # Callees reached through a register (jsr (a2)), which the recursive descent cannot follow
-INDIRECT = {0x400A171A: [0x400A16BC]}
+INDIRECT = {0x400A171A: [0x400A16BC], 0x40118C74: [0x40115EC8],
+            0x40119266: [0x40118D8E, 0x40118DA4, 0x40118D70, 0x40118D82, 0x40118DFE, 0x40118DEE]}
 
 
 def section3() -> bytes:
@@ -192,9 +193,14 @@ class Rig:
         self._dirty.clear()
 
     def call(self, routine: int, args: list[int], macsr: int = 0x20, memory: dict[int, bytes] | None = None,
-             budget: int = 2_000_000, edges: bool = False) -> Result:
+             budget: int = 2_000_000, edges: bool = False, until: int | None = None,
+             regs: dict[int, int] | None = None, keep: bool = False) -> Result:
+        """UNTIL: run a segment of a routine from ROUTINE to UNTIL instead, with the registers REGS (Unicorn ids)
+        and the stack arguments ARGS below whatever the segment pops; the registers are not checked after it.
+        KEEP: the memory stays as the last call left it, for a sequence of calls."""
         uc = self.uc
-        self._reset()
+        if not keep:
+            self._reset()
         for a, data in (memory or {}).items():
             uc.mem_write(a, bytes(data))
         st = self.emac.state
@@ -208,10 +214,13 @@ class Rig:
         sp = STACK - 4 * (len(args) + 1)
         uc.mem_write(sp, struct.pack(f">{len(args) + 1}I", RETURN, *[x & 0xFFFF_FFFF for x in args]))
         uc.reg_write(m68k.UC_M68K_REG_A7, sp)
+        for r, v in (regs or {}).items():
+            uc.reg_write(r, v & 0xFFFF_FFFF)
+        stop = RETURN if until is None else until
         self._trace = t = dict(reads={}, old={}, written=set(), fault=None, count=0, prev=0,
                                edges=set() if edges else None)
         try:
-            uc.emu_start(routine, RETURN, count=budget)
+            uc.emu_start(routine, stop, count=budget)
         except UcError as e:
             if t["fault"] is None:
                 t["fault"] = f"{e} at pc {uc.reg_read(m68k.UC_M68K_REG_PC):08x}"
@@ -219,9 +228,9 @@ class Rig:
             self._trace = None
         pc = uc.reg_read(m68k.UC_M68K_REG_PC)
         fault = t["fault"] or (f"EMAC: {self.emac.error}" if self.emac.error else None)
-        if fault is None and pc != RETURN:
+        if fault is None and pc != stop:
             fault = f"no return within {budget} instructions (pc {pc:08x})"
-        if fault is None:
+        if fault is None and until is None:
             for i, r in enumerate(D + A[:7]):
                 if r in SAVED and uc.reg_read(r) & 0xFFFF_FFFF != marks[i]:
                     fault = f"register {i} not preserved"

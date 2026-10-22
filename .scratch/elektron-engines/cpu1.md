@@ -19,6 +19,24 @@ internal id `i` in a track = 28 + 2 i (SyntHack). Names of ids come from the des
 - The block's machine id byte (+0x3E) and the amp-hold word (+0x4C) are rewritten each block in the smoothed copy
   before the copy (0x400A4BC6).
 
+### Corrections from the port of steps 3-6 (2026-10-23, `stMainModulation`, `stMainLfo`, `stMainPitch`, `stMainFilter`)
+
+Each read in the code the C++ port matches bit for bit (0 differ, every reachable instruction and branch side run):
+- [CORR 3.2] A list entry is (depth word, id word): depth in the high word, the internal id in the low one; and the
+  matrix **adds** source × depth (`msac` then `sub` of the negated product), it does not subtract.
+- [CORR 3.1] The RNG's seed is in section 3's initialized data, not BSS: two longs at **0x402D701C / 0x402D7020**,
+  an additive (Fibonacci) generator: `new = [7020] + [701C]; [701C] = [7020]; [7020] = new`.
+- [CORR 3.1] FADE 0x4000 makes 0x40118C74 return 0x40000000 (full at once), not 0. Waveform order and modes are now
+  read from the code, no longer inferred (3.1 below).
+- [CORR 3.5] Only settings +0x6C rounds to semitones; +0x74 freezes the glide while the gate bit is clear (no trig).
+  +0x64 is the glide distance in percent; +0x70 non-zero = constant rate (PTIM, table 0x40245C50), zero = a time set
+  by the distance (table 0x40245A50). The progress runs from 0 **down** to INT32_MIN (done); the rates are negative.
+- [CORR 3.6] The envelope runs in the negative domain (0 to INT32_MIN full): attack increments are negative, the
+  attack ends when `sats` reaches INT32_MIN. +0x64 is not an envelope depth: non-zero, a trig restarts the value
+  from 0. Stage 0 and any value other than 1-3 release.
+- [CORR 3.7] 0x4550E1A8 + 4t holds env × ENV depth (what is added to the cutoff), not the envelope itself.
+- [CORR 1.11] The pitch loop's trig bit comes from the mask at −0x5C(a6), not d3; the LFOs get d5.
+
 ## 1. The audio interrupt 0x400A3856 (vector set at 0x400002FC; `rte` 0x400A54A8), per 32-sample block
 
 MACSR: saved, the accumulators saved, then **MACSR = 0x20** (fractional, no saturation, truncation) for the whole
@@ -127,7 +145,18 @@ modulation matrix act on the smoothed copy every block and are never smoothed.
   0xD6CD2000 offsets; start phase via 0x636BA875 (Q31 1/... ) and tables 0x402457E4 / 0x40245800 / 0x4024581C.
 - Waveforms (table 0x40245838): [0] 0x40118D8E, [1] 0x40118DA4, [2] 0x40118D70, [3] 0x40118D82, [4] 0x40118DFE,
   [5] 0x40118DEE; [6] = RND: `0x40118EF8` (random) with interpolation coefficient table 0x40245850[SPH >> 8].
-  [INFER] order TRI, SIN, SQR, SAW, EXP, RMP, RND.
+  Read from the code: TRI (fold of phase + 1/4), SIN (parabolic, ×0x73333334 correction), SQR (sign), SAW
+  (phase ^ 0x7FFFFFFF), EXP (exp2 0x40115EC8 of a scaled phase), RMP (the phase on its positive half, 0 on the
+  other), RND (a new value when the phase moved more than 1/16 cycle, 0x5265BFF, since the last one, or on a trig
+  in modes other than FREE; output = coef × last output + (1 − coef) × value; a trig resets RND's phase to 0, not
+  SPH). The phase is Q32 after `× 0x636BA875 << 2`; a cycle is 0x5265C000 of the state's phase.
+- Modes, read from the code: 0 FREE (a trig restarts only the fade), 1 TRIG (phase to SPH, fade restarts),
+  2 HOLD (a trig samples once, then the output holds; the fade does not restart), 3 ONE (stops at the cycle's end
+  with the output from 0x40245800 forward / 0x4024581C backward), 4 HALF (stops at half a cycle, 0x402457E4).
+  Rates: MULT 0-11 use the tempo argument, 12-23 the constant 0x3840 (= 120 BPM × 120).
+- State fields (a = 0x444DA778 + 0x50 t − 0x28 (1 − j)): a−0x24 phase, a−0x20 output, a−0x1C random value,
+  a−0x18 last raw output, a−0x14 fade (0..0x3FFFFFFF, × 2 on the output), a−0x10 phase of the last random value,
+  a−0xC DEST, a−8 the amount added, a−4 phase or 0 while stopped, byte a+0 stopped/holding, a+1 restarted last block.
 - Output × fade × depth is **added to the destination word** of the same track's smoothed copy, clamped 0..0x7F00
   (0x4011950C).
 
@@ -231,7 +260,7 @@ model of that mixer; the stems (per-track, Overbridge 2-9 and the gains of step 
 |---|---|---|---|
 | 0x40097952 | 0x800021B0.., 0x80002904.., 0x80002F50 | 0x8000E9B0 (3752 B), 0x80006348.. | yes, pure memory |
 | 0x40097AFC/AAC | P, settings copy, 5 source arrays | P in place | yes |
-| 0x40119266 | P, tempo, trigs; tables 0x402457E4-0x40245850 | 0x444DA778 (13 × 0x50) | yes; needs MACSR 0x20, `0x40118EF8` RNG state [check where] |
+| 0x40119266 | P, tempo, trigs; tables 0x402457E4-0x40245850 | 0x444DA778 (13 × 0x50), RNG 0x402D701C/20 [CORR: found] | yes; needs MACSR 0x20 |
 | 0x40119FE8 | P, settings, 0x80003152/54 | 0x45565328, 0x444DB6F8 | yes |
 | 0x4009652C | P, tables 0x401DEAC0/EEC0/ECC0 | 0x43BDC09C (8 × 12 B) | yes |
 | 0x400956BC | P, pitch, env 0x43BDC0A0 | 0x4550E1A8 | yes (sets MACSR itself) |
@@ -273,7 +302,10 @@ recursive descent of the routines run (`inv.py` already walks them), or objdump 
 About 45 routines and 3,600 instructions on the digital path (control ~1,250, mix/FX ~2,350), not counting the
 interrupt's sequencer part.
 
-Porting order (each step testable alone against the routine run in Unicorn):
+Porting order (each step testable alone against the routine run in Unicorn). Steps 1-6 are done (2026-10-23):
+`stMainMix`, `stMainControl`, `stMainModulation`, `stMainLfo`, `stMainPitch`, `stMainFilter`, checked by
+`stMainOracleTest` on `vectors-main/*.stv` (tools `vectors3.py`, and `sequence3.py` for 900 consecutive blocks of
+smoothing, matrix, LFOs, pitch loop, filter envelopes and cutoffs on one carried memory).
 1. Harness: section-3 Unicorn rig (memory map above, MACSR 0x20, EMAC sites by `cfdis`), checked on 0x4008ED48 and
    0x400A171A.
 2. Smoothing 0x40097952 + lock/snap helpers.
@@ -293,8 +325,10 @@ Porting order (each step testable alone against the routine run in Unicorn):
 
 - Names of the four MIDI sources (46F8/472C/4712 vs AT/MW/BC) and of the settings struct's other fields
   (+0x60, +0x64, +0x68, +0x6C, +0x70, +0x74, +0x79, +0x7A); the event struct's flag bits beyond those used here.
-- LFO waveform order and trig-mode numbering are inferred from Elektron's UI order, not read.
-- Where the RNG of 0x40118EF8 keeps its seed (not read).
+- ~~LFO waveform order and trig-mode numbering~~: read from the code (3.1), 2026-10-23.
+- ~~Where the RNG of 0x40118EF8 keeps its seed~~: 0x402D701C / 0x402D7020 (section 3's data), 2026-10-23.
+- The names of the glide settings (+0x64 percent, +0x68 legato 0/1/2, +0x6C, +0x70, +0x74) and of the masks
+  0x80003152 / 0x80003154 (gate, held [INFER]) as the UI calls them.
 - The meaning of masks 0x80003148/4A/4C/4E (FX-bus and send muting) and of 0x43BDE440 (kill).
 - The DAC output gain stage (0x401DAFDC, 0x80003144, 0x8000313C/D) and 0x4008EECA's role.
 - How the eDMA moves delay/reverb data between DDR and SRAM, exactly (TCD fields not decoded); delay and reverb

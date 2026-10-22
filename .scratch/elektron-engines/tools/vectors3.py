@@ -199,6 +199,285 @@ def gen_snap_one(rng, edge):
     return [rng.randrange(13), long(rng, edge), idx], 0x20, {}
 
 
+SMOOTHED = 0x8000_6348                                      # the smoothed copy, then the settings copy
+SETTINGS_COPY = SMOOTHED + 0x754
+SOURCES = (0x8000_4746, 0x8000_472C, 0x8000_4712, 0x8000_46F8)   # 13 words each
+VELOCITY = 0x8000_4670                                      # 12 words
+NOTES = 0x8000_46B8                                         # 13 longs, note << 16
+
+
+def signed_word(rng, edge):
+    if edge and rng.random() < 0.5:
+        return rng.choice((0, 1, 0x7F00, 0x7FFF, 0x8000, 0x8001, 0xFFFF, 0xC000, 0x4000, 0x8100))
+    return rng.randrange(1 << 16) if rng.random() < 0.5 else (rng.randrange(-0x4000, 0x4000) & 0xFFFF)
+
+
+def mod_pair(rng, edge):
+    """A (depth, internal id) long: ids within the track mostly, a few just outside it (the rig and the port see
+    the same SRAM)."""
+    r = rng.random()
+    if r < 0.15:
+        return 0
+    ident = rng.randrange(71) if rng.random() < 0.85 or not edge else rng.randrange(-14, 80)
+    return signed_word(rng, edge) << 16 | (ident & 0xFFFF)
+
+
+def mod_state(rng, edge):
+    """The smoothed copy and its settings copy with modulation lists, the sources, velocities and notes."""
+    params = [word(rng, edge) for _ in range(WORDS)]
+    settings = bytearray(rng.randrange(256) for _ in range(0x64C))
+    for t in range(13):
+        for k in range(24):
+            struct.pack_into(">I", settings, 0x7C * t + 4 * k, mod_pair(rng, edge))
+    notes = []
+    for _ in range(13):
+        if edge and rng.random() < 0.3:
+            notes.append(rng.choice((0, 0x7F << 16, 0x7FFF << 16, 0xFFFF_FFFF, 0x8000_0000, 60 << 16)))
+        else:
+            notes.append(rng.randrange(128) << 16 if rng.random() < 0.8 else rng.randrange(1 << 32))
+    mem = {SMOOTHED: be16(params), SETTINGS_COPY: bytes(settings), VELOCITY: be16(signed_word(rng, edge)
+           for _ in range(12)), NOTES: be32(notes)}
+    for s in SOURCES:
+        mem[s] = be16(signed_word(rng, edge) for _ in range(13))
+    return mem
+
+
+def gen_mod_matrix(rng, edge):
+    return [SMOOTHED], 0x20, mod_state(rng, edge)
+
+
+def gen_modulate(rng, edge):
+    t = rng.randrange(13)
+    mem = mod_state(rng, edge)
+    return [SMOOTHED + 0x1C + 0x8E * t, signed_word(rng, edge) | (0xFFFF0000 if rng.random() < 0.3 else 0),
+            SETTINGS_COPY + 0x7C * t + 0x10 * rng.randrange(6)], 0x20, mem
+
+
+LFO_STATE = 0x444D_A778                                     # + 0x50 t: LFO2's fields from -0x24 to +1, LFO1's 0x28 below
+RANDOM = 0x402D_701C                                        # the generator's two longs, in section 3's data
+PERIOD = 0x5265_C000
+TEMPOS = (0x3840, 30 * 120, 300 * 120, 90 * 120, 133 * 120, 1, 0, 0x7FFF_FFFF, 0xFFFF_FFFF, 0x8000_0000)
+
+
+def value_word(rng, value):
+    """A parameter word for a byte value: the value in the high byte, a fine part below."""
+    return (value & 0xFF) << 8 | rng.randrange(256)
+
+
+def lfo_params(rng, edge):
+    """SPD, MULT, FADE, DEST, WAVE, SPH, MODE, DEP: the eight words from SPD."""
+    def pick(common, edges):
+        return rng.choice(edges) if edge and rng.random() < 0.3 else rng.choice(common)
+    mult = pick(range(24), (-1, 24, 25, 0x7F, -0x80, 11, 12, 23, 0))
+    wave = pick(range(7), (-1, 7, 0x7F, -0x80, 6, 0))
+    mode = pick(range(5), (-1, 5, 0x7F, -0x80, 2, 3, 4, 0xFD, 0xFE))
+    dest = pick(range(71), (0x46, 0x47, -1, 0x7F, -0x80, 1, 9, 0))
+    return [word(rng, edge), value_word(rng, mult), word(rng, edge), value_word(rng, dest), value_word(rng, wave),
+            word(rng, edge), value_word(rng, mode), word(rng, edge)]
+
+
+def lfo_fields(rng, edge):
+    """An LFO's state, -0x24 to +1: nine longs then the two flags."""
+    def phase():
+        r = rng.random()
+        if r < 0.6:
+            return rng.randrange(PERIOD)
+        if r < 0.85 or not edge:
+            return rng.choice((PERIOD - 1, PERIOD - rng.randrange(1, 1 << 24), PERIOD // 2 - rng.randrange(1, 1 << 24),
+                               PERIOD // 2 + rng.randrange(1 << 24), rng.randrange(1 << 24), 0, PERIOD // 2))
+        return rng.randrange(1 << 32)
+    def fade():
+        if edge and rng.random() < 0.3:
+            return rng.choice((0, 0x3FFF_FFFF, 0x4000_0000, 0xFFFF_FFFF, 0x7FFF_FFFF, 0x8000_0000, 1))
+        return rng.randrange(0x4000_0000)
+    def flag():
+        r = rng.random()
+        return 0 if r < 0.5 else 1 if r < 0.9 or not edge else rng.randrange(256)
+    longs = [phase(), long(rng, edge), long(rng, edge), long(rng, edge), fade(), phase(), rng.randrange(1 << 32),
+             rng.randrange(1 << 32), rng.randrange(1 << 32)]
+    return be32(longs) + bytes([flag(), flag()])
+
+
+def lfo_state(rng, edge):
+    """The smoothed copy with LFO parameters, the 26 LFOs' state and the random generator's."""
+    params = [word(rng, edge) for _ in range(WORDS)]
+    for t in range(13):
+        for j in range(2):
+            first = 0x8E * t // 2 + 14 + 1 + 8 * j          # SPD's word: internal id 1 (LFO1) or 9 (LFO2)
+            params[first:first + 8] = lfo_params(rng, edge)
+    mem = {SMOOTHED: be16(params), RANDOM: be32([rng.randrange(1 << 32), rng.randrange(1 << 32)])}
+    for t in range(13):
+        for j in range(2):
+            mem[LFO_STATE + 0x50 * t - 0x28 * (1 - j) - 0x24] = lfo_fields(rng, edge)
+    return mem
+
+
+def gen_lfo(rng, edge):
+    tempo = rng.choice(TEMPOS) if edge and rng.random() < 0.5 else rng.choice((0x3840, rng.randrange(3600, 36001)))
+    r = rng.random()
+    trigs = 0 if r < 0.3 else rng.randrange(1 << 13) if r < 0.8 else rng.randrange(1 << 32)
+    return [SMOOTHED, tempo, trigs], 0x20, lfo_state(rng, edge)
+
+
+def gen_exp2(rng, edge):
+    if edge and rng.random() < 0.5:
+        x = rng.choice((0, 0xFF00_0000, 0xFF00_0001, 0x00FF_FFFF, 0x0100_0000, 0x8000_0000, 0x7FFF_FFFF,
+                        0xFFFF_FFFF, 0xDF00_0000, 0xE000_0000, rng.randrange(1 << 32)))
+    else:
+        x = rng.randrange(-(32 << 24), 1 << 24) & 0xFFFF_FFFF
+    return [x], 0x20, {}
+
+
+def gen_fade_step(rng, edge):
+    w = rng.choice((0x4000, 0x3FFF, 0x4001, 0, 0x7F00, 0x7FFF, 0x8000, 0xFFFF)) if edge and rng.random() < 0.5 \
+        else word(rng, edge)
+    return [upper(rng, w, 16)], 0x20, {}
+
+
+def gen_wave(rng, edge):
+    return [long(rng, edge)], 0x20, {}
+
+
+def gen_random(rng, edge):
+    return [], 0x20, {RANDOM: be32([long(rng, edge), long(rng, edge)])}
+
+
+GLIDE = 0x4556_5328                                         # 8 bytes per track: progress, distance
+LAST_PITCH = 0x444D_B6F8                                    # a long per track
+HELD, GATES = 0x8000_3154, 0x8000_3152
+
+
+def pitch_long(rng, edge):
+    """A pitch in semitones Q16: a note, a fine pitch, or any long."""
+    r = rng.random()
+    if edge and r < 0.2:
+        return rng.choice((0, 0x7F << 16, 0x7FFF_FFFF, 0x8000_0000, 0xFFFF_FFFF, 0x0000_8000, 0x0000_7FFF, 0xFFFF_8000))
+    if r < 0.6:
+        return rng.randrange(128) << 16
+    if r < 0.9:
+        return rng.randrange(128 << 16)
+    return rng.randrange(1 << 32)
+
+
+def porta_state(rng, edge):
+    """The smoothed copy with PORT and PTIM, the settings with the glide's fields, the masks, glides and pitches."""
+    params = [word(rng, edge) for _ in range(WORDS)]
+    settings = bytearray(rng.randrange(256) for _ in range(0x64C))
+    for t in range(13):
+        base = 0x7C * t
+        r = rng.random()
+        settings[base + 0x64] = rng.randrange(101) if r < 0.7 else rng.choice((0, 100, 0x7F, 0x80, 0xFF, 0x9C))
+        legato = rng.choice((0, 0, 1, 1, 2, 2, rng.randrange(1 << 32)))
+        struct.pack_into(">I", settings, base + 0x68, legato)
+        for off in (0x6C, 0x70, 0x74):
+            struct.pack_into(">I", settings, base + off, rng.choice((0, 0, 1, rng.randrange(1 << 32))))
+        settings[base + 0x7A] = rng.randrange(-24, 25) & 0xFF if rng.random() < 0.8 else rng.randrange(256)
+        port = rng.choice((0x3FFF, 0x4000, 0x3F00, 0x4100, 0, 0x7F00)) if edge and rng.random() < 0.3 else \
+            (rng.randrange(0x4000, 0x7F01) if rng.random() < 0.7 else rng.randrange(0x4000))
+        params[71 * t + 14 + 53] = port
+        params[71 * t + 14 + 52] = value_word(rng, rng.randrange(128) if rng.random() < 0.85 else rng.randrange(256))
+    glides = []
+    for _ in range(13):
+        r = rng.random()
+        progress = 0 if r < 0.15 else 0x8000_0000 if r < 0.3 else (-rng.randrange(1 << 31)) & 0xFFFF_FFFF \
+            if r < 0.9 or not edge else rng.randrange(1 << 32)
+        distance = (rng.randrange(-48, 49) << 16 | rng.randrange(1 << 16)) & 0xFFFF_FFFF if rng.random() < 0.8 \
+            else pitch_long(rng, edge)
+        glides += [progress, distance]
+    mem = {SMOOTHED: be16(params), SETTINGS_COPY: bytes(settings), GLIDE: be32(glides),
+           LAST_PITCH: be32(pitch_long(rng, edge) for _ in range(13)), NOTES: be32(pitch_long(rng, edge)
+                                                                            for _ in range(13)),
+           GATES: be16([rng.randrange(1 << 16)]), HELD: be16([rng.randrange(1 << 16)]),
+           SOURCES[0]: be16(signed_word(rng, edge) for _ in range(13))}
+    return mem
+
+
+def gen_porta(rng, edge):
+    t = rng.randrange(12)
+    r = rng.random()
+    source = t if r < 0.6 else 0xFFFF_FFFF if r < 0.8 else rng.randrange(13)
+    trig = rng.choice((0, 1)) if rng.random() < 0.8 else rng.choice((0x100, 0x101, 0xFF, 0xFFFF_FF00))
+    return [t, source, trig, pitch_long(rng, edge), SMOOTHED], 0x20, porta_state(rng, edge)
+
+
+PITCH_FRAME = oracle3.STACK + 0x80                          # the interrupt's a6, above the segment's stack
+
+
+def gen_pitch_loop(rng, edge):
+    trigs = rng.randrange(1 << 12) if rng.random() < 0.8 else rng.randrange(1 << 32)
+    mem = porta_state(rng, edge)
+    mem[PITCH_FRAME - 0x5C] = be32([trigs])
+    return [SMOOTHED, trigs], 0x20, mem
+
+
+def pitch_loop_regs(args):
+    from unicorn import m68k_const as m
+    return {m.UC_M68K_REG_A2: args[0], m.UC_M68K_REG_A6: PITCH_FRAME, m.UC_M68K_REG_D6: NOTES}
+
+
+# Segments of the audio interrupt run alone: start: (end, the registers from the case's arguments). The stack
+# arguments are not pushed: the case's arguments are the port's
+SEGMENTS = {0x400A_4ADE: (0x400A_4B40, pitch_loop_regs)}
+
+
+FILTER_ENV = 0x43BD_C09C                                    # 12 bytes per track: stage, value, counter
+SECTION3 = oracle3.section3()
+
+
+def rom_long(address: int) -> int:
+    return struct.unpack_from(">i", SECTION3, address - oracle3.LOAD)[0]
+
+
+def env_value(rng, edge):
+    """An envelope value: 0 to INT32_MIN, the ends, or any long."""
+    r = rng.random()
+    if edge and r < 0.3:
+        return rng.choice((0, 0x8000_0000, 0x8000_0001, 0xFFFF_FFFF, 0x7FFF_FFFF, 1, 0xC000_0000))
+    if r < 0.9:
+        return (-rng.randrange(1 << 31)) & 0xFFFF_FFFF
+    return rng.randrange(1 << 32)
+
+
+def filter_state(rng, edge):
+    """The smoothed copy with the filter envelopes' parameters, and the eight envelopes' state."""
+    params = [word(rng, edge) for _ in range(WORDS)]
+    states = []
+    for t in range(8):
+        first = 71 * t + 14 + 31                            # DEL, ATK, DEC, SUS, REL, RST: ids 31-36
+        dly = rng.choice((0, 0, rng.randrange(1, 0x80))) if rng.random() < 0.6 else rng.randrange(256)
+        params[first] = value_word(rng, dly) if dly or rng.random() < 0.5 else 0
+        params[first + 5] = rng.choice((0, 0, word(rng, edge)))
+        r = rng.random()
+        stage = rng.randrange(4) if r < 0.85 or not edge else rng.choice((4, 0xFFFF_FFFF, rng.randrange(1 << 32)))
+        r = rng.random()
+        threshold = rom_long(0x401D_EAC0 + 4 * ((dly ^ 0x80) - 0x80))
+        counter = rng.randrange(0x24000) if r < 0.5 else (threshold - 32 * rng.randrange(0, 3)) & 0xFFFF_FFFF \
+            if r < 0.9 or not edge else rng.randrange(1 << 32)
+        value = env_value(rng, edge)
+        if stage == 2 and rng.random() < 0.3:                # an attack about to end
+            value = (-(1 << 31) + rng.randrange(1 << 26)) & 0xFFFF_FFFF
+        states += [stage, value, counter]
+    return {SMOOTHED: be16(params), FILTER_ENV: be32(states)}
+
+
+def gen_filter_env(rng, edge):
+    def mask():
+        r = rng.random()
+        return 0 if r < 0.3 else rng.randrange(256) if r < 0.85 else rng.randrange(1 << 32)
+    return [SMOOTHED, mask(), mask(), mask()], 0x20, filter_state(rng, edge)
+
+
+def gen_envelope(rng, edge):
+    return [rng.randrange(8)], 0x20, filter_state(rng, edge)
+
+
+def gen_cutoff(rng, edge):
+    t = rng.randrange(8)
+    key = rng.randrange(-128, 128) if rng.random() < 0.8 else rng.choice((0x7F, -0x80, 0, 0x40, rng.randrange(1 << 32)))
+    mem = filter_state(rng, edge)
+    return [SMOOTHED + 0x8E * t + 0x52, key & 0xFFFF_FFFF, pitch_long(rng, edge), t], 0x20, mem
+
+
 ROUTINES = {
     0x4008ED48: ("gain", gen_gain),
     0x400A171A: ("pan", gen_pan),
@@ -212,12 +491,30 @@ ROUTINES = {
     0x400976EE: ("snapRange", gen_snap_range),
     0x40097760: ("restore", gen_restore),
     0x40097732: ("snapOne", gen_snap_one),
+    0x40097AAC: ("modulate", gen_modulate),
+    0x40097AFC: ("modMatrix", gen_mod_matrix),
+    0x40115EC8: ("exp2", gen_exp2),
+    0x40118C74: ("fadeStep", gen_fade_step),
+    0x40118CF0: ("fadeStart", gen_fade_step),
+    0x40118D8E: ("tri", gen_wave),
+    0x40118DA4: ("sin", gen_wave),
+    0x40118D70: ("sqr", gen_wave),
+    0x40118D82: ("saw", gen_wave),
+    0x40118DFE: ("exp", gen_wave),
+    0x40118DEE: ("rmp", gen_wave),
+    0x40118EF8: ("random", gen_random),
+    0x40119266: ("lfo", gen_lfo),
+    0x40119FE8: ("porta", gen_porta),
+    0x400A4ADE: ("pitchLoop", gen_pitch_loop),
+    0x4009652C: ("filterEnv", gen_filter_env),
+    0x4009664E: ("envelope", gen_envelope),
+    0x400956BC: ("cutoff", gen_cutoff),
 }
 
 
-def write_cases(path: Path, cases) -> None:
+def write_cases(path: Path, cases, magic: bytes = b"ST1V") -> None:
     with open(path, "wb") as f:
-        f.write(b"ST1V" + struct.pack("<I", len(cases)))
+        f.write(magic + struct.pack("<I", len(cases)))
         for routine, macsr, args, res in cases:
             f.write(struct.pack(f"<III{len(args)}III", routine, macsr, len(args), *args, res.d0, res.d1))
             for d in (res.reads, res.writes):
@@ -225,6 +522,31 @@ def write_cases(path: Path, cases) -> None:
                 f.write(struct.pack("<I", len(rs)))
                 for a, data in rs:
                     f.write(struct.pack("<II", a, len(data)) + data)
+
+
+# The assert 0x40163334 and what it calls are reached only when MACSR is not 0x20 (0x40118c86), which the audio
+# interrupt sets for its whole length (0x400a38c2): the report leaves them out. Branch sides proved dead, by reason
+DEAD_ROOTS = [0x4016_3334]
+DEAD_SIDES = {
+    0x4011_8C86: "fall: MACSR & 0xf0 is 0x20 throughout the audio interrupt (0x400a38c2), so the assert never runs",
+    0x4011_A1CA: "taken: d2 is -1 only if btst.l d2,d4 tested bit 31 of a zero-extended word (mvz.w 0x80003154), "
+                 "which is clear",
+    0x4011_A068: "taken (in the pitch loop only): the loop passes the track, never -1, as the source",
+}
+
+
+def segment_insns(blob: bytes, start: int, end: int, cs) -> list[tuple[int, str, int | None, int | None]]:
+    """coverage_insn.routine_insns over the instructions of [START, END)."""
+    import cfdis
+    import coverage_insn
+    out = []
+    for ins in cs.disasm(blob[start - oracle3.LOAD:end - oracle3.LOAD], start):
+        text = f"{ins.mnemonic} {ins.op_str}"
+        target = nxt = None
+        if coverage_insn.COND.match(ins.mnemonic):
+            target, nxt = cfdis.target(ins.op_str.split(",")[-1]), ins.address + ins.size
+        out.append((ins.address, text, target, nxt))
+    return out
 
 
 def coverage(blob: bytes, edges: dict[int, set[int]]) -> list[str]:
@@ -236,8 +558,16 @@ def coverage(blob: bytes, edges: dict[int, set[int]]) -> list[str]:
         executed = {e & 0xFFFF_FFFF for e in cover}
         ti = te = tb = tbs = 0
         lines = []
-        for r in sorted(oracle3.reach(blob, [root])):
-            insns = coverage_insn.routine_insns(blob, r, cs)
+        dead = set(oracle3.reach(blob, DEAD_ROOTS))
+        if root in SEGMENTS:
+            seg = segment_insns(blob, root, SEGMENTS[root][0], cs)
+            import cfdis
+            calls = [c for i in seg if i[1].startswith("jsr") for c in [cfdis.target(i[1].split(" ", 1)[1])] if c]
+            parts = [root] + sorted(set(oracle3.reach(blob, calls)) - dead)
+        else:
+            parts = sorted(set(oracle3.reach(blob, [root])) - dead)
+        for r in parts:
+            insns = seg if root in SEGMENTS and r == root else coverage_insn.routine_insns(blob, r, cs)
             hit = sum(1 for a, *_ in insns if a in executed)
             nb = nbs = 0
             gaps = []
@@ -250,7 +580,8 @@ def coverage(blob: bytes, edges: dict[int, set[int]]) -> list[str]:
                 nbs += taken + fall
                 if not (taken and fall):
                     missing = "both" if not (taken or fall) else ("taken" if not taken else "fall")
-                    gaps.append(f"      {a:08x}  {text:40} missing {missing}")
+                    why = f"  (dead {DEAD_SIDES[a]})" if a in DEAD_SIDES else ""
+                    gaps.append(f"      {a:08x}  {text:40} missing {missing}{why}")
             unexec = [a for a, *_ in insns if a not in executed]
             ti, te, tb, tbs = ti + len(insns), te + hit, tb + nb, tbs + nbs
             lines.append(f"  {r:08x}  insns {hit:4}/{len(insns):<4} branch sides {nbs:3}/{2 * nb:<3}"
@@ -280,7 +611,11 @@ def main() -> int:
         cover = edges.setdefault(routine, set())
         for i in range(a.cases):
             args, macsr, mem = gen(rng, i % 4 == 0)
-            res = rig.call(routine, args, macsr, mem, edges=a.coverage is not None)
+            if routine in SEGMENTS:
+                end, regs = SEGMENTS[routine]
+                res = rig.call(routine, [], macsr, mem, edges=a.coverage is not None, until=end, regs=regs(args))
+            else:
+                res = rig.call(routine, args, macsr, mem, edges=a.coverage is not None)
             cover |= res.edges
             cases.append((routine, macsr, args, res))
         print(f"{routine:08x} {name:10} {a.cases} cases")
