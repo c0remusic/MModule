@@ -8,7 +8,6 @@ namespace syntakt
 {
 	// The stages most of the Syntakt's twelve digital engines share, ported from OS 1.41's voice CPU (section 7) and
 	// checked word for word against the original routines (stEngineOracleTest). Each names the routine it ports.
-	constexpr int BlockSize = 32;
 
 	// 0x40004dc6: a 128-entry table read at a parameter word (value << 8 | fine), linearly interpolated. As in the
 	// original, a word above 0x7fff reads past the table: _table must have 256 entries readable for words up to 0xffff
@@ -48,7 +47,7 @@ namespace syntakt
 
 	// 0x40002596: the phase increments of units 0 to _units - 1 at 48 kHz, from the note, the tune word, the sweep and
 	// each unit's frequency factor. _exp2 is the RAM table 0x8000a888 (2048 entries)
-	void phaseIncrements48k(int32_t _pitch, Voice& _v, const Sram& _sram, uint32_t _params, int32_t _units);
+	void phaseIncrements48k(int32_t _pitch, Voice& _v, uint32_t _params, int32_t _units);
 
 	// 0x400035de: unit _k's sine with self-feedback, 32 samples at 48 kHz, into its buffers A (scaled by the unit's
 	// envelope) and B (raw)

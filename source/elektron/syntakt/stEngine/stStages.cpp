@@ -4,6 +4,42 @@
 
 namespace syntakt
 {
+	namespace
+	{
+		// The envelopes' one-pole decay: level <- a level - (1 - a) target, with the coefficient c = -a. Two products,
+		// each stored on its own, then a wrapping add
+		int32_t decayStep(const int32_t _level, const int32_t _c, const int32_t _target)
+		{
+			Emac acc;
+			acc.msac(_level, _c);
+			const int32_t a = acc.storeClear();
+			acc.msac(_target, addWrap(_c, INT32_MAX));
+			return addWrap(a, acc.storeClear());
+		}
+
+		// An envelope level applied to a block, ramped from the previous block's level, faded to silence in the block a
+		// trig arrives in. The level is in negative representation: out = -g x
+		void rampedVca(int32_t* _buf, Voice& _v, const uint32_t _level, const uint32_t _prev, const uint32_t _attack)
+		{
+			if(_v.at(Voice::TrigPending))
+				_v.at(_level) = 0;
+			else if(_v.at(Voice::TrigNow) && _v.at(_attack) == INT32_MIN)
+				_v.at(_prev) = _v.at(_level);
+
+			const int32_t level = _v.at(_level);
+			int32_t g = _v.at(_prev);
+			const int32_t ramp = rampStepSat(level, g);
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				Emac acc;
+				acc.msac(g, _buf[n]);
+				g = addSat(g, ramp);
+				_buf[n] = acc.storeClear();
+			}
+			_v.at(_prev) = level;
+		}
+	}
+
 	int32_t interpolate(const int32_t* _table, const int32_t _word)
 	{
 		int32_t i = _word >> 8;
@@ -49,15 +85,7 @@ namespace syntakt
 			case 4:
 				break;
 			default:
-				{
-					// level <- a level - (1 - a) target, with the coefficient c = -a
-					const int32_t c = _v.unit(k, Voice::EnvDecay);
-					Emac acc;
-					acc.msac(level, c);
-					const int32_t a = acc.storeClear();
-					acc.msac(_v.unit(k, Voice::EnvTarget), addWrap(c, INT32_MAX));
-					level = addWrap(a, acc.storeClear());
-				}
+				level = decayStep(level, _v.unit(k, Voice::EnvDecay), _v.unit(k, Voice::EnvTarget));
 				break;
 			}
 
@@ -139,24 +167,7 @@ namespace syntakt
 
 	void vca(int32_t* _out, Voice& _v)
 	{
-		if(_v.at(Voice::TrigPending))
-			_v.at(Voice::AmpLevel) = 0;
-		else if(_v.at(Voice::TrigNow) && _v.at(Voice::AmpAttack) == INT32_MIN)
-			_v.at(Voice::AmpLevelPrev) = _v.at(Voice::AmpLevel);
-
-		const int32_t level = _v.at(Voice::AmpLevel);
-		int32_t g = _v.at(Voice::AmpLevelPrev);
-		const int32_t ramp = subSat(level, g) >> 5;
-
-		// The level is in negative representation: out = -g x
-		for(int n = 0; n < BlockSize; ++n)
-		{
-			Emac acc;
-			acc.msac(g, _out[n]);
-			g = addSat(g, ramp);
-			_out[n] = acc.storeClear();
-		}
-		_v.at(Voice::AmpLevelPrev) = level;
+		rampedVca(_out, _v, Voice::AmpLevel, Voice::AmpLevelPrev, Voice::AmpAttack);
 	}
 
 	void driveClip(int32_t* _out, Voice& _v)
@@ -273,22 +284,7 @@ namespace syntakt
 
 	void modulatorVca(int32_t* _buf, Voice& _v)
 	{
-		if(_v.at(Voice::TrigPending))
-			_v.at(0x448) = 0;
-		else if(_v.at(Voice::TrigNow) && _v.at(0x458) == INT32_MIN)
-			_v.at(0x44c) = _v.at(0x448);
-
-		const int32_t level = _v.at(0x448);
-		int32_t g = _v.at(0x44c);
-		const int32_t ramp = subSat(level, g) >> 5;
-		for(int n = 0; n < BlockSize; ++n)
-		{
-			Emac acc;
-			acc.msac(g, _buf[n]);
-			g = addSat(g, ramp);
-			_buf[n] = acc.storeClear();
-		}
-		_v.at(0x44c) = level;
+		rampedVca(_buf, _v, 0x448, 0x44c, 0x458);
 	}
 
 	void modulatorEnvelope(Voice& _v)
@@ -319,14 +315,7 @@ namespace syntakt
 		case 4:
 			break;
 		default:
-			{
-				const int32_t c = _v.at(0x45c);
-				Emac acc;
-				acc.msac(level, c);
-				const int32_t a = acc.storeClear();
-				acc.msac(_v.at(0x464), addWrap(c, INT32_MAX));
-				level = addWrap(a, acc.storeClear());
-			}
+			level = decayStep(level, _v.at(0x45c), _v.at(0x464));
 			break;
 		}
 
@@ -379,13 +368,13 @@ namespace syntakt
 		level = frac(level, subWrap(0, _v.at(0x410)));
 	}
 
-	void phaseIncrements48k(const int32_t _pitch, Voice& _v, const Sram& _sram, const uint32_t _params,
-		const int32_t _units)
+	void phaseIncrements48k(const int32_t _pitch, Voice& _v, const uint32_t _params, const int32_t _units)
 	{
 		constexpr uint32_t Exp2 = 0x8000a888;
+		const Sram& sram = _v.sram;
 
 		// The note plus the tune word, in semitones Q16, clamped to notes 0-127
-		const int32_t tune = static_cast<int32_t>(static_cast<uint32_t>(_sram.half(_params + 0x24)) << 16);
+		const int32_t tune = static_cast<int32_t>(static_cast<uint32_t>(sram.half(_params + 0x24)) << 16);
 		int32_t p = addSat(_v.at(0x40), frac(_v.at(0x44), tune));
 		p = addSat(p, _pitch);
 		if(p < 0)
@@ -397,9 +386,8 @@ namespace syntakt
 		const int32_t q = frac(addWrap(p, static_cast<int32_t>(0xffbb0000)), 0x0aaaaaab);
 		const int32_t octave = static_cast<int16_t>(static_cast<uint32_t>(q) >> 16);
 		const int32_t fraction = static_cast<int32_t>(static_cast<uint32_t>(q) & 0xffff) >> 5;
-		int32_t f = frac(0x6e000000, _sram.at(Exp2 + 4 * static_cast<uint32_t>(fraction)));
-		const int32_t shift = (5 - octave) & 63;	// asr.l takes its count modulo 64
-		f = shift >= 32 ? (f < 0 ? -1 : 0) : f >> shift;
+		int32_t f = frac(0x6e000000, sram.at(Exp2 + 4 * static_cast<uint32_t>(fraction)));
+		f = asrReg(f, 5 - octave);
 
 		for(int32_t k = 0; k < _units; ++k)
 		{
@@ -421,9 +409,9 @@ namespace syntakt
 		// The table lookup both oscillators share: index and fraction from the phase sum, linear interpolation
 		int32_t lookup(const int32_t* _table, Emac& _phase)
 		{
-			const int32_t p = _phase.store();
+			const int32_t p = _phase.storeClear();
 			const int32_t i = (p & 0xffffff) >> 16;
-			const int32_t f = static_cast<int32_t>((static_cast<uint32_t>(_phase.storeClear()) & 0xffff) << 15);
+			const int32_t f = static_cast<int32_t>((static_cast<uint32_t>(p) & 0xffff) << 15);
 			Emac acc;
 			acc.load(_table[i]);
 			acc.mac(f, _table[i + 1]);

@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "stBdModern.h"
+#include "stSection7.h"
 #include "stEngine.h"
 #include "stStages.h"
 #include "stTrack.h"
@@ -28,17 +29,7 @@ namespace
 {
 	using syntakt::Sram;
 	using syntakt::Voice;
-
-	uint32_t be32(const uint8_t* _p)
-	{
-		return uint32_t(_p[0]) << 24 | uint32_t(_p[1]) << 16 | uint32_t(_p[2]) << 8 | _p[3];
-	}
-
-	std::vector<uint8_t> readFile(const std::string& _path)
-	{
-		std::ifstream f(_path, std::ios::binary);
-		return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
-	}
+	using syntakt::be32;
 
 	struct Case
 	{
@@ -49,7 +40,8 @@ namespace
 		std::vector<uint8_t> before, after;
 	};
 
-	bool readCases(const std::string& _path, std::vector<Case>& _cases)
+	template<typename Keep>
+	bool readCases(const std::string& _path, std::vector<Case>& _cases, const Keep& _keep)
 	{
 		std::ifstream f(_path, std::ios::binary);
 		char magic[4];
@@ -67,6 +59,11 @@ namespace
 			f.read(reinterpret_cast<char*>(&c.d0), 4);
 			f.read(reinterpret_cast<char*>(c.rngBefore), 8);
 			f.read(reinterpret_cast<char*>(c.rngAfter), 8);
+			if(!_keep(c.routine))
+			{
+				f.seekg(2 * Sram::Size, std::ios::cur);
+				continue;
+			}
 			c.before.resize(Sram::Size);
 			c.after.resize(Sram::Size);
 			f.read(reinterpret_cast<char*>(c.before.data()), Sram::Size);
@@ -173,7 +170,7 @@ namespace
 			{0x40002596, {"phaseIncr48k", false, [](Context& _c)
 				{
 					auto v = _c.voice(1);
-					syntakt::phaseIncrements48k(static_cast<int32_t>(_c.args[0]), v, _c.sram, _c.args[2],
+					syntakt::phaseIncrements48k(static_cast<int32_t>(_c.args[0]), v, _c.args[2],
 						static_cast<int32_t>(_c.args[3]));
 				}}},
 			{0x400035de, {"fbOscillator", false, [](Context& _c)
@@ -194,13 +191,13 @@ namespace
 			{0x40006968, {"bdUpdate", false, [](Context& _c)
 				{
 					auto v = _c.voice(1);
-					syntakt::bdModern::update(static_cast<int32_t>(_c.args[0]), v, _c.args[2], _c.sram, _c.globals,
+					syntakt::bdModern::update(static_cast<int32_t>(_c.args[0]), v, _c.args[2], _c.globals,
 						_c.rom);
 				}}},
 			{0x40006c9e, {"bdRender", false, [](Context& _c)
 				{
 					auto v = _c.voice(1);
-					syntakt::bdModern::render(_c.block(0), v, _c.sram, _c.globals, _c.rom);
+					syntakt::bdModern::render(_c.block(0), v, _c.globals, _c.rom);
 				}}},
 			{0x4000112c, {"trackDrive", false, [](Context& _c)
 				{
@@ -243,15 +240,12 @@ int main()
 		std::printf("SKIP: set SYNTAKT_SECTION7 and SYNTAKT_VECTORS\n");
 		return 77;
 	}
-	const auto section7 = readFile(section7Path);
-	if(section7.size() != 383760)
+	const auto romWords = syntakt::loadSection7(section7Path);
+	if(romWords.empty())
 	{
-		std::printf("FAIL: %s is not OS 1.41's section 7 (%zu bytes)\n", section7Path, section7.size());
+		std::printf("FAIL: %s is not OS 1.41's section 7\n", section7Path);
 		return 1;
 	}
-	std::vector<int32_t> romWords(section7.size() / 4);
-	for(size_t i = 0; i < romWords.size(); ++i)
-		romWords[i] = static_cast<int32_t>(be32(section7.data() + 4 * i));
 	const syntakt::Rom rom{romWords.data()};
 
 	std::vector<Case> cases;
@@ -260,7 +254,7 @@ int main()
 	for(std::string path; std::getline(paths, path, ';');)
 	{
 		const size_t first = cases.size();
-		if(!readCases(path, cases))
+		if(!readCases(path, cases, [](const uint32_t _r) { return ported().count(_r) != 0; }))
 		{
 			std::printf("FAIL: cannot read the vectors in %s\n", path.c_str());
 			return 1;

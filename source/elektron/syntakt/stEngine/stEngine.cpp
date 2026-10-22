@@ -8,7 +8,6 @@ namespace syntakt
 {
 	namespace
 	{
-		constexpr uint32_t ParamStride = 0x8e;
 		constexpr uint32_t SortOrder = 0x80004a48;		// the voice indices, bubble-sorted by machine
 		constexpr uint32_t SortKey = 0x80004a40;		// each voice's machine byte
 		constexpr uint32_t Pitch = 0x80008150;			// the 0x1b0 block's pitch words, one per track
@@ -16,42 +15,46 @@ namespace syntakt
 		constexpr int32_t LastMachine = 45;
 	}
 
-	const EngineRoutines& engine(const int32_t _id)
+	const EngineRoutines* engine(const uint32_t _id)
 	{
-		static const std::array<EngineRoutines, Engines> engines{
-			EngineRoutines{bdModern::update, bdModern::render}};
-		static const EngineRoutines none{};
-		return _id >= 0 && _id < Engines ? engines[_id] : none;
+		static const EngineRoutines bd{bdModern::update, bdModern::render};
+		static const std::array<const EngineRoutines*, Engines> engines{&bd};
+		return _id < static_cast<uint32_t>(Engines) ? engines[_id] : nullptr;
 	}
 
 	void renderVoices(Sram& _sram, Globals& _g, const Rom& _rom, const uint32_t _out, const uint32_t _params,
 		const int32_t _trig, const int32_t _gateOff)
 	{
-		for(uint32_t v = 0; v < Voices; ++v)
+		uint8_t order[Voices], key[Voices];
+		for(uint32_t v = 0; v < static_cast<uint32_t>(Voices); ++v)
 		{
-			_sram.setByte(SortOrder + v, static_cast<uint8_t>(v));
-			_sram.setByte(SortKey + v, _sram.byte(_params + ParamStride * v + 0x3e));
+			order[v] = static_cast<uint8_t>(v);
+			key[v] = _sram.byte(_params + ParamStride * v + 0x3e);
 		}
 
-		// A stable bubble sort on the signed machine byte, in the original's order of comparisons
+		// A stable bubble sort on the signed machine byte, in the original's order of comparisons. The original keeps
+		// both arrays in SRAM, where they are left as it leaves them
 		for(int32_t pass = 7; pass > 0; --pass)
 		{
 			for(int32_t j = 0; j < pass; ++j)
 			{
-				const uint8_t a = _sram.byte(SortOrder + j), b = _sram.byte(SortOrder + j + 1);
-				const int32_t ka = static_cast<int8_t>(_sram.byte(SortKey + static_cast<int8_t>(a)));
-				const int32_t kb = static_cast<int8_t>(_sram.byte(SortKey + static_cast<int8_t>(b)));
-				if(kb < ka)
+				const uint8_t a = order[j], b = order[j + 1];
+				if(static_cast<int8_t>(key[static_cast<int8_t>(b)]) < static_cast<int8_t>(key[static_cast<int8_t>(a)]))
 				{
-					_sram.setByte(SortOrder + j, b);
-					_sram.setByte(SortOrder + j + 1, a);
+					order[j] = b;
+					order[j + 1] = a;
 				}
 			}
 		}
-
-		for(uint32_t i = 0; i < Voices; ++i)
+		for(uint32_t v = 0; v < static_cast<uint32_t>(Voices); ++v)
 		{
-			const int32_t v = static_cast<int8_t>(_sram.byte(SortOrder + i));
+			_sram.setByte(SortOrder + v, order[v]);
+			_sram.setByte(SortKey + v, key[v]);
+		}
+
+		for(uint32_t i = 0; i < static_cast<uint32_t>(Voices); ++i)
+		{
+			const int32_t v = static_cast<int8_t>(order[i]);
 			const uint32_t params = _params + ParamStride * static_cast<uint32_t>(v);
 			Voice voice{_sram, Voice::addressOf(v)};
 
@@ -78,15 +81,11 @@ namespace syntakt
 			voice.at(Voice::AmpHold) = _sram.half(params + 0x4c);
 			restartPhases(voice);
 
-			const auto id = static_cast<uint32_t>(voice.at(Voice::Engine));
-			if(id <= 11)
+			// The original runs engines 0 to 11 (an unsigned compare); a voice on one not ported stays silent
+			if(const auto* e = engine(static_cast<uint32_t>(voice.at(Voice::Engine))))
 			{
-				const auto& e = engine(static_cast<int32_t>(id));
-				if(e.update && e.render)
-				{
-					e.update(_sram.at(Pitch + 4 * static_cast<uint32_t>(v)), voice, params + 0x1c, _sram, _g, _rom);
-					e.render(_sram.ptr(_out + 128 * static_cast<uint32_t>(v)), voice, _sram, _g, _rom);
-				}
+				e->update(_sram.at(Pitch + 4 * static_cast<uint32_t>(v)), voice, params + 0x1c, _g, _rom);
+				e->render(_sram.ptr(_out + TrackOutStride * static_cast<uint32_t>(v)), voice, _g, _rom);
 			}
 			voice.at(Voice::TrigNow) = voice.at(Voice::TrigPending);
 		}

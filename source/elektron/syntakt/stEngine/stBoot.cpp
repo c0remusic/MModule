@@ -17,10 +17,11 @@ namespace syntakt
 		};
 		constexpr Copy Copies[] = {{0x4004f6e0, 0x40057670, 0x80000000}, {0x40057670, 0x4005df10, 0x80008000}};
 
-		void copyBytes(Sram& _sram, const uint32_t _dst, const uint32_t _src, const uint32_t _n)
+		// _n bytes of CPU #1's block, from _src, to the big-endian SRAM at _dst
+		void copyBytes(Sram& _sram, const uint32_t _dst, const uint8_t* _src, const uint32_t _n)
 		{
 			for(uint32_t i = 0; i < _n; ++i)
-				_sram.setByte(_dst + i, _sram.byte(_src + i));
+				_sram.setByte(_dst + i, _src[i]);
 		}
 	}
 
@@ -42,31 +43,24 @@ namespace syntakt
 
 	void receiveBlock(Sram& _sram, const uint8_t* _block, int32_t& _trig, int32_t& _gateOff)
 	{
-		for(uint32_t i = 0; i < BlockBytes; ++i)
-			_sram.setByte(Block + i, _block[i]);
+		// The block, a big-endian word at a time
+		for(uint32_t i = 0; i < BlockBytes; i += 4)
+		{
+			_sram.at(Block + i) = static_cast<int32_t>(uint32_t(_block[i]) << 24 | uint32_t(_block[i + 1]) << 16 |
+				uint32_t(_block[i + 2]) << 8 | _block[i + 3]);
+		}
 		_sram.at(0x8000a07c) = _sram.at(Block + 0x184);
 
 		for(uint32_t t = 0; t < static_cast<uint32_t>(Voices); ++t)
 		{
-			const uint32_t p = TrackParams + 0x8e * t;
-			copyBytes(_sram, p + 0x3e, Block + 20 * t, 20);
-			auto half = [&](const uint32_t _dst, const uint32_t _src)
-			{
-				_sram.setByte(p + _dst, _sram.byte(Block + _src));
-				_sram.setByte(p + _dst + 1, _sram.byte(Block + _src + 1));
-			};
-			half(0x52, 0xa0 + 8 * t);
-			half(0x56, 0xa2 + 8 * t);
-			half(0x66, 0xa4 + 8 * t);
-			half(0x68, 0xa6 + 8 * t);
+			const uint32_t p = TrackParams + ParamStride * t;
 			const uint32_t s = 0xe0 + 14 * t;
-			half(0x6c, s);
-			half(0x6e, s + 2);
-			half(0x70, s + 4);
-			half(0x72, s + 6);
-			half(0x74, s + 8);
-			half(0x80, s + 10);
-			half(0x82, s + 12);
+			copyBytes(_sram, p + 0x3e, _block + 20 * t, 20);	// the machine block
+			copyBytes(_sram, p + 0x52, _block + 0xa0 + 8 * t, 2);	// filter type
+			copyBytes(_sram, p + 0x56, _block + 0xa2 + 8 * t, 2);	// resonance
+			copyBytes(_sram, p + 0x66, _block + 0xa4 + 8 * t, 4);	// BASE, WIDTH
+			copyBytes(_sram, p + 0x6c, _block + s, 10);			// amp ATK, HOLD, DEC, SUS, REL
+			copyBytes(_sram, p + 0x80, _block + s + 10, 4);		// amp MODE, RST
 		}
 
 		// A mask in 0x182 blocks the trigs and forces the gate-off
@@ -86,8 +80,8 @@ namespace syntakt
 		track::baseWidth(_sram, _rom, VoiceOut, TrackParams);
 		for(uint32_t t = 0; t < static_cast<uint32_t>(Voices); ++t)
 		{
-			const uint32_t p = TrackParams + 0x8e * t;
-			track::filter(_sram, _rom, p + 0x52, VoiceOut + 0x80 * t, _sram.at(Block + 0x188 + 4 * t),
+			const uint32_t p = TrackParams + ParamStride * t;
+			track::filter(_sram, _rom, p + 0x52, VoiceOut + TrackOutStride * t, _sram.at(Block + 0x188 + 4 * t),
 				static_cast<int32_t>(t), trig, _sram.half(p + 0x82));
 		}
 		track::ampEnvelopes(_sram, _rom, VoiceOut, TrackParams, trig, gateOff, _sram.byte(Block + 0x1a8));

@@ -7,9 +7,6 @@ namespace syntakt::track
 {
 	namespace
 	{
-		constexpr int Tracks = 8;
-		constexpr uint32_t ParamStride = 0x8e;
-		constexpr uint32_t TrackOut = 0x80;
 
 		// The drive's state and scratch in SRAM
 		constexpr uint32_t DriveGain = 0x800083f0;		// this block's gains, then kept as the next block's start
@@ -23,7 +20,6 @@ namespace syntakt::track
 
 		constexpr uint32_t BandState = 0x800088a0;		// lp, hp of each track
 		constexpr uint32_t BandPoles = 0x40040060;		// one-pole coefficients, section 7
-		constexpr uint32_t TrigSeen = 0x80008550;		// a byte per track, which the filter sets
 
 		constexpr uint32_t AttackTable = 0x40014070;
 		constexpr uint32_t HoldTable = 0x40013c70;
@@ -34,31 +30,31 @@ namespace syntakt::track
 	void drive(Sram& _sram, const uint32_t _out, const uint32_t _params)
 	{
 		// The gain from the drive word, squared and mapped into 0.1535 .. 1.0, ramped from the previous block's
-		for(uint32_t t = 0; t < Tracks; ++t)
+		for(uint32_t t = 0; t < Voices; ++t)
 		{
 			const int32_t w = _sram.half(_params + ParamStride * t + 0x50);
 			_sram.at(DriveGain + 4 * t) = addWrap(w * w, w * w);
 		}
 		constexpr int32_t c = 0x6c5a83ad, k = 0x13a57c52;
-		for(uint32_t t = 0; t < Tracks; ++t)
+		for(uint32_t t = 0; t < Voices; ++t)
 		{
 			const int32_t g = addWrap(fracWrap(c, _sram.at(DriveGain + 4 * t)), k);
 			_sram.at(DriveGain + 4 * t) = g;
 			_sram.at(DriveGainStep + 4 * t) = subWrap(g, _sram.at(DriveGainPrev + 4 * t)) >> 5;
 		}
 
-		for(uint32_t i = 0; i < Tracks / 2; ++i)
+		for(uint32_t i = 0; i < Voices / 2; ++i)
 		{
 			const uint32_t even = 2 * i, odd = 2 * i + 1;
-			int32_t* xe = _sram.ptr(_out + TrackOut * even);
-			int32_t* xo = _sram.ptr(_out + TrackOut * odd);
+			int32_t* xe = _sram.ptr(_out + TrackOutStride * even);
+			int32_t* xo = _sram.ptr(_out + TrackOutStride * odd);
 			int32_t* wetEven = _sram.ptr(DriveWetEven);
 			int32_t* wetOdd = _sram.ptr(DriveWetOdd);
 			int32_t ge = _sram.at(DriveGainPrev + 4 * even), go = _sram.at(DriveGainPrev + 4 * odd);
 			const int32_t stepE = _sram.at(DriveGainStep + 4 * even), stepO = _sram.at(DriveGainStep + 4 * odd);
 
 			// The soft clip 2u - u|u| three times over, on the accumulator, its guard bits carried from pass to pass
-			Emac accO(false), accE(false);
+			EmacWrap accO, accE;
 			accO.mac(go, xo[0]);
 			for(int n = 0; n < BlockSize; ++n)
 			{
@@ -102,7 +98,7 @@ namespace syntakt::track
 					wetRaw = INT32_MAX;
 				}
 				dry[j] = d >> 1;
-				Emac acc(false);
+				EmacWrap acc;
 				acc.msac(wetRaw, _sram.at(DriveWetLevel + 4 * static_cast<uint32_t>(w >> 8)));
 				wet[j] = acc.storeClear();
 			}
@@ -113,7 +109,7 @@ namespace syntakt::track
 			const int32_t swe = subWrap(wet[0], we) >> 5, swo = subWrap(wet[1], wo) >> 5;
 			for(int n = 0; n < BlockSize; ++n)
 			{
-				Emac a0(false), a1(false);
+				EmacWrap a0, a1;
 				a0.mac(de, xe[n]);
 				a0.mac(we, wetEven[n]);
 				a1.mac(doo, xo[n]);
@@ -131,14 +127,14 @@ namespace syntakt::track
 			_sram.at(DriveWetPrev + 4 * odd) = wet[1];
 		}
 
-		for(uint32_t t = 0; t < Tracks; ++t)
+		for(uint32_t t = 0; t < Voices; ++t)
 			_sram.at(DriveGainPrev + 4 * t) = _sram.at(DriveGain + 4 * t);
 	}
 
 	void baseWidth(Sram& _sram, const Rom& _rom, const uint32_t _out, const uint32_t _params)
 	{
 		const int32_t* poles = _rom.ptr(BandPoles);
-		for(uint32_t t = 0; t < Tracks; t += 2)
+		for(uint32_t t = 0; t < Voices; t += 2)
 		{
 			const uint32_t p = _params + ParamStride * t, q = p + ParamStride;
 			int32_t* state = _sram.ptr(BandState + 8 * t);
@@ -163,8 +159,8 @@ namespace syntakt::track
 			const int32_t kl0 = addWrap(INT32_MIN, pl0), kh0 = addWrap(ph0 >> 1, 0x40000000);
 			const int32_t kl1 = addWrap(INT32_MIN, pl1), kh1 = addWrap(ph1 >> 1, 0x40000000);
 			int32_t lp0 = state[0], hp0 = state[1], lp1 = state[2], hp1 = state[3];
-			int32_t* x0 = _sram.ptr(_out + TrackOut * t);
-			int32_t* x1 = _sram.ptr(_out + TrackOut * (t + 1));
+			int32_t* x0 = _sram.ptr(_out + TrackOutStride * t);
+			int32_t* x1 = _sram.ptr(_out + TrackOutStride * (t + 1));
 
 			Emac acc0, acc1, acc2, acc3;
 			acc0.mac(pl0, lp0);
@@ -201,7 +197,7 @@ namespace syntakt::track
 		int32_t level = _sram.at(_level);
 		for(int32_t n = 0; n < _n; ++n)
 		{
-			Emac out(false), next(false);
+			EmacWrap out, next;
 			out.msac(level, _sram.at(_buf));
 			next.msac(level, _coef);
 			next.msac(_target, k);
@@ -230,7 +226,7 @@ namespace syntakt::track
 		int32_t& level = _sram.at(_env + 8);
 		const uint32_t levelAddress = _env + 8;
 
-		if(static_cast<uint8_t>(_kill))
+		if(_kill)
 			stage = 6;
 		else if(_trig && reset)
 			stage = 5;
@@ -250,11 +246,11 @@ namespace syntakt::track
 				else
 				{
 					// Linear attack, stopped at the sample where the level saturates
-					const int32_t inc = _rom.ptr(AttackTable)[attack];
+					const int32_t inc = _rom.entry(AttackTable, attack);
 					int32_t l = level;
 					for(int32_t n = left; n > 0; --n)
 					{
-						Emac acc(false);
+						EmacWrap acc;
 						acc.msac(_sram.at(end), l);
 						const int64_t sum = static_cast<int64_t>(l) + inc;
 						const bool overflow = sum > INT32_MAX || sum < INT32_MIN;
@@ -269,7 +265,7 @@ namespace syntakt::track
 			}
 			else if(stage == 0)
 			{
-				const int32_t length = _rom.ptr(HoldTable)[hold];
+				const int32_t length = _rom.entry(HoldTable, hold);
 				if(length > holdCount)
 				{
 					int32_t k = length - holdCount;
@@ -291,7 +287,7 @@ namespace syntakt::track
 			}
 			else if(stage == 1)
 			{
-				end = ampSegment(_sram, _out, levelAddress, _rom.ptr(DecayTable)[decay], sustain, left);
+				end = ampSegment(_sram, _out, levelAddress, _rom.entry(DecayTable, decay), sustain, left);
 			}
 			else if(stage == 5)
 			{
@@ -301,7 +297,7 @@ namespace syntakt::track
 				const int32_t x = _sram.at(_out);
 				for(int32_t n = 0; n < left; ++n)
 				{
-					Emac acc(false);
+					EmacWrap acc;
 					acc.msac(l, x);
 					l = subWrap(l, step);
 					_sram.at(end) = acc.storeClear();
@@ -315,7 +311,7 @@ namespace syntakt::track
 			}
 			else
 			{
-				end = ampSegment(_sram, _out, levelAddress, _rom.ptr(DecayTable)[release], 0, left);
+				end = ampSegment(_sram, _out, levelAddress, _rom.entry(DecayTable, release), 0, left);
 			}
 
 			left -= static_cast<int32_t>((end - _out) >> 2);
@@ -328,7 +324,7 @@ namespace syntakt::track
 		if(_trig)
 		{
 			if(reset)
-				level = attack == 0 ? INT32_MIN : _rom.ptr(AttackTable)[attack] >> 1;
+				level = attack == 0 ? INT32_MIN : _rom.entry(AttackTable, attack) >> 1;
 			stage = 2;
 			gateOff = _gateOff != 0;
 		}
@@ -353,9 +349,9 @@ namespace syntakt::track
 		const int32_t _gateOff, const int32_t _kill)
 	{
 		const int32_t kill = _kill & 0xff;
-		for(uint32_t t = 0; t < Tracks; ++t)
+		for(uint32_t t = 0; t < Voices; ++t)
 		{
-			ampEnvelope(_sram, _rom, _out + TrackOut * t, 0x800049e0 + 12 * t, _params + ParamStride * t + 0x6a,
+			ampEnvelope(_sram, _rom, _out + TrackOutStride * t, 0x800049e0 + 12 * t, _params + ParamStride * t + 0x6a,
 				(_trig >> t) & 1, (_gateOff >> t) & 1, (kill >> t) & 1);
 		}
 	}

@@ -18,20 +18,10 @@
 
 #include "stBoot.h"
 #include "stEngine.h"
+#include "stSection7.h"
 
 namespace
 {
-	std::vector<uint8_t> readFile(const char* _path)
-	{
-		std::ifstream f(_path, std::ios::binary);
-		return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
-	}
-
-	uint32_t be32(const uint8_t* _p)
-	{
-		return uint32_t(_p[0]) << 24 | uint32_t(_p[1]) << 16 | uint32_t(_p[2]) << 8 | _p[3];
-	}
-
 	void putLe(std::ofstream& _f, const uint32_t _v, const int _bytes)
 	{
 		for(int i = 0; i < _bytes; ++i)
@@ -68,15 +58,12 @@ int main(const int _argc, char** _argv)
 		std::printf("usage: stRender SECTION7 OUT.wav MACHINE NOTE SECONDS [BOOT_SRAM]\n");
 		return 2;
 	}
-	const auto section7 = readFile(_argv[1]);
-	if(section7.size() != 383760)
+	const auto romWords = syntakt::loadSection7(_argv[1]);
+	if(romWords.empty())
 	{
 		std::printf("%s is not OS 1.41's section 7\n", _argv[1]);
 		return 1;
 	}
-	std::vector<int32_t> romWords(section7.size() / 4);
-	for(size_t i = 0; i < romWords.size(); ++i)
-		romWords[i] = static_cast<int32_t>(be32(section7.data() + 4 * i));
 	const syntakt::Rom rom{romWords.data()};
 
 	auto sram = std::make_unique<syntakt::Sram>();
@@ -85,11 +72,11 @@ int main(const int _argc, char** _argv)
 
 	if(_argc > 6)
 	{
-		const auto original = readFile(_argv[6]);
+		const auto original = syntakt::readFile(_argv[6]);
 		int differ = 0;
 		for(uint32_t i = 0; i < syntakt::Sram::Size / 4 && 4 * i + 3 < original.size(); ++i)
 		{
-			const auto want = be32(original.data() + 4 * i);
+			const auto want = syntakt::be32(original.data() + 4 * i);
 			if(static_cast<uint32_t>(sram->words[i]) == want)
 				continue;
 			if(differ++ < 5)

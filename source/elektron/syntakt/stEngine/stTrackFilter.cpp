@@ -7,7 +7,6 @@ namespace syntakt::track
 	namespace
 	{
 		// The filter's state and scratch in SRAM
-		constexpr uint32_t TrigSeen = 0x80008550;	// byte per track: a trig came last block
 		constexpr uint32_t SnapPending = 0x80008558;	// byte per track
 		constexpr uint32_t TypeInUse = 0x80008560;
 		constexpr uint32_t StageZ = 0x80008580;
@@ -19,33 +18,6 @@ namespace syntakt::track
 		constexpr uint32_t State = 0x80008920;		// s1, s2 per track
 		constexpr uint32_t BufA = 0x80008960;
 		constexpr uint32_t BufB = 0x800089e0;
-
-		// Shifts by a register: the count is taken mod 64
-		int32_t asrReg(const int32_t _v, const int32_t _n)
-		{
-			const int32_t n = _n & 63;
-			if(n >= 32)
-				return _v < 0 ? -1 : 0;
-			return _v >> n;
-		}
-
-		int32_t aslReg(const int32_t _v, const int32_t _n)
-		{
-			const int32_t n = _n & 63;
-			if(n >= 32)
-				return 0;
-			return static_cast<int32_t>(static_cast<uint32_t>(_v) << n);
-		}
-
-		int32_t asl(const int32_t _v, const int _n)
-		{
-			return static_cast<int32_t>(static_cast<uint32_t>(_v) << _n);
-		}
-
-		int32_t neg(const int32_t _v)
-		{
-			return subWrap(0, _v);
-		}
 
 		// ff1.l: leading zeros, 32 for 0
 		int32_t ff1(const int32_t _v)
@@ -62,18 +34,13 @@ namespace syntakt::track
 			return n;
 		}
 
-		int32_t table(const Rom& _rom, const uint32_t _base, const int32_t _i)
-		{
-			return _rom.at(_base + static_cast<uint32_t>(_i) * 4u);
-		}
-
 		// The log step of the inlined square root: L, -log2(sqrt v) in Q8.24
 		int32_t sqrtLog(const Rom& _rom, const int32_t _v)
 		{
 			const int32_t z = ff1(_v) - 1;
 			const int32_t mn = aslReg(_v, z);
 			const int32_t k = frac(0x800, mn);
-			int32_t l = table(_rom, 0x4000f48c - 0x1000, k);
+			int32_t l = _rom.entry(0x4000f48c - 0x1000, k);
 			l = neg(l) >> 7;
 			l = addWrap(l, aslReg(z, 24));
 			return l >> 1;
@@ -87,13 +54,13 @@ namespace syntakt::track
 		// sqrt v from L
 		int32_t sqrtOf(const Rom& _rom, const int32_t _l)
 		{
-			return asrReg(table(_rom, 0x4000e488, expIndex(_l)), asrReg(_l, 24));
+			return asrReg(_rom.entry(0x4000e488, expIndex(_l)), asrReg(_l, 24));
 		}
 
 		// 1/sqrt v from L, as a mantissa and the shift that goes with it
 		int32_t invMantissa(const Rom& _rom, const int32_t _l)
 		{
-			return table(_rom, 0x4000e488, expIndex(neg(_l)));
+			return _rom.entry(0x4000e488, expIndex(neg(_l)));
 		}
 
 		int32_t invShift(const int32_t _l)
@@ -101,33 +68,26 @@ namespace syntakt::track
 			return neg(asrReg(neg(_l), 24));
 		}
 
-		int32_t stepOf(const int32_t _target, const int32_t _prev)
-		{
-			int32_t d = subSat(_target, _prev);
-			if(d < 0)
-				d += 0x1f;
-			return d >> 5;
-		}
 
 		void pathA(Sram& _sram, const Rom& _rom, const int32_t _f, const int32_t _r, Emac& _acc0, Emac& _acc1)
 		{
 			const int32_t d5 = _f >> 22;
-			const int32_t i1 = addWrap(d5, table(_rom, 0x40013870, _r >> 24) >> 22);
+			const int32_t i1 = addWrap(d5, _rom.entry(0x40013870, _r >> 24) >> 22);
 
-			_acc0.msac(table(_rom, 0x40013070, i1), _r);
+			_acc0.msac(_rom.entry(0x40013070, i1), _r);
 			int32_t d0 = _acc0.storeClear();
 			const int32_t j = d0 >> 24;
 			d0 = asl(d0 & 0xffffff, 7);
-			const int32_t t0 = table(_rom, 0x40012bcc, j);
-			const int32_t t1 = table(_rom, 0x40012bcc, j + 1);
+			const int32_t t0 = _rom.entry(0x40012bcc, j);
+			const int32_t t1 = _rom.entry(0x40012bcc, j + 1);
 			_acc0.msac(t0, d0);
 			_acc0.msac(INT32_MIN, t0);
 			_acc0.msac(INT32_MIN, t0);
 			_acc0.mac(t1, d0);
 			const int32_t i2 = addWrap(_acc0.storeClear() >> 1, d5);
 
-			const int32_t a = table(_rom, 0x40011e70, i1) >> 1;
-			const int32_t b = table(_rom, 0x400113cc, i2);
+			const int32_t a = _rom.entry(0x40011e70, i1) >> 1;
+			const int32_t b = _rom.entry(0x400113cc, i2);
 			_acc0.mac(a, b);
 			_acc0.mac(INT32_MIN, 0x20000000);
 			_acc1.mac(b, b);
@@ -137,7 +97,7 @@ namespace syntakt::track
 			const int32_t q4 = asl(q, 2);
 			const int32_t a2 = asl(a, 1);
 			_sram.at(Steps) = q4;
-			const int32_t t5 = table(_rom, 0x4001082c, i2);
+			const int32_t t5 = _rom.entry(0x4001082c, i2);
 			_sram.at(Target) = c0;
 			_sram.at(Steps + 0x14) = c0;
 			_acc0.mac(a2, t5);
@@ -145,10 +105,9 @@ namespace syntakt::track
 			_sram.at(Target + 4) = c1;
 			_acc1.msac(c1, c1);
 			_acc1.mac(INT32_MIN, INT32_MIN);
-			const int32_t v = _acc1.store();
+			const int32_t v = _acc1.storeClear();
 
 			const int32_t l = sqrtLog(_rom, v);
-			_acc1.storeClear();
 			const int32_t c4 = sqrtOf(_rom, l);
 			const int32_t m = invMantissa(_rom, l);
 			_sram.at(Target + 0x10) = c4;
@@ -170,14 +129,14 @@ namespace syntakt::track
 			Emac& _acc1)
 		{
 			const int32_t fi = _f >> 21;
-			_sram.at(Target + 4) = neg(table(_rom, 0x4000d488, fi));
+			_sram.at(Target + 4) = neg(_rom.entry(0x4000d488, fi));
 
-			_acc0.mac(table(_rom, 0x4000c488, fi), table(_rom, 0x4000b488, _m >> 21));
+			_acc0.mac(_rom.entry(0x4000c488, fi), _rom.entry(0x4000b488, _m >> 21));
 			int32_t e = _acc0.storeClear();
 			int32_t k1 = 0x20000000;
 			if(_r < 0x40000000)
-				k1 = table(_rom, 0x4000a188, _r >> 24);
-			_acc0.mac(table(_rom, 0x40009f88, _r >> 24), e);
+				k1 = _rom.entry(0x4000a188, _r >> 24);
+			_acc0.mac(_rom.entry(0x40009f88, _r >> 24), e);
 			e = _acc0.storeClear();
 			_acc0.mac(k1, e);
 			e = _acc0.storeClear();
@@ -186,8 +145,8 @@ namespace syntakt::track
 
 			const int32_t fr = asl(e & 0x7fff, 16);
 			const int32_t idx = (e & 0x1ffffff) >> 15;
-			_acc0.mac(subWrap(INT32_MAX, fr), table(_rom, 0x4000a488, idx));
-			_acc0.mac(fr, table(_rom, 0x4000a488, idx + 1));
+			_acc0.mac(subWrap(INT32_MAX, fr), _rom.entry(0x4000a488, idx));
+			_acc0.mac(fr, _rom.entry(0x4000a488, idx + 1));
 			const int32_t g = _acc0.storeClear();
 			_sram.at(Steps) = g;
 			_acc0.mac(g, g);
@@ -269,7 +228,7 @@ namespace syntakt::track
 		else
 		{
 			for(uint32_t i = 0; i < 8; ++i)
-				_sram.at(Steps + 4 * i) = stepOf(_sram.at(Target + 4 * i), _sram.at(cur + 4 * i));
+				_sram.at(Steps + 4 * i) = rampStepToZero(_sram.at(Target + 4 * i), _sram.at(cur + 4 * i));
 		}
 
 		// The state-space resonator
@@ -323,7 +282,7 @@ namespace syntakt::track
 			if(static_cast<uint32_t>(typeCur) <= 1 || typeCur == 7)
 				gt = _rom.at(0x4000a388);
 			else
-				gt = table(_rom, 0x4000a288, resoByte);
+				gt = _rom.entry(0x4000a288, resoByte);
 
 			int32_t gp = _sram.at(StageGain + 4 * t);
 			int32_t c6 = _sram.at(cur + 0x18);
@@ -352,7 +311,7 @@ namespace syntakt::track
 			_sram.at(StageZ + 4 * t) = z;
 			_sram.at(cur + 0x18) = _sram.at(Target + 0x18);
 			_sram.at(cur + 0x1c) = _sram.at(Target + 0x1c);
-			_sram.at(StageGain + 4 * t) = table(_rom, 0x4000a288, resoByte);
+			_sram.at(StageGain + 4 * t) = _rom.entry(0x4000a288, resoByte);
 		}
 
 		// Type change and trig flags
@@ -374,7 +333,7 @@ namespace syntakt::track
 			_sram.setByte(TrigSeen + t, 0);
 			keep = true;
 		}
-		if((static_cast<uint32_t>(_trig) >> (t & 31)) & 1)
+		if((static_cast<uint32_t>(_trig) >> t) & 1)
 		{
 			_sram.setByte(SnapPending + t, 0);
 			_sram.setByte(TrigSeen + t, 1);
@@ -398,9 +357,9 @@ namespace syntakt::track
 		}
 
 		const uint32_t mix = MixGains + 12 * t;
-		const int32_t sx = stepOf(gx, _sram.at(mix));
-		const int32_t sa = stepOf(ga, _sram.at(mix + 4));
-		const int32_t sb = stepOf(gb, _sram.at(mix + 8));
+		const int32_t sx = rampStepToZero(gx, _sram.at(mix));
+		const int32_t sa = rampStepToZero(ga, _sram.at(mix + 4));
+		const int32_t sb = rampStepToZero(gb, _sram.at(mix + 8));
 		int32_t px = _sram.at(mix);
 		int32_t pa = _sram.at(mix + 4);
 		int32_t pb = _sram.at(mix + 8);

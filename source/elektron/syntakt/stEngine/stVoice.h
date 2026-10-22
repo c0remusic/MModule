@@ -5,6 +5,19 @@
 
 namespace syntakt
 {
+	constexpr int Voices = 8;					// eight voices, eight tracks
+	constexpr int BlockSize = 32;				// samples per block, at 48 kHz
+	constexpr uint32_t ParamStride = 0x8e;		// the per-track parameter array's stride
+	constexpr uint32_t TrackOutStride = 0x80;	// one track's 32 samples in the output block
+	constexpr uint32_t TrigSeen = 0x80008550;	// a byte per track: a trig came last block (the filter writes it)
+
+	// Byte _address & 3 of a big-endian word, as the CPU sees it. Written with an unsigned shift by (~a & 3) * 8: the
+	// first form, with a shift by 8 * (3 - (a & 3)), read the wrong word in MSVC Release builds only, cause not found
+	inline uint8_t beByte(const int32_t _word, const uint32_t _address)
+	{
+		return static_cast<uint8_t>(static_cast<uint32_t>(_word) >> ((~_address & 3u) << 3));
+	}
+
 	// The voice CPU's 64 KB of SRAM (0x80000000-0x8000ffff, OS 1.41), as words: the eight voice states, the scratch
 	// buffers the voices share as they render one after the other, the decimators' histories and the RAM tables. The
 	// port keeps the original's memory map because the routines rely on it: units overlap (0x80 apart, 0xcc long), a
@@ -22,11 +35,7 @@ namespace syntakt
 		const int32_t* ptr(const uint32_t _address) const { return &words[(_address - Base) >> 2]; }
 
 		// Bytes and halfwords as the big-endian CPU sees them in its words
-		uint8_t byte(const uint32_t _address) const
-		{
-			const uint32_t w = static_cast<uint32_t>(words[(_address - Base) >> 2]);
-			return static_cast<uint8_t>(w >> ((~_address & 3u) << 3));
-		}
+		uint8_t byte(const uint32_t _address) const { return beByte(words[(_address - Base) >> 2], _address); }
 
 		void setByte(const uint32_t _address, const uint8_t _v)
 		{
@@ -52,11 +61,10 @@ namespace syntakt
 		int32_t at(const uint32_t _address) const { return words[(_address - Base) >> 2]; }
 		const int32_t* ptr(const uint32_t _address) const { return &words[(_address - Base) >> 2]; }
 
-		uint8_t byte(const uint32_t _address) const
-		{
-			const uint32_t w = static_cast<uint32_t>(words[(_address - Base) >> 2]);
-			return static_cast<uint8_t>(w >> ((~_address & 3u) << 3));
-		}
+		// Entry _i of the table at _table; _i may be negative, as the firmware's signed indices are
+		int32_t entry(const uint32_t _table, const int32_t _i) const { return ptr(_table)[_i]; }
+
+		uint8_t byte(const uint32_t _address) const { return beByte(words[(_address - Base) >> 2], _address); }
 	};
 
 	// The voice CPU's own globals outside SRAM that the engines read and write

@@ -10,7 +10,6 @@ namespace syntakt
 		constexpr uint32_t BufferB = 0x80008c60;	// unit k's raw output
 		constexpr uint32_t BufferStride = 0x124;
 		constexpr uint32_t Sine = 0x80004b70;		// the RAM sine the boot builds
-		constexpr uint32_t RngState = 0x4404f954;	// the generator's state, which the original passes by address
 
 		void clear(Voice& _v, const std::initializer_list<uint32_t> _offsets)
 		{
@@ -130,7 +129,6 @@ namespace syntakt
 			_v.at(o) = 0;
 		clear(_v, {0x700, 0x704});
 		_v.at(0x6fc) = _rom.at(0x40014980);
-		(void)RngState;
 	}
 
 	void restartPhases(Voice& _v)

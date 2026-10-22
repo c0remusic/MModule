@@ -41,10 +41,6 @@ namespace syntakt::bdModern
 			return static_cast<int8_t>(_sram.byte(_params + 0x22 + _k));
 		}
 
-		int32_t entry(const Rom& _rom, const uint32_t _table, const int32_t _index)
-		{
-			return _rom.ptr(_table)[_index];
-		}
 	}
 
 	void click(int32_t* _buf, Voice& _v)
@@ -74,20 +70,21 @@ namespace syntakt::bdModern
 			_out[n] = addSat(_b[n], _a[n]);
 	}
 
-	void update(const int32_t _pitch, Voice& _v, const uint32_t _params, Sram& _sram, Globals&, const Rom& _rom)
+	void update(const int32_t _pitch, Voice& _v, const uint32_t _params, Globals&, const Rom& _rom)
 	{
+		const Sram& sram = _v.sram;
 		_v.at(0x40) = static_cast<int32_t>(0xffa80000);	// -88 semitones
 		_v.at(0x44) = 0x00800000;
 		_v.at(0x1d0) = 0x04000000;						// unit 3 at the note
 		_v.at(0x50) = 0x08000000;						// units 0-2 an octave up
 		_v.at(0xd0) = 0x08000000;
 		_v.at(0x150) = 0x08000000;
-		_v.at(0x3f8) = entry(_rom, SweepDepth, byte(_sram, _params, 8));
-		_v.at(0x474) = interpolate(_rom.ptr(ClickLevel), word(_sram, _params, 6));
-		_v.at(0x08) = interpolate(_rom.ptr(LevelU2), word(_sram, _params, 4));
-		const int32_t levelU0 = interpolate(_rom.ptr(LevelU0), word(_sram, _params, 6));
+		_v.at(0x3f8) = _rom.entry(SweepDepth, byte(sram, _params, 8));
+		_v.at(0x474) = interpolate(_rom.ptr(ClickLevel), word(sram, _params, 6));
+		_v.at(0x08) = interpolate(_rom.ptr(LevelU2), word(sram, _params, 4));
+		const int32_t levelU0 = interpolate(_rom.ptr(LevelU0), word(sram, _params, 6));
 		_v.at(0x0c) = levelU0;
-		_v.at(Voice::AmpDecay) = entry(_rom, AmpDecay, byte(_sram, _params, 16));
+		_v.at(Voice::AmpDecay) = _rom.entry(AmpDecay, byte(sram, _params, 16));
 
 		if(_v.at(Voice::TrigNow))
 		{
@@ -102,10 +99,10 @@ namespace syntakt::bdModern
 			_v.at(Voice::DriveX1) = INT32_MAX;
 			_v.at(Voice::DriveY1) = INT32_MAX;
 			_v.at(0x40c) = INT32_MIN;
-			_v.at(0x45c) = entry(_rom, ModDecay, byte(_sram, _params, 10));
-			_v.at(0x410) = entry(_rom, SweepDecay, byte(_sram, _params, 8));
+			_v.at(0x45c) = _rom.entry(ModDecay, byte(sram, _params, 10));
+			_v.at(0x410) = _rom.entry(SweepDecay, byte(sram, _params, 8));
 
-			if(word(_sram, _params, 12))
+			if(word(sram, _params, 12))
 			{
 				// Drive x2 into the clip, and the gain ducking after the hit
 				_v.at(0x414) = 0x02e3f426;
@@ -121,12 +118,12 @@ namespace syntakt::bdModern
 			}
 			else
 			{
-				const int32_t a = entry(_rom, DriveSetA, byte(_sram, _params, 16));
+				const int32_t a = _rom.entry(DriveSetA, byte(sram, _params, 16));
 				_v.at(0x41c) = a;
 				_v.at(0x414) = addWrap(a >> 1, 0x40000000);
 				_v.at(0x418) = _v.at(0x414);
 				_v.at(Voice::DriveOn) = 0;
-				const int32_t b = entry(_rom, DriveSetB, byte(_sram, _params, 16));
+				const int32_t b = _rom.entry(DriveSetB, byte(sram, _params, 16));
 				_v.at(0x428) = b;
 				_v.at(0x420) = addWrap(b >> 1, 0x40000000);
 				_v.at(0x424) = _v.at(0x420);
@@ -147,7 +144,7 @@ namespace syntakt::bdModern
 		_v.at(0x5c) = INT32_MAX;
 		_v.at(0xdc) = INT32_MAX;
 		_v.at(0x1dc) = INT32_MAX;
-		_v.at(0x2c) = interpolate(_rom.ptr(Feedback), word(_sram, _params, 6));
+		_v.at(0x2c) = interpolate(_rom.ptr(Feedback), word(sram, _params, 6));
 		_v.at(0x10c) = 0;
 		_v.at(0x110) = 0;
 		_v.at(0x190) = 0;
@@ -155,7 +152,7 @@ namespace syntakt::bdModern
 		const int32_t depthU2 = frac(0x01000000, static_cast<int32_t>(0xf1eb851f));
 		_v.at(0x18c) = depthU2;
 		_v.at(0x194) = depthU2;
-		_v.at(0x464) = interpolate(_rom.ptr(ModTarget), word(_sram, _params, 10));
+		_v.at(0x464) = interpolate(_rom.ptr(ModTarget), word(sram, _params, 10));
 		_v.at(0x210) = 0;
 		const int32_t depthU3 = frac(0x01000000, INT32_MAX);
 		_v.at(0x21c) = static_cast<int32_t>(Modulator);
@@ -173,22 +170,23 @@ namespace syntakt::bdModern
 		_v.at(0x214) = depthU3;
 
 		sweepEnvelope(_v);
-		phaseIncrements48k(_pitch, _v, _sram, _params, 4);
+		phaseIncrements48k(_pitch, _v, _params, 4);
 	}
 
-	void render(int32_t* _out, Voice& _v, Sram& _sram, Globals&, const Rom& _rom)
+	void render(int32_t* _out, Voice& _v, Globals&, const Rom& _rom)
 	{
+		Sram& sram = _v.sram;
 		unitEnvelopes(_v, 4);
 		feedbackOscillator(0, _v, _rom);
 		pmOscillator(1, _v, _rom);
 		pmOscillator(2, _v, _rom);
 		modulatorEnvelope(_v);
-		mix(_sram.ptr(BufferA2), _sram.ptr(BufferB0), _sram.ptr(Modulator), 0, 1, _v);
-		modulatorVca(_sram.ptr(Modulator), _v);
+		mix(sram.ptr(BufferA2), sram.ptr(BufferB0), sram.ptr(Modulator), 0, 1, _v);
+		modulatorVca(sram.ptr(Modulator), _v);
 		pmOscillator(3, _v, _rom);
-		click(_sram.ptr(Click), _v);
-		driveClip(_sram.ptr(BufferB3), _v);
-		sum(_sram.ptr(Click), _sram.ptr(BufferB3), _out);
+		click(sram.ptr(Click), _v);
+		driveClip(sram.ptr(BufferB3), _v);
+		sum(sram.ptr(Click), sram.ptr(BufferB3), _out);
 		ampEnvelope(_v);
 		vca(_out, _v);
 	}
