@@ -61,28 +61,6 @@ namespace syntakt::sdVintage
 			_c[8] = y2;
 		}
 
-		// 0x40004cd6: four buffers mixed into _out with gains ramped over the block: targets at 0x08 + 4 i, current
-		// values at 0x18 + 4 i. _x[3] may be _out itself
-		void mix4(const int32_t* const* _x, int32_t* _out, Voice& _v)
-		{
-			int32_t g[4], step[4];
-			for(uint32_t i = 0; i < 4; ++i)
-			{
-				step[i] = subWrap(_v.at(0x08 + 4 * i), _v.at(0x18 + 4 * i)) >> 5;
-				g[i] = _v.at(0x18 + 4 * i);
-			}
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				Emac acc;
-				for(int i = 0; i < 4; ++i)
-					acc.mac(g[i], _x[i][n]);
-				for(int i = 0; i < 4; ++i)
-					g[i] = addWrap(g[i], step[i]);
-				_out[n] = acc.storeClear();
-			}
-			for(uint32_t i = 0; i < 4; ++i)
-				_v.at(0x18 + 4 * i) = _v.at(0x08 + 4 * i);
-		}
 	}
 
 	void update(const int32_t _pitch, Voice& _v, const uint32_t _params, const Rom& _rom)

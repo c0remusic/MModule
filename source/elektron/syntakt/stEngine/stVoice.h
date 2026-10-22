@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
 
 #include "stMemoryMap.h"
 
@@ -50,12 +51,29 @@ namespace syntakt
 		}
 	};
 
+	// The samples CPU #1 loads into the voice CPU's DDR, which SP TWINSHOT plays: the directory the firmware keeps at
+	// 0x4404f754, 64 entries of (length in samples, pointer to the first), and the signed 16-bit big-endian data the
+	// pointers reach, at base. A player reads 0 outside the data and section 7, as the DDR CPU #1 left empty holds
+	struct Samples
+	{
+		struct Entry
+		{
+			uint32_t length = 0;
+			uint32_t pointer = 0;
+		};
+
+		std::array<Entry, 64> directory{};
+		uint32_t base = 0;
+		std::vector<uint8_t> data;
+	};
+
 	// Section 7 as words, where the engines read their constant tables: the user's own firmware, never shipped
 	struct Rom
 	{
 		static constexpr uint32_t Base = 0x40000400;
 
 		const int32_t* words = nullptr;
+		const Samples* samples = nullptr;	// none: the directory the voice CPU's boot leaves, every length 0
 
 		int32_t at(const uint32_t _address) const { return words[(_address - Base) >> 2]; }
 		const int32_t* ptr(const uint32_t _address) const { return &words[(_address - Base) >> 2]; }

@@ -53,6 +53,42 @@ namespace syntakt
 		void render(int32_t* _out, Voice& _v, const Rom& _rom);
 	}
 
+	namespace syTone
+	{
+		void update(int32_t _pitch, Voice& _v, uint32_t _params, const Rom& _rom);
+		void render(int32_t* _out, Voice& _v, const Rom& _rom);
+	}
+
+	namespace syChord
+	{
+		void update(int32_t _pitch, Voice& _v, uint32_t _params, const Rom& _rom);
+		void render(int32_t* _out, Voice& _v, const Rom& _rom);
+	}
+
+	namespace syToy
+	{
+		void update(int32_t _pitch, Voice& _v, uint32_t _params, const Rom& _rom);
+		void render(int32_t* _out, Voice& _v, const Rom& _rom);
+	}
+
+	namespace syBits
+	{
+		void update(int32_t _pitch, Voice& _v, uint32_t _params, const Rom& _rom);
+		void render(int32_t* _out, Voice& _v, const Rom& _rom);
+	}
+
+	namespace sySwarm
+	{
+		void update(int32_t _pitch, Voice& _v, uint32_t _params, const Rom& _rom);
+		void render(int32_t* _out, Voice& _v, const Rom& _rom);
+	}
+
+	namespace spTwinshot
+	{
+		void update(int32_t _pitch, Voice& _v, uint32_t _params, const Rom& _rom);
+		void render(int32_t* _out, Voice& _v, const Rom& _rom);
+	}
+
 	// The engines ported, the one list engine() and the oracle read: the engine's id, its name, the firmware's update
 	// and render routines, and the port's
 	inline constexpr EngineRoutines PortedEngines[] = {
@@ -62,5 +98,11 @@ namespace syntakt
 		{3, "pcCarbon", 0x40007280, 0x400075a8, pcCarbon::update, pcCarbon::render},
 		{6, "sdVintage", 0x40008074, 0x4000847a, sdVintage::update, sdVintage::render},
 		{7, "cpVintage", 0x40008580, 0x40008988, cpVintage::update, cpVintage::render},
+		{4, "syTone", 0x4000709c, 0x40007214, syTone::update, syTone::render},
+		{5, "syChord", 0x40007770, 0x40007b38, syChord::update, syChord::render},
+		{8, "syToy", 0x40008ae8, 0x40008d58, syToy::update, syToy::render},
+		{9, "syBits", 0x40008e0c, 0x400091e0, syBits::update, syBits::render},
+		{10, "sySwarm", 0x400092ec, 0x400096e8, sySwarm::update, sySwarm::render},
+		{11, "spTwinshot", 0x400097dc, 0x40009a8a, spTwinshot::update, spTwinshot::render},
 	};
 }

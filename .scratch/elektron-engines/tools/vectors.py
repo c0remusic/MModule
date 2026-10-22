@@ -1,11 +1,13 @@
 """Record test vectors for the C++ port: each call of chosen routines, with SRAM before and after.
 
-    python vectors.py OUT.stv ROUTINE[,ROUTINE...] [--engines 0,1,...] [--blocks N] [--seed S]
+    python vectors.py OUT.stv ROUTINE[,ROUTINE...] [--engines 0,1,...] [--blocks N] [--seed S] [--samples FILE]
 
 Runs the original voice CPU (SyntHack's harness) on scenarios with random machine bytes, notes,
 trigs and gate-offs, and records every call of the routines: their stack arguments and the 64 KB
 of SRAM (voice states, scratch buffers, RAM tables) at entry and at return. The C++ test loads
-SRAM before, runs the port, and compares with SRAM after.
+SRAM before, runs the port, and compares with SRAM after. --samples writes a sample set
+(twinshot_samples.py's format: the directory at 0x4404f754, the data at their base) into DDR
+after the boot, as CPU #1 would load them; the port must be given the same file.
 
 File format, little-endian: "STV3", u32 count; per case: u32 routine, u32 nargs, nargs x u32,
 u32 d0 at return, 2 x u32 generator state at 0x4404f954 before, 2 x u32 after, 65536 B before,
@@ -29,6 +31,17 @@ from unicorn.m68k_const import UC_M68K_REG_A7, UC_M68K_REG_D0  # noqa: E402
 
 SRAM, SRAM_SIZE = 0x8000_0000, 0x1_0000
 RNG = 0x4404_F954
+SAMPLE_DIRECTORY = 0x4404_F754
+
+
+def load_samples(uc, path: Path) -> None:
+    """Writes a twinshot_samples.py file's directory and data where the firmware reads them."""
+    blob = path.read_bytes()
+    if blob[:4] != b"STS1":
+        raise ValueError(f"{path} is not a sample set")
+    base, size = struct.unpack_from(">II", blob, 516)
+    uc.mem_write(SAMPLE_DIRECTORY, blob[4:516])
+    uc.mem_write(base, blob[524:524 + size])
 
 
 def rng_state(uc) -> tuple[int, int]:
@@ -91,7 +104,7 @@ def scenario(rng: random.Random, machine: int, blocks: int, track: bool = False)
 
 
 def record(routines: set[int], engines: list[int], blocks: int, seed: int, limit: int, prob: float,
-           track: bool = False):
+           track: bool = False, samples: Path | None = None):
     rng = random.Random(seed)
     m2e = cli.machine_to_engine()
     cases = []
@@ -100,6 +113,8 @@ def record(routines: set[int], engines: list[int], blocks: int, seed: int, limit
         e = eng.Engine()
         e.boot()
         uc = e.uc
+        if samples:
+            load_samples(uc, samples)
         pending = {}
 
         def on_entry(uc, addr, size, _ud):
@@ -139,9 +154,10 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--limit", type=int, default=400, help="cases per routine")
     ap.add_argument("--track", action="store_true", help="vary track 1's settings after the voice too")
+    ap.add_argument("--samples", type=Path, help="a sample set to load into DDR after the boot")
     ap.add_argument("--prob", type=float, default=1.0, help="chance that a call is recorded")
     a = ap.parse_args()
-    cases = record(set(a.routines), a.engines, a.blocks, a.seed, a.limit, a.prob, a.track)
+    cases = record(set(a.routines), a.engines, a.blocks, a.seed, a.limit, a.prob, a.track, a.samples)
     write_cases(a.out, cases)
     counts = {}
     for c in cases:

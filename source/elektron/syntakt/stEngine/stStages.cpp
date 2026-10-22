@@ -398,40 +398,99 @@ namespace syntakt
 		level = frac(level, subWrap(0, _v.at(0x410)));
 	}
 
+	namespace
+	{
+		// The phase increments 0x40002596, 0x400060b2 and 0x40002686 compute, the three routines alike but for the
+		// rate's constant and the last shift
+		void phaseIncrements(const int32_t _pitch, Voice& _v, const uint32_t _params, const int32_t _units,
+			const int32_t _rate, const int _shift)
+		{
+			constexpr uint32_t Exp2 = 0x8000a888;
+			const Sram& sram = _v.sram;
+
+			// The note plus the tune word, in semitones Q16, clamped to notes 0-127
+			const int32_t tune = static_cast<int32_t>(static_cast<uint32_t>(sram.half(_params + 0x24)) << 16);
+			int32_t p = addSat(_v.at(0x40), frac(_v.at(0x44), tune));
+			p = addSat(p, _pitch);
+			if(p < 0)
+				p = 0;
+			else if(p > 0x7f0000)
+				p = 0x7f0000;
+
+			// Octaves from A4 in Q16, and 2^fraction from the RAM table
+			const int32_t q = frac(addWrap(p, static_cast<int32_t>(0xffbb0000)), 0x0aaaaaab);
+			const int32_t octave = static_cast<int16_t>(static_cast<uint32_t>(q) >> 16);
+			const int32_t fraction = static_cast<int32_t>(static_cast<uint32_t>(q) & 0xffff) >> 5;
+			int32_t f = frac(0x6e000000, sram.at(Exp2 + 4 * static_cast<uint32_t>(fraction)));
+			f = asrReg(f, 5 - octave);
+
+			for(int32_t k = 0; k < _units; ++k)
+			{
+				const int32_t m = addWrap(frac(addWrap(_v.at(0x3f8), static_cast<int32_t>(0xfc000000)), _v.at(0x400)),
+					0x04000000);
+				int32_t t = frac(_v.unit(k, 0x50) >> 6, m);
+				t = frac(t, _v.unit(k, 0x64));
+				t = static_cast<int32_t>(static_cast<uint32_t>(t) << 11);
+				const int32_t offset = addSat(_v.unit(k, 0x68), f);
+				t = addSat(t, t);
+				t = frac(t, offset);
+				t = frac(t, _rate);
+				_v.unit(k, 0x78) = t >> _shift;
+			}
+		}
+	}
+
 	void phaseIncrements48k(const int32_t _pitch, Voice& _v, const uint32_t _params, const int32_t _units)
 	{
-		constexpr uint32_t Exp2 = 0x8000a888;
-		const Sram& sram = _v.sram;
+		phaseIncrements(_pitch, _v, _params, _units, 0x57619f10, 2);
+	}
 
-		// The note plus the tune word, in semitones Q16, clamped to notes 0-127
-		const int32_t tune = static_cast<int32_t>(static_cast<uint32_t>(sram.half(_params + 0x24)) << 16);
-		int32_t p = addSat(_v.at(0x40), frac(_v.at(0x44), tune));
-		p = addSat(p, _pitch);
-		if(p < 0)
-			p = 0;
-		else if(p > 0x7f0000)
-			p = 0x7f0000;
+	void phaseIncrements24k(const int32_t _pitch, Voice& _v, const uint32_t _params, const int32_t _units)
+	{
+		phaseIncrements(_pitch, _v, _params, _units, 0x57619f10, 1);
+	}
 
-		// Octaves from A4 in Q16, and 2^fraction from the RAM table
-		const int32_t q = frac(addWrap(p, static_cast<int32_t>(0xffbb0000)), 0x0aaaaaab);
-		const int32_t octave = static_cast<int16_t>(static_cast<uint32_t>(q) >> 16);
-		const int32_t fraction = static_cast<int32_t>(static_cast<uint32_t>(q) & 0xffff) >> 5;
-		int32_t f = frac(0x6e000000, sram.at(Exp2 + 4 * static_cast<uint32_t>(fraction)));
-		f = asrReg(f, 5 - octave);
+	void phaseIncrements96k(const int32_t _pitch, Voice& _v, const uint32_t _params)
+	{
+		phaseIncrements(_pitch, _v, _params, 4, 0x2bb0cf88, 2);
+	}
 
-		for(int32_t k = 0; k < _units; ++k)
+	namespace
+	{
+		// The band-limited wave for a note, into unit _k's field _field (0x40006588 and 0x40006646)
+		void selectWave(const int32_t _k, const int32_t _note, Voice& _v, const uint32_t _field)
 		{
-			const int32_t m = addWrap(frac(addWrap(_v.at(0x3f8), static_cast<int32_t>(0xfc000000)), _v.at(0x400)),
-				0x04000000);
-			int32_t t = frac(_v.unit(k, 0x50) >> 6, m);
-			t = frac(t, _v.unit(k, 0x64));
-			t = static_cast<int32_t>(static_cast<uint32_t>(t) << 11);
-			const int32_t offset = addSat(_v.unit(k, 0x68), f);
-			t = addSat(t, t);
-			t = frac(t, offset);
-			t = frac(t, 0x57619f10);
-			_v.unit(k, 0x78) = t >> 2;
+			// At or below note 35 (signed), then ranges of 12 notes from 36 up. The range from 82 overlaps the one before
+			// it, so it takes notes 84 to 95 only
+			uint32_t wave;
+			if(_note <= 35)
+				wave = 0x8000d08c;
+			else if(static_cast<uint32_t>(_note - 36) <= 11)
+				wave = 0x8000c888;
+			else if(static_cast<uint32_t>(_note - 48) <= 11)
+				wave = 0x80007788;
+			else if(static_cast<uint32_t>(_note - 60) <= 11)
+				wave = 0x80006f84;
+			else if(static_cast<uint32_t>(_note - 72) <= 11)
+				wave = 0x80006780;
+			else if(static_cast<uint32_t>(_note - 82) <= 13)
+				wave = 0x80005f7c;
+			else if(static_cast<uint32_t>(_note - 96) <= 11)
+				wave = 0x80005778;
+			else
+				wave = 0x80004f74;
+			_v.unit(static_cast<uint32_t>(_k), _field) = static_cast<int32_t>(wave);
 		}
+	}
+
+	void selectBandlimitedWave(const int32_t _k, const int32_t _note, Voice& _v)
+	{
+		selectWave(_k, _note, _v, 0xb0);
+	}
+
+	void selectSecondBandlimitedWave(const int32_t _k, const int32_t _note, Voice& _v)
+	{
+		selectWave(_k, _note, _v, 0xb4);
 	}
 
 	namespace
@@ -596,5 +655,62 @@ void gatedNoise(int32_t* _out, int32_t* _s)
 			_s[2] = a1;
 			_out[n] = a1 > _s[4] ? d1 : 0;
 		}
+	}
+
+	// 0x40004cd6: four buffers mixed into _out with gains ramped over the block: targets at 0x08 + 4 i, current
+	// values at 0x18 + 4 i. _x[3] may be _out itself
+	void mix4(const int32_t* const* _x, int32_t* _out, Voice& _v)
+	{
+		int32_t g[4], step[4];
+		for(uint32_t i = 0; i < 4; ++i)
+		{
+			step[i] = subWrap(_v.at(0x08 + 4 * i), _v.at(0x18 + 4 * i)) >> 5;
+			g[i] = _v.at(0x18 + 4 * i);
+		}
+		for(int n = 0; n < BlockSize; ++n)
+		{
+			Emac acc;
+			for(int i = 0; i < 4; ++i)
+				acc.mac(g[i], _x[i][n]);
+			for(int i = 0; i < 4; ++i)
+				g[i] = addWrap(g[i], step[i]);
+			_out[n] = acc.storeClear();
+		}
+		for(uint32_t i = 0; i < 4; ++i)
+			_v.at(0x18 + 4 * i) = _v.at(0x08 + 4 * i);
+	}
+
+	// 0x4000569a: two sample-and-holds at periods p + 1 and p + 2 samples, crossfaded by p's fraction (_c[4], Q16)
+	void reduceRate(int32_t* _buf, int32_t* _c)
+	{
+		const int32_t rate = _c[4];
+		const int32_t p = rate >> 16;
+		const int32_t w1 = asl(rate & 0xffff, 15);
+		const int32_t w0 = subSat(INT32_MAX, w1);
+		const int32_t p1 = addWrap(p, 1), p2 = addWrap(p, 2);
+		int32_t h1 = _c[0], h2 = _c[1], n1 = _c[2], n2 = _c[3];
+		for(int n = 0; n < BlockSize; ++n)
+		{
+			if(p1 <= n1)
+			{
+				h1 = _buf[n];
+				n1 = 0;
+			}
+			if(p2 <= n2)
+			{
+				h2 = _buf[n];
+				n2 = 0;
+			}
+			Emac acc;
+			acc.mac(w0, h1);
+			acc.mac(w1, h2);
+			n1 = addWrap(n1, 1);
+			n2 = addWrap(n2, 1);
+			_buf[n] = acc.storeClear();
+		}
+		_c[0] = h1;
+		_c[1] = h2;
+		_c[2] = n1;
+		_c[3] = n2;
 	}
 }

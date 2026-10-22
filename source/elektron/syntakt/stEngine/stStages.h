@@ -58,6 +58,14 @@ namespace syntakt
 	// each unit's frequency factor. _exp2 is the RAM table 0x8000a888 (2048 entries)
 	void phaseIncrements48k(int32_t _pitch, Voice& _v, uint32_t _params, int32_t _units);
 
+	// 0x400060b2: phaseIncrements48k's increments doubled (the last shift is 1, not 2), as an oscillator running at
+	// 24 kHz needs them
+	void phaseIncrements24k(int32_t _pitch, Voice& _v, uint32_t _params, int32_t _units);
+
+	// 0x40006588: unit _k's wave (0xb0) chosen by _note, the integer note: one of eight band-limited tables in SRAM,
+	// one per octave from 36 up
+	void selectBandlimitedWave(int32_t _k, int32_t _note, Voice& _v);
+
 	// 0x400035de: unit _k's sine with self-feedback, 32 samples at 48 kHz, into its buffers A (scaled by the unit's
 	// envelope) and B (raw)
 	void feedbackOscillator(int32_t _k, Voice& _v, const Rom& _rom);
@@ -73,4 +81,17 @@ namespace syntakt
 	// 0x400044e2: 32 samples of noise from a lagged additive generator (_s[0..3]), gated: a sample is kept only
 	// when the generator's second sum is above _s[4], signed
 	void gatedNoise(int32_t* _out, int32_t* _s);
+
+	// 0x40004cd6: four buffers mixed into _out with gains ramped over the block: targets at 0x08 + 4 i, current
+	// values at 0x18 + 4 i. _x[3] may be _out itself
+	void mix4(const int32_t* const* _x, int32_t* _out, Voice& _v);
+
+	// 0x4000569a: two sample-and-holds at periods p + 1 and p + 2 samples, crossfaded by p's fraction (_c[4], Q16)
+	void reduceRate(int32_t* _buf, int32_t* _c);
+
+	// 0x40002686: phaseIncrements48k for units 0-3 of an engine that runs at 96 kHz (SY TONE)
+	void phaseIncrements96k(int32_t _pitch, Voice& _v, uint32_t _params);
+
+	// 0x40006646: selectBandlimitedWave for unit _k's second wave (0xb4)
+	void selectSecondBandlimitedWave(int32_t _k, int32_t _note, Voice& _v);
 }

@@ -83,7 +83,7 @@ Green is 26 passed out of 26: ctest adds the 4 fixture tests `mdEngineFirmwareTe
 
 The ROM is required. A firmware test exits 77 without its ROM and ctest reports it Skipped, which proves nothing:
 - The firmware tests read `GEARMULATOR_MD_FIRMWARE_BIN`; MoDule's tests find the flash image as `mdDrums::Engine::findFlashImage` says.
-- `stEngineOracleTest` reads `SYNTAKT_SECTION7` (the user's OS 1.41 section 7) and `SYNTAKT_VECTORS` (the Syntakt port's vector files, `;`-separated), both outside the repository.
+- `stEngineOracleTest` reads `SYNTAKT_SECTION7` (the user's OS 1.41 section 7) and `SYNTAKT_VECTORS` (the Syntakt port's vector files, `;`-separated), both outside the repository, and `SYNTAKT_SAMPLES` (the synthetic sample set SP TWINSHOT's vectors were recorded with, `twinshot_samples.bin`).
 - `stVoiceCpuTest` reads `SYNTAKT_SECTION7` and `SYNTAKT_REFERENCES`, a directory outside the repository holding the original's `boot_sram.bin` and `bd_modern_note60.wav` (its header says what they are).
 - `mdDrumsVst3HostTest` reads the variable and gives the plug-in a data folder of its own (`GEARMULATOR_DATA_ROOT`), never the user's. Its target builds `mdDrumsPlugin_VST3` into `bin/plugins`: while a host has that MoDule loaded, the link fails on the file in use. Close the set, or take MoDule out of it, before the gate.
 

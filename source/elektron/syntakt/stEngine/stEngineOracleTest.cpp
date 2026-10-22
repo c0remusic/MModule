@@ -5,13 +5,15 @@
 // (voice states, scratch buffers, RAM tables) before and after. Each case loads SRAM before into the port, runs the
 // ported routine, and compares the whole SRAM, the generator and the returned value with what the original left. The
 // vectors hold firmware-derived data and stay outside the repository: SYNTAKT_SECTION7 names the user's section 7,
-// SYNTAKT_VECTORS the vector files (';'-separated). Exit 77 without them.
+// SYNTAKT_VECTORS the vector files (';'-separated). Exit 77 without them. SYNTAKT_SAMPLES, optional, names the sample
+// set SP TWINSHOT's vectors were recorded with; the vectors recorded without one need it unset.
 
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -84,6 +86,25 @@ namespace
 				return false;
 			_cases.push_back(std::move(c));
 		}
+		return true;
+	}
+
+	// A sample set as twinshot_samples.py writes it and vectors.py --samples loads it into the original's DDR, big-endian:
+	// "STS1", the 64 directory entries (u32 length, u32 pointer), u32 base, u32 size, size bytes of data
+	bool readSamples(const std::string& _path, syntakt::Samples& _samples)
+	{
+		std::ifstream f(_path, std::ios::binary);
+		std::vector<uint8_t> blob((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+		constexpr size_t header = 4 + 8 * 64 + 8;
+		if(blob.size() < header || std::string(blob.begin(), blob.begin() + 4) != "STS1")
+			return false;
+		for(size_t i = 0; i < _samples.directory.size(); ++i)
+			_samples.directory[i] = {be32(&blob[4 + 8 * i]), be32(&blob[8 + 8 * i])};
+		_samples.base = be32(&blob[4 + 8 * 64]);
+		const uint32_t size = be32(&blob[8 + 8 * 64]);
+		if(blob.size() != header + size)
+			return false;
+		_samples.data.assign(blob.begin() + header, blob.end());
 		return true;
 	}
 
@@ -204,6 +225,18 @@ namespace
 					syntakt::phaseIncrements48k(static_cast<int32_t>(_c.args[0]), v, _c.args[2],
 						static_cast<int32_t>(_c.args[3]));
 				}}},
+			{0x400060b2, {"phaseIncr24k", false, [](Context& _c)
+				{
+					auto v = _c.voice(1);
+					syntakt::phaseIncrements24k(static_cast<int32_t>(_c.args[0]), v, _c.args[2],
+						static_cast<int32_t>(_c.args[3]));
+				}}},
+			{0x40006588, {"bandlimitedWave", false, [](Context& _c)
+				{
+					auto v = _c.voice(2);
+					syntakt::selectBandlimitedWave(static_cast<int32_t>(_c.args[0]), static_cast<int32_t>(_c.args[1]),
+						v);
+				}}},
 			{0x400035de, {"fbOscillator", false, [](Context& _c)
 				{
 					auto v = _c.voice(1);
@@ -266,7 +299,17 @@ int main()
 		std::printf("FAIL: %s is not OS 1.41's section 7\n", section7Path);
 		return 1;
 	}
-	const syntakt::Rom rom{romWords.data()};
+	// SYNTAKT_SAMPLES, optional: the sample set the vectors were recorded with (vectors.py --samples). Without it the
+	// directory is the boot's, and no sample plays
+	syntakt::Samples samples;
+	const char* samplesPath = std::getenv("SYNTAKT_SAMPLES");
+	const bool haveSamples = samplesPath && *samplesPath;
+	if(haveSamples && !readSamples(samplesPath, samples))
+	{
+		std::printf("FAIL: %s is not a sample set\n", samplesPath);
+		return 1;
+	}
+	const syntakt::Rom rom{romWords.data(), haveSamples ? &samples : nullptr};
 
 	std::vector<Case> cases;
 	// Each file's cases [first, end), and whether the file is a run: nothing but consecutive blocks of renderVoices

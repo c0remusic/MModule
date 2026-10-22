@@ -274,39 +274,6 @@ namespace syntakt::cpVintage
 			_c[5] = _c[2];
 		}
 
-		// 0x4000569a: two sample-and-holds at periods p + 1 and p + 2 samples, crossfaded by p's fraction (_c[4], Q16)
-		void reduceRate(int32_t* _buf, int32_t* _c)
-		{
-			const int32_t rate = _c[4];
-			const int32_t p = rate >> 16;
-			const int32_t w1 = asl(rate & 0xffff, 15);
-			const int32_t w0 = subSat(INT32_MAX, w1);
-			const int32_t p1 = addWrap(p, 1), p2 = addWrap(p, 2);
-			int32_t h1 = _c[0], h2 = _c[1], n1 = _c[2], n2 = _c[3];
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				if(p1 <= n1)
-				{
-					h1 = _buf[n];
-					n1 = 0;
-				}
-				if(p2 <= n2)
-				{
-					h2 = _buf[n];
-					n2 = 0;
-				}
-				Emac acc;
-				acc.mac(w0, h1);
-				acc.mac(w1, h2);
-				n1 = addWrap(n1, 1);
-				n2 = addWrap(n2, 1);
-				_buf[n] = acc.storeClear();
-			}
-			_c[0] = h1;
-			_c[1] = h2;
-			_c[2] = n1;
-			_c[3] = n2;
-		}
 	}
 
 	void update(const int32_t _pitch, Voice& _v, const uint32_t _params, const Rom& _rom)

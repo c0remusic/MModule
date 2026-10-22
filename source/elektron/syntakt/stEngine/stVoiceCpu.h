@@ -37,6 +37,10 @@ namespace syntakt
 		explicit VoiceCpu(const std::vector<int32_t>& _section7);
 		~VoiceCpu();
 
+		// The samples SP TWINSHOT plays, as CPU #1 would load them; nullptr, as it is made: none. _samples must outlive
+		// the VoiceCpu or the next call, and not change while a block renders
+		void setSamples(const Samples* _samples) { m_rom.samples = _samples; }
+
 		// True when the machine's engine is ported; a track on one that is not plays silence
 		bool isPorted(int _machine) const;
 

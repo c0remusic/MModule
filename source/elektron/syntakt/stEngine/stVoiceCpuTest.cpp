@@ -3,7 +3,7 @@
 //	(b) BD MODERN at note 60, in the scenario of SyntHack OS's `cli.py render` (every parameter and machine byte at
 //		0x40, the machine on track 1, its note, a trig at blocks 0 and 2, 0.5 s), gives track 1's output sample for
 //		sample as the original's voice CPU sends it to CPU #1;
-//	(c) a machine whose engine is not ported (machine 4, SY TONE) is not ported and plays silence on every track.
+//	(c) every machine is ported, and the first machine of each engine but SP TWINSHOT sounds on track 1.
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7, SYNTAKT_REFERENCES a directory outside the repository that holds:
 //	boot_sram.bin			the original's 64 KB of SRAM after its boot, big-endian, dumped from SyntHack OS's emulator
@@ -163,14 +163,22 @@ int main()
 	// (c)
 	{
 		VoiceCpu cpu(romWords);
-		check(!cpu.isPorted(4), "machine 4 (SY TONE) is not ported");
-		const auto out = renderCli(cpu, 4, 60, 750);
-		int nonZero = 0;
-		for(const auto& track : out)
-			for(const int32_t s : track)
+		bool all = true;
+		for(int m = 0; m <= 45; ++m)
+			all = all && cpu.isPorted(m);
+		check(all, "every machine 0-45 is ported");
+
+		// The first machine of each engine but SP TWINSHOT (44), which plays samples and has none here
+		for(const int machine : {0, 1, 2, 3, 4, 5, 6, 7, 36, 37, 38})
+		{
+			VoiceCpu one(romWords);
+			const auto out = renderCli(one, machine, 60, 375);
+			int nonZero = 0;
+			for(const int32_t s : out[0])
 				nonZero += s != 0;
-		std::printf("machine 4: %d of %zu samples not 0\n", nonZero, out.size() * out[0].size());
-		check(nonZero == 0, "an unported machine plays silence on every track");
+			std::printf("machine %d: %d of %zu samples not 0\n", machine, nonZero, out[0].size());
+			check(nonZero > 0, "the machine sounds on track 1");
+		}
 	}
 
 	std::printf("%s\n", g_failures ? "FAIL" : "PASS");
