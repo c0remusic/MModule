@@ -41,7 +41,8 @@ namespace syntakt
 		// the VoiceCpu or the next call, and not change while a block renders
 		void setSamples(const Samples* _samples) { m_rom.samples = _samples; }
 
-		// True when the machine's engine is ported; a track on one that is not plays silence
+		// True when the machine is one of the digital tracks' and its engine is ported. The analog tracks' machines (ids
+		// 8-33 and 39-43, .scratch/elektron-engines/machines.md) are circuits CPU #1 drives: here they play BD MODERN
 		bool isPorted(int _machine) const;
 
 		// _track 0-7. The machine byte as CPU #1 sends it (the voice CPU clamps it to 0-45); the note in semitones

@@ -1,0 +1,21 @@
+Branch sides no state can execute (coverage/fuzz_coverage.txt: the only sides left with recorded + forced vectors)
+
+All three are in SP TWINSHOT's update, 400097dc. Each tests a value whose range the instructions just before it bound.
+
+400098e8  bge.b $400098ee   fall (400098ea-400098ec unexecuted)
+    40009878  mvs.w 40(a3),d0        d0 in [-0x8000, 0x7fff]
+    40009888  cmpi.l #$4000,d0 ; bne  d0 = 0x4000 leaves at 40009890
+    400098ac  cmpi.l #$4000,d0 ; ble  reached only with d0 <= 0x4000, so here d0 in [-0x8000, 0x3fff]
+    400098e2  asr.l #7,d0            d0 in [-0x100, 0x7f]
+    400098e6  cmp.l d0,d1 (d1 = 0x7f) ; bge   0x7f >= d0 always: the clamp to 0x7f never runs.
+
+40009960  bge.b $40009966   fall (40009962-40009964 unexecuted)
+    40009934  mvs.b 38(a3),d0 ; addi.l #-0x40   d0 in [-0xc0, 0x3f]
+    40009938  move.w d0,d1 ; bge      d0 >= 0: d1 = d0 in [0, 0x3f]
+    4000993c  else d1 = not d0         d0 in [-0xc0, -1]: d1 = -d0 - 1 in [0, 0xbf]
+    4000995e  mvs.w d1,d1 ; bge        d1 >= 0 on both paths and below 0x8000, so N is clear: the clear never runs.
+
+4000999a  bge.b $400099a0   fall (4000999c-4000999e unexecuted)
+    The same for byte 46: 40009946-4000995c leave d0 in [0, 0xbf]; 40009998 mvs.w d0,d0 sets N clear.
+
+No other side is dead: every other gap of unreachable.txt executes on a forced state (vectors/fuzz_*.stv).

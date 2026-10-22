@@ -1,6 +1,6 @@
 """Record test vectors for the C++ port: each call of chosen routines, with SRAM before and after.
 
-    python vectors.py OUT.stv ROUTINE[,ROUTINE...] [--engines 0,1,...] [--blocks N] [--seed S] [--samples FILE]
+    python vectors.py OUT.stv ROUTINE[,ROUTINE...] [--engines 0,1,...] [--blocks N] [--seed S] [--samples FILE] [--set K=V@B;...] [--start B]
 
 Runs the original voice CPU (SyntHack's harness) on scenarios with random machine bytes, notes,
 trigs and gate-offs, and records every call of the routines: their stack arguments and the 64 KB
@@ -18,6 +18,7 @@ repository.
 from __future__ import annotations
 
 import argparse
+import copy
 import random
 import struct
 import sys
@@ -26,6 +27,8 @@ from pathlib import Path
 sys.path.insert(0, r"C:\dev\Synthack-OS\tools\emu")
 import cli  # noqa: E402
 import engine as eng  # noqa: E402
+import memmap  # noqa: E402
+from unicorn import m68k_const as m68k  # noqa: E402
 from unicorn import UC_HOOK_CODE  # noqa: E402
 from unicorn.m68k_const import UC_M68K_REG_A7, UC_M68K_REG_D0  # noqa: E402
 
@@ -132,6 +135,26 @@ def parse_bias(text: str) -> dict[int, list[int]]:
     return bias
 
 
+def parse_sets(text: str) -> list[tuple[int, int, int]]:
+    """'e2=7f;180=0@3' (hexadecimal offsets and values, blocks in decimal): params byte 0xe2 is 0x7f in every block,
+    0x180 (track 1's trig) is 0 from block 3 on. A byte set again from a later block takes the later value then."""
+    sets = []
+    for item in filter(None, text.split(";")):
+        assignment, _, block = item.partition("@")
+        k, v = assignment.split("=")
+        sets.append((int(block or 0), int(k, 16), int(v, 16)))
+    return sorted(sets)
+
+
+def forced(q: bytes, sets: list[tuple[int, int, int]], block: int) -> bytes:
+    """Block BLOCK's params with the bytes SETS forces from that block on, drawn after the scenario's own draws."""
+    p = bytearray(q)
+    for first, k, v in sets:
+        if block >= first:
+            p[k] = v
+    return bytes(p)
+
+
 def scenario(rng: random.Random, machine: int, blocks: int, track: bool = False, edge: bool = False,
              bias: dict[int, list[int]] | None = None, others: bool = False):
     """With EDGE: edge values mixed into the bytes drawn, notes over 0-127 with a fine part, and trigs and gate-offs
@@ -208,12 +231,32 @@ def scenario(rng: random.Random, machine: int, blocks: int, track: bool = False,
 
 
 CODE_START, CODE_END = 0x4000_0400, 0x4001_4000            # section 7's code, before its tables
+RENEW = 4000                                                # blocks per Unicorn instance before the first recorded
+REGISTERS = [m68k.UC_M68K_REG_SR] + [getattr(m68k, f"UC_M68K_REG_{r}{i}") for r in "DA" for i in range(8)]
+
+
+def renewed(e):
+    """The same machine in a fresh Unicorn: one instance fails (an access violation in uc_emu_start) after about
+    10,000 blocks, which --start's long runs reach. Memory, registers, the peripherals' and the EMAC's state carry
+    over, SR first since it picks the stack that A7 names; render_block sets PC, SR and A7 again at each block."""
+    f = eng.Engine()
+    for r in memmap.REGIONS:
+        if not r.name.startswith("periph"):
+            f.uc.mem_write(r.base, bytes(e.uc.mem_read(r.base, r.size)))
+    for reg in REGISTERS:
+        f.uc.reg_write(reg, e.uc.reg_read(reg))
+    f.periph.regs = dict(e.periph.regs)
+    f.emac.state = copy.deepcopy(e.emac.state)
+    f.status, f.ticks = list(e.status), e.ticks
+    return f
 
 
 def record(routines: set[int], engines: list[int], blocks: int, seed: int, limit: int, prob: float,
            track: bool = False, samples: Path | None = None, cover: set | None = None, edge: bool = False,
-           bias: dict[int, list[int]] | None = None, others: bool = False):
-    """With COVER, also adds prev << 32 | addr for each instruction executed while a recorded call runs."""
+           bias: dict[int, list[int]] | None = None, others: bool = False,
+           sets: list[tuple[int, int, int]] | None = None, start: int = 0):
+    """With COVER, also adds prev << 32 | addr for each instruction executed while a recorded call runs. SETS: params
+    bytes forced from a block on (parse_sets). START: no call is recorded, nor its instructions seen, before it."""
     rng = random.Random(seed)
     m2e = cli.machine_to_engine()
     cases = []
@@ -246,18 +289,27 @@ def record(routines: set[int], engines: list[int], blocks: int, seed: int, limit
             h = uc.hook_add(UC_HOOK_CODE, on_return, begin=ret, end=ret)
             pending[(addr, sp)] = (addr, args, rng0, before, h)
 
-        for r in routines:
-            uc.hook_add(UC_HOOK_CODE, on_entry, begin=r, end=r)
-        if cover is not None:
-            last = [0]
+        def install():
+            for r in routines:
+                uc.hook_add(UC_HOOK_CODE, on_entry, begin=r, end=r)
+            if cover is not None:
+                last = [0]
 
-            def on_code(uc, addr, size, _ud):
-                if pending:
-                    cover.add(last[0] << 32 | addr)
-                last[0] = addr
+                def on_code(uc, addr, size, _ud):
+                    if pending:
+                        cover.add(last[0] << 32 | addr)
+                    last[0] = addr
 
-            uc.hook_add(UC_HOOK_CODE, on_code, begin=CODE_START, end=CODE_END - 1)
-        for q in scenario(rng, machine, blocks, track, edge, bias, others):
+                uc.hook_add(UC_HOOK_CODE, on_code, begin=CODE_START, end=CODE_END - 1)
+
+        for b, q in enumerate(scenario(rng, machine, blocks, track, edge, bias, others)):
+            if b < start and b and b % RENEW == 0:
+                e = renewed(e)
+                uc = e.uc
+            if b == start:                                  # the hooks wait for the first block recorded
+                install()
+            if sets:
+                q = forced(q, sets, b)
             e.render_block(q)
         print(f"engine {engine}: {len(cases)} cases so far", flush=True)
     return cases
@@ -277,9 +329,12 @@ def main() -> int:
     ap.add_argument("--bias", type=parse_bias, default={}, help="machine bytes' own values, e.g. '4=47,38;12=4a'")
     ap.add_argument("--others", action="store_true", help="tracks 2-8's settings, trigs and gate-offs too")
     ap.add_argument("--prob", type=float, default=1.0, help="chance that a call is recorded")
+    ap.add_argument("--set", type=parse_sets, default=[], dest="sets",
+                    help="params bytes forced, hexadecimal, from a block on, e.g. 'e2=7f;180=0@3'")
+    ap.add_argument("--start", type=int, default=0, help="the first block whose calls are recorded")
     a = ap.parse_args()
     cases = record(set(a.routines), a.engines, a.blocks, a.seed, a.limit, a.prob, a.track, a.samples, edge=a.edge,
-                   bias=a.bias, others=a.others)
+                   bias=a.bias, others=a.others, sets=a.sets, start=a.start)
     write_cases(a.out, cases)
     counts = {}
     for c in cases:

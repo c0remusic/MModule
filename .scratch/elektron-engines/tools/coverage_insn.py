@@ -83,6 +83,8 @@ def execute(r: dict, write: Path | None = None) -> set[int]:
     extra = dict(r.get("extra", {}))
     if "bias" in extra:
         extra["bias"] = vectors.parse_bias(extra["bias"])
+    if "sets" in extra:
+        extra["sets"] = vectors.parse_sets(extra["sets"])
     cases = vectors.record(set(r["routines"]), list(r["engines"]), r["blocks"], r["seed"], r["limit"], r["prob"],
                            r["track"], SAMPLES if r["samples"] else None, cover, **extra)
     if write is not None:

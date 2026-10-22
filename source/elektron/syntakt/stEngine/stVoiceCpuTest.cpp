@@ -3,7 +3,7 @@
 //	(b) BD MODERN at note 60, in the scenario of SyntHack OS's `cli.py render` (every parameter and machine byte at
 //		0x40, the machine on track 1, its note, a trig at blocks 0 and 2, 0.5 s), gives track 1's output sample for
 //		sample as the original's voice CPU sends it to CPU #1;
-//	(c) every machine is ported, and the first machine of each engine but SP TWINSHOT sounds on track 1.
+//	(c) the twelve machines of the digital tracks are ported and no other, and each engine but SP TWINSHOT sounds.
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7, SYNTAKT_REFERENCES a directory outside the repository that holds:
 //	boot_sram.bin			the original's 64 KB of SRAM after its boot, big-endian, dumped from SyntHack OS's emulator
@@ -162,11 +162,19 @@ int main()
 
 	// (c)
 	{
+		// The digital tracks' twelve machines are ported, the analog tracks' are not (ids 0-44; 34 DISABLE and 35 MIDI
+		// play no engine of their own either)
 		VoiceCpu cpu(romWords);
-		bool all = true;
-		for(int m = 0; m <= 45; ++m)
-			all = all && cpu.isPorted(m);
-		check(all, "every machine 0-45 is ported");
+		int ported = 0;
+		bool digital = true;
+		for(int m = 0; m <= 44; ++m)
+		{
+			ported += cpu.isPorted(m);
+			if(m <= 7 || (m >= 36 && m <= 38) || m == 44)
+				digital = digital && cpu.isPorted(m);
+		}
+		std::printf("%d of 45 machines ported\n", ported);
+		check(digital && ported == 12, "the twelve digital machines are ported, and no other");
 
 		// The first machine of each engine but SP TWINSHOT (44), which plays samples and has none here
 		for(const int machine : {0, 1, 2, 3, 4, 5, 6, 7, 36, 37, 38})

@@ -39,7 +39,12 @@ namespace syntakt
 
 	bool VoiceCpu::isPorted(const int _machine) const
 	{
-		return engine(static_cast<uint32_t>(engineOf(m_rom, _machine))) != nullptr;
+		// The voice CPU's map sends every machine of the analog tracks (CPU #1 drives their circuits) to engine 0, as
+		// BD MODERN's own id: only BD MODERN itself plays engine 0
+		const int32_t id = engineOf(m_rom, _machine);
+		if(id == 0 && _machine != 0)
+			return false;
+		return engine(static_cast<uint32_t>(id)) != nullptr;
 	}
 
 	void VoiceCpu::setMachine(const int _track, const uint8_t _machine)

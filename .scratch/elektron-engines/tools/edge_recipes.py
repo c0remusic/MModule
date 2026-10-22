@@ -47,14 +47,43 @@ RUNS["stages"] = [
     edge(run("stages_filter_edge.stv", [FILTER], [0, 4] * 4, 200, 0.05, 500, 301, track=True), others=True)]
 
 
+def gap(r: dict, sets: str, start: int = 0, **extra) -> dict:
+    """A recording for one gap of after.txt: params bytes forced (vectors.py --set), no edge draws."""
+    r["extra"] = {"sets": sets, **({"start": start} if start else {}), **extra}
+    r["rev"] = REV
+    return r
+
+
+# The four gaps after.txt left that an input reaches (gaps_*.stv, measured in after_gaps.txt):
+# - The track amp's HOLD at 127 (0x40001570 fall): track 1 with ATK 0, HOLD 127, MODE AHD, hit at blocks 0 and 2,
+#   then no trig and no gate-off; the hold counts table[127] = 0x75300 samples (15000 blocks) before its test.
+#   Only the blocks from 15000 on are recorded.
+# - baseWidth on a trig with the amp's RST word at 0 (0x4000239a, 0x400023be taken): every track's RST word is 0.
+# - SP TWINSHOT: byte 12 on entry 2 (forward, two samples, looping with AMP HOLD, bytes 14-15), no trig after block
+#   2, then entry 9 (a length, no data) from block 8, so that player B's next end finds no loop data (0x40006812
+#   taken); then entry 7 (empty) from block 16 at every update (0x400099da taken), with a trig in every block from
+#   20 (0x40009a66 taken).
+# - SY BITS: a gate-off in every block, the hits' included (0x40003de8 taken: a trig keeps the release off).
+RST0 = ";".join(f"{0xEC + 14 * t:x}=0;{0xED + 14 * t:x}=0" for t in range(8))
+RUNS["stages"] += [
+    gap(run("gaps_hold.stv", [STAGES["amp"]], [0], 15020, 1.0, 20, 1), "e0=0;e2=7f;ea=0;180=0@3;181=0@3", 15000),
+    gap(run("gaps_basewidth.stv", [STAGES["baseWidth"]], [0], 40, 1.0, 40, 1, track=True), RST0, others=True)]
+RUNS["engine 11"].append(gap(run("gaps_twinshot.stv", [UPDATE[11], RENDER[11]], [11], 30, 1.0, 30, 1, samples=True),
+                             "c=42;e=40;180=0@3;181=0@3;c=49@8;c=47@16;180=1@20"))
+RUNS["engine 9"].append(gap(run("gaps_sybits.stv", [RENDER[9]], [9], 8, 1.0, 8, 1), "181=1"))
+
+
 def command(r: dict) -> str:
     routines = ",".join(f"{a:08x}" for a in r["routines"])
     engines = ",".join(str(e) for e in r["engines"])
     extra = r["extra"]
-    flags = (" --track" if r["track"] else "") + (" --samples references/twinshot_samples.bin" if r["samples"] else "")
+    flags = (" --edge" if extra.get("edge") else "") + (" --track" if r["track"] else "")
+    flags += " --samples references/twinshot_samples.bin" if r["samples"] else ""
     flags += (" --others" if extra.get("others") else "") + (f" --bias '{extra['bias']}'" if "bias" in extra else "")
+    flags += (f" --set '{extra['sets']}'" if "sets" in extra else "") + (f" --start {extra['start']}"
+                                                                         if "start" in extra else "")
     return (f"tools/vectors.py vectors/{r['file']} {routines} --engines {engines} --blocks {r['blocks']} "
-            f"--prob {r['prob']} --limit {r['limit']} --seed {r['seed']} --edge{flags}")
+            f"--prob {r['prob']} --limit {r['limit']} --seed {r['seed']}{flags}")
 
 
 if __name__ == "__main__":

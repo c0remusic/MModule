@@ -16,7 +16,6 @@ Shared voice routines (every gap here is a field the engine never sets, so it ke
                            d6a: AmpHalfStart 0x3d8 is 1 from initVoice and never written.
                            d92 fall, db4, dba (11): SP TWINSHOT clears AmpHold after copying it to its player's loop flag,
                            so the hold stage never runs.
-                           de8 taken (9): not recorded (a gate-off without a trig pending, in a recorded SY BITS block).
   40003df2 modulatorEnv    dfe/e0e/e1a/e80 (0, 1, 6): stage 3 needs 0x460 != 0; only cleared (initVoice, BD MODERN).
                            e50 taken: stage 4 is never written. e9c: 0x458 is INT32_MIN in BD (constant), a non-MIN
                            constant in SD VINTAGE.
@@ -28,14 +27,12 @@ Engines
                            0x1d0000 (29 < 30).
   40006764 (SP TWINSHOT)   79e fall: a player plays only when its length is non-zero (set at the trig only then; knob
                            changes write only non-zero lengths, below 0x7ffff << 12). 80e taken: the loop length is
-                           written non-zero only. 812 taken: not recorded (byte 12 must move to entry 9, no data, while
-                           player B plays and loops with AMP HOLD set, and the sample end).
+                           written non-zero only.
   400097dc (SP TWINSHOT)   8e8, 960, 99a falls: guards on values that cannot occur (a word below 0x4000 shifted right
                            7 is at most 0x7f; the sample index after the sign fold is never negative).
-                           9da, a66 taken: not recorded (byte 12 on entry 7, the empty one, at a recorded update).
 
 Track stages
-  40001476 amp envelope    570 fall: HOLD 127 holds for table[127] = 0x75300 samples (10 s, 15000 blocks without a trig)
-                           before this test; not recorded.
   400019d6 filter          c6e taken, 13a fall: a filter TYPE above 7 or negative; CPU #1 sends 0-7.
-  40002320 baseWidth       39a, 3be taken: not recorded (a track's trig flag with the amp's RST word, EC-ED, at 0).
+
+Recorded since in gaps_*.stv (after_gaps.txt; recipes in edge_recipes.py): ampEnvelope de8 taken (SY BITS), 40006764
+812 taken and 400097dc 9da, a66 taken (SP TWINSHOT), the track amp's 570 fall (HOLD 127), baseWidth 39a, 3be taken.

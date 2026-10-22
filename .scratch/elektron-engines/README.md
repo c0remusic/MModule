@@ -210,8 +210,22 @@ What stays unreached is mostly unreachable, each case read in the disassembly (`
 fields an engine never writes and so keeps constant (EnvDelay and 0x460 only cleared, AmpHalfStart and 0x3fc set once
 by initVoice, attack and sweep fields per engine always INT32_MIN or never), SP TWINSHOT clearing AmpHold before the
 amp envelope runs, CP VINTAGE's 0x5ac always 1, SY BITS's rate table below its clamp, filter types outside the 0-7
-CPU #1 sends. Reachable but not reached: the amp's HOLD 127 (10 s without a trig), BASE/WIDTH on a trig with the amp's
-RST at 0, two of SP TWINSHOT's sample entries in particular states, one side of SY BITS's amp envelope (0x40003de8).
+CPU #1 sends. The four cases that were reachable but not reached now have their own files (`vectors.py --set K=V@B`
+forces parameter bytes from a block on, `--start B` records from a block on; `edge_recipes.py` prints them): the amp's
+HOLD 127 after 15,000 blocks without a trig, BASE/WIDTH on a trig with the amp's RST at 0, SP TWINSHOT's player B
+looping under AMP HOLD then moved to an entry without a pointer and to an empty one, SY BITS's amp envelope with a trig
+and a gate-off in one block.
+
+The rest is reached by calling each routine alone on forced states (`fuzz_states.py`: the fields no engine writes,
+filter types outside 0-7, the guards): every routine the engines and the track stages reach then runs 100 % of its
+instructions and both sides of every branch, except three branch sides of SP TWINSHOT's update that cannot run
+(`coverage-dead.txt`: bounds the code before them already holds). Measured 2026-10-22: 61 vector files, every routine
+0 words differing. States where the original itself faults are not recorded: SP TWINSHOT playing reversed in a loop
+whose start is null reads the 68k code at address 0, and one whose length is 0 divides by zero; a plug-in must not
+give it such sample entries.
+
+The digital tracks take twelve machines, the twelve engines ported here; the analog tracks' machines are circuits
+CPU #1 drives, not code that makes samples (`machines.md`).
 
 ## First ticket proposed
 
