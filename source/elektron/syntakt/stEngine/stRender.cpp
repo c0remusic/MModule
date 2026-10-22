@@ -1,24 +1,19 @@
-// Renders one Syntakt machine from the C++ port alone, no emulator: the voice CPU's boot, then a block at a time as CPU
-// #1 would send it, the scenario of SyntHack OS's `cli.py render` (every parameter byte at 0x40, the machine on track
-// 1, its note, a trig at blocks 0 and 2). Writes track 1's output as the voice CPU sends it to CPU #1, after the
-// track's stages (drive, BASE/WIDTH, filter, amp envelope), as a WAV: what `cli.py render --raw` writes.
+// Renders one Syntakt machine from the C++ port alone, no emulator, through syntakt::VoiceCpu: the scenario of
+// SyntHack OS's `cli.py render` (every parameter byte at 0x40, the machine on track 1, its note, a trig at blocks 0
+// and 2). Writes track 1's output as the voice CPU sends it to CPU #1, after the track's stages (drive, BASE/WIDTH,
+// filter, amp envelope), as a WAV: what `cli.py render --raw` writes.
 //
-//	stRender SECTION7 OUT.wav MACHINE NOTE SECONDS [BOOT_SRAM]
-//
-// With BOOT_SRAM (the original's SRAM after its boot, dumped from the emulator) it first compares the port's boot with
-// it, word for word.
+//	stRender SECTION7 OUT.wav MACHINE NOTE SECONDS
 
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
-#include <memory>
-#include <string>
 #include <vector>
 
-#include "stBoot.h"
-#include "stEngine.h"
 #include "stSection7.h"
+#include "stVoiceCpu.h"
 
 namespace
 {
@@ -55,7 +50,7 @@ int main(const int _argc, char** _argv)
 	setvbuf(stdout, nullptr, _IONBF, 0);
 	if(_argc < 6)
 	{
-		std::printf("usage: stRender SECTION7 OUT.wav MACHINE NOTE SECONDS [BOOT_SRAM]\n");
+		std::printf("usage: stRender SECTION7 OUT.wav MACHINE NOTE SECONDS\n");
 		return 2;
 	}
 	const auto romWords = syntakt::loadSection7(_argv[1]);
@@ -64,55 +59,34 @@ int main(const int _argc, char** _argv)
 		std::printf("%s is not OS 1.41's section 7\n", _argv[1]);
 		return 1;
 	}
-	const syntakt::Rom rom{romWords.data()};
-
-	auto sram = std::make_unique<syntakt::Sram>();
-	syntakt::Globals globals;
-	syntakt::boot(*sram, globals, rom);
-
-	if(_argc > 6)
-	{
-		const auto original = syntakt::readFile(_argv[6]);
-		int differ = 0;
-		for(uint32_t i = 0; i < syntakt::Sram::Size / 4 && 4 * i + 3 < original.size(); ++i)
-		{
-			const auto want = syntakt::be32(original.data() + 4 * i);
-			if(static_cast<uint32_t>(sram->words[i]) == want)
-				continue;
-			if(differ++ < 5)
-				std::printf("boot %08x: %08x, original %08x\n", syntakt::Sram::Base + 4 * i,
-					static_cast<uint32_t>(sram->words[i]), want);
-		}
-		std::printf("boot: %d words differ from the original's\n", differ);
-	}
+	using syntakt::VoiceCpu;
+	VoiceCpu cpu(romWords);
 
 	const int machine = std::atoi(_argv[3]);
 	const int note = std::atoi(_argv[4]);
-	const int blocks = static_cast<int>(std::atof(_argv[5]) * 48000 / 32);
+	const int blocks = static_cast<int>(std::atof(_argv[5]) * VoiceCpu::SampleRate / syntakt::BlockSize);
 
-	// cli.py make_params: every byte at 0x40, track 1's machine and note
-	uint8_t block[syntakt::BlockBytes] = {};
-	for(int t = 0; t < syntakt::Voices; ++t)
+	// cli.py make_params: every parameter and machine byte at 0x40, track 1's machine and note
+	for(int t = 0; t < VoiceCpu::Tracks; ++t)
 	{
-		for(int i = 0; i < 20; ++i)
-			block[20 * t + i] = 0x40;
-		for(int i = 0; i < 8; ++i)
-			block[0xa0 + 8 * t + i] = 0x40;
-		for(int i = 0; i < 14; ++i)
-			block[0xe0 + 14 * t + i] = 0x40;
+		cpu.setMachine(t, 0x40);
+		for(const auto page : {VoiceCpu::Page::Machine, VoiceCpu::Page::Filter, VoiceCpu::Page::Amp})
+			for(int i = 0; i < VoiceCpu::parameterCount(page); ++i)
+				cpu.setParameter(t, page, i, 0x40, 0x40);
 	}
-	block[0] = static_cast<uint8_t>(machine);
-	const uint32_t pitch = static_cast<uint32_t>(note) << 16;
-	for(int i = 0; i < 4; ++i)
-		block[0x150 + i] = static_cast<uint8_t>(pitch >> (24 - 8 * i));
+	cpu.setMachine(0, static_cast<uint8_t>(machine));
+	cpu.setNote(0, note);
 
-	std::vector<int32_t> out;
+	std::vector<int32_t> out(static_cast<size_t>(blocks) * syntakt::BlockSize);
+	std::array<int32_t, syntakt::BlockSize> others{};
 	for(int b = 0; b < blocks; ++b)
 	{
-		block[0x180] = b == 0 || b == 2 ? 1 : 0;
-		syntakt::runBlock(*sram, globals, rom, block);
-		const int32_t* voice = sram->ptr(syntakt::VoiceOut);
-		out.insert(out.end(), voice, voice + 32);
+		if(b == 0 || b == 2)
+			cpu.trig(0);
+		int32_t* outputs[VoiceCpu::Tracks] = {out.data() + syntakt::BlockSize * b};
+		for(int t = 1; t < VoiceCpu::Tracks; ++t)
+			outputs[t] = others.data();
+		cpu.render(outputs, syntakt::BlockSize);
 	}
 	writeWav(_argv[2], out);
 	std::printf("%s: %d blocks\n", _argv[2], blocks);

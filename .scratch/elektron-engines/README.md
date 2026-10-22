@@ -140,6 +140,10 @@ reads its constant tables from the user's section 7 (`Rom`).
   `cli.py render`. BD MODERN at note 60 for 0.5 s equals the original's engine output, captured at the same point
   (`tools/engine_out.py`, after 0x40004324 returns), sample for sample: 24,000 samples, 0 differing, peak -2.4 dBFS.
   2 s of the eight voices' dispatch, the boot included, render in 0.13 s.
+- `stVoiceCpu.*`: the voice CPU as one module over the boot and `runBlock`, which stRender drives: per track the
+  machine, the note, the Machine, Filter and Amp words CPU #1's block holds, trigs and gate-offs for the next block,
+  eight Q31 outputs at 48 kHz through a 32-sample buffer. `stVoiceCpuTest` checks its boot and BD MODERN's track 1
+  against the original's (`SYNTAKT_REFERENCES`), and that machine 4 (SY TONE, not ported) plays silence.
 - `stTrack.*`, `stTrackFilter.cpp`: the interrupt's per-track stages after the voices, in place on each track's
   block (`trackstages.md`): drive (0x4000112c, MACSR 0x20: wrapping stores, `Emac(false)`), BASE/WIDTH
   (0x40002320), the multimode filter (0x400019d6, paths A and B, its table square roots, second stage, type

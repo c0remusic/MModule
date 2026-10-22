@@ -11,7 +11,7 @@ endif()
 
 add_library(stEngine STATIC stEmac.h stMemoryMap.h stVoice.h stVoice.cpp stStages.h stStages.cpp stBdModern.cpp
 	stEngine.h stEngine.cpp stBoot.h stBoot.cpp stTrack.h stTrack.cpp stTrackFilter.cpp stSection7.h stEngines.h
-	stSdBasic.cpp stCyAlloy.cpp stPcCarbon.cpp stSdVintage.cpp stCpVintage.cpp)
+	stSdBasic.cpp stCyAlloy.cpp stPcCarbon.cpp stSdVintage.cpp stCpVintage.cpp stVoiceCpu.h stVoiceCpu.cpp)
 target_include_directories(stEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(TARGET stEngine PROPERTY FOLDER "Elektron/syntakt")
 
@@ -23,7 +23,14 @@ if(BUILD_TESTING)
 	add_test(NAME stEngineOracleTest COMMAND stEngineOracleTest)
 	set_tests_properties(stEngineOracleTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
-	# A machine rendered from the port alone into a WAV, by hand (stRender SECTION7 OUT.wav MACHINE NOTE SECONDS)
+	# syntakt::VoiceCpu against the original's boot and output (SYNTAKT_SECTION7, SYNTAKT_REFERENCES: exit 77 without)
+	add_executable(stVoiceCpuTest stVoiceCpuTest.cpp)
+	target_link_libraries(stVoiceCpuTest PRIVATE stEngine)
+	set_property(TARGET stVoiceCpuTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME stVoiceCpuTest COMMAND stVoiceCpuTest)
+	set_tests_properties(stVoiceCpuTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# A machine rendered through VoiceCpu into a WAV, by hand (stRender SECTION7 OUT.wav MACHINE NOTE SECONDS)
 	add_executable(stRender stRender.cpp)
 	target_link_libraries(stRender PRIVATE stEngine)
 	set_property(TARGET stRender PROPERTY FOLDER "Elektron/test")

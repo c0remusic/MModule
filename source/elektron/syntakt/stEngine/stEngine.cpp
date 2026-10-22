@@ -23,6 +23,15 @@ namespace syntakt
 		return nullptr;
 	}
 
+	int32_t engineOf(const Rom& _rom, int32_t _machine)
+	{
+		if(_machine < 0)
+			_machine = 0;
+		else if(_machine > LastMachine)
+			_machine = LastMachine;
+		return static_cast<int8_t>(_rom.byte(MachineToEngine + static_cast<uint32_t>(_machine)));
+	}
+
 	void renderVoices(Sram& _sram, Globals& _g, const Rom& _rom, const uint32_t _out, const uint32_t _params,
 		const int32_t _trig, const int32_t _gateOff)
 	{
@@ -64,12 +73,7 @@ namespace syntakt
 
 			if(voice.at(Voice::TrigNow))
 			{
-				int32_t machine = static_cast<int8_t>(_sram.byte(params + 0x3e));
-				if(machine < 0)
-					machine = 0;
-				else if(machine > LastMachine)
-					machine = LastMachine;
-				const int32_t id = static_cast<int8_t>(_rom.byte(MachineToEngine + static_cast<uint32_t>(machine)));
+				const int32_t id = engineOf(_rom, static_cast<int8_t>(_sram.byte(params + 0x3e)));
 				if(voice.at(Voice::EngineCopy) != id)
 				{
 					initVoice(voice, _g, _rom);
