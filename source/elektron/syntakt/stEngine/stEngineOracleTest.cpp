@@ -21,6 +21,7 @@
 #include "stBdModern.h"
 #include "stEngine.h"
 #include "stStages.h"
+#include "stTrack.h"
 #include "stVoice.h"
 
 namespace
@@ -200,6 +201,26 @@ namespace
 				{
 					auto v = _c.voice(1);
 					syntakt::bdModern::render(_c.block(0), v, _c.sram, _c.globals, _c.rom);
+				}}},
+			{0x4000112c, {"trackDrive", false, [](Context& _c)
+				{
+					syntakt::track::drive(_c.sram, _c.args[0], _c.args[1]);
+				}}},
+			{0x40002320, {"trackBaseWidth", false, [](Context& _c)
+				{
+					syntakt::track::baseWidth(_c.sram, _c.rom, _c.args[0], _c.args[1]);
+				}}},
+			{0x400019d6, {"trackFilter", false, [](Context& _c)
+				{
+					syntakt::track::filter(_c.sram, _c.rom, _c.args[0], _c.args[1], static_cast<int32_t>(_c.args[2]),
+						static_cast<int32_t>(_c.args[3]), static_cast<int32_t>(_c.args[4]),
+						static_cast<int32_t>(_c.args[5]));
+				}}},
+			{0x4000168e, {"trackAmp", false, [](Context& _c)
+				{
+					syntakt::track::ampEnvelopes(_c.sram, _c.rom, _c.args[0], _c.args[1],
+						static_cast<int32_t>(_c.args[2]), static_cast<int32_t>(_c.args[3]),
+						static_cast<int32_t>(_c.args[4]));
 				}}},
 			{0x40004324, {"renderVoices", false, [](Context& _c)
 				{

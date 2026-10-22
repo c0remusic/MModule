@@ -10,7 +10,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 endif()
 
 add_library(stEngine STATIC stEmac.h stVoice.h stVoice.cpp stStages.h stStages.cpp stBdModern.h stBdModern.cpp
-	stEngine.h stEngine.cpp stBoot.h stBoot.cpp)
+	stEngine.h stEngine.cpp stBoot.h stBoot.cpp stTrack.h stTrack.cpp stTrackFilter.cpp)
 target_include_directories(stEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(TARGET stEngine PROPERTY FOLDER "Elektron/syntakt")
 

@@ -1,6 +1,7 @@
 // Renders one Syntakt machine from the C++ port alone, no emulator: the voice CPU's boot, then a block at a time as CPU
 // #1 would send it, the scenario of SyntHack OS's `cli.py render` (every parameter byte at 0x40, the machine on track
-// 1, its note, a trig at blocks 0 and 2). Writes voice 1's engine output, before the track's stages, as a WAV.
+// 1, its note, a trig at blocks 0 and 2). Writes track 1's output as the voice CPU sends it to CPU #1, after the
+// track's stages (drive, BASE/WIDTH, filter, amp envelope), as a WAV: what `cli.py render --raw` writes.
 //
 //	stRender SECTION7 OUT.wav MACHINE NOTE SECONDS [BOOT_SRAM]
 //

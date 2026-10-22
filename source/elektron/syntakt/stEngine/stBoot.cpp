@@ -1,6 +1,7 @@
 #include "stBoot.h"
 
 #include "stEngine.h"
+#include "stTrack.h"
 
 namespace syntakt
 {
@@ -79,5 +80,16 @@ namespace syntakt
 		int32_t trig = 0, gateOff = 0;
 		receiveBlock(_sram, _block, trig, gateOff);
 		renderVoices(_sram, _g, _rom, VoiceOut, TrackParams, trig, gateOff);
+
+		// The tracks' stages, in place, before the block goes out to CPU #1
+		track::drive(_sram, VoiceOut, TrackParams);
+		track::baseWidth(_sram, _rom, VoiceOut, TrackParams);
+		for(uint32_t t = 0; t < static_cast<uint32_t>(Voices); ++t)
+		{
+			const uint32_t p = TrackParams + 0x8e * t;
+			track::filter(_sram, _rom, p + 0x52, VoiceOut + 0x80 * t, _sram.at(Block + 0x188 + 4 * t),
+				static_cast<int32_t>(t), trig, _sram.half(p + 0x82));
+		}
+		track::ampEnvelopes(_sram, _rom, VoiceOut, TrackParams, trig, gateOff, _sram.byte(Block + 0x1a8));
 	}
 }

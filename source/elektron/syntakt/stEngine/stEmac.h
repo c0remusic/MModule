@@ -7,9 +7,13 @@ namespace syntakt
 	// The ColdFire EMAC as the Syntakt's voice CPU runs it: MACSR = 0xA0 (signed fractional, saturating on overflow,
 	// truncating), written once before any engine (0x4000433c). An accumulator holds a Q39 value in 48 bits; a load
 	// shifts a Q31 word up by 8, a product is truncated to Q39, a store truncates back to Q31 and saturates.
+	// The per-track stages after the voices run two routines with MACSR = 0x20 instead (fractional, no saturation): a
+	// store then wraps to 32 bits and an overflowing accumulator wraps to 48. Emac(false) is that mode.
 	class Emac
 	{
 	public:
+		explicit Emac(const bool _saturate = true) : m_saturate(_saturate) {}
+
 		void load(const int32_t _v)
 		{
 			m_acc = static_cast<int64_t>(_v) * 256;
@@ -26,6 +30,8 @@ namespace syntakt
 		int32_t store() const
 		{
 			const int64_t v = m_acc >> 8;
+			if(!m_saturate)
+				return static_cast<int32_t>(static_cast<uint32_t>(v));
 			if(v > INT32_MAX)
 				return INT32_MAX;
 			if(v < INT32_MIN)
@@ -55,6 +61,12 @@ namespace syntakt
 				return;
 			const int64_t r = m_acc + _p;
 			constexpr int64_t limit = int64_t(1) << 47;
+			if(!m_saturate)
+			{
+				// 48-bit wrap, sign-extended
+				m_acc = static_cast<int64_t>(static_cast<uint64_t>(r) << 16) >> 16;
+				return;
+			}
 			if(r >= limit || r < -limit)
 			{
 				m_overflow = true;
@@ -66,12 +78,21 @@ namespace syntakt
 
 		int64_t m_acc = 0;
 		bool m_overflow = false;
+		bool m_saturate = true;
 	};
 
 	// One product alone, as `mac` into a cleared accumulator then `movclr`
 	inline int32_t frac(const int32_t _y, const int32_t _x)
 	{
 		Emac e;
+		e.mac(_y, _x);
+		return e.storeClear();
+	}
+
+	// The same under MACSR 0x20: the store wraps
+	inline int32_t fracWrap(const int32_t _y, const int32_t _x)
+	{
+		Emac e(false);
 		e.mac(_y, _x);
 		return e.storeClear();
 	}

@@ -17,7 +17,8 @@ namespace syntakt
 	// parameter array (0x80003c40, 0x8e bytes per track); the voices' trig and gate-off bits returned
 	void receiveBlock(Sram& _sram, const uint8_t* _block, int32_t& _trig, int32_t& _gateOff);
 
-	// One block as the interrupt runs it up to the voices: receiveBlock, then renderVoices into 0x80003840
+	// One block as the interrupt runs it: receiveBlock, renderVoices into 0x80003840, then each track's stages in place
+	// (drive, BASE/WIDTH, filter, amp envelope). The block then holds what the voice CPU sends CPU #1
 	void runBlock(Sram& _sram, Globals& _g, const Rom& _rom, const uint8_t* _block);
 
 	constexpr uint32_t VoiceOut = 0x80003840;	// 8 x 32 samples, voice v at + 128 v

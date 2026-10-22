@@ -140,9 +140,17 @@ reads its constant tables from the user's section 7 (`Rom`).
   `cli.py render`. BD MODERN at note 60 for 0.5 s equals the original's engine output, captured at the same point
   (`tools/engine_out.py`, after 0x40004324 returns), sample for sample: 24,000 samples, 0 differing, peak -2.4 dBFS.
   2 s of the eight voices' dispatch, the boot included, render in 0.13 s.
-- Not ported yet: the interrupt's per-track stages after the voices (0x4000112c, 0x40002320, 0x400019d6 per track,
-  0x4000168e: the track filter and amp, whose output `cli.py render` writes), CPU #1's side (parameters, sends,
-  mix), the other eleven engines.
+- `stTrack.*`, `stTrackFilter.cpp`: the interrupt's per-track stages after the voices, in place on each track's
+  block (`trackstages.md`): drive (0x4000112c, MACSR 0x20: wrapping stores, `Emac(false)`), BASE/WIDTH
+  (0x40002320), the multimode filter (0x400019d6, paths A and B, its table square roots, second stage, type
+  changes), the amp envelope (0x4000168e, 0x40001476, 0x40001428, the reset fade's first sample read once).
+  `runBlock` runs them, so `stRender` writes what the voice CPU sends CPU #1. Measured 2026-10-22: 1,303 recorded
+  calls of the four stages with random filter types, resonance, cutoff, BASE/WIDTH, amp settings and drive, 0 words
+  differing; BD MODERN at note 60 for 0.5 s equals `cli.py render`'s output sample for sample (`tools/full_out.py`,
+  24,000 samples, 0 differing; in that scenario every setting is 0x40, so the filter is off: its types are covered
+  by the recorded calls).
+- Not ported yet: CPU #1's side (parameter mapping and smoothing, LFOs, the cutoff it computes, level, pan, sends,
+  delay and reverb, the analog tracks and mix), the other eleven engines.
 
 `stEngineOracleTest` checks it: `SYNTAKT_SECTION7` names the user's section 7, `SYNTAKT_VECTORS` vector files recorded
 from the original code (exit 77 without them). Tools in `tools/`, run with Python and Unicorn 2.1.4 over SyntHack OS's

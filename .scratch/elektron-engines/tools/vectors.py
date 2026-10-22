@@ -42,14 +42,34 @@ def write_cases(path, cases) -> None:
             f.write(struct.pack(f"<II{len(args)}II4I", routine, len(args), *args, d0, *rng0, *rng1))
             f.write(before)
             f.write(after)
-NARGS = 5                                                   # 0x400049f4 takes five; extra words are harmless
+NARGS = 6                                                   # 0x400019d6 takes six; extra words are harmless
 TRIG_BYTE, GATEOFF_BYTE = 0x180, 0x181
 
 
-def scenario(rng: random.Random, machine: int, blocks: int):
+def track_settings(rng: random.Random, params: bytearray) -> None:
+    """Track 1's settings after the voice, as CPU #1 sends them: filter, BASE/WIDTH, amp envelope, drive, cutoff."""
+    for k in (18, 19):                                      # drive word, P+0x50
+        params[k] = rng.randrange(256) if rng.random() < 0.7 else 0
+    params[0xA0] = rng.randrange(8)                         # filter TYPE
+    params[0xA1] = rng.randrange(256)
+    params[0xA2] = rng.randrange(128)                       # RESO
+    params[0xA3] = rng.randrange(256)
+    for k in range(0xA4, 0xA8):                             # BASE, WIDTH
+        params[k] = rng.randrange(256) if k % 2 else rng.randrange(128)
+    for k in range(0xE0, 0xEE):                             # ATK HOLD DEC SUS REL MODE RST, high bytes then fine
+        params[k] = rng.randrange(128) if k % 2 == 0 else rng.randrange(256)
+    params[0xEA] = rng.randrange(2)                         # MODE AHD / ADSR
+    params[0xEC] = rng.randrange(2)                         # RST
+    struct.pack_into(">i", params, 0x188, rng.randrange(0, 1 << 31))   # modulated cutoff, Q31
+    params[0x1A8] = 1 if rng.random() < 0.05 else 0         # kill
+
+
+def scenario(rng: random.Random, machine: int, blocks: int, track: bool = False):
     params = cli.make_params(machine, 0)
     for k in range(1, 20):
         params[k] = rng.randrange(256)
+    if track:
+        track_settings(rng, params)
     note = rng.randrange(24, 96)
     struct.pack_into(">i", params, 0x150, note << 16)
     trigs = {cli.TRIG_LOAD, cli.TRIG_NOTE} | {rng.randrange(4, blocks) for _ in range(3)}
@@ -63,10 +83,15 @@ def scenario(rng: random.Random, machine: int, blocks: int):
         if rng.random() < 0.15:                             # a knob moves between hits
             q[rng.randrange(2, 20)] = rng.randrange(256)
             params[:20] = q[:20]
+        if track and rng.random() < 0.1:                    # the track's settings move too
+            track_settings(rng, params)
+            q[0xA0:0x1B0] = params[0xA0:0x1B0]
+            q[18:20] = params[18:20]
         yield bytes(q)
 
 
-def record(routines: set[int], engines: list[int], blocks: int, seed: int, limit: int, prob: float):
+def record(routines: set[int], engines: list[int], blocks: int, seed: int, limit: int, prob: float,
+           track: bool = False):
     rng = random.Random(seed)
     m2e = cli.machine_to_engine()
     cases = []
@@ -99,7 +124,7 @@ def record(routines: set[int], engines: list[int], blocks: int, seed: int, limit
 
         for r in routines:
             uc.hook_add(UC_HOOK_CODE, on_entry, begin=r, end=r)
-        for q in scenario(rng, machine, blocks):
+        for q in scenario(rng, machine, blocks, track):
             e.render_block(q)
         print(f"engine {engine}: {len(cases)} cases so far", flush=True)
     return cases
@@ -113,9 +138,10 @@ def main() -> int:
     ap.add_argument("--blocks", type=int, default=60)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--limit", type=int, default=400, help="cases per routine")
+    ap.add_argument("--track", action="store_true", help="vary track 1's settings after the voice too")
     ap.add_argument("--prob", type=float, default=1.0, help="chance that a call is recorded")
     a = ap.parse_args()
-    cases = record(set(a.routines), a.engines, a.blocks, a.seed, a.limit, a.prob)
+    cases = record(set(a.routines), a.engines, a.blocks, a.seed, a.limit, a.prob, a.track)
     write_cases(a.out, cases)
     counts = {}
     for c in cases:
