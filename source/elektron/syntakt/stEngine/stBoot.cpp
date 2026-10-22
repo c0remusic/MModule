@@ -7,9 +7,6 @@ namespace syntakt
 {
 	namespace
 	{
-		constexpr uint32_t Block = 0x80008000;
-		constexpr uint32_t Histories = 0x80008a60;	// 12 longs per voice
-
 		// The boot's two copies of initialized data, from section 7 into SRAM
 		struct Copy
 		{
@@ -36,7 +33,7 @@ namespace syntakt
 		{
 			_g.rng = {0x017664c6, 0x8bf3};
 			Voice voice{_sram, Voice::addressOf(v)};
-			voice.at(Voice::DecimatorHistory) = static_cast<int32_t>(Histories + 0x30 * static_cast<uint32_t>(v));
+			voice.at(Voice::DecimatorHistory) = static_cast<int32_t>(Histories + HistoryStride * static_cast<uint32_t>(v));
 			initVoice(voice, _g, _rom);
 		}
 	}
@@ -49,7 +46,7 @@ namespace syntakt
 			_sram.at(Block + i) = static_cast<int32_t>(uint32_t(_block[i]) << 24 | uint32_t(_block[i + 1]) << 16 |
 				uint32_t(_block[i + 2]) << 8 | _block[i + 3]);
 		}
-		_sram.at(0x8000a07c) = _sram.at(Block + 0x184);
+		_sram.at(ClockStep) = _sram.at(Block + 0x184);
 
 		for(uint32_t t = 0; t < static_cast<uint32_t>(Voices); ++t)
 		{

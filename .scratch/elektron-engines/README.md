@@ -149,6 +149,10 @@ reads its constant tables from the user's section 7 (`Rom`).
   differing; BD MODERN at note 60 for 0.5 s equals `cli.py render`'s output sample for sample (`tools/full_out.py`,
   24,000 samples, 0 differing; in that scenario every setting is 0x40, so the filter is off: its types are covered
   by the recorded calls).
+- Before porting a filter or helper, grep its firmware address across the engine files. SD BASIC's firstOrder
+  (0x40004e14), CY ALLOY's biquad (0x4000512c), SD VINTAGE's biquad (0x40005016) and CP VINTAGE's rampedPole
+  (0x40004f74) and resonator (0x400054e6) stay private to their engine until a second engine uses them; then they
+  move to `stStages`.
 - Not ported yet: CPU #1's side (parameter mapping and smoothing, LFOs, the cutoff it computes, level, pan, sends,
   delay and reverb, the analog tracks and mix), the other eleven engines.
 

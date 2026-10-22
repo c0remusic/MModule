@@ -8,10 +8,10 @@ namespace syntakt::pcCarbon
 	namespace
 	{
 		// Scratch buffers in SRAM, as the original lays them out for this engine
-		constexpr uint32_t BufferA0 = 0x8000945c;	// unit 0 scaled: unit 1's modulator
-		constexpr uint32_t BufferA1 = 0x80009580;	// unit 1 scaled
-		constexpr uint32_t BufferA2 = 0x800096a4;	// unit 2 scaled: unit 3's modulator
-		constexpr uint32_t BufferA3 = 0x800097c8;	// unit 3 scaled
+		constexpr uint32_t BufferA0 = bufferA(0);	// unit 0 scaled: unit 1's modulator
+		constexpr uint32_t BufferA1 = bufferA(1);	// unit 1 scaled
+		constexpr uint32_t BufferA2 = bufferA(2);	// unit 2 scaled: unit 3's modulator
+		constexpr uint32_t BufferA3 = bufferA(3);	// unit 3 scaled
 		constexpr uint32_t Wave = 0x40024804;		// unit 0's ROM wave, 257 entries
 
 		// Tables of section 7 (128 entries unless noted)

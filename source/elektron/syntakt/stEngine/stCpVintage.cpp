@@ -12,14 +12,12 @@ namespace syntakt::cpVintage
 	namespace
 	{
 		// Scratch buffers in SRAM, as the original lays them out for this engine
-		constexpr uint32_t Noise = 0x800096a4;		// white noise, unit 2's buffer A
-		constexpr uint32_t Tone = 0x80008c60;		// unit 0's buffer B: the tone
-		constexpr uint32_t ToneModulator = 0x80009580;	// unit 1's buffer A
-		constexpr uint32_t Sine = 0x80004b70;
+		constexpr uint32_t Noise = bufferA(2);		// white noise, unit 2's buffer A
+		constexpr uint32_t Tone = bufferB(0);		// unit 0's buffer B: the tone
+		constexpr uint32_t ToneModulator = bufferA(1);	// unit 1's buffer A
 		constexpr uint32_t ResonatorSteps = 0x80004a50;	// 8 coefficient steps, then two 32-sample buffers
 		constexpr uint32_t ResonatorOutA = 0x80004a70;
 		constexpr uint32_t ResonatorOutB = 0x80004af0;
-		constexpr uint32_t ClockStep = 0x8000a07c;
 
 		// Tables of section 7 (128 entries unless said)
 		constexpr uint32_t DecayB = 0x4003a238;

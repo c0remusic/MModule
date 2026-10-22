@@ -8,11 +8,10 @@ namespace syntakt::sdVintage
 	namespace
 	{
 		// Scratch buffers in SRAM, as the original lays them out for this engine
-		constexpr uint32_t BufferA0 = 0x8000945c;	// units 0-2 scaled: the three body sines
-		constexpr uint32_t BufferA1 = 0x80009580;
-		constexpr uint32_t BufferA2 = 0x800096a4;
-		constexpr uint32_t BufferA3 = 0x800097c8;	// unit 3 scaled: the modulator of units 0-2
-		constexpr uint32_t Sine = 0x80004b70;
+		constexpr uint32_t BufferA0 = bufferA(0);	// units 0-2 scaled: the three body sines
+		constexpr uint32_t BufferA1 = bufferA(1);
+		constexpr uint32_t BufferA2 = bufferA(2);
+		constexpr uint32_t BufferA3 = bufferA(3);	// unit 3 scaled: the modulator of units 0-2
 		constexpr uint32_t WaveU2 = 0x8000a484;		// RAM waves of units 2 and 3
 		constexpr uint32_t WaveU3 = 0x8000a080;
 

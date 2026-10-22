@@ -1,9 +1,7 @@
 #include "stEngine.h"
 
 #include <algorithm>
-#include <array>
 
-#include "stBdModern.h"
 #include "stEngines.h"
 
 namespace syntakt
@@ -12,22 +10,17 @@ namespace syntakt
 	{
 		constexpr uint32_t SortOrder = 0x80004a48;		// the voice indices, bubble-sorted by machine
 		constexpr uint32_t SortKey = 0x80004a40;		// each voice's machine byte
-		constexpr uint32_t Pitch = 0x80008150;			// the 0x1b0 block's pitch words, one per track
+		constexpr uint32_t Pitch = Block + 0x150;		// the block's pitch words, one per track
 		constexpr uint32_t MachineToEngine = 0x40014950;	// 46 bytes
 		constexpr int32_t LastMachine = 45;
 	}
 
 	const EngineRoutines* engine(const uint32_t _id)
 	{
-		static const EngineRoutines bd{bdModern::update, bdModern::render};
-		static const EngineRoutines sd{sdBasic::update, sdBasic::render};
-		static const EngineRoutines cy{cyAlloy::update, cyAlloy::render};
-		static const EngineRoutines pc{pcCarbon::update, pcCarbon::render};
-		static const EngineRoutines sdv{sdVintage::update, sdVintage::render};
-		static const EngineRoutines cpv{cpVintage::update, cpVintage::render};
-		static const std::array<const EngineRoutines*, Engines> engines{&bd, &sd, &cy, &pc, nullptr, nullptr, &sdv,
-			&cpv};
-		return _id < static_cast<uint32_t>(Engines) ? engines[_id] : nullptr;
+		for(const auto& e : PortedEngines)
+			if(e.id == _id)
+				return &e;
+		return nullptr;
 	}
 
 	void renderVoices(Sram& _sram, Globals& _g, const Rom& _rom, const uint32_t _out, const uint32_t _params,

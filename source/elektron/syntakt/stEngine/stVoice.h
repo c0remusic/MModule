@@ -3,13 +3,12 @@
 #include <array>
 #include <cstdint>
 
+#include "stMemoryMap.h"
+
 namespace syntakt
 {
 	constexpr int Voices = 8;					// eight voices, eight tracks
 	constexpr int BlockSize = 32;				// samples per block, at 48 kHz
-	constexpr uint32_t ParamStride = 0x8e;		// the per-track parameter array's stride
-	constexpr uint32_t TrackOutStride = 0x80;	// one track's 32 samples in the output block
-	constexpr uint32_t TrigSeen = 0x80008550;	// a byte per track: a trig came last block (the filter writes it)
 
 	// Byte _address & 3 of a big-endian word, as the CPU sees it. Written with an unsigned shift by (~a & 3) * 8: the
 	// first form, with a shift by 8 * (3 - (a & 3)), read the wrong word in MSVC Release builds only, cause not found
@@ -119,7 +118,7 @@ namespace syntakt
 			DrivePreGain = 0x440,	// applied 4 times: a hard clip
 			DriveGain = 0x444,
 
-			DecimatorHistory = 0x56c	// pointer to the voice's 12 longs, 0x80008a60 + 0x30 v
+			DecimatorHistory = 0x56c	// pointer to the voice's 12 longs, Histories + 0x30 v
 		};
 
 		// Unit fields, at 0x80 k

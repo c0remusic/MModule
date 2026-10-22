@@ -8,10 +8,10 @@ namespace syntakt::cyAlloy
 	namespace
 	{
 		// Scratch buffers in SRAM, as the original lays them out for this engine
-		constexpr uint32_t BufferA0 = 0x8000945c;	// unit 0 scaled: unit 1's modulator
-		constexpr uint32_t BufferA1 = 0x80009580;	// unit 1 scaled
-		constexpr uint32_t BufferA2 = 0x800096a4;	// unit 2 scaled: unit 3's modulator
-		constexpr uint32_t BufferA3 = 0x800097c8;	// unit 3 scaled
+		constexpr uint32_t BufferA0 = bufferA(0);	// unit 0 scaled: unit 1's modulator
+		constexpr uint32_t BufferA1 = bufferA(1);	// unit 1 scaled
+		constexpr uint32_t BufferA2 = bufferA(2);	// unit 2 scaled: unit 3's modulator
+		constexpr uint32_t BufferA3 = bufferA(3);	// unit 3 scaled
 
 		// Tables of section 7: 128 entries, interpolated at a word or read at a byte
 		constexpr uint32_t DecayOdd = 0x40020200;	// units 1 and 3's envelope decays, by byte 16

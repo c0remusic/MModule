@@ -1,4 +1,4 @@
-#include "stBdModern.h"
+#include "stEngines.h"
 
 #include "stEmac.h"
 #include "stStages.h"
@@ -9,12 +9,11 @@ namespace syntakt::bdModern
 	{
 		// Scratch buffers in SRAM, as the original lays them out for this engine
 		constexpr uint32_t Click = 0x80008be0;
-		constexpr uint32_t BufferA2 = 0x800096a4;	// unit 2 scaled
-		constexpr uint32_t BufferB0 = 0x80008c60;	// unit 0 raw
-		constexpr uint32_t BufferB1 = 0x80008d84;	// unit 1 raw: unit 2's modulator
-		constexpr uint32_t BufferB3 = 0x80008fcc;	// unit 3 raw: the body
+		constexpr uint32_t BufferA2 = bufferA(2);	// unit 2 scaled
+		constexpr uint32_t BufferB0 = bufferB(0);	// unit 0 raw
+		constexpr uint32_t BufferB1 = bufferB(1);	// unit 1 raw: unit 2's modulator
+		constexpr uint32_t BufferB3 = bufferB(3);	// unit 3 raw: the body
 		constexpr uint32_t Modulator = 0x80009c58;	// the enveloped mix: unit 3's modulator
-		constexpr uint32_t Sine = 0x80004b70;
 		constexpr uint32_t Wave = 0x4001e7fc;		// unit 2's ROM wave, 257 entries
 
 		// Tables of section 7 (128 entries)

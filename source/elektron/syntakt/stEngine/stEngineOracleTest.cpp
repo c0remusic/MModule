@@ -18,7 +18,6 @@
 #include <string>
 #include <vector>
 
-#include "stBdModern.h"
 #include "stSection7.h"
 #include "stEngine.h"
 #include "stEngines.h"
@@ -108,14 +107,33 @@ namespace
 
 	struct Ported
 	{
-		const char* name;
+		std::string name;
 		bool returns;	// the routine's d0 is compared too
 		std::function<void(Context&)> run;
 	};
 
+	// _routines with each engine's update and render, from the one list of the engines ported
+	std::map<uint32_t, Ported> withEngines(std::map<uint32_t, Ported> _routines)
+	{
+		for(const auto& e : syntakt::PortedEngines)
+		{
+			_routines.emplace(e.updateAddress, Ported{std::string(e.name) + "Update", false, [u = e.update](Context& _c)
+				{
+					auto v = _c.voice(1);
+					u(static_cast<int32_t>(_c.args[0]), v, _c.args[2], _c.rom);
+				}});
+			_routines.emplace(e.renderAddress, Ported{std::string(e.name) + "Render", false, [r = e.render](Context& _c)
+				{
+					auto v = _c.voice(1);
+					r(_c.block(0), v, _c.rom);
+				}});
+		}
+		return _routines;
+	}
+
 	const std::map<uint32_t, Ported>& ported()
 	{
-		static const std::map<uint32_t, Ported> routines = {
+		static const std::map<uint32_t, Ported> routines = withEngines({
 			{0x40004dc6, {"interpolate", true, [](Context& _c)
 				{
 					_c.d0 = static_cast<uint32_t>(syntakt::interpolate(_c.rom.ptr(_c.args[0]),
@@ -201,34 +219,6 @@ namespace
 					auto v = _c.voice(1);
 					syntakt::bdModern::click(_c.block(0), v);
 				}}},
-			{0x40006968, {"bdUpdate", false, [](Context& _c)
-				{
-					auto v = _c.voice(1);
-					syntakt::bdModern::update(static_cast<int32_t>(_c.args[0]), v, _c.args[2],
-						_c.rom);
-				}}},
-			{0x40006c9e, {"bdRender", false, [](Context& _c)
-				{
-					auto v = _c.voice(1);
-					syntakt::bdModern::render(_c.block(0), v, _c.rom);
-				}}},
-#define ST_ENGINE(_update, _render, _name, _ns) \
-			{_update, {_name "Update", false, [](Context& _c) \
-				{ \
-					auto v = _c.voice(1); \
-					syntakt::_ns::update(static_cast<int32_t>(_c.args[0]), v, _c.args[2], _c.rom); \
-				}}}, \
-			{_render, {_name "Render", false, [](Context& _c) \
-				{ \
-					auto v = _c.voice(1); \
-					syntakt::_ns::render(_c.block(0), v, _c.rom); \
-				}}},
-			ST_ENGINE(0x40007c68, 0x40007f9e, "sdBasic", sdBasic)
-			ST_ENGINE(0x40006d7c, 0x40006ff2, "cyAlloy", cyAlloy)
-			ST_ENGINE(0x40007280, 0x400075a8, "pcCarbon", pcCarbon)
-			ST_ENGINE(0x40008074, 0x4000847a, "sdVintage", sdVintage)
-			ST_ENGINE(0x40008580, 0x40008988, "cpVintage", cpVintage)
-#undef ST_ENGINE
 			{0x4000112c, {"trackDrive", false, [](Context& _c)
 				{
 					syntakt::track::drive(_c.sram, _c.args[0], _c.args[1]);
@@ -254,7 +244,7 @@ namespace
 					syntakt::renderVoices(_c.sram, _c.globals, _c.rom, _c.args[0], _c.args[1],
 						static_cast<int32_t>(_c.args[2]), static_cast<int32_t>(_c.args[3]));
 				}}},
-		};
+		});
 		return routines;
 	}
 }
@@ -353,7 +343,7 @@ int main()
 		if(diffs)
 		{
 			if(failed[c.routine]++ < 3)
-				std::printf("%s(%08x, %08x): %d words differ, first %s\n", it->second.name, c.args[0],
+				std::printf("%s(%08x, %08x): %d words differ, first %s\n", it->second.name.c_str(), c.args[0],
 					c.args.size() > 1 ? c.args[1] : 0, diffs, first);
 		}
 		else
@@ -368,7 +358,7 @@ int main()
 		const int pass = passed[routine], fail = failed[routine];
 		if(!pass && !fail)
 			continue;
-		std::printf("%-14s %5d cases, %4d differ\n", p.name, pass + fail, fail);
+		std::printf("%-14s %5d cases, %4d differ\n", p.name.c_str(), pass + fail, fail);
 		ok = ok && fail == 0;
 	}
 	// The voices run on: consecutive blocks of renderVoices where the port carries its own voice states and decimator
@@ -392,7 +382,9 @@ int main()
 				carriedGlobals.rng = {static_cast<int32_t>(c.rngBefore[0]), static_cast<int32_t>(c.rngBefore[1])};
 			}
 			// The voice states and the histories are the port's own; everything else is this block's input
-			constexpr uint32_t ownedEnd = 0x80003840, histories = 0x80008a60, historiesEnd = 0x80008be0;
+			const uint32_t ownedEnd = Voice::addressOf(syntakt::Voices);
+			constexpr uint32_t histories = syntakt::Histories;
+			constexpr uint32_t historiesEnd = histories + syntakt::HistoryStride * syntakt::Voices;
 			for(uint32_t a = Sram::Base; a < Sram::Base + Sram::Size; a += 4)
 			{
 				const bool owned = a < ownedEnd || (a >= histories && a < historiesEnd);

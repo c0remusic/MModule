@@ -6,11 +6,6 @@ namespace syntakt
 {
 	namespace
 	{
-		constexpr uint32_t BufferA = 0x8000945c;	// unit k's scaled output, 0x124 bytes apart
-		constexpr uint32_t BufferB = 0x80008c60;	// unit k's raw output
-		constexpr uint32_t BufferStride = 0x124;
-		constexpr uint32_t Sine = 0x80004b70;		// the RAM sine the boot builds
-
 		void clear(Voice& _v, const std::initializer_list<uint32_t> _offsets)
 		{
 			for(const auto o : _offsets)
@@ -45,12 +40,12 @@ namespace syntakt
 			_v.at(u + 0x50) = 0x04000000;
 			_v.at(u + 0x54) = INT32_MIN;
 			_v.at(u + 0x64) = 0x40000000;
-			_v.at(u + 0x9c) = static_cast<int32_t>(BufferA);
-			_v.at(u + 0xa0) = static_cast<int32_t>(BufferA);
+			_v.at(u + 0x9c) = static_cast<int32_t>(bufferA(0));
+			_v.at(u + 0xa0) = static_cast<int32_t>(bufferA(0));
 			for(uint32_t o = 0xb0; o <= 0xbc; o += 4)
 				_v.at(u + o) = static_cast<int32_t>(Sine);
-			_v.at(u + 0xc8) = static_cast<int32_t>(BufferA + BufferStride * k);
-			_v.at(u + 0xcc) = static_cast<int32_t>(BufferB + BufferStride * k);
+			_v.at(u + 0xc8) = static_cast<int32_t>(bufferA(k));
+			_v.at(u + 0xcc) = static_cast<int32_t>(bufferB(k));
 			for(const uint32_t o : {0x58u, 0x5cu, 0x60u, 0x68u, 0x6cu, 0x70u, 0x74u, 0x78u, 0x7cu, 0x80u, 0x84u, 0x88u,
 				0x8cu, 0x90u, 0x94u, 0x98u, 0xa4u, 0xa8u, 0xacu, 0xc0u, 0xc4u})
 				_v.at(u + o) = 0;
