@@ -23,17 +23,6 @@ namespace syntakt::cyAlloy
 		constexpr uint32_t AmpDecay = 0x40020e00;
 		constexpr uint32_t Wave = 0x40021000;		// units 2 and 3's ROM wave
 
-		// The machine block's byte k as the update reads it: its word (value << 8 | fine) or its high byte, signed
-		int32_t word(const Sram& _sram, const uint32_t _params, const uint32_t _k)
-		{
-			return _sram.half(_params + 0x22 + _k);
-		}
-
-		int32_t byte(const Sram& _sram, const uint32_t _params, const uint32_t _k)
-		{
-			return static_cast<int8_t>(_sram.byte(_params + 0x22 + _k));
-		}
-
 		// 0x4000512c: a biquad in place, y = b0 x + b1 x1 + b2 x2 - 2 a1 y1 - a2 y2, every sample's terms summed before one
 		// truncation. _b holds b0-b2 and at +0x18 x1, x2; _a holds a1, a2 and at +0x18 y1, y2
 		void biquad(int32_t* _buf, int32_t* _b, int32_t* _a)
@@ -71,7 +60,7 @@ namespace syntakt::cyAlloy
 		const Sram& sram = _v.sram;
 		const auto interp = [&](const uint32_t _table, const uint32_t _k)
 		{
-			return interpolate(_rom.ptr(_table), word(sram, _params, _k));
+			return interpolate(_rom.ptr(_table), machineWord(sram, _params, _k));
 		};
 
 		_v.at(0x08) = 0x40000000;	// the mix's two levels, without a ramp
@@ -97,25 +86,25 @@ namespace syntakt::cyAlloy
 		_v.at(0x1dc) = 0x60000000;
 		_v.at(0x230) = static_cast<int32_t>(Wave);
 		_v.at(0x1d0) = 0x04000000;								// unit 3 at the note
-		_v.at(Voice::AmpDecay) = _rom.entry(AmpDecay, byte(sram, _params, 16));
+		_v.at(Voice::AmpDecay) = _rom.entry(AmpDecay, machineByte(sram, _params, 16));
 
 		if(_v.at(Voice::TrigNow))
 		{
 			_v.at(0x28) = 0;
-			_v.at(0x58) = _rom.entry(DecayEven, byte(sram, _params, 16));
-			_v.at(0xd8) = _rom.entry(DecayOdd, byte(sram, _params, 16));
-			_v.at(0x158) = _rom.entry(DecayEven, byte(sram, _params, 16));
+			_v.at(0x58) = _rom.entry(DecayEven, machineByte(sram, _params, 16));
+			_v.at(0xd8) = _rom.entry(DecayOdd, machineByte(sram, _params, 16));
+			_v.at(0x158) = _rom.entry(DecayEven, machineByte(sram, _params, 16));
 			_v.at(0x41c) = static_cast<int32_t>(0x81415554);
 			_v.at(Voice::DriveX1) = INT32_MAX;
 			_v.at(Voice::DriveY1) = INT32_MAX;
 			_v.at(0x420) = 0x0013b13d;
 			_v.at(0x424) = 0x0013b13d;
-			_v.at(0x1d8) = _rom.entry(DecayOdd, byte(sram, _params, 16));
+			_v.at(0x1d8) = _rom.entry(DecayOdd, machineByte(sram, _params, 16));
 			_v.at(0x414) = 0x00a0aaaa;
 			_v.at(0x418) = 0x00a0aaaa;
 			_v.at(0x428) = static_cast<int32_t>(0x8027627b);
 
-			if(word(sram, _params, 12))
+			if(machineWord(sram, _params, 12))
 			{
 				_v.at(Voice::DriveGain) = INT32_MAX;
 				_v.at(Voice::DriveFloor) = 0x2a3d70a4;

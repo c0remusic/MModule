@@ -30,17 +30,6 @@ namespace syntakt::pcCarbon
 		constexpr uint32_t DecayU0 = 0x40024404;
 		constexpr uint32_t DepthU3 = 0x40024604;
 
-		// The machine block's byte k as the update reads it: its word (value << 8 | fine) or its high byte, signed
-		int32_t word(const Sram& _sram, const uint32_t _params, const uint32_t _k)
-		{
-			return _sram.half(_params + 0x22 + _k);
-		}
-
-		int32_t byte(const Sram& _sram, const uint32_t _params, const uint32_t _k)
-		{
-			return static_cast<int8_t>(_sram.byte(_params + 0x22 + _k));
-		}
-
 		// The 1024-entry curve read at _x's top 11 bits, interpolated on its next 21. An index above 1022 reads the last
 		// entry twice; a negative one reads before the table, as the original does
 		int32_t curve(const Rom& _rom, const int32_t _x)
@@ -69,16 +58,16 @@ namespace syntakt::pcCarbon
 		const Sram& sram = _v.sram;
 		_v.at(0x44) = 0x00800000;
 		_v.at(0x40) = static_cast<int32_t>(0xffc00000);	// -64 semitones
-		_v.at(0x50) = interpolate(_rom.ptr(FactorU0), word(sram, _params, 4));
+		_v.at(0x50) = interpolate(_rom.ptr(FactorU0), machineWord(sram, _params, 4));
 		_v.at(0xb0) = static_cast<int32_t>(Wave);
-		_v.at(0x5c) = interpolate(_rom.ptr(TargetU0), word(sram, _params, 10));
-		_v.at(0xd0) = interpolate(_rom.ptr(FactorU1), word(sram, _params, 4));
+		_v.at(0x5c) = interpolate(_rom.ptr(TargetU0), machineWord(sram, _params, 10));
+		_v.at(0xd0) = interpolate(_rom.ptr(FactorU1), machineWord(sram, _params, 4));
 		_v.at(0x11c) = static_cast<int32_t>(BufferA0);
-		_v.at(0x10c) = frac(0x02000000, interpolate(_rom.ptr(DepthU1), word(sram, _params, 6)));
-		_v.at(0x150) = interpolate(_rom.ptr(FactorU2), word(sram, _params, 4));
+		_v.at(0x10c) = frac(0x02000000, interpolate(_rom.ptr(DepthU1), machineWord(sram, _params, 6)));
+		_v.at(0x150) = interpolate(_rom.ptr(FactorU2), machineWord(sram, _params, 4));
 		_v.at(0x1d0) = 0x04000000;
-		_v.at(0x15c) = interpolate(_rom.ptr(TargetU2), word(sram, _params, 10));
-		_v.at(0x20c) = frac(0x02000000, interpolate(_rom.ptr(DepthU3), word(sram, _params, 6)));
+		_v.at(0x15c) = interpolate(_rom.ptr(TargetU2), machineWord(sram, _params, 10));
+		_v.at(0x20c) = frac(0x02000000, interpolate(_rom.ptr(DepthU3), machineWord(sram, _params, 6)));
 		_v.at(0x21c) = static_cast<int32_t>(BufferA2);
 		_v.at(0x414) = 0x012c0f26;
 		_v.at(0x418) = 0x012c0f26;
@@ -86,7 +75,7 @@ namespace syntakt::pcCarbon
 		_v.at(0x420) = 0x0013af8c;
 		_v.at(0x424) = 0x0013af8c;
 		_v.at(0x428) = static_cast<int32_t>(0x80275f18);
-		_v.at(0x3f8) = _rom.entry(SweepDepth, byte(sram, _params, 8));
+		_v.at(0x3f8) = _rom.entry(SweepDepth, machineByte(sram, _params, 8));
 
 		// With hold on, the amp decays as unit 3's envelope did last block
 		const int32_t hold = _v.at(Voice::AmpHold);
@@ -94,9 +83,9 @@ namespace syntakt::pcCarbon
 			_v.at(Voice::AmpDecay) = _v.at(0x1d8);
 
 		// Unit 3's decay from the decay byte, unit 1's from it and byte 6
-		const int32_t position = _rom.entry(DecayPosition, byte(sram, _params, 16));
+		const int32_t position = _rom.entry(DecayPosition, machineByte(sram, _params, 16));
 		_v.at(0x1d8) = curve(_rom, position);
-		const int32_t shift = frac(0x46666666, asl(word(sram, _params, 6), 16));
+		const int32_t shift = frac(0x46666666, asl(machineWord(sram, _params, 6), 16));
 		const int32_t scale = subSat(0x60000000, shift);
 		Emac e;
 		e.mac(scale, position);
@@ -118,13 +107,13 @@ namespace syntakt::pcCarbon
 				_v.at(Voice::AmpDecay) = INT32_MIN;
 			}
 			_v.at(0x28) = 0;
-			_v.at(0x58) = _rom.entry(DecayU0, byte(sram, _params, 16));
-			_v.at(0x158) = _rom.entry(DecayU2, byte(sram, _params, 16));
+			_v.at(0x58) = _rom.entry(DecayU0, machineByte(sram, _params, 16));
+			_v.at(0x158) = _rom.entry(DecayU2, machineByte(sram, _params, 16));
 			_v.at(Voice::DriveX1) = INT32_MAX;
 			_v.at(Voice::DriveY1) = INT32_MAX;
-			_v.at(0x410) = _rom.entry(SweepDecay, byte(sram, _params, 8));
+			_v.at(0x410) = _rom.entry(SweepDecay, machineByte(sram, _params, 8));
 
-			if(word(sram, _params, 12))
+			if(machineWord(sram, _params, 12))
 			{
 				_v.at(Voice::DriveGain) = INT32_MAX;
 				_v.at(0x08) = 0x40000000;

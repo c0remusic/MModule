@@ -41,10 +41,14 @@ namespace
 		std::vector<uint8_t> before, after;
 	};
 
+	// Reads the cases _keep accepts into _cases; _routines receives every case's routine, kept or not, in order
 	template<typename Keep>
-	bool readCases(const std::string& _path, std::vector<Case>& _cases, const Keep& _keep)
+	bool readCases(const std::string& _path, std::vector<Case>& _cases, const Keep& _keep,
+		std::vector<uint32_t>& _routines)
 	{
-		std::ifstream f(_path, std::ios::binary);
+		std::ifstream f(_path, std::ios::binary | std::ios::ate);
+		const auto size = f.tellg();
+		f.seekg(0);
 		char magic[4];
 		uint32_t count = 0;
 		if(!f.read(magic, 4) || std::string(magic, 4) != "STV3" || !f.read(reinterpret_cast<char*>(&count), 4))
@@ -55,14 +59,22 @@ namespace
 			uint32_t nargs = 0;
 			f.read(reinterpret_cast<char*>(&c.routine), 4);
 			f.read(reinterpret_cast<char*>(&nargs), 4);
+			if(!f || nargs > 16)
+				return false;
 			c.args.resize(nargs);
 			f.read(reinterpret_cast<char*>(c.args.data()), 4 * nargs);
 			f.read(reinterpret_cast<char*>(&c.d0), 4);
 			f.read(reinterpret_cast<char*>(c.rngBefore), 8);
 			f.read(reinterpret_cast<char*>(c.rngAfter), 8);
+			if(!f)
+				return false;
+			_routines.push_back(c.routine);
 			if(!_keep(c.routine))
 			{
+				// seekg past the end does not fail the stream: a truncated file shows in the position
 				f.seekg(2 * Sram::Size, std::ios::cur);
+				if(!f || f.tellg() > size)
+					return false;
 				continue;
 			}
 			c.before.resize(Sram::Size);
@@ -267,18 +279,41 @@ int main()
 	const syntakt::Rom rom{romWords.data()};
 
 	std::vector<Case> cases;
-	std::vector<std::pair<size_t, size_t>> files;	// each file's cases, [first, end)
+	// Each file's cases [first, end), and whether the file is a run: nothing but consecutive blocks of renderVoices
+	// (vectors.py 40004324 --prob 1), judged on every case it holds, kept or not
+	struct File
+	{
+		size_t first, end;
+		bool isRun;
+	};
+	std::vector<File> files;
+	std::map<uint32_t, int> skipped;	// the cases of routines not ported, by address
 	std::stringstream paths(vectorPaths);
 	for(std::string path; std::getline(paths, path, ';');)
 	{
 		const size_t first = cases.size();
-		if(!readCases(path, cases, [](const uint32_t _r) { return ported().count(_r) != 0; }))
+		std::vector<uint32_t> routines;
+		if(!readCases(path, cases, [](const uint32_t _r) { return ported().count(_r) != 0; }, routines))
 		{
 			std::printf("FAIL: cannot read the vectors in %s\n", path.c_str());
 			return 1;
 		}
-		files.emplace_back(first, cases.size());
+		if(cases.size() == first)
+		{
+			std::printf("FAIL: %s holds no case of a ported routine\n", path.c_str());
+			return 1;
+		}
+		bool isRun = routines.size() > 1;
+		for(const uint32_t r : routines)
+		{
+			isRun = isRun && r == 0x40004324;
+			if(!ported().count(r))
+				++skipped[r];
+		}
+		files.push_back({first, cases.size(), isRun});
 	}
+	for(const auto& [routine, count] : skipped)
+		std::printf("skipped %5d cases of %08x, not ported\n", count, routine);
 
 	auto sram = std::make_unique<Sram>();
 	auto expected = std::make_unique<Sram>();
@@ -338,16 +373,12 @@ int main()
 	}
 	// The voices run on: consecutive blocks of renderVoices where the port carries its own voice states and decimator
 	// histories from block to block, and only the inputs (parameters, pitch, trigs) come from the recording. An error
-	// that accumulates over blocks shows here, where each case alone starts from the original's state. A file is such a
-	// run when it holds nothing but consecutive blocks of renderVoices (vectors.py 40004324 --prob 1)
+	// that accumulates over blocks shows here, where each case alone starts from the original's state
 	int continuous = 0, continuousFailed = 0;
 	auto carried = std::make_unique<Sram>();
 	syntakt::Globals carriedGlobals;
-	for(const auto& [first, end] : files)
+	for(const auto& [first, end, isRun] : files)
 	{
-		bool isRun = end - first > 1;
-		for(size_t i = first; i < end; ++i)
-			isRun = isRun && cases[i].routine == 0x40004324;
 		if(!isRun)
 			continue;
 		for(size_t i = 0; i < end - first; ++i)

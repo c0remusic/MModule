@@ -77,12 +77,13 @@ survey on six processes, `mdDrumsVst3HostTest` failed 5 runs of 10 on "a block s
 more, and passing then, the gate is green and says "timing test failed under load, passed on its second run". Any other
 failure, or a timing test failing twice, is red. Gate on a quiet machine whenever possible.
 
-Green is 24 passed out of 24: ctest adds the 4 fixture tests `mdEngineFirmwareTest` requires (`mdEngineFirmwareHits`, `mdEngineFirmwareRomBank`, `mdEngineFirmwareGroups` and `mdEngineFirmwareMaster` boot the firmware to record the hits, the voice DSP's UW bank, the Link and Choke scenarios and the master effect scenarios with the mixer DSP's memory, which `mdEngineFirmwareTest` compares the engine with).
+Green is 25 passed out of 25: ctest adds the 4 fixture tests `mdEngineFirmwareTest` requires (`mdEngineFirmwareHits`, `mdEngineFirmwareRomBank`, `mdEngineFirmwareGroups` and `mdEngineFirmwareMaster` boot the firmware to record the hits, the voice DSP's UW bank, the Link and Choke scenarios and the master effect scenarios with the mixer DSP's memory, which `mdEngineFirmwareTest` compares the engine with).
 
 `MD_X20_OS` names the user's own MDX X.20 OS file, kept beside the ROMs on this PC and never in the repository: `mdX20OsTest` reads it where it is set, and runs only its LZMA and refusal checks without it; `mdX20BuiltinsTest` plays X.20's built-in Machines from it, and nothing without it; `mdX20PortTest` compares the port of their routines with X.20's own run in a 68k (exit 77 without it).
 
 The ROM is required. A firmware test exits 77 without its ROM and ctest reports it Skipped, which proves nothing:
 - The firmware tests read `GEARMULATOR_MD_FIRMWARE_BIN`; MoDule's tests find the flash image as `mdDrums::Engine::findFlashImage` says.
+- `stEngineOracleTest` reads `SYNTAKT_SECTION7` (the user's OS 1.41 section 7) and `SYNTAKT_VECTORS` (the Syntakt port's vector files, `;`-separated), both outside the repository.
 - `mdDrumsVst3HostTest` reads the variable and gives the plug-in a data folder of its own (`GEARMULATOR_DATA_ROOT`), never the user's. Its target builds `mdDrumsPlugin_VST3` into `bin/plugins`: while a host has that MoDule loaded, the link fails on the file in use. Close the set, or take MoDule out of it, before the gate.
 
 ## Tests

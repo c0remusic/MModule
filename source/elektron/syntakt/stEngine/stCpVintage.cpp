@@ -38,50 +38,11 @@ namespace syntakt::cpVintage
 		constexpr uint32_t BiquadPole = 0x4003bc38;
 		constexpr uint32_t ResonatorSin = 0x40014b80;	// 1025 entries
 		constexpr uint32_t ResonatorCos = 0x40015b80;
-		constexpr uint32_t InvSqrt = 0x4000f48c;		// read 0x400 entries below, at 0x400-0x7ff
-		constexpr uint32_t Exp2 = 0x4000e488;
-
-		int32_t word(const Sram& _sram, const uint32_t _params, const uint32_t _k)
-		{
-			return _sram.half(_params + 0x22 + _k);
-		}
-
-		int32_t byte(const Sram& _sram, const uint32_t _params, const uint32_t _k)
-		{
-			return static_cast<int8_t>(_sram.byte(_params + 0x22 + _k));
-		}
-
-		// ff1.l: the offset from the top of the first bit set, 32 for 0
-		int32_t ff1(const int32_t _v)
-		{
-			auto v = static_cast<uint32_t>(_v);
-			if(!v)
-				return 32;
-			int32_t n = 0;
-			while(!(v & 0x80000000u))
-			{
-				v <<= 1;
-				++n;
-			}
-			return n;
-		}
 
 		// 1 / sqrt(1 - _s^2) as a mantissa and an exponent: the shared part of 0x400052f8
 		int32_t invNorm(const int32_t _s, const Rom& _rom)
 		{
-			int32_t d0 = subWrap(INT32_MAX, frac(_s, _s));
-			const int32_t d3 = ff1(d0) - 1;
-			d0 = aslReg(d0, d3);
-			const int32_t i = asl(frac(0x800, d0), 2);
-			int32_t d4 = neg(_rom.at(InvSqrt - 0x1000 + static_cast<uint32_t>(i))) >> 7;
-			d4 = addWrap(d4, asl(d3, 24));
-			return d4 >> 1;
-		}
-
-		int32_t exp2Of(const int32_t _d, const Rom& _rom)
-		{
-			const int32_t i = subWrap(0x1000000, _d & 0xffffff) >> 14;
-			return _rom.at(Exp2 + static_cast<uint32_t>(asl(i, 2)));
+			return sqrtLog(_rom, subWrap(INT32_MAX, frac(_s, _s)));
 		}
 
 		// 0x400052f8: the resonator's coefficients (8 words at _c) from a pitch word
@@ -107,14 +68,14 @@ namespace syntakt::cpVintage
 			g[0] = cosine;
 
 			int32_t d4 = invNorm(cosine, _rom);
-			g[1] = asrReg(exp2Of(d4, _rom), d4 >> 24);
+			g[1] = asrReg(exp2Entry(_rom, d4), d4 >> 24);
 
 			d4 = invNorm(_c[1], _rom);
 			const int32_t d3 = d4 >> 24;
 			const int32_t d5n = neg(d4);
 			const int32_t d6 = d5n >> 24;
-			const int32_t e4 = asrReg(exp2Of(d4, _rom), d3);
-			const int32_t e5 = exp2Of(d5n, _rom);
+			const int32_t e4 = asrReg(exp2Entry(_rom, d4), d3);
+			const int32_t e5 = exp2Entry(_rom, d5n);
 
 			_c[4] = e4;
 			const int32_t s = _c[1];
@@ -359,14 +320,14 @@ namespace syntakt::cpVintage
 		_v.at(0x9c) = static_cast<int32_t>(ToneModulator);
 		_v.at(0x44) = 0x00800000;
 		_v.at(0x50) = 0x08000000;
-		_v.at(0x8c) = frac(0x01000000, interpolate(_rom.ptr(ToneDepth), word(sram, _params, 4)));
-		_v.at(0xd0) = interpolate(_rom.ptr(ToneRatio), word(sram, _params, 4));
-		_v.at(0x2c) = interpolate(_rom.ptr(ToneFeedback), word(sram, _params, 4));
+		_v.at(0x8c) = frac(0x01000000, interpolate(_rom.ptr(ToneDepth), machineWord(sram, _params, 4)));
+		_v.at(0xd0) = interpolate(_rom.ptr(ToneRatio), machineWord(sram, _params, 4));
+		_v.at(0x2c) = interpolate(_rom.ptr(ToneFeedback), machineWord(sram, _params, 4));
 		_v.at(0x588) = 0x2a3d70a4;						// the crackle's threshold
-		_v.at(0x59c) = interpolate(_rom.ptr(SampleRate), word(sram, _params, 8));
+		_v.at(0x59c) = interpolate(_rom.ptr(SampleRate), machineWord(sram, _params, 8));
 
 		// The note with the tune word, as 0x40002596 computes it
-		int32_t p = addSat(_v.at(0x40), frac(_v.at(0x44), asl(word(sram, _params, 2), 16)));
+		int32_t p = addSat(_v.at(0x40), frac(_v.at(0x44), asl(machineWord(sram, _params, 2), 16)));
 		p = addSat(p, _pitch);
 		if(p < 0)
 			p = 0;
@@ -399,8 +360,8 @@ namespace syntakt::cpVintage
 			_v.at(0x4a0) = l;
 		}
 
-		_v.at(0x08) = interpolate(_rom.ptr(GainCrackle), word(sram, _params, 6));
-		const int32_t gainNoise = interpolate(_rom.ptr(GainNoise), word(sram, _params, 6));
+		_v.at(0x08) = interpolate(_rom.ptr(GainCrackle), machineWord(sram, _params, 6));
+		const int32_t gainNoise = interpolate(_rom.ptr(GainNoise), machineWord(sram, _params, 6));
 		_v.at(0x14) = 0x64f40316;
 		_v.at(0x0c) = gainNoise;
 		_v.at(0x10) = 0x3298b05c;
@@ -413,7 +374,7 @@ namespace syntakt::cpVintage
 			_v.at(0x420) = 0x0034714f;
 			_v.at(0x424) = 0x0034714f;
 			_v.at(0x428) = static_cast<int32_t>(0x8068e29d);
-			if(word(sram, _params, 12))
+			if(machineWord(sram, _params, 12))
 			{
 				_v.at(Voice::DriveX1) = INT32_MAX;
 				_v.at(Voice::DriveY1) = INT32_MAX;
@@ -448,9 +409,9 @@ namespace syntakt::cpVintage
 			_v.at(0x94) = _v.at(0x8c);
 		}
 
-		const int32_t b8 = byte(sram, _params, 8);
-		const int32_t b10 = byte(sram, _params, 10);
-		const int32_t b16 = byte(sram, _params, 16);
+		const int32_t b8 = machineByte(sram, _params, 8);
+		const int32_t b10 = machineByte(sram, _params, 10);
+		const int32_t b16 = machineByte(sram, _params, 16);
 		_v.at(0x5bc) = INT32_MIN;
 		_v.at(0x5c8) = _rom.entry(BurstDecay, b8);
 		_v.at(0x5c4) = _rom.entry(BurstDecayLast, b16);

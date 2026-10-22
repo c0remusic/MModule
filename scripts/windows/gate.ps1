@@ -23,7 +23,7 @@ $targets = @(
     "mdDrumsEngineTest", "mdDrumsDeviceTest", "mdDrumsProcessorTest", "mdDrumsSkinTest", "mdDrumsScreensTest",
     "mdDrumsBankTest", "mdDrumsHitPreviewTest", "mdDrumsFirstHitTest", "mdDrumsVst3HostTest", "mdDrumsUpdateTest",
     "mdX20OsTest", "mdX20BuiltinsTest", "mdX20PortTest", "synthLibResamplerTimingTest", "synthLibOutputChannelsTest",
-    "mdProtocolKitTest")
+    "mdProtocolKitTest", "stEngineOracleTest")
 $tests = $targets + @("mdSlideFirmwareTest") | Where-Object { $_ -ne "mdTrigLatencyFirmwareTest" }
 # Tests that compare the audio thread's wall-clock time with a bound
 $timingTests = @("mdDrumsVst3HostTest", "mdDrumsEngineTest")

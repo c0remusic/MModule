@@ -1,5 +1,6 @@
 #include "stEngine.h"
 
+#include <algorithm>
 #include <array>
 
 #include "stBdModern.h"
@@ -88,11 +89,15 @@ namespace syntakt
 			voice.at(Voice::AmpHold) = _sram.half(params + 0x4c);
 			restartPhases(voice);
 
-			// The original runs engines 0 to 11 (an unsigned compare); a voice on one not ported stays silent
+			// The original runs engines 0 to 11 (an unsigned compare); a voice on one not ported writes silence
 			if(const auto* e = engine(static_cast<uint32_t>(voice.at(Voice::Engine))))
 			{
 				e->update(_sram.at(Pitch + 4 * static_cast<uint32_t>(v)), voice, params + 0x1c, _rom);
 				e->render(_sram.ptr(_out + TrackOutStride * static_cast<uint32_t>(v)), voice, _rom);
+			}
+			else
+			{
+				std::fill_n(_sram.ptr(_out + TrackOutStride * static_cast<uint32_t>(v)), BlockSize, 0);
 			}
 			voice.at(Voice::TrigNow) = voice.at(Voice::TrigPending);
 		}

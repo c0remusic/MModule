@@ -1,6 +1,7 @@
 #include "stTrack.h"
 
 #include "stEmac.h"
+#include "stStages.h"
 
 namespace syntakt::track
 {
@@ -19,48 +20,16 @@ namespace syntakt::track
 		constexpr uint32_t BufA = 0x80008960;
 		constexpr uint32_t BufB = 0x800089e0;
 
-		// ff1.l: leading zeros, 32 for 0
-		int32_t ff1(const int32_t _v)
-		{
-			uint32_t v = static_cast<uint32_t>(_v);
-			if(!v)
-				return 32;
-			int32_t n = 0;
-			while(!(v & 0x80000000u))
-			{
-				v <<= 1;
-				++n;
-			}
-			return n;
-		}
-
-		// The log step of the inlined square root: L, -log2(sqrt v) in Q8.24
-		int32_t sqrtLog(const Rom& _rom, const int32_t _v)
-		{
-			const int32_t z = ff1(_v) - 1;
-			const int32_t mn = aslReg(_v, z);
-			const int32_t k = frac(0x800, mn);
-			int32_t l = _rom.entry(0x4000f48c - 0x1000, k);
-			l = neg(l) >> 7;
-			l = addWrap(l, aslReg(z, 24));
-			return l >> 1;
-		}
-
-		int32_t expIndex(const int32_t _l)
-		{
-			return subWrap(0x1000000, _l & 0xffffff) >> 14;
-		}
-
 		// sqrt v from L
 		int32_t sqrtOf(const Rom& _rom, const int32_t _l)
 		{
-			return asrReg(_rom.entry(0x4000e488, expIndex(_l)), asrReg(_l, 24));
+			return asrReg(exp2Entry(_rom, _l), asrReg(_l, 24));
 		}
 
 		// 1/sqrt v from L, as a mantissa and the shift that goes with it
 		int32_t invMantissa(const Rom& _rom, const int32_t _l)
 		{
-			return _rom.entry(0x4000e488, expIndex(neg(_l)));
+			return exp2Entry(_rom, neg(_l));
 		}
 
 		int32_t invShift(const int32_t _l)

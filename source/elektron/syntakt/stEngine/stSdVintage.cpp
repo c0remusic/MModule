@@ -34,16 +34,6 @@ namespace syntakt::sdVintage
 		constexpr uint32_t Decay01 = 0x4003a038;
 		constexpr uint32_t Decay3 = 0x40028438;	// indexed by byte 16 << 7 | byte 10
 
-		int32_t word(const Sram& _sram, const uint32_t _params, const uint32_t _k)
-		{
-			return _sram.half(_params + 0x22 + _k);
-		}
-
-		int32_t byte(const Sram& _sram, const uint32_t _params, const uint32_t _k)
-		{
-			return static_cast<int8_t>(_sram.byte(_params + 0x22 + _k));
-		}
-
 		// 0x40005016: a biquad in place, y = 2 (c0 x + c1 x1 + c2 x2 - c3 y1 - c4 y2) saturated, kept as the state, and
 		// written doubled again. Coefficients at _c[0..4], state x1, x2, y1, y2 at _c[5..8]
 		void biquad(int32_t* _buf, int32_t* _c)
@@ -99,7 +89,7 @@ namespace syntakt::sdVintage
 	void update(const int32_t _pitch, Voice& _v, const uint32_t _params, const Rom& _rom)
 	{
 		const Sram& sram = _v.sram;
-		const int32_t w6 = word(sram, _params, 6);
+		const int32_t w6 = machineWord(sram, _params, 6);
 
 		// The noise's low-pass, its two levels in the mix, the three depths of unit 3's modulation
 		const int32_t lp = interpolate(_rom.ptr(NoiseLp), w6);
@@ -116,9 +106,9 @@ namespace syntakt::sdVintage
 
 		if(_v.at(Voice::TrigNow))
 		{
-			const int32_t b16 = byte(sram, _params, 16);
-			const int32_t b10 = byte(sram, _params, 10);
-			const int32_t b8 = byte(sram, _params, 8);
+			const int32_t b16 = machineByte(sram, _params, 16);
+			const int32_t b10 = machineByte(sram, _params, 10);
+			const int32_t b8 = machineByte(sram, _params, 8);
 			constexpr auto attack = static_cast<int32_t>(0xcccccccd);
 
 			_v.at(0x28) = 0;
@@ -131,7 +121,7 @@ namespace syntakt::sdVintage
 			_v.at(0x154) = attack;
 			_v.at(0x45c) = _rom.entry(ModDecay, b16);
 			_v.at(0x1d4) = b10 <= 0x7e ? attack : 0;
-			_v.at(0x1d8) = _rom.entry(Decay3, (b16 << 7) + b10);
+			_v.at(0x1d8) = _rom.entry(Decay3, addWrap(asl(b16, 7), b10));
 			_v.at(0x40c) = attack;
 			_v.at(0x3f8) = _rom.entry(SweepDepth, b8);
 			_v.at(Voice::DriveX1) = INT32_MAX;
@@ -145,7 +135,7 @@ namespace syntakt::sdVintage
 			_v.at(0x428) = static_cast<int32_t>(0x8022ffcb);
 			_v.at(0x410) = _rom.entry(SweepDecay, b8);
 
-			if(word(sram, _params, 12))
+			if(machineWord(sram, _params, 12))
 			{
 				_v.at(Voice::DriveFloor) = 0x20000000;
 				_v.at(Voice::DrivePreGain) = INT32_MAX;
@@ -185,7 +175,7 @@ namespace syntakt::sdVintage
 			_v.at(0x24) = _v.at(0x14);
 		}
 
-		const int32_t w4 = word(sram, _params, 4);
+		const int32_t w4 = machineWord(sram, _params, 4);
 		_v.at(0x40) = static_cast<int32_t>(0xffc00000);	// -64 semitones
 		_v.at(0x44) = 0x00800000;
 		_v.at(0x9c) = static_cast<int32_t>(BufferA3);

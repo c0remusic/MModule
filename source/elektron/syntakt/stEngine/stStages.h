@@ -6,6 +6,15 @@
 
 namespace syntakt
 {
+	// ff1.l: leading zeros, 32 for 0
+	int32_t ff1(int32_t _v);
+
+	// The log step of the firmware's inlined square root: L, -log2(sqrt _v) in Q8.24 (table 0x4000f48c)
+	int32_t sqrtLog(const Rom& _rom, int32_t _v);
+
+	// The exp2 table's entry (0x4000e488) for the fraction of L
+	int32_t exp2Entry(const Rom& _rom, int32_t _l);
+
 	// The stages most of the Syntakt's twelve digital engines share, ported from OS 1.41's voice CPU (section 7) and
 	// checked word for word against the original routines (stEngineOracleTest). Each names the routine it ports.
 

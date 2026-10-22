@@ -137,6 +137,18 @@ namespace syntakt
 		};
 	};
 
+	// An engine's update reads the track's machine parameters at P + 0x1c + 0x22 + _k (_params: P + 0x1c): parameter
+	// _k as a signed word (value << 8 | fine) or its high byte, signed
+	inline int32_t machineWord(const Sram& _sram, const uint32_t _params, const uint32_t _k)
+	{
+		return _sram.half(_params + 0x22 + _k);
+	}
+
+	inline int32_t machineByte(const Sram& _sram, const uint32_t _params, const uint32_t _k)
+	{
+		return static_cast<int8_t>(_sram.byte(_params + 0x22 + _k));
+	}
+
 	// A table a voice points at, in SRAM (the RAM sine) or in section 7 (the ROM waves)
 	inline const int32_t* table(const Sram& _sram, const Rom& _rom, const uint32_t _address)
 	{

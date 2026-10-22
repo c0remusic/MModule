@@ -32,17 +32,6 @@ namespace syntakt::sdBasic
 		constexpr uint32_t DepthU3 = 0x40027438;
 		constexpr uint32_t LowPass = 0x40026238;
 
-		// The update's machine bytes, at offsets of the block it is given (P + 0x1c): signed words and bytes
-		int32_t word(const Sram& _sram, const uint32_t _params, const uint32_t _offset)
-		{
-			return _sram.half(_params + _offset);
-		}
-
-		int32_t byte(const Sram& _sram, const uint32_t _params, const uint32_t _offset)
-		{
-			return static_cast<int8_t>(_sram.byte(_params + _offset));
-		}
-
 		// 0x40004e14: a first-order IIR in place, y = c0 x + c1 x1 - c2 y1, its coefficients at _c[0..2] and its state
 		// at _c[6] (x1) and _c[7] (y1), each product truncated alone and the terms added wrapping
 		void firstOrder(int32_t* _buf, int32_t* _c)
@@ -65,18 +54,18 @@ namespace syntakt::sdBasic
 	void update(const int32_t _pitch, Voice& _v, const uint32_t _params, const Rom& _rom)
 	{
 		const Sram& sram = _v.sram;
-		_v.at(0x45c) = _rom.entry(ModDecay, byte(sram, _params, 50));
-		_v.at(Voice::AmpDecay) = _rom.entry(AmpDecay, byte(sram, _params, 50));
+		_v.at(0x45c) = _rom.entry(ModDecay, machineByte(sram, _params, 16));
+		_v.at(Voice::AmpDecay) = _rom.entry(AmpDecay, machineByte(sram, _params, 16));
 
 		if(_v.at(Voice::TrigNow))
 		{
 			_v.at(0x28) = 0;
-			_v.at(0x58) = _rom.entry(DecayU0, byte(sram, _params, 50));
-			_v.at(0xd8) = _rom.entry(DecayU1, byte(sram, _params, 50));
-			_v.at(0x158) = _rom.entry(DecayU2, byte(sram, _params, 50));
-			_v.at(0x1d8) = _rom.entry(DecayU3, byte(sram, _params, 44));
-			_v.at(0x3f8) = _rom.entry(SweepDepth, byte(sram, _params, 42));
-			_v.at(0x410) = _rom.entry(SweepDecay, byte(sram, _params, 42));
+			_v.at(0x58) = _rom.entry(DecayU0, machineByte(sram, _params, 16));
+			_v.at(0xd8) = _rom.entry(DecayU1, machineByte(sram, _params, 16));
+			_v.at(0x158) = _rom.entry(DecayU2, machineByte(sram, _params, 16));
+			_v.at(0x1d8) = _rom.entry(DecayU3, machineByte(sram, _params, 10));
+			_v.at(0x3f8) = _rom.entry(SweepDepth, machineByte(sram, _params, 8));
+			_v.at(0x410) = _rom.entry(SweepDecay, machineByte(sram, _params, 8));
 			_v.at(0x414) = 0x01f10e1d;
 			_v.at(0x418) = 0x01f10e1d;
 			_v.at(Voice::DriveX1) = INT32_MAX;
@@ -85,9 +74,9 @@ namespace syntakt::sdBasic
 			_v.at(0x420) = 0x001f7c5c;
 			_v.at(0x424) = 0x001f7c5c;
 			_v.at(0x428) = static_cast<int32_t>(0x803ef8b8);
-			_v.at(Voice::AmpAttack) = _rom.entry(AmpAttack, byte(sram, _params, 50));
+			_v.at(Voice::AmpAttack) = _rom.entry(AmpAttack, machineByte(sram, _params, 16));
 
-			if(word(sram, _params, 46))
+			if(machineWord(sram, _params, 12))
 			{
 				_v.at(Voice::DriveFloor) = 0x40000000;
 				_v.at(Voice::DrivePreGain) = INT32_MAX;
@@ -111,15 +100,15 @@ namespace syntakt::sdBasic
 		_v.at(0x0c) = 0x40000000;
 		_v.at(0x1c) = 0x40000000;
 
-		_v.at(0x2c) = interpolate(_rom.ptr(Feedback), word(sram, _params, 40));
+		_v.at(0x2c) = interpolate(_rom.ptr(Feedback), machineWord(sram, _params, 6));
 		_v.at(0x40) = static_cast<int32_t>(0xffc00000);	// -64 semitones
 		_v.at(0x50) = 0x08000000;
 		_v.at(0x44) = 0x00800000;
-		_v.at(0x5c) = interpolate(_rom.ptr(TargetU0), word(sram, _params, 44));
-		_v.at(0x64) = interpolate(_rom.ptr(ScaleU0), word(sram, _params, 38));
+		_v.at(0x5c) = interpolate(_rom.ptr(TargetU0), machineWord(sram, _params, 10));
+		_v.at(0x64) = interpolate(_rom.ptr(ScaleU0), machineWord(sram, _params, 4));
 		_v.at(0xd0) = 0x08000000;
-		_v.at(0xdc) = interpolate(_rom.ptr(TargetU1), word(sram, _params, 44));
-		const int32_t scaleU1 = interpolate(_rom.ptr(ScaleU1), word(sram, _params, 38));
+		_v.at(0xdc) = interpolate(_rom.ptr(TargetU1), machineWord(sram, _params, 10));
+		const int32_t scaleU1 = interpolate(_rom.ptr(ScaleU1), machineWord(sram, _params, 4));
 		_v.at(0x150) = 0x04000000;
 		_v.at(0x10c) = 0;
 		_v.at(0x110) = 0;
@@ -132,11 +121,11 @@ namespace syntakt::sdBasic
 		_v.at(0x19c) = static_cast<int32_t>(BufferA1);
 		_v.at(0x1d0) = 0x0c000000;
 		_v.at(0x1dc) = 0x20000000;
-		_v.at(0x1e4) = interpolate(_rom.ptr(ScaleU3), word(sram, _params, 38));
+		_v.at(0x1e4) = interpolate(_rom.ptr(ScaleU3), machineWord(sram, _params, 4));
 		const int32_t depthU3 = frac(0x01000000, 0x20000000);
 		_v.at(0x20c) = depthU3;
 		_v.at(0x214) = depthU3;
-		const int32_t depth2U3 = interpolate(_rom.ptr(DepthU3), word(sram, _params, 40));
+		const int32_t depth2U3 = interpolate(_rom.ptr(DepthU3), machineWord(sram, _params, 6));
 		_v.at(0x220) = static_cast<int32_t>(BufferA0);
 		_v.at(0x480) = static_cast<int32_t>(0xb46fb855);
 		_v.at(0x210) = frac(0x10000000, depth2U3);
@@ -145,7 +134,7 @@ namespace syntakt::sdBasic
 		_v.at(0x484) = static_cast<int32_t>(0x841f111a);
 
 		// Unit 3's low-pass, its pole from byte 6
-		const int32_t w6 = word(sram, _params, 40);
+		const int32_t w6 = machineWord(sram, _params, 6);
 		const int32_t i = addWrap(frac(0x7f000000, w6), subWrap(0x7f00, w6)) >> 8;
 		const int32_t c2 = _rom.entry(LowPass, i);
 		_v.at(0x4a4) = c2;

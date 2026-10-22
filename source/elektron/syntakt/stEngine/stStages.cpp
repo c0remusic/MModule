@@ -4,6 +4,36 @@
 
 namespace syntakt
 {
+	int32_t ff1(const int32_t _v)
+	{
+		uint32_t v = static_cast<uint32_t>(_v);
+		if(!v)
+			return 32;
+		int32_t n = 0;
+		while(!(v & 0x80000000u))
+		{
+			v <<= 1;
+			++n;
+		}
+		return n;
+	}
+
+	int32_t sqrtLog(const Rom& _rom, const int32_t _v)
+	{
+		const int32_t z = ff1(_v) - 1;
+		const int32_t mn = aslReg(_v, z);
+		const int32_t k = frac(0x800, mn);
+		int32_t l = _rom.entry(0x4000f48c - 0x1000, k);
+		l = neg(l) >> 7;
+		l = addWrap(l, aslReg(z, 24));
+		return l >> 1;
+	}
+
+	int32_t exp2Entry(const Rom& _rom, const int32_t _l)
+	{
+		return _rom.entry(0x4000e488, subWrap(0x1000000, _l & 0xffffff) >> 14);
+	}
+
 	namespace
 	{
 		// The envelopes' one-pole decay: level <- a level - (1 - a) target, with the coefficient c = -a. Two products,

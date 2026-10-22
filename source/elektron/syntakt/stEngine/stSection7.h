@@ -21,11 +21,18 @@ namespace syntakt
 		return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
 	}
 
+	constexpr uint64_t Section7Fnv = 0x641c4f29887bd511;	// FNV-1a 64 of OS 1.41's section 7
+
 	// The user's section 7 as the words a Rom reads; empty when the file is not OS 1.41's section 7
 	inline std::vector<int32_t> loadSection7(const std::string& _path)
 	{
 		const auto bytes = readFile(_path);
 		if(bytes.size() != Section7Size)
+			return {};
+		uint64_t h = 0xcbf29ce484222325;
+		for(const uint8_t b : bytes)
+			h = (h ^ b) * 0x100000001b3;
+		if(h != Section7Fnv)
 			return {};
 		std::vector<int32_t> words(bytes.size() / 4);
 		for(size_t i = 0; i < words.size(); ++i)
