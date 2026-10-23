@@ -10,6 +10,7 @@
 //
 //     stSyntaktTest --log CALLS.txt    writes the scenario's calls, which syntakt3.py reads, and exits
 //     stSyntaktTest --wav OUT.wav      also writes the eight stems mixed with the returns, to listen to
+//     stSyntaktTest --raw OUT.bin      also writes the 14 outputs raw (int32, channel after channel), to compare builds
 //
 // It also measures the time from a noteOn to the first sample of its stem, at several offsets within a block.
 
@@ -279,7 +280,7 @@ int main(const int _argc, char** _argv)
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
 
-	std::string logPath, wavPath;
+	std::string logPath, wavPath, rawPath;
 	for(int i = 1; i + 1 < _argc; i += 2)
 	{
 		const std::string option = _argv[i];
@@ -287,6 +288,8 @@ int main(const int _argc, char** _argv)
 			logPath = _argv[i + 1];
 		else if(option == "--wav")
 			wavPath = _argv[i + 1];
+		else if(option == "--raw")
+			rawPath = _argv[i + 1];
 	}
 
 	const auto calls = scenario();
@@ -324,6 +327,13 @@ int main(const int _argc, char** _argv)
 	Syntakt st(section3, section7);
 	st.setSamples(&samples);
 	const auto out = play(st, calls);
+	if(!rawPath.empty())
+	{
+		std::ofstream f(rawPath, std::ios::binary);
+		f.write(reinterpret_cast<const char*>(out.data()), static_cast<std::streamsize>(4 * out.size()));
+		std::printf("%s the outputs, channel after channel, raw Q31 -> %s\n", f ? "wrote" : "FAIL: cannot write",
+			rawPath.c_str());
+	}
 
 	bool ok = true;
 	for(int c = 0; c < Channels; ++c)

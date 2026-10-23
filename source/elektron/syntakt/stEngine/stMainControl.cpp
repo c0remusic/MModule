@@ -1,5 +1,7 @@
 #include "stMainControl.h"
 
+#include <cstring>
+
 #include "stEmac.h"
 
 namespace syntakt::main
@@ -59,10 +61,16 @@ namespace syntakt::main
 		}
 		_mem.setWord(out, pair);
 
-		// memcpy 0x40115f78
+		// memcpy 0x40115f78: at once where one page of the table holds each run and the runs do not overlap, else a
+		// byte at a time
 		const uint32_t settings = _target + 2 * EngineWords;
-		for(uint32_t i = 0; i < SettingsBytes; ++i)
-			_mem.setByte(SettingsCopy + i, _mem.byte(settings + i));
+		const uint8_t* from = _mem.bytesAt(settings, SettingsBytes);
+		uint8_t* to = _mem.writableBytesAt(SettingsCopy, SettingsBytes);
+		if(from && to && (from + SettingsBytes <= to || to + SettingsBytes <= from))
+			std::memcpy(to, from, SettingsBytes);
+		else
+			for(uint32_t i = 0; i < SettingsBytes; ++i)
+				_mem.setByte(SettingsCopy + i, _mem.byte(settings + i));
 
 		for(uint32_t t = 0; t < 12; ++t)
 		{

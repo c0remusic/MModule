@@ -117,6 +117,19 @@ namespace syntakt
 		// _count samples of each output into _outputs[0] to _outputs[Outputs - 1]
 		void render(int32_t* const* _outputs, size_t _count);
 
+		// The time the last block computed took by stage, in seconds, as std::chrono::steady_clock measures it: CPU
+		// #1's block for the voice CPU (buildBlock), CPU #1's mix with the delay and the reverb, the voice CPU (its
+		// voices and the tracks' stages); blocks counts the blocks computed
+		struct BlockTimes
+		{
+			double build = 0;
+			double mix = 0;
+			double voices = 0;
+			uint64_t blocks = 0;
+		};
+
+		const BlockTimes& blockTimes() const;
+
 	private:
 		struct State;
 

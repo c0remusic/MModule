@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <utility>
 
@@ -73,10 +74,16 @@ namespace syntakt
 		std::array<int32_t, Voices * BlockSize> voices{};	// the voice CPU's last block, which the mix takes next
 		std::array<int32_t, Outputs * BlockSize> out{};
 		int position = BlockSize;	// the next sample of out to give; BlockSize: none left
+		BlockTimes times;
 
 		State(const main::Section3& _section3, const std::vector<int32_t>& _section7)
 			: mem(_section3), rom{_section7.data()}
 		{
+			// Nothing allocates on the audio thread: the delay's and the reverb's lines and the lock lists are held
+			// from the start
+			mem.reserveLines();
+			for(auto& l : locks)
+				l.reserve(MaxLocks);
 		}
 
 		// The default of internal id _id in descriptor group _group (the first descriptor naming it); false if none
@@ -155,6 +162,8 @@ namespace syntakt
 		// the mix of the voice CPU's last one, and the voice CPU's turn
 		void block()
 		{
+			using Clock = std::chrono::steady_clock;
+			const auto start = Clock::now();
 			main::BlockMasks masks;
 			masks.trigs = masks.lfoTrigs = masks.filterTrigs = static_cast<int32_t>(trigs);
 			masks.gateOffs = masks.filterGateOffs = static_cast<int32_t>(gateOffs & ~trigs);
@@ -169,6 +178,7 @@ namespace syntakt
 			for(uint32_t i = 0; i < voices.size(); ++i)
 				mem.setWord(main::VoiceOutputs + 4 * i, voices[i]);
 			main::buildBlock(mem, masks);
+			const auto built = Clock::now();
 			main::Emac4 acc;
 			main::mixOutput(mem, acc, main::Smoothed);
 
@@ -184,6 +194,7 @@ namespace syntakt
 				out[BlockSize * FxLeft + s] = mem.word(main::FxBus + 8 * s);
 				out[BlockSize * FxRight + s] = mem.word(main::FxBus + 8 * s + 4);
 			}
+			const auto mixed = Clock::now();
 
 			uint8_t bytes[main::BlockBytes];
 			for(uint32_t i = 0; i < main::BlockBytes; ++i)
@@ -191,6 +202,12 @@ namespace syntakt
 			runBlock(sram, globals, rom, bytes);
 			std::copy_n(sram.ptr(VoiceOut), voices.size(), voices.data());
 			position = 0;
+
+			const auto end = Clock::now();
+			times.build = std::chrono::duration<double>(built - start).count();
+			times.mix = std::chrono::duration<double>(mixed - built).count();
+			times.voices = std::chrono::duration<double>(end - mixed).count();
+			++times.blocks;
 		}
 	};
 
@@ -310,6 +327,11 @@ namespace syntakt
 			s.nextGateOffs |= bit(_track);
 		else
 			s.gateOffs |= bit(_track);
+	}
+
+	const Syntakt::BlockTimes& Syntakt::blockTimes() const
+	{
+		return m_state->times;
 	}
 
 	void Syntakt::render(int32_t* const* _outputs, const size_t _count)

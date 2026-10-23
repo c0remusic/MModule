@@ -1,5 +1,7 @@
 #include "stMainFx.h"
 
+#include <cstring>
+
 #include "stEmac.h"
 #include "stMainBlock.h"
 
@@ -111,16 +113,23 @@ namespace syntakt::main
 			uint32_t s = _tcd.saddr, d = _tcd.daddr;
 			for(uint32_t it = 0; it < count; ++it)
 			{
+				// A transfer unit a page holds whole moves at once, else a byte at a time, as the same bytes
 				for(uint32_t k = 0; k + sb <= n; k += sb)
 				{
-					for(uint32_t b = 0; b < sb; ++b)
-						data[k + b] = _mem.byte(s + b);
+					if(const uint8_t* from = _mem.bytesAt(s, sb))
+						std::memcpy(data + k, from, sb);
+					else
+						for(uint32_t b = 0; b < sb; ++b)
+							data[k + b] = _mem.byte(s + b);
 					s = step(s, _tcd.soff, smod);
 				}
 				for(uint32_t k = 0; k + db <= n; k += db)
 				{
-					for(uint32_t b = 0; b < db; ++b)
-						_mem.setByte(d + b, data[k + b]);
+					if(uint8_t* to = _mem.writableBytesAt(d, db))
+						std::memcpy(to, data + k, db);
+					else
+						for(uint32_t b = 0; b < db; ++b)
+							_mem.setByte(d + b, data[k + b]);
 					d = step(d, _tcd.doff, dmod);
 				}
 			}

@@ -1,11 +1,23 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <map>
 #include <string>
 #include <vector>
 
 #include "stSection7.h"
+
+// Inlined whatever the compiler's heuristics say: the mix's and the memory's hottest calls, which MSVC leaves as calls
+#ifndef ST_FORCE_INLINE
+#	ifdef _MSC_VER
+#		define ST_FORCE_INLINE __forceinline
+#	else
+#		define ST_FORCE_INLINE inline __attribute__((always_inline))
+#	endif
+#endif
 
 // The Syntakt's main CPU (CPU #1, OS 1.41's section 3) where the port's routines read and write it. The addresses are
 // the firmware's: the routines rely on the layout (.scratch/elektron-engines/cpu1.md).
@@ -54,7 +66,12 @@ namespace syntakt::main
 	// DDR pages of the state the routines keep (Pages), the DDR the delay and the reverb keep their lines in (Lines),
 	// held a 4 KB page at a time as they are written, and section 3, read only but for its data page 0x402d7000
 	// (the tempo, the LFOs' random generator), which starts as the file holds it. An access anywhere else is a
-	// fault, which the first one's address records: reads give 0, writes are dropped
+	// fault, which the first one's address records: reads give 0, writes are dropped.
+	//
+	// A table of 4 KB pages gives each access its backing bytes in two lookups: a page of SRAM, of Pages, of the data
+	// page, of the lines written, or one section 3 fills whole. An access the table has no page for (a fault, a line
+	// not written yet, section 3's partial first and last pages, a write to section 3) takes the search through the
+	// regions as before, which decides it as it always did
 	class Memory
 	{
 	public:
@@ -102,46 +119,87 @@ namespace syntakt::main
 			for(uint32_t i = 0; i < PageSize; ++i)
 				data.bytes[i] = _rom.holds(DataBase + i) ? _rom.bytes[DataBase + i - Section3::Base] : 0;
 			m_regions.push_back(std::move(data));
+			mapPages();
+		}
+
+		// A copy's table points at the copy's own bytes
+		Memory(const Memory& _other)
+			: m_rom(_other.m_rom), m_regions(_other.m_regions), m_lines(_other.m_lines), m_fault(_other.m_fault)
+		{
+			mapPages();
+		}
+
+		Memory& operator=(const Memory& _other)
+		{
+			if(this == &_other)
+				return *this;
+			m_rom = _other.m_rom;
+			m_regions = _other.m_regions;
+			m_lines = _other.m_lines;
+			m_fault = _other.m_fault;
+			mapPages();
+			return *this;
+		}
+
+		// Moving keeps the vectors' and the map's storage, so the table stays right
+		Memory(Memory&&) = default;
+		Memory& operator=(Memory&&) = default;
+
+		// Every page of Lines held from now on, zeros where nothing was written: no page is allocated as a line is
+		// first written, which a plug-in's audio thread cannot afford. What any access reads or writes is the same
+		void reserveLines()
+		{
+			for(const auto& r : Lines)
+				for(uint32_t a = r.base; a - r.base < r.size; a += PageSize)
+					line(a);
 		}
 
 		uint8_t byte(const uint32_t _address) const
 		{
-			if(const uint8_t* p = find(_address))
-				return *p;
-			if(inLines(_address))
-			{
-				const auto it = m_lines.find(_address & ~(PageSize - 1));
-				return it == m_lines.end() ? 0 : it->second[_address & (PageSize - 1)];
-			}
-			if(m_rom->holds(_address))
-				return m_rom->bytes[_address - Section3::Base];
-			noteFault(_address);
-			return 0;
+			if(const uint8_t* b = readAt(_address, 1))
+				return *b;
+			return searchByte(_address);
 		}
 
 		void setByte(const uint32_t _address, const uint8_t _v)
 		{
-			if(uint8_t* p = find(_address))
-				*p = _v;
-			else if(inLines(_address))
-				line(_address)[_address & (PageSize - 1)] = _v;
+			if(uint8_t* b = writeAt(_address, 1))
+				*b = _v;
 			else
-				noteFault(_address);
+				searchSetByte(_address, _v);
 		}
 
 		int16_t half(const uint32_t _address) const
 		{
+			if(const uint8_t* b = readAt(_address, 2))
+			{
+				uint16_t v;
+				std::memcpy(&v, b, 2);
+				return static_cast<int16_t>(swap16(v));
+			}
 			return static_cast<int16_t>(byte(_address) << 8 | byte(_address + 1));
 		}
 
 		void setHalf(const uint32_t _address, const int32_t _v)
 		{
+			if(uint8_t* b = writeAt(_address, 2))
+			{
+				const uint16_t v = swap16(static_cast<uint16_t>(_v));
+				std::memcpy(b, &v, 2);
+				return;
+			}
 			setByte(_address, static_cast<uint8_t>(_v >> 8));
 			setByte(_address + 1, static_cast<uint8_t>(_v));
 		}
 
 		int32_t word(const uint32_t _address) const
 		{
+			if(const uint8_t* b = readAt(_address, 4))
+			{
+				uint32_t v;
+				std::memcpy(&v, b, 4);
+				return static_cast<int32_t>(swap32(v));
+			}
 			return static_cast<int32_t>(static_cast<uint32_t>(byte(_address)) << 24 | byte(_address + 1) << 16 |
 				byte(_address + 2) << 8 | byte(_address + 3));
 		}
@@ -149,11 +207,22 @@ namespace syntakt::main
 		void setWord(const uint32_t _address, const int32_t _v)
 		{
 			const auto v = static_cast<uint32_t>(_v);
+			if(uint8_t* b = writeAt(_address, 4))
+			{
+				const uint32_t w = swap32(v);
+				std::memcpy(b, &w, 4);
+				return;
+			}
 			setByte(_address, static_cast<uint8_t>(v >> 24));
 			setByte(_address + 1, static_cast<uint8_t>(v >> 16));
 			setByte(_address + 2, static_cast<uint8_t>(v >> 8));
 			setByte(_address + 3, static_cast<uint8_t>(v));
 		}
+
+		// The _n bytes (at most a page) from _address, for a routine that moves a run of them at once, when one page
+		// of the table holds them all; null where byte() and setByte() must decide, a byte at a time
+		const uint8_t* bytesAt(const uint32_t _address, const uint32_t _n) const { return readAt(_address, _n); }
+		uint8_t* writableBytesAt(const uint32_t _address, const uint32_t _n) { return writeAt(_address, _n); }
 
 		// The first address accessed outside the memory, 0 while there is none
 		uint32_t fault() const { return m_fault; }
@@ -174,11 +243,121 @@ namespace syntakt::main
 		}
 
 	private:
+		// A page's bytes for reading and for writing, null where the search decides
+		struct Page
+		{
+			const uint8_t* read = nullptr;
+			uint8_t* write = nullptr;
+		};
+
+		static constexpr uint32_t ChunkShift = 22;		// the table's first level: 1024 chunks of 4 MB
+		static constexpr uint32_t ChunkPages = 1024;
+		using Chunk = std::array<Page, ChunkPages>;
+
+		// The _n bytes from _address when one page of the table holds them all, SRAM first, the most accessed; null
+		// where the search decides
+		ST_FORCE_INLINE const uint8_t* readAt(const uint32_t _address, const uint32_t _n) const
+		{
+			if(_address - SramBase <= SramSize - _n)
+				return m_sram + (_address - SramBase);
+			if((_address & (PageSize - 1)) > PageSize - _n)
+				return nullptr;
+			const uint16_t c = m_chunks[_address >> ChunkShift];
+			if(!c)
+				return nullptr;
+			const uint8_t* p = m_table[c - 1u][(_address >> 12) & (ChunkPages - 1)].read;
+			return p ? p + (_address & (PageSize - 1)) : nullptr;
+		}
+
+		ST_FORCE_INLINE uint8_t* writeAt(const uint32_t _address, const uint32_t _n) const
+		{
+			if(_address - SramBase <= SramSize - _n)
+				return m_sram + (_address - SramBase);
+			if((_address & (PageSize - 1)) > PageSize - _n)
+				return nullptr;
+			const uint16_t c = m_chunks[_address >> ChunkShift];
+			if(!c)
+				return nullptr;
+			uint8_t* p = m_table[c - 1u][(_address >> 12) & (ChunkPages - 1)].write;
+			return p ? p + (_address & (PageSize - 1)) : nullptr;
+		}
+
+		// The big-endian CPU's order from the host's, which is little-endian (x86-64, ARM64)
+		static uint16_t swap16(const uint16_t _v) { return static_cast<uint16_t>(_v << 8 | _v >> 8); }
+
+		static uint32_t swap32(const uint32_t _v)
+		{
+#ifdef _MSC_VER
+			return _byteswap_ulong(_v);
+#else
+			return __builtin_bswap32(_v);
+#endif
+		}
+
+		void mapPage(const uint32_t _base, const uint8_t* _read, uint8_t* _write)
+		{
+			uint16_t& c = m_chunks[_base >> ChunkShift];
+			if(!c)
+			{
+				m_table.emplace_back();
+				c = static_cast<uint16_t>(m_table.size());
+			}
+			m_table[c - 1u][(_base >> 12) & (ChunkPages - 1)] = {_read, _write};
+		}
+
+		// The table from what the memory holds, in the search's order of precedence: section 3's whole pages (read
+		// only), then the lines written, then the regions, which section 3's data page lies under
+		void mapPages()
+		{
+			m_chunks.fill(0);
+			m_table.clear();
+			m_sram = m_regions.front().bytes.data();
+			const auto& rom = m_rom->bytes;
+			const uint32_t romEnd = Section3::Base + static_cast<uint32_t>(rom.size());
+			for(uint32_t a = (Section3::Base + PageSize - 1) & ~(PageSize - 1); a + PageSize <= romEnd; a += PageSize)
+				mapPage(a, rom.data() + (a - Section3::Base), nullptr);
+			for(auto& [base, page] : m_lines)
+				mapPage(base, page.data(), page.data());
+			for(auto& r : m_regions)
+				for(uint32_t i = 0; i < r.bytes.size(); i += PageSize)
+					mapPage(r.base + i, r.bytes.data() + i, r.bytes.data() + i);
+		}
+
+		uint8_t searchByte(const uint32_t _address) const
+		{
+			if(const uint8_t* p = find(_address))
+				return *p;
+			if(inLines(_address))
+			{
+				const auto it = m_lines.find(_address & ~(PageSize - 1));
+				return it == m_lines.end() ? 0 : it->second[_address & (PageSize - 1)];
+			}
+			if(m_rom->holds(_address))
+				return m_rom->bytes[_address - Section3::Base];
+			noteFault(_address);
+			return 0;
+		}
+
+		void searchSetByte(const uint32_t _address, const uint8_t _v)
+		{
+			if(uint8_t* p = find(_address))
+				*p = _v;
+			else if(inLines(_address))
+				line(_address)[_address & (PageSize - 1)] = _v;
+			else
+				noteFault(_address);
+		}
+
+		// A line's page, made of zeros the first time, and mapped
 		std::vector<uint8_t>& line(const uint32_t _address)
 		{
-			auto& page = m_lines[_address & ~(PageSize - 1)];
+			const uint32_t base = _address & ~(PageSize - 1);
+			auto& page = m_lines[base];
 			if(page.empty())
+			{
 				page.resize(PageSize);
+				mapPage(base, page.data(), page.data());
+			}
 			return page;
 		}
 
@@ -202,5 +381,8 @@ namespace syntakt::main
 		std::vector<Region> m_regions;
 		std::map<uint32_t, std::vector<uint8_t>> m_lines;
 		mutable uint32_t m_fault = 0;
+		std::array<uint16_t, 1u << (32 - ChunkShift)> m_chunks{};	// a chunk's table + 1, 0: none
+		std::vector<Chunk> m_table;
+		uint8_t* m_sram = nullptr;		// the first region's bytes
 	};
 }

@@ -12,19 +12,22 @@ namespace syntakt::main
 	void sumChannels(Memory& _mem, Emac4& _acc, const int _channels, const uint32_t _dst, const uint32_t _src,
 		const uint32_t _gains, const int32_t* _steps)
 	{
+		// The EMAC in a local copy, which the compiler keeps in registers, and back at the end: the same state
+		Emac4 acc = _acc;
 		int32_t gains[10];
 		for(int k = 0; k < _channels; ++k)
 			gains[k] = _mem.word(_gains + 4 * static_cast<uint32_t>(k));
 		for(uint32_t i = 0; i < BlockFrames; ++i)
 		{
 			for(int k = 0; k < _channels; ++k)
-				_acc.msac(0, gains[k], _mem.word(_src + 128 * static_cast<uint32_t>(k) + 4 * i));
+				acc.msac(0, gains[k], _mem.word(_src + 128 * static_cast<uint32_t>(k) + 4 * i));
 			for(int k = 0; k < _channels; ++k)
 				gains[k] = addWrap(gains[k], _steps[k]);
-			_mem.setWord(_dst + 8 * i, _acc.storeClear(0));
+			_mem.setWord(_dst + 8 * i, acc.storeClear(0));
 		}
 		for(int k = 0; k < _channels; ++k)
 			_mem.setWord(_gains + 4 * static_cast<uint32_t>(k), gains[k]);
+		_acc = acc;
 	}
 
 	void copySide(Memory& _mem, const uint32_t _dst, const uint32_t _src)

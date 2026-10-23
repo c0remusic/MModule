@@ -55,4 +55,10 @@ if(BUILD_TESTING)
 	add_executable(stRender stRender.cpp)
 	target_link_libraries(stRender PRIVATE stEngine)
 	set_property(TARGET stRender PROPERTY FOLDER "Elektron/test")
+
+	# syntakt::Syntakt's cost per block by stage on a busy pattern, by hand (SYNTAKT_SECTION3, SYNTAKT_SECTION7,
+	# SYNTAKT_SAMPLES: exit 77 without them)
+	add_executable(stSyntaktBench stSyntaktBench.cpp)
+	target_link_libraries(stSyntaktBench PRIVATE stEngine)
+	set_property(TARGET stSyntaktBench PROPERTY FOLDER "Elektron/test")
 endif()

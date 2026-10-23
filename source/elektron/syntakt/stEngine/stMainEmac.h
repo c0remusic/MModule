@@ -2,6 +2,15 @@
 
 #include <cstdint>
 
+// Inlined whatever the compiler's heuristics say: the mix's and the memory's hottest calls, which MSVC leaves as calls
+#ifndef ST_FORCE_INLINE
+#	ifdef _MSC_VER
+#		define ST_FORCE_INLINE __forceinline
+#	else
+#		define ST_FORCE_INLINE inline __attribute__((always_inline))
+#	endif
+#endif
+
 // CPU #1's EMAC as its mix runs it (cpu1.md, section 4): four accumulators and a MACSR the routines change as they go
 // (0x20, 0xa0, 0x80), so that what one routine leaves in an accumulator reaches the next, as on the CPU. A product
 // is (y x) << 1 truncated to Q39 in fractional mode (MACSR bit 5), y x in integer mode; OMC (bit 7) saturates, and an
@@ -60,7 +69,7 @@ namespace syntakt::main
 			return static_cast<int64_t>(static_cast<uint64_t>(_v) << 16) >> 16;
 		}
 
-		void accumulate(const int _n, const int32_t _y, const int32_t _x, const bool _sub)
+		ST_FORCE_INLINE void accumulate(const int _n, const int32_t _y, const int32_t _x, const bool _sub)
 		{
 			const bool omc = (m_macsr & Omc) != 0;
 			if(omc && m_pav[_n])
