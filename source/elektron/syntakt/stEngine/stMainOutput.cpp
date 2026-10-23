@@ -66,6 +66,25 @@ namespace syntakt::main
 			for(uint32_t i = 0; i < 2 * BlockFrames; ++i)
 				_mem.setWord(SendBus + 4 * i, addSat(_mem.word(SendBus + 4 * i), _mem.word(AnalogBus + 4 * i)));
 		}
+
+		// SendBus += another engine's bus, saturated, as addAnalogSends adds the ADC side's
+		void addSends(Memory& _mem, const int32_t* _bus)
+		{
+			for(uint32_t i = 0; i < 2 * BlockFrames; ++i)
+				_mem.setWord(SendBus + 4 * i, addSat(_mem.word(SendBus + 4 * i), _bus[i]));
+		}
+
+		void takeSends(const Memory& _mem, int32_t* _bus)
+		{
+			for(uint32_t i = 0; i < 2 * BlockFrames; ++i)
+				_bus[i] = _mem.word(SendBus + 4 * i);
+		}
+
+		void silence(Memory& _mem, const uint32_t _bus)
+		{
+			for(uint32_t i = 0; i < 2 * BlockFrames; ++i)
+				_mem.setWord(_bus + 4 * i, 0);
+		}
 	}
 
 	int32_t trackSends(Memory& _mem, Emac4& _acc, const uint32_t _p, MixFrame& _f)
@@ -232,14 +251,25 @@ namespace syntakt::main
 		return fxMutes;
 	}
 
-	int32_t mixOutput(Memory& _mem, Emac4& _acc, const uint32_t _p)
+	int32_t mixOutput(Memory& _mem, Emac4& _acc, const uint32_t _p, const EffectSends* _join, EffectSends* _sends)
 	{
-		prepareEffects(_mem, _acc, _p);
+		if(!_sends)
+			prepareEffects(_mem, _acc, _p);
 		MixFrame f;
 		const int32_t fxMutes = trackSends(_mem, _acc, _p, f);
+		if(_join)
+			addSends(_mem, _join->delay);
 
 		// 0x4008f80a polls channel 30's ESG until its reads are in: here they are
-		delay(_mem, _acc, DelayReturn, SendBus, _p + 0x6e6);
+		if(_sends)
+		{
+			takeSends(_mem, _sends->delay);
+			silence(_mem, DelayReturn);
+		}
+		else
+		{
+			delay(_mem, _acc, DelayReturn, SendBus, _p + 0x6e6);
+		}
 		_acc.setMacsr(0xa0);
 
 		// The reverb's input: the tracks', the delay's return (its REV +0x6f2, unless the delay goes to the FX track
@@ -255,9 +285,19 @@ namespace syntakt::main
 		sumChannels(_mem, _acc, 8, AnalogBus, Adc, 0x80006260, &f.at(-0x168));
 		sumChannels(_mem, _acc, 8, AnalogBus + 4, Adc, 0x80006240, &f.at(-0x148));
 		addAnalogSends(_mem);
-		reverb(_mem, _acc, ReverbReturn, SendBus, _p + 0x6fa);
-		advanceReverbLines(_mem);
-		writeLines(_mem);
+		if(_join)
+			addSends(_mem, _join->reverb);
+		if(_sends)
+		{
+			takeSends(_mem, _sends->reverb);
+			silence(_mem, ReverbReturn);
+		}
+		else
+		{
+			reverb(_mem, _acc, ReverbReturn, SendBus, _p + 0x6fa);
+			advanceReverbLines(_mem);
+			writeLines(_mem);
+		}
 		_acc.setMacsr(0xa0);
 
 		// The returns as channels 8 and 9 of the direct bus, or of the FX bus where they are routed

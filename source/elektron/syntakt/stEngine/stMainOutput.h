@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include "stMainBus.h"
 #include "stMainEmac.h"
 #include "stMainMemory.h"
 
@@ -35,6 +36,15 @@ namespace syntakt::main
 	// channels' sends. Returns the FX bus mask
 	int32_t trackSends(Memory& _mem, Emac4& _acc, uint32_t _p, MixFrame& _frame);
 
+	// The delay's and the reverb's input buses of one engine's mix (BlockFrames frames of L, R), as SendBus holds
+	// each before its effect runs: what a second engine's eight tracks send to the first engine's effects, so that
+	// sixteen tracks share one delay and one reverb
+	struct EffectSends
+	{
+		int32_t delay[2 * BlockFrames] = {};
+		int32_t reverb[2 * BlockFrames] = {};
+	};
+
 	// 0x4008f1ca(_dac, _adc, _p): 0x40097414, trackSends, the delay, the reverb's input (the tracks, the delay's
 	// return by its REV +0x6f2, the ADC's), the reverb, the lines' moves, the returns' levels (delay VOL +0x6f4,
 	// reverb VOL +0x706, muted by bits 12 and 13 of the FX bus mask) and routing (+0x6f6, +0x708) as channels 8 and 9,
@@ -42,5 +52,11 @@ namespace syntakt::main
 	// its gain for Overbridge (0x4008febc), and the Overbridge frame. Returns d0, SendBus. The DAC half is
 	// 0x4553f6dc's; the routine does not read its first two arguments. _acc as the interrupt has it: its
 	// accumulators clear (0x400a38b2 clears them each block, the routines between end each with a movclr), MACSR 0x20
-	int32_t mixOutput(Memory& _mem, Emac4& _acc, uint32_t _p);
+	//
+	// _join, when given: another engine's sends, added saturated to this engine's delay and reverb inputs after its
+	// own, as the firmware adds its ADC side's sends to its tracks' (0x4008f7e6, 0x4008f91e). _sends, when given: this
+	// engine's effects do not run (nor 0x40097414's, nor the lines' moves), its returns are silence, and its two
+	// input buses are written there instead
+	int32_t mixOutput(Memory& _mem, Emac4& _acc, uint32_t _p, const EffectSends* _join = nullptr,
+		EffectSends* _sends = nullptr);
 }

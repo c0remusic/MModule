@@ -7,7 +7,11 @@
 //
 // SYNTAKT_SECTION3, SYNTAKT_SECTION7 and SYNTAKT_SAMPLES as stSyntaktTest reads them; exit 77 without them.
 //
-//     stSyntaktBench [--raw OUT.bin] [--seconds N]    --raw also writes each block's 14 outputs (32 int32 each)
+//     stSyntaktBench [--raw OUT.bin] [--seconds N] [--tracks 8|16] [--busy N]
+//
+// --raw also writes each block's outputs (14, or 26 with 16 tracks; 32 int32 each). --tracks 16 makes the module
+// two machines with one delay and one reverb, and the pattern runs on the 16 tracks, the second eight's kit as the
+// first's but their machines; --busy N plays it on the first N tracks alone, the others idle.
 
 #ifdef _WIN32
 #	define NOMINMAX
@@ -35,7 +39,6 @@ namespace
 	using syntakt::Syntakt;
 	using Clock = std::chrono::steady_clock;
 
-	constexpr int Channels = Syntakt::Outputs;
 	constexpr int Block = syntakt::BlockSize;
 	constexpr double Period = static_cast<double>(Block) / Syntakt::SampleRate;	// 667 us
 	constexpr int StepSamples = Syntakt::SampleRate / 8;							// 1/16 at 120 BPM
@@ -140,6 +143,7 @@ int main(const int _argc, char** _argv)
 
 	std::string rawPath;
 	double seconds = 64;
+	int tracks = Syntakt::Tracks, busy = -1;
 	for(int i = 1; i + 1 < _argc; i += 2)
 	{
 		const std::string option = _argv[i];
@@ -147,6 +151,10 @@ int main(const int _argc, char** _argv)
 			rawPath = _argv[i + 1];
 		else if(option == "--seconds")
 			seconds = std::atof(_argv[i + 1]);
+		else if(option == "--tracks")
+			tracks = std::atoi(_argv[i + 1]);
+		else if(option == "--busy")
+			busy = std::atoi(_argv[i + 1]);
 	}
 
 	const char* section3Path = std::getenv("SYNTAKT_SECTION3");
@@ -191,38 +199,42 @@ int main(const int _argc, char** _argv)
 	// The bench's own buffers before the module's memory is measured
 	const int blocks = static_cast<int>(seconds * Syntakt::SampleRate / Block);
 	std::vector<BlockLog> logs(static_cast<size_t>(blocks));
-	std::vector<std::vector<int32_t>> buffers(Channels, std::vector<int32_t>(Block));
+	std::vector<std::vector<int32_t>> buffers(Syntakt::Outputs16, std::vector<int32_t>(Block));
 	std::ofstream raw;
 	if(!rawPath.empty())
 		raw.open(rawPath, std::ios::binary);
 
 	const double memBefore = privateBytes();
-	Syntakt st(section3, section7);
+	Syntakt st(section3, section7, tracks);
 	st.setSamples(&samples);
 	const double memMade = privateBytes();
+	const int channels = st.outputs();
+	busy = busy < 1 || busy > st.tracks() ? st.tracks() : busy;
+	std::printf("%d tracks, %d busy\n", st.tracks(), busy);
 	std::printf("machines:");
 	for(const int m : machines)
 		std::printf(" %d", m);
 	std::printf(" (%zu engines)\n", machines.size());
 
 	// The kit: both LFOs on every track (LFO1 on the filter's frequency, LFO2 on TUNE), the sends up, half the
-	// tracks on the FX bus; a delay with feedback, a long reverb
+	// tracks on the FX bus; a delay with feedback, a long reverb. Tracks 9-16 as 1-8 but their machines
 	using S = Syntakt;
-	for(int t = 0; t < S::Tracks; ++t)
+	for(int t = 0; t < busy; ++t)
 	{
+		const int k = t % S::Tracks;
 		st.setMachine(t, machines[static_cast<size_t>(t) % machines.size()]);
-		st.setParameter(t, S::Lfo1Speed, static_cast<uint16_t>(0x5000 + 0x400 * t));
+		st.setParameter(t, S::Lfo1Speed, static_cast<uint16_t>(0x5000 + 0x400 * k));
 		st.setParameter(t, S::Lfo1Destination, S::FilterFrequency << 8);
-		st.setParameter(t, S::Lfo1Waveform, static_cast<uint16_t>((t % 7) << 8));
+		st.setParameter(t, S::Lfo1Waveform, static_cast<uint16_t>((k % 7) << 8));
 		st.setParameter(t, S::Lfo1Depth, 0x6000);
-		st.setParameter(t, S::Lfo2Speed, static_cast<uint16_t>(0x6800 - 0x300 * t));
-		st.setParameter(t, S::Lfo2Multiplier, static_cast<uint16_t>((14 + t) << 8));
+		st.setParameter(t, S::Lfo2Speed, static_cast<uint16_t>(0x6800 - 0x300 * k));
+		st.setParameter(t, S::Lfo2Multiplier, static_cast<uint16_t>((14 + k) << 8));
 		st.setParameter(t, S::Lfo2Destination, S::Tune << 8);
-		st.setParameter(t, S::Lfo2Waveform, static_cast<uint16_t>(((t + 3) % 7) << 8));
+		st.setParameter(t, S::Lfo2Waveform, static_cast<uint16_t>(((k + 3) % 7) << 8));
 		st.setParameter(t, S::Lfo2Depth, 0x4800);
 		st.setParameter(t, S::DelaySend, 0x5800);
 		st.setParameter(t, S::ReverbSend, 0x5800);
-		st.setParameter(t, S::Routing, static_cast<uint16_t>(t < 4 ? 0 : 0x100));
+		st.setParameter(t, S::Routing, static_cast<uint16_t>(k < 4 ? 0 : 0x100));
 	}
 	st.setFxParameter(S::DelayTime, 0x2000);
 	st.setFxParameter(S::DelayFeedback, 0x6000);
@@ -230,14 +242,14 @@ int main(const int _argc, char** _argv)
 	st.setFxParameter(S::ReverbDecay, 0x6800);
 	st.setTempo(120);
 
-	int32_t* outputs[Channels];
-	for(int c = 0; c < Channels; ++c)
+	int32_t* outputs[Syntakt::Outputs16];
+	for(int c = 0; c < channels; ++c)
 		outputs[c] = buffers[static_cast<size_t>(c)].data();
 
 	const int notes[] = {36, 48, 60, 55, 43, 67, 72, 52, 40, 64, 58, 47, 62, 50};
 	int nextStep = 0;
-	std::vector<int> offAt(S::Tracks, -1);		// the block a track's gate ends at
-	std::vector<bool> fresh(S::Tracks, false);	// the track's machine changed since its last trig
+	std::vector<int> offAt(static_cast<size_t>(busy), -1);		// the block a track's gate ends at
+	std::vector<bool> fresh(static_cast<size_t>(busy), false);	// the track's machine changed since its last trig
 	uint64_t lastBlocks = 0;
 
 	const Load run0 = load();
@@ -249,7 +261,7 @@ int main(const int _argc, char** _argv)
 		const auto c0 = Clock::now();
 
 		// The calls of the samples in this block, as a host's events before the block
-		for(int t = 0; t < S::Tracks; ++t)
+		for(int t = 0; t < busy; ++t)
 		{
 			if(offAt[static_cast<size_t>(t)] == b)
 			{
@@ -263,7 +275,7 @@ int main(const int _argc, char** _argv)
 			// Every two bars each track moves to the next machine
 			if(step % 32 == 0 && step)
 			{
-				for(int t = 0; t < S::Tracks; ++t)
+				for(int t = 0; t < busy; ++t)
 				{
 					const size_t m = (static_cast<size_t>(t) + static_cast<size_t>(step / 32)) % machines.size();
 					st.setMachine(t, machines[m]);
@@ -271,7 +283,7 @@ int main(const int _argc, char** _argv)
 					++log.machines;
 				}
 			}
-			for(int t = 0; t < S::Tracks; ++t)
+			for(int t = 0; t < busy; ++t)
 			{
 				if(step % 4 == t % 4)
 					st.lock(t, S::Synth1 + (step / 4) % 5, static_cast<uint16_t>((step * 997 + t * 331) % 0x7f00));
@@ -288,10 +300,10 @@ int main(const int _argc, char** _argv)
 
 		// A knob every block: a track's filter frequency, swept; every 16 blocks a machine parameter; every 750
 		// blocks (half a second) the delay's time
-		const int knob = b % S::Tracks;
+		const int knob = b % busy;
 		st.setParameter(knob, S::FilterFrequency, static_cast<uint16_t>(0x1000 + (b * 37) % 0x6000));
 		if(b % 16 == 0)
-			st.setParameter((b / 16) % S::Tracks, S::Synth1 + (b / 128) % 5, static_cast<uint16_t>((b * 53) % 0x7f00));
+			st.setParameter((b / 16) % busy, S::Synth1 + (b / 128) % 5, static_cast<uint16_t>((b * 53) % 0x7f00));
 		if(b % 750 == 0 && b)
 		{
 			st.setFxParameter(S::DelayTime, static_cast<uint16_t>(0x0800 + (b / 750 * 0x0900) % 0x7000));
@@ -317,7 +329,7 @@ int main(const int _argc, char** _argv)
 		log.total = log.control + std::chrono::duration<double>(c2 - c1).count();
 
 		if(raw)
-			for(int c = 0; c < Channels; ++c)
+			for(int c = 0; c < channels; ++c)
 				raw.write(reinterpret_cast<const char*>(outputs[c]), 4 * Block);
 	}
 	const double runWall = std::chrono::duration<double>(Clock::now() - runStart).count();
@@ -368,6 +380,6 @@ int main(const int _argc, char** _argv)
 	std::printf("machine load (other processes, cores busy of %d): %.2f before, %.2f during the run\n", cores,
 		othersBefore, othersRun);
 	if(raw)
-		std::printf("wrote %d blocks x %d channels x %d int32 -> %s\n", blocks, Channels, Block, rawPath.c_str());
+		std::printf("wrote %d blocks x %d channels x %d int32 -> %s\n", blocks, channels, Block, rawPath.c_str());
 	return 0;
 }

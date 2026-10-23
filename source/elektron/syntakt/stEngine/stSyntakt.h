@@ -25,23 +25,36 @@ namespace syntakt
 	// BPM. What the OS's sequencer and MIDI would leave between two blocks comes from the calls below: a call takes
 	// effect in the next block the module computes, so at the block that holds the sample it is made at, rounded up
 	// to the block's start.
+	//
+	// Made with 16 tracks, it is two such machines side by side, A (tracks 1-8) and B (tracks 9-16), each a whole CPU
+	// #1 and voice CPU, with one delay and one reverb: B's sends join A's at the effects' inputs (each bus added
+	// saturated after A's own, as the firmware adds its ADC side's), B's effects do not run, the returns are A's.
+	// Every stem is still the machine's; the returns are exact for one machine's sends and an extension for both
 	class Syntakt
 	{
 	public:
-		static constexpr int Tracks = 8;
+		static constexpr int Tracks = 8;		// a machine's, and an 8-track module's
+		static constexpr int MaxTracks = 16;
 		static constexpr int SampleRate = 48000;
 
 		// What render writes, each channel Q31 (int32_t), as CPU #1 computes it: the stems are Overbridge's channels
 		// 2-9 (each track's voice after its velocity, VOL and LEV gain, before pan and sends), the returns its channels
 		// 16-17 (delay return plus reverb return, saturated), the direct bus the tracks and returns not routed to the FX
-		// track (x 10, as the DACs take it), the FX bus the ones routed (x 8)
+		// track (x 10, as the DACs take it), the FX bus the ones routed (x 8). An 8-track module writes the first
+		// Outputs; a 16-track one also tracks 9-16's stems and B's two buses, which hold B's tracks alone (the returns
+		// are on A's), each as B's machine scales and saturates it: they reach the analog mixer apart, which sums them
+		// without a Q31 ceiling, so the plug-in sums them in its own format
 		enum Output
 		{
 			Stem1, Stem2, Stem3, Stem4, Stem5, Stem6, Stem7, Stem8,
 			ReturnsLeft, ReturnsRight,
 			DirectLeft, DirectRight,
 			FxLeft, FxRight,
-			Outputs
+			Outputs,
+			Stem9 = Outputs, Stem10, Stem11, Stem12, Stem13, Stem14, Stem15, Stem16,
+			DirectLeftB, DirectRightB,
+			FxLeftB, FxRightB,
+			Outputs16
 		};
 
 		// A digital track's parameters, by the firmware's internal id (the descriptors at 0x4022d59c of section 3, as
@@ -77,9 +90,13 @@ namespace syntakt
 		};
 
 		// _section3, _section7: the user's OS 1.41 sections (main::loadSection3, loadSection7), which must outlive
-		// the module
-		Syntakt(const main::Section3& _section3, const std::vector<int32_t>& _section7);
+		// the module. _tracks: 8 or 16 (any other count makes 8)
+		Syntakt(const main::Section3& _section3, const std::vector<int32_t>& _section7, int _tracks = Tracks);
 		~Syntakt();
+
+		// 8 or 16, and the outputs render writes: Outputs or Outputs16
+		int tracks() const;
+		int outputs() const;
 
 		// The samples SP TWINSHOT plays, as CPU #1 would load them; none as it is made. _samples must outlive the
 		// module or the next call, and not change while a block renders
@@ -88,8 +105,8 @@ namespace syntakt
 		// True when _machine (0-44) is one of the twelve the digital tracks play
 		bool isPorted(int _machine) const;
 
-		// Track _track (0-7) plays _machine, a ported one (else nothing changes and it returns false); its SYN
-		// parameters (ids 18-26) move to the machine's defaults, as setParameter moves them
+		// Track _track (0 to tracks() - 1) plays _machine, a ported one (else nothing changes and it returns false);
+		// its SYN parameters (ids 18-26) move to the machine's defaults, as setParameter moves them
 		bool setMachine(int _track, int _machine);
 
 		// The kit's value of a parameter, as the OS writes it when a knob turns: the parameter moves to it through
@@ -114,12 +131,13 @@ namespace syntakt
 		void noteOn(int _track, int _note, int _velocity);
 		void noteOff(int _track);
 
-		// _count samples of each output into _outputs[0] to _outputs[Outputs - 1]
+		// _count samples of each output into _outputs[0] to _outputs[outputs() - 1]
 		void render(int32_t* const* _outputs, size_t _count);
 
 		// The time the last block computed took by stage, in seconds, as std::chrono::steady_clock measures it: CPU
 		// #1's block for the voice CPU (buildBlock), CPU #1's mix with the delay and the reverb, the voice CPU (its
-		// voices and the tracks' stages); blocks counts the blocks computed
+		// voices and the tracks' stages), each summed over the two machines of a 16-track module; blocks counts the
+		// blocks computed
 		struct BlockTimes
 		{
 			double build = 0;

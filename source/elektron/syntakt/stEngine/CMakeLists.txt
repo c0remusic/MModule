@@ -72,6 +72,14 @@ if(BUILD_TESTING)
 	add_test(NAME stSyntaktTest COMMAND stSyntaktTest)
 	set_tests_properties(stSyntaktTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
+	# syntakt::Syntakt with 16 tracks (two machines, one delay and one reverb) against the 8-track module
+	# (SYNTAKT_SECTION3, SYNTAKT_SECTION7, SYNTAKT_SAMPLES: exit 77 without them)
+	add_executable(stSyntakt16Test stSyntakt16Test.cpp)
+	target_link_libraries(stSyntakt16Test PRIVATE stEngine)
+	set_property(TARGET stSyntakt16Test PROPERTY FOLDER "Elektron/test")
+	add_test(NAME stSyntakt16Test COMMAND stSyntakt16Test)
+	set_tests_properties(stSyntakt16Test PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
 	# A machine rendered through VoiceCpu into a WAV, by hand (stRender SECTION7 OUT.wav MACHINE NOTE SECONDS)
 	add_executable(stRender stRender.cpp)
 	target_link_libraries(stRender PRIVATE stEngine)
