@@ -40,24 +40,57 @@ namespace syntakt::main
 		int32_t pair = _mem.word(out);
 		int32_t targets = _mem.word(target);
 		target += 4;
-		for(uint32_t n = EngineWords; static_cast<int32_t>(n) > 0; n -= 2)
+
+		// The same passes on the three runs' bytes where the memory's table holds each whole (SRAM, normally): read
+		// and written in the same order, they are what word() and setWord() give and take
+		constexpr uint32_t Passes = (EngineWords + 1) / 2;
+		const uint8_t* targetAt = _mem.bytesAt(target, 4 * Passes);
+		uint8_t* stateAt = _mem.writableBytesAt(state, 8 * Passes);
+		uint8_t* outAt = _mem.writableBytesAt(out, 4 * (Passes + 1));
+		if(targetAt && stateAt && outAt)
 		{
-			acc0.mac(TargetWeight, static_cast<int32_t>(static_cast<uint32_t>(targets) & 0xffff0000));
-			acc0.mac(StateWeight, _mem.word(state));
-			_mem.setWord(out, pair);
-			out += 4;
-			acc1.mac(TargetWeight, asl(targets, 16));
-			acc1.mac(StateWeight, _mem.word(state + 4));
-			targets = _mem.word(target);
-			target += 4;
-			const int32_t s0 = acc0.storeClear();
-			_mem.setWord(state, s0);
-			const int32_t s1 = acc1.storeClear();
-			_mem.setWord(state + 4, s1);
-			state += 8;
-			const auto high = static_cast<uint32_t>(addWrap(s0, 0x8000)) & 0xffff0000;
-			const auto low = static_cast<uint32_t>(addWrap(s1, 0x8000)) >> 16;
-			pair = static_cast<int32_t>(high | low);
+			for(uint32_t p = 0; p < Passes; ++p)
+			{
+				acc0.mac(TargetWeight, static_cast<int32_t>(static_cast<uint32_t>(targets) & 0xffff0000));
+				acc0.mac(StateWeight, Memory::wordAt(stateAt));
+				Memory::setWordAt(outAt, pair);
+				outAt += 4;
+				acc1.mac(TargetWeight, asl(targets, 16));
+				acc1.mac(StateWeight, Memory::wordAt(stateAt + 4));
+				targets = Memory::wordAt(targetAt);
+				targetAt += 4;
+				const int32_t s0 = acc0.storeClear();
+				Memory::setWordAt(stateAt, s0);
+				const int32_t s1 = acc1.storeClear();
+				Memory::setWordAt(stateAt + 4, s1);
+				stateAt += 8;
+				const auto high = static_cast<uint32_t>(addWrap(s0, 0x8000)) & 0xffff0000;
+				const auto low = static_cast<uint32_t>(addWrap(s1, 0x8000)) >> 16;
+				pair = static_cast<int32_t>(high | low);
+			}
+			out += 4 * Passes;
+		}
+		else
+		{
+			for(uint32_t n = EngineWords; static_cast<int32_t>(n) > 0; n -= 2)
+			{
+				acc0.mac(TargetWeight, static_cast<int32_t>(static_cast<uint32_t>(targets) & 0xffff0000));
+				acc0.mac(StateWeight, _mem.word(state));
+				_mem.setWord(out, pair);
+				out += 4;
+				acc1.mac(TargetWeight, asl(targets, 16));
+				acc1.mac(StateWeight, _mem.word(state + 4));
+				targets = _mem.word(target);
+				target += 4;
+				const int32_t s0 = acc0.storeClear();
+				_mem.setWord(state, s0);
+				const int32_t s1 = acc1.storeClear();
+				_mem.setWord(state + 4, s1);
+				state += 8;
+				const auto high = static_cast<uint32_t>(addWrap(s0, 0x8000)) & 0xffff0000;
+				const auto low = static_cast<uint32_t>(addWrap(s1, 0x8000)) >> 16;
+				pair = static_cast<int32_t>(high | low);
+			}
 		}
 		_mem.setWord(out, pair);
 

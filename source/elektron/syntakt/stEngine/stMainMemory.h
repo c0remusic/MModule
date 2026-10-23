@@ -224,6 +224,20 @@ namespace syntakt::main
 		const uint8_t* bytesAt(const uint32_t _address, const uint32_t _n) const { return readAt(_address, _n); }
 		uint8_t* writableBytesAt(const uint32_t _address, const uint32_t _n) { return writeAt(_address, _n); }
 
+		// The long at bytes from bytesAt or writableBytesAt, in the CPU's order, and a long written there
+		static int32_t wordAt(const uint8_t* _b)
+		{
+			uint32_t v;
+			std::memcpy(&v, _b, 4);
+			return static_cast<int32_t>(swap32(v));
+		}
+
+		static void setWordAt(uint8_t* _b, const int32_t _v)
+		{
+			const uint32_t w = swap32(static_cast<uint32_t>(_v));
+			std::memcpy(_b, &w, 4);
+		}
+
 		// The first address accessed outside the memory, 0 while there is none
 		uint32_t fault() const { return m_fault; }
 

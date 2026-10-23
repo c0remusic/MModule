@@ -379,16 +379,20 @@ namespace syntakt::main
 			_mem.setWord(OverbridgeGains + 4 * t, g.d0);
 		}
 
-		// The Overbridge frame: 2-9 the digital tracks, 10-13 ADC 0-3, 14-15 ADC 6-7
+		// The Overbridge frame: 2-9 the digital tracks, 10-13 ADC 0-3, 14-15 ADC 6-7. All three in SRAM, whose
+		// bytes the memory gives whole
+		uint8_t* frames = _mem.writableBytesAt(Overbridge, 0x50 * BlockFrames);
+		const uint8_t* voices = _mem.bytesAt(VoiceOutputs, 128 * 8);
+		const uint8_t* adc = _mem.bytesAt(Adc, 128 * 8);
 		for(uint32_t i = 0; i < BlockFrames; ++i)
 		{
-			const uint32_t frame = Overbridge + 0x50 * i;
+			uint8_t* frame = frames + 0x50 * i;
 			for(uint32_t t = 0; t < 8; ++t)
-				_mem.setWord(frame + 8 + 4 * t, _mem.word(VoiceOutputs + 128 * t + 4 * i));
+				Memory::setWordAt(frame + 8 + 4 * t, Memory::wordAt(voices + 128 * t + 4 * i));
 			for(uint32_t c = 0; c < 4; ++c)
-				_mem.setWord(frame + 0x28 + 4 * c, _mem.word(Adc + 128 * c + 4 * i));
-			_mem.setWord(frame + 0x38, _mem.word(Adc + 0x300 + 4 * i));
-			_mem.setWord(frame + 0x3c, _mem.word(Adc + 0x380 + 4 * i));
+				Memory::setWordAt(frame + 0x28 + 4 * c, Memory::wordAt(adc + 128 * c + 4 * i));
+			Memory::setWordAt(frame + 0x38, Memory::wordAt(adc + 0x300 + 4 * i));
+			Memory::setWordAt(frame + 0x3c, Memory::wordAt(adc + 0x380 + 4 * i));
 		}
 		_acc.setMacsr(0x20);
 		return static_cast<int32_t>(SendBus);

@@ -501,10 +501,11 @@ namespace syntakt
 			const int32_t p = _phase.storeClear();
 			const int32_t i = (p & 0xffffff) >> 16;
 			const int32_t f = static_cast<int32_t>((static_cast<uint32_t>(p) & 0xffff) << 15);
+			// load, mac, msac at once (EmacT::setSum): the loaded word is at most 2^39 in magnitude as a product
+			// is, so the three terms stay under 2^47
 			Emac acc;
-			acc.load(_table[i]);
-			acc.mac(f, _table[i + 1]);
-			acc.msac(f, _table[i]);
+			acc.setSum(static_cast<int64_t>(_table[i]) * 256 + Emac::product(f, _table[i + 1]) -
+				Emac::product(f, _table[i]));
 			return acc.storeClear();
 		}
 	}

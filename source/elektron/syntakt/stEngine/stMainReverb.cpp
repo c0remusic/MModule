@@ -119,16 +119,33 @@ namespace syntakt::main
 			c += 4;
 			for(uint32_t i = 0; i < Frames; ++i)
 			{
-				for(int j = 0; j < 4; ++j)
+				// From four clear accumulators in fractional mode (every frame's but perhaps the first's), each
+				// takes its four products at once (Emac4::setSum): +h[n] x[n] and -h[j] x[j] for the others, the
+				// same reads in the same order
+				if(_acc.fractional() && _acc.allClear())
 				{
+					int64_t p[4];
+					p[0] = Emac4::fractionalProduct(h[0], x);
+					for(uint32_t j = 1; j < 4; ++j)
+						p[j] = Emac4::fractionalProduct(h[j], _mem.word(c + 124 + 128 * (j - 1)));
+					x = _mem.word(c);
+					const int64_t all = p[0] + p[1] + p[2] + p[3];
 					for(int n = 0; n < 4; ++n)
+						_acc.setSum(n, 2 * p[n] - all);
+				}
+				else
+				{
+					for(int j = 0; j < 4; ++j)
 					{
-						if(n == j)
-							_acc.mac(n, h[j], x);
-						else
-							_acc.msac(n, h[j], x);
+						for(int n = 0; n < 4; ++n)
+						{
+							if(n == j)
+								_acc.mac(n, h[j], x);
+							else
+								_acc.msac(n, h[j], x);
+						}
+						x = _mem.word(j < 3 ? c + 124 + 128 * static_cast<uint32_t>(j) : c);
 					}
-					x = _mem.word(j < 3 ? c + 124 + 128 * static_cast<uint32_t>(j) : c);
 				}
 				c += 4;
 				_mem.setWord(_last - 0x210, _acc.storeClear(0));
@@ -220,18 +237,38 @@ namespace syntakt::main
 			int32_t d2 = _mem.word(b);
 			b += 4;
 			const int32_t g2 = _acc.storeClear(0);
-			for(uint32_t i = 0; i < Frames; ++i)
+
+			// In fractional mode each accumulator's terms follow a movclr: ACC0 the loaded word (Q39 as a product)
+			// and one product, ACC1 two products, which Emac4::setSum takes at once
+			if(_acc.fractional())
 			{
-				_mem.setWord(b - 8, _acc.storeClear(0));
-				_acc.load(0, d1);
-				_acc.mac(0, g, d2);
-				_mem.setWord(x - 8, _acc.storeClear(1));
-				_acc.msac(1, g, d1);
-				d1 = _mem.word(x);
-				x += 4;
-				_acc.msac(1, g2, d2);
-				d2 = _mem.word(b);
-				b += 4;
+				for(uint32_t i = 0; i < Frames; ++i)
+				{
+					_mem.setWord(b - 8, _acc.storeClear(0));
+					_acc.setSum(0, static_cast<int64_t>(d1) * 256 + Emac4::fractionalProduct(g, d2));
+					_mem.setWord(x - 8, _acc.storeClear(1));
+					_acc.setSum(1, -Emac4::fractionalProduct(g, d1) - Emac4::fractionalProduct(g2, d2));
+					d1 = _mem.word(x);
+					x += 4;
+					d2 = _mem.word(b);
+					b += 4;
+				}
+			}
+			else
+			{
+				for(uint32_t i = 0; i < Frames; ++i)
+				{
+					_mem.setWord(b - 8, _acc.storeClear(0));
+					_acc.load(0, d1);
+					_acc.mac(0, g, d2);
+					_mem.setWord(x - 8, _acc.storeClear(1));
+					_acc.msac(1, g, d1);
+					d1 = _mem.word(x);
+					x += 4;
+					_acc.msac(1, g2, d2);
+					d2 = _mem.word(b);
+					b += 4;
+				}
 			}
 			_mem.setWord(b - 8, _acc.storeClear(0));
 			_mem.setWord(x - 8, _acc.storeClear(1));

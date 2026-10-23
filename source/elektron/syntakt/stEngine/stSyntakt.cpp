@@ -4,6 +4,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <utility>
 
 #include "stBoot.h"
@@ -182,23 +183,26 @@ namespace syntakt
 			main::Emac4 acc;
 			main::mixOutput(mem, acc, main::Smoothed);
 
+			// The Overbridge frames and the buses in SRAM, whose bytes the memory gives whole
+			const uint8_t* frames = mem.bytesAt(main::Overbridge, 0x50 * BlockSize);
+			const uint8_t* direct = mem.bytesAt(main::DirectBus, 8 * BlockSize);
+			const uint8_t* fx = mem.bytesAt(main::FxBus, 8 * BlockSize);
 			for(uint32_t s = 0; s < BlockSize; ++s)
 			{
-				const uint32_t frame = main::Overbridge + 0x50 * s;
+				const uint8_t* frame = frames + 0x50 * s;
 				for(uint32_t t = 0; t < Tracks; ++t)
-					out[BlockSize * (Stem1 + t) + s] = mem.word(frame + 8 + 4 * t);
-				out[BlockSize * ReturnsLeft + s] = mem.word(frame + 0x40);
-				out[BlockSize * ReturnsRight + s] = mem.word(frame + 0x44);
-				out[BlockSize * DirectLeft + s] = mem.word(main::DirectBus + 8 * s);
-				out[BlockSize * DirectRight + s] = mem.word(main::DirectBus + 8 * s + 4);
-				out[BlockSize * FxLeft + s] = mem.word(main::FxBus + 8 * s);
-				out[BlockSize * FxRight + s] = mem.word(main::FxBus + 8 * s + 4);
+					out[BlockSize * (Stem1 + t) + s] = main::Memory::wordAt(frame + 8 + 4 * t);
+				out[BlockSize * ReturnsLeft + s] = main::Memory::wordAt(frame + 0x40);
+				out[BlockSize * ReturnsRight + s] = main::Memory::wordAt(frame + 0x44);
+				out[BlockSize * DirectLeft + s] = main::Memory::wordAt(direct + 8 * s);
+				out[BlockSize * DirectRight + s] = main::Memory::wordAt(direct + 8 * s + 4);
+				out[BlockSize * FxLeft + s] = main::Memory::wordAt(fx + 8 * s);
+				out[BlockSize * FxRight + s] = main::Memory::wordAt(fx + 8 * s + 4);
 			}
 			const auto mixed = Clock::now();
 
 			uint8_t bytes[main::BlockBytes];
-			for(uint32_t i = 0; i < main::BlockBytes; ++i)
-				bytes[i] = mem.byte(main::Block + i);
+			std::memcpy(bytes, mem.bytesAt(main::Block, main::BlockBytes), main::BlockBytes);
 			runBlock(sram, globals, rom, bytes);
 			std::copy_n(sram.ptr(VoiceOut), voices.size(), voices.data());
 			position = 0;

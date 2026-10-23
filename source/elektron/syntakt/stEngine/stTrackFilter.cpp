@@ -214,6 +214,25 @@ namespace syntakt::track
 			for(uint32_t n = 0; n < 32; ++n)
 			{
 				const int32_t x = _sram.at(_out + 4 * n);
+
+				// From clear accumulators (every sample's but perhaps the first's) each takes its six products at
+				// once (EmacT::setSum), the coefficients ramped after they are used as below
+				if(acc0.clear() && acc1.clear())
+				{
+					acc0.setSum(4 * Emac::product(c0, x) + Emac::product(c1, s1) - Emac::product(c2, s2));
+					acc1.setSum(-4 * Emac::product(c3, x) + Emac::product(c4, s1) + Emac::product(c5, s2));
+					c0 = addWrap(c0, _sram.at(Steps));
+					c1 = addWrap(c1, _sram.at(Steps + 4));
+					c2 = addWrap(c2, _sram.at(Steps + 8));
+					c3 = addWrap(c3, _sram.at(Steps + 12));
+					c4 = addWrap(c4, _sram.at(Steps + 16));
+					c5 = addWrap(c5, _sram.at(Steps + 20));
+					s1 = acc0.storeClear();
+					_sram.at(BufA + 4 * n) = s1 >> 1;
+					s2 = acc1.storeClear();
+					_sram.at(BufB + 4 * n) = s2;
+					continue;
+				}
 				acc0.mac(c0, x);
 				acc0.mac(c0, x);
 				acc0.mac(c0, x);
@@ -262,14 +281,24 @@ namespace syntakt::track
 			for(uint32_t n = 0; n < 32; ++n)
 			{
 				const int32_t x = _sram.at(_out + 4 * n);
-				acc0.mac(c7, z);
-				acc0.mac(c6, x);
+
+				// From a clear accumulator (always, after the resonator's movclr) its two products at once, and
+				// the one after the movclr (EmacT::setSum)
+				if(acc0.clear())
+				{
+					acc0.setSum(Emac::product(c7, z) + Emac::product(c6, x));
+				}
+				else
+				{
+					acc0.mac(c7, z);
+					acc0.mac(c6, x);
+				}
 				z = _sram.at(BufB + 4 * n);
 				c6 = addWrap(c6, _sram.at(Steps + 0x18));
 				c7 = addWrap(c7, _sram.at(Steps + 0x1c));
 				const int32_t xs = (x >> 1) >> 7;
 				int32_t y = acc0.storeClear();
-				acc0.mac(gp, subWrap(xs, y));
+				acc0.setSum(Emac::product(gp, subWrap(xs, y)));
 				gp = addSat(gp, gs);
 				y = addWrap(y, xs) >> 2;
 				int32_t v = addWrap(acc0.storeClear(), y);
@@ -335,9 +364,18 @@ namespace syntakt::track
 
 		for(uint32_t n = 0; n < 32; ++n)
 		{
-			acc0.mac(px, _sram.at(_out + 4 * n));
-			acc0.mac(pa, _sram.at(BufA + 4 * n));
-			acc0.mac(pb, _sram.at(BufB + 4 * n));
+			// From a clear accumulator (always, after the second stage's movclr) the three products at once
+			if(acc0.clear())
+			{
+				acc0.setSum(Emac::product(px, _sram.at(_out + 4 * n)) + Emac::product(pa, _sram.at(BufA + 4 * n)) +
+					Emac::product(pb, _sram.at(BufB + 4 * n)));
+			}
+			else
+			{
+				acc0.mac(px, _sram.at(_out + 4 * n));
+				acc0.mac(pa, _sram.at(BufA + 4 * n));
+				acc0.mac(pb, _sram.at(BufB + 4 * n));
+			}
 			px = addWrap(px, sx);
 			pa = addWrap(pa, sa);
 			pb = addWrap(pb, sb);

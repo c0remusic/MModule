@@ -53,6 +53,20 @@ namespace syntakt::main
 			}
 		}
 
+		// memcpy of one transfer unit, by its size: a constant size each, which the compiler moves inline rather
+		// than calling memmove for a size it does not know
+		ST_FORCE_INLINE void copyUnit(uint8_t* _to, const uint8_t* _from, const uint32_t _size)
+		{
+			switch(_size)
+			{
+			case 1: std::memcpy(_to, _from, 1); break;
+			case 2: std::memcpy(_to, _from, 2); break;
+			case 4: std::memcpy(_to, _from, 4); break;
+			case 16: std::memcpy(_to, _from, 16); break;
+			default: std::memcpy(_to, _from, 32); break;
+			}
+		}
+
 		void zero(Memory& _mem, const uint32_t _address, const uint32_t _bytes)
 		{
 			for(uint32_t i = 0; i < _bytes; ++i)
@@ -103,6 +117,31 @@ namespace syntakt::main
 
 	Tcd runChannel(Memory& _mem, Tcd _tcd)
 	{
+		// The page each side's last unit was found in: a unit inside the same page is found from it without the
+		// table, at the same bytes, since a page the table holds keeps its bytes (only a page it lacked can be
+		// mapped while the channel runs, a line's first write, and that one is not kept here)
+		struct LastPage
+		{
+			uint32_t page = 0;
+			uint8_t* base = nullptr;
+
+			uint8_t* find(const uint32_t _address, const uint32_t _size) const
+			{
+				const uint32_t offset = _address & (Memory::PageSize - 1);
+				return base && _address >> 12 == page && offset <= Memory::PageSize - _size ? base + offset : nullptr;
+			}
+
+			void keep(const uint32_t _address, const uint32_t _size, uint8_t* _at)
+			{
+				const uint32_t offset = _address & (Memory::PageSize - 1);
+				if(!_at || offset > Memory::PageSize - _size)
+					return;
+				page = _address >> 12;
+				base = _at - offset;
+			}
+		};
+		LastPage reads, writes;
+
 		uint8_t data[256];
 		for(;;)
 		{
@@ -116,8 +155,14 @@ namespace syntakt::main
 				// A transfer unit a page holds whole moves at once, else a byte at a time, as the same bytes
 				for(uint32_t k = 0; k + sb <= n; k += sb)
 				{
-					if(const uint8_t* from = _mem.bytesAt(s, sb))
-						std::memcpy(data + k, from, sb);
+					const uint8_t* from = reads.find(s, sb);
+					if(!from)
+					{
+						from = _mem.bytesAt(s, sb);
+						reads.keep(s, sb, const_cast<uint8_t*>(from));
+					}
+					if(from)
+						copyUnit(data + k, from, sb);
 					else
 						for(uint32_t b = 0; b < sb; ++b)
 							data[k + b] = _mem.byte(s + b);
@@ -125,8 +170,14 @@ namespace syntakt::main
 				}
 				for(uint32_t k = 0; k + db <= n; k += db)
 				{
-					if(uint8_t* to = _mem.writableBytesAt(d, db))
-						std::memcpy(to, data + k, db);
+					uint8_t* to = writes.find(d, db);
+					if(!to)
+					{
+						to = _mem.writableBytesAt(d, db);
+						writes.keep(d, db, to);
+					}
+					if(to)
+						copyUnit(to, data + k, db);
 					else
 						for(uint32_t b = 0; b < db; ++b)
 							_mem.setByte(d + b, data[k + b]);

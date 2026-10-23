@@ -48,13 +48,22 @@ namespace syntakt
 			return v;
 		}
 
-	private:
+		// The accumulator holds 0 and has not overflowed, as a movclr leaves it
+		bool clear() const { return m_acc == 0 && !m_overflow; }
+
 		// (y * x) << 1, truncated to Q39: never overflows int64, since |y * x| <= 2^62
 		static int64_t product(const int32_t _y, const int32_t _x)
 		{
 			return (static_cast<int64_t>(_y) * _x) >> 23;
 		}
 
+		// The mac and msac of a run of at most 256 products from a clear accumulator, given _total, the sum of
+		// what each adds (product, negated for msac): each is at most 2^39 in magnitude, so every partial sum stays
+		// under the 2^47 where Emac saturates and EmacWrap wraps, and the accumulator ends at _total as the steps
+		// leave it
+		void setSum(const int64_t _total) { m_acc = _total; }
+
+	private:
 		void accumulate(const int64_t _p)
 		{
 			const int64_t r = m_acc + _p;

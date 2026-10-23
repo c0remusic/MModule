@@ -61,8 +61,26 @@ namespace syntakt::main
 			return v;
 		}
 
-	private:
 		bool fractional() const { return (m_macsr & Fractional) != 0; }
+
+		// Accumulator _n holds 0 and has not overflowed, as a movclr leaves it
+		bool clear(const int _n) const { return m_acc[_n] == 0 && !m_pav[_n]; }
+		bool allClear() const { return clear(0) && clear(1) && clear(2) && clear(3); }
+
+		// A product as mac.l adds it and msac.l subtracts it in fractional mode: (y x) << 1 truncated to Q39
+		static int64_t fractionalProduct(const int32_t _y, const int32_t _x)
+		{
+			return (static_cast<int64_t>(_y) * _x) >> 23;
+		}
+
+		// The mac.l and msac.l of a run of products from a clear accumulator, given _total, the sum of what each
+		// adds (fractionalProduct, or y x in integer mode, negated for msac.l). The caller proves that no step
+		// overflows: each product is under 2^39 in magnitude (always in fractional mode, where |y x| <= 2^62; in
+		// integer mode the product's own check), so a run of at most 256 keeps every partial sum under the 2^47 the
+		// steps check, none sets PAV or saturates, and the accumulator ends at _total as the steps leave it
+		void setSum(const int _n, const int64_t _total) { m_acc[_n] = _total; }
+
+	private:
 
 		static int64_t wrap48(const int64_t _v)
 		{
