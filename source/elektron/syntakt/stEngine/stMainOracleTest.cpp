@@ -9,8 +9,11 @@
 // the original reads. SYNTAKT_SECTION3 names the user's section 3, SYNTAKT_MAIN_VECTORS the vector
 // files (';'-separated): both hold firmware-derived data and stay outside the repository. Exit 77 without them.
 // SYNTAKT_MAIN_OUTPUTS, optional, names what the original voice CPU played of each block a sequence's original segment
-// built (tools/block3.py sequence): the port's own blocks then play on the ported voice CPU (SYNTAKT_SECTION7,
-// SYNTAKT_SAMPLES), and its eight tracks must match sample for sample: the stems from the kit down.
+// built (tools/block3.py and tools/mix3.py sequence; several files ';'-separated, in the vectors' order): the port's
+// own blocks then play on the ported voice CPU (SYNTAKT_SECTION7, SYNTAKT_SAMPLES), and its eight tracks must match
+// sample for sample: the stems from the kit down. The voice outputs a sequence's next mix (0x4008f1ca) reads are then
+// the ported voice CPU's, not the original's the harness wrote, so that the buses, the effects and the Overbridge
+// frame are checked from the kit's parameters through the port alone.
 
 #include <cstdint>
 #include <cstdio>
@@ -26,13 +29,18 @@
 
 #include "stBoot.h"
 #include "stMainBlock.h"
+#include "stMainBus.h"
 #include "stMainControl.h"
+#include "stMainDelay.h"
 #include "stMainFilter.h"
+#include "stMainFx.h"
 #include "stMainLfo.h"
 #include "stMainMemory.h"
 #include "stMainMix.h"
 #include "stMainModulation.h"
+#include "stMainOutput.h"
 #include "stMainPitch.h"
+#include "stMainReverb.h"
 #include "stMemoryMap.h"
 
 namespace
@@ -110,10 +118,26 @@ namespace
 		Memory& mem;
 		const Case& c;
 		Pair out;
+		syntakt::main::Emac4 acc;	// the mix's routines share it; it starts cleared at the case's MACSR
 
 		int32_t arg(const size_t _i) const { return static_cast<int32_t>(c.args[_i]); }
 		uint32_t addr(const size_t _i) const { return c.args[_i]; }
+
+		// _n longs of the memory at argument _i: a case's gains or steps
+		std::vector<int32_t> longs(const size_t _i, const size_t _n) const
+		{
+			std::vector<int32_t> v(_n);
+			for(size_t k = 0; k < _n; ++k)
+				v[k] = mem.word(addr(_i) + 4 * static_cast<uint32_t>(k));
+			return v;
+		}
 	};
+
+	void sum(Context& _c, const int _channels)
+	{
+		const auto steps = _c.longs(3, static_cast<size_t>(_channels));
+		syntakt::main::sumChannels(_c.mem, _c.acc, _channels, _c.addr(0), _c.addr(1), _c.addr(2), steps.data());
+	}
 
 	enum class Returns
 	{
@@ -222,6 +246,59 @@ namespace
 					// The masks as block3.py records them: trigs, gate-offs, LFO trigs, filter trigs and gate-offs
 					m::buildBlock(_c.mem, {_c.arg(0), _c.arg(1), _c.arg(2), _c.arg(3), _c.arg(4)});
 				}}},
+			// The mix and its effects (tools/mix3.py): gains and steps at the arguments' addresses
+			{0x4008ef14, {"sum10", Returns::Nothing, [](Context& _c) { sum(_c, 10); }}},
+			{0x4008efac, {"sum9", Returns::Nothing, [](Context& _c) { sum(_c, 9); }}},
+			{0x4008f03e, {"sum8", Returns::Nothing, [](Context& _c) { sum(_c, 8); }}},
+			{0x4008f1b4, {"copySide", Returns::Nothing, [](Context& _c)
+				{
+					m::copySide(_c.mem, _c.addr(0), _c.addr(1));
+				}}},
+			{0x4008ee80, {"mixBuses", Returns::Nothing, [](Context& _c)
+				{
+					auto gains = _c.longs(2, 2);
+					const auto steps = _c.longs(3, 2);
+					m::mixBuses(_c.mem, _c.acc, _c.addr(0), _c.addr(1), gains.data(), steps.data());
+					_c.mem.setWord(_c.addr(2), gains[0]);
+					_c.mem.setWord(_c.addr(2) + 4, gains[1]);
+				}}},
+			{0x4008eeca, {"scaleBus", Returns::Nothing, [](Context& _c)
+				{
+					m::scaleBus(_c.mem, _c.acc, _c.addr(0), _c.arg(1));
+				}}},
+			{0x4008febc, {"rampBuffer", Returns::Nothing, [](Context& _c)
+				{
+					m::rampBuffer(_c.mem, _c.acc, _c.addr(0), _c.arg(1), _c.arg(2));
+				}}},
+			{0x40097a90, {"analogLevel", Returns::D0, [](Context& _c)
+				{
+					_c.out.d0 = m::analogLevel(_c.mem, _c.acc, _c.arg(0), _c.arg(1));
+				}}},
+			{0x40097414, {"prepareEffects", Returns::Nothing, [](Context& _c)
+				{
+					m::prepareEffects(_c.mem, _c.acc, _c.addr(0));
+				}}},
+			{0x40096890, {"delay", Returns::Nothing, [](Context& _c)
+				{
+					m::delay(_c.mem, _c.acc, _c.addr(0), _c.addr(1), _c.addr(2));
+				}}},
+			{0x40096802, {"writeLines", Returns::Nothing, [](Context& _c) { m::writeLines(_c.mem); }}},
+			{0x40096e3c, {"reverb", Returns::Nothing, [](Context& _c)
+				{
+					m::reverb(_c.mem, _c.acc, _c.addr(0), _c.addr(1), _c.addr(2));
+				}}},
+			{0x40096dba, {"advanceLines", Returns::Nothing, [](Context& _c) { m::advanceReverbLines(_c.mem); }}},
+			{0x40096668, {"delayInit", Returns::Nothing, [](Context& _c) { m::delayInit(_c.mem); }}},
+			{0x40096b86, {"reverbInit", Returns::Nothing, [](Context& _c) { m::reverbInit(_c.mem); }}},
+			{0x4008f1de, {"trackSends", Returns::Nothing, [](Context& _c)
+				{
+					m::MixFrame frame;
+					m::trackSends(_c.mem, _c.acc, _c.addr(0), frame);
+				}}},
+			{0x4008f1ca, {"mixOutput", Returns::D0, [](Context& _c)
+				{
+					_c.out.d0 = m::mixOutput(_c.mem, _c.acc, _c.addr(2));
+				}}},
 		};
 		return routines;
 	}
@@ -254,11 +331,10 @@ namespace
 		constexpr size_t perBlock = 4 * syntakt::Voices * syntakt::BlockSize;
 		if(blob.size() != 8 + perBlock * count)
 			return false;
-		_samples.resize(blob.size() / 4 - 2);
-		for(size_t i = 0; i < _samples.size(); ++i)
+		for(size_t i = 0; i < blob.size() / 4 - 2; ++i)
 		{
 			const uint8_t* p = &blob[8 + 4 * i];
-			_samples[i] = static_cast<int32_t>(uint32_t(p[0]) | p[1] << 8 | p[2] << 16 | uint32_t(p[3]) << 24);
+			_samples.push_back(static_cast<int32_t>(uint32_t(p[0]) | p[1] << 8 | p[2] << 16 | uint32_t(p[3]) << 24));
 		}
 		return true;
 	}
@@ -321,7 +397,12 @@ int main()
 			return 1;
 		}
 		section7 = syntakt::loadSection7(section7Path);
-		if(section7.empty() || !readSamples(samplesPath, samples) || !readOutputs(outputsPath, outputs))
+		// Several files (';'-separated) follow each other, in the order of their sequences in the vector files
+		bool read = !section7.empty() && readSamples(samplesPath, samples);
+		std::stringstream outputPaths(outputsPath);
+		for(std::string path; read && std::getline(outputPaths, path, ';');)
+			read = readOutputs(path, outputs);
+		if(!read)
 		{
 			std::printf("FAIL: cannot read section 7, the samples or the outputs\n");
 			return 1;
@@ -332,6 +413,7 @@ int main()
 	constexpr size_t blockSamples = syntakt::Voices * syntakt::BlockSize;
 	size_t played = 0;
 	int playedDiffer = 0;
+	std::vector<int32_t> previousVoice(blockSamples);
 
 	// A sequence's memory: what the port left, and the bytes its cases wrote, which their read sets then check
 	// rather than set. A case of routine 0 holds the bytes the harness wrote; its argument 1 starts a sequence
@@ -356,6 +438,19 @@ int main()
 				for(size_t i = 0; i < r.bytes.size(); ++i)
 					owned.erase(r.address + static_cast<uint32_t>(i));
 			apply(*carried, c.writes);
+			if(voiceSram)
+			{
+				// End to end, the voice outputs the mix reads are the ported voice CPU's of the block before, as the
+				// eDMA brings them, not the original's that the harness wrote: the mix's read set then checks them
+				if(!c.args.empty())
+					previousVoice.assign(blockSamples, 0);
+				for(uint32_t i = 0; i < blockSamples; ++i)
+				{
+					carried->setWord(syntakt::main::VoiceOutputs + 4 * i, previousVoice[i]);
+					for(uint32_t b = 0; b < 4; ++b)
+						owned.insert(syntakt::main::VoiceOutputs + 4 * i + b);
+				}
+			}
 			++blocks;
 			continue;
 		}
@@ -391,6 +486,7 @@ int main()
 		Memory expected = mem;
 		apply(expected, c.writes);
 		Context ctx{mem, c, {}};
+		ctx.acc.setMacsr(c.macsr);
 		it->second.run(ctx);
 
 		int diffs = 0;
@@ -423,6 +519,16 @@ int main()
 		};
 		for(size_t r = 0; r < mem.regions().size(); ++r)
 			compare(mem.regions()[r].bytes, expected.regions()[r].bytes, mem.regions()[r].base);
+		// The lines' pages, either side's: a page one side lacks holds zeros
+		const std::vector<uint8_t> zeros(Memory::PageSize);
+		for(const auto& [base, page] : mem.lines())
+		{
+			const auto w = expected.lines().find(base);
+			compare(page, w == expected.lines().end() ? zeros : w->second, base);
+		}
+		for(const auto& [base, page] : expected.lines())
+			if(!mem.lines().count(base))
+				compare(zeros, page, base);
 		if(c.sequence)
 		{
 			*carried = mem;
@@ -447,6 +553,7 @@ int main()
 				for(size_t i = 0; i < blockSamples; ++i)
 				{
 					const int32_t got = voiceSram->at(syntakt::VoiceOut + 4 * static_cast<uint32_t>(i));
+					previousVoice[i] = got;
 					if(got != outputs[first + i] && !differ++ && playedDiffer < 3)
 						std::printf("end to end, block %zu: track %zu sample %zu: %08x, original %08x\n", played,
 							i / syntakt::BlockSize, i % syntakt::BlockSize, static_cast<uint32_t>(got),

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -50,7 +51,8 @@ namespace syntakt::main
 	}
 
 	// The memory the ported routines use, kept in the big-endian CPU's order: CPU #1's 64 KB of SRAM (0x80000000), the
-	// DDR pages of the state the routines keep (Pages), and section 3, read only but for its data page 0x402d7000
+	// DDR pages of the state the routines keep (Pages), the DDR the delay and the reverb keep their lines in (Lines),
+	// held a 4 KB page at a time as they are written, and section 3, read only but for its data page 0x402d7000
 	// (the tempo, the LFOs' random generator), which starts as the file holds it. An access anywhere else is a
 	// fault, which the first one's address records: reads give 0, writes are dropped
 	class Memory
@@ -62,12 +64,18 @@ namespace syntakt::main
 			std::vector<uint8_t> bytes;
 		};
 
+		struct Range
+		{
+			uint32_t base;
+			uint32_t size;
+		};
+
 		static constexpr uint32_t SramBase = 0x80000000;
 		static constexpr uint32_t SramSize = 0x10000;
 		static constexpr uint32_t DataBase = 0x402d7000;	// section 3's data the routines write
 		static constexpr uint32_t PageSize = 0x1000;
 		static constexpr uint32_t Pages[] = {
-			0x4550e000,		// lock bits
+			0x4550e000,		// lock bits, the reverb's sine
 			0x444da000,		// LFO state
 			0x444db000,		// last pitches
 			0x45565000,		// glides
@@ -75,6 +83,14 @@ namespace syntakt::main
 			0x43bdd000,		// the eDMA pending
 			0x43bde000,		// the cuts
 			0x454e3000,		// the analog voices' state
+			0x43bd7000,		// the DAC's output gains, the tracks' Overbridge gains
+			0x43bdb000,		// the DAC's other input and its gain [INFER]
+			0x4553f000,		// the half of the DAC ring the block writes
+			0x41b9c000,		// the kit's per-track bytes, where the pointer 0x800030b8 points (KitBytes)
+		};
+		static constexpr Range Lines[] = {
+			{0x4d570000, 0xa0000},		// the reverb's 9 lines of 64 KB, then its 8 of 4 KB at 0x4d600000
+			{0x4fc00000, 0x400000},		// the delay's ring, 2^19 stereo frames
 		};
 
 		explicit Memory(const Section3& _rom) : m_rom(&_rom)
@@ -92,6 +108,11 @@ namespace syntakt::main
 		{
 			if(const uint8_t* p = find(_address))
 				return *p;
+			if(inLines(_address))
+			{
+				const auto it = m_lines.find(_address & ~(PageSize - 1));
+				return it == m_lines.end() ? 0 : it->second[_address & (PageSize - 1)];
+			}
 			if(m_rom->holds(_address))
 				return m_rom->bytes[_address - Section3::Base];
 			noteFault(_address);
@@ -102,6 +123,8 @@ namespace syntakt::main
 		{
 			if(uint8_t* p = find(_address))
 				*p = _v;
+			else if(inLines(_address))
+				line(_address)[_address & (PageSize - 1)] = _v;
 			else
 				noteFault(_address);
 		}
@@ -135,9 +158,30 @@ namespace syntakt::main
 		// The first address accessed outside the memory, 0 while there is none
 		uint32_t fault() const { return m_fault; }
 
+		bool romHolds(const uint32_t _address) const { return m_rom->holds(_address); }
+
 		const std::vector<Region>& regions() const { return m_regions; }
 
+		// The pages of Lines written so far, by base: a page not here holds zeros
+		const std::map<uint32_t, std::vector<uint8_t>>& lines() const { return m_lines; }
+
+		static bool inLines(const uint32_t _address)
+		{
+			for(const auto& r : Lines)
+				if(_address - r.base < r.size)
+					return true;
+			return false;
+		}
+
 	private:
+		std::vector<uint8_t>& line(const uint32_t _address)
+		{
+			auto& page = m_lines[_address & ~(PageSize - 1)];
+			if(page.empty())
+				page.resize(PageSize);
+			return page;
+		}
+
 		uint8_t* find(const uint32_t _address)
 		{
 			for(auto& r : m_regions)
@@ -156,6 +200,7 @@ namespace syntakt::main
 
 		const Section3* m_rom;
 		std::vector<Region> m_regions;
+		std::map<uint32_t, std::vector<uint8_t>> m_lines;
 		mutable uint32_t m_fault = 0;
 	};
 }

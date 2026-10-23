@@ -58,6 +58,60 @@ Each read in the code the C++ port matches bit for bit (0 differ, every reachabl
   alone, which stops at the first ColdFire-only instruction: pitchLoop's "22/22" counted 0x400A4ADE-0x400A4B20 only.
   `block3.py` decodes the segment as cfdis does, the pitch loop included.
 
+### Corrections from the port of steps 8-11 (2026-10-23, `stMainBus`, `stMainFx`, `stMainDelay`, `stMainReverb`, `stMainOutput`)
+- [CORR 4] 0x4008F1CA reads only its third argument (P). The DAC half it writes is 0x80000000 + (long 0x4553F6DC << 10).
+  MACSR: 0x20 at entry; 0x40097414 sets 0xA0 then 0x20 (the track loop runs at 0x20); 0xA0 from 0x4008F768 to the end
+  (0x4008EECA switches to 0x80, integer with saturation, and back); 0x20 at exit.
+- [CORR 4.2] An analog track's gain is × 0x401DC5E0[signed byte P+0x3E] unless its machine id is 32 or 33 (the test
+  is `(id − 32) & 0xFF > 1`), not "UT NOISE/IMPULSE". An analog track's ADC direct gains (entries 0-3 of 0x8000E0F0 /
+  0x8000E0D0) are gain × pan only when ROUT ≠ 0 and its bit of the FX bus mask is clear; else 0.
+- [CORR 4.2] The masks: d4 = signed word 0x80003148, or 0x8000314C when 0x80003148 is negative, is the **FX bus mask**
+  (bit t: track t leaves the FX bus; bit 12, 13: the delay's, the reverb's return level is 0; bit 14: the FX track's
+  input loses its direct gain). −0x1FC(a6) = 0x8000314A, or 0x8000314E, is the **send mask** (bit t: track t's sends
+  are 0; bit 12: the delay→reverb send is 0). cpu1.md had "muted by bits 12/13 of the mute mask": of the FX bus mask.
+- [CORR 4.3] The ADC side is 8 channels, all through the 8-channel sum 0x4008F03E: 0-3 the analog tracks, 4-5 the
+  external input (level +0x70A, halved when byte 0x80003146 = 0, pan +0x70E, sends +0x710 / +0x714, direct while
+  +0x71A ≠ 0), 6-7 the FX track's input (LEV word P+0x18 × +0x748, squared, pan +0x746, × the long 0x454E3C18 + 4 s
+  for L and 0x454E3C38 + 4 s for R, s = signed byte +0x71C clamped 0-7; sent to the delay only while the delay is
+  routed to the FX track (+0x6F6 ≠ 0) by +0x742, to the reverb while +0x708 ≠ 0 by +0x744). 0x4008F13A and
+  0x4008F0C6 are not called by 0x4008F1CA.
+- [CORR 4.5] The delay→reverb send is 0 when the reverb is not routed to the FX track and the word +0x742 is > 0, or
+  by bit 12 of the send mask; else −2 (P+0x6F2)².
+- [CORR 4.7] 0x8000DED0 at the end = (ADC × 0x8000E0F0 / 0x8000E0D0: the analog tracks routed to the FX track, the
+  external input's and the FX track input's direct) + 0x8000DFD0 (0x4008EE80 at unity), × 8 (0x4008EECA). 0x4008EECA
+  is `sat32(x × n)` (MACSR 0x80): 0x8000DAD0 × 10, 0x8000DFD0 × 8, 0x8000DED0 × 8.
+- [CORR 4.8] DAC slots, per frame of 8 longs: 7 and 2 = (3 g1 × DAD0 − 3 g0 × X) >> 8, X the slots 2 and 3 of a second
+  TDM ring at 0x8000E1B0 + (long 0x43BDC4D8 << 10); g1 and g0 ease by 0.99 / 0.01 per frame (0x7EB851EB, 0x0147AE14,
+  state 0x43BD7688 / 0x43BD7684) to T = 0x401DAFDC[signed byte P+0x740] and T >> (3 − byte 0x80003144). 5 and 3 =
+  (−[0x43BDBF64] × B[i] + (INT32_MIN >> (3 − byte 0x80003144)) × X slots 0, 1 + (−1) × DFD0) >> 8, B the 32 longs
+  at 0x43BDBF68 (mono), the first and last gains 0 when byte 0x8000313D is 0, or 1 with byte 0x8000313C ≠ 0.
+- [CORR 4.9-10] The meters loop is not UI only: 0x4008FEBC **scales each track's buffer in place** (−x × g, g ramped
+  from 0x43BD768C[t] to the new gain), g = 0x4008ED48(level, velocity, VOL +0x7C, kit byte) at MACSR 0xA0, level =
+  the LEV word P[2t] when byte 0x80003145 ≠ 0, else 0x7F00 (t ≤ 7) or 0x40097A90(machine id, 0x7F00) =
+  −0x401E08E0[id] × 0x7F00 (t ≥ 8). Overbridge (32 frames × 20 longs at 0x80004760): 0-1 = 0x8000DED0 as above;
+  **2-9 = the digital tracks after that scaling** (velocity curve × VOL², × LEV² when 0x80003145 is set; post-gain,
+  pre-pan, phase inverted), not CPU #2's raw output; 10-13 = ADC 0-3 scaled likewise; 14-15 = ADC 6-7 raw;
+  16-17 = sat(delay return + reverb return); 18-19 are not written here.
+- [CORR 4.4-5] The eDMA, read from the code: channel 30 (TCD 0xFC0453C0), programmed and started (CSR 0x11 = START +
+  ESG) at the end of 0x40097414, reads at the start of the block: the delay's tap A (the new time) 17 × 16 bytes
+  into 0x8000D6D0 − (address & 15), then by scatter-gather tap B (the last block's time, descriptor 0x8000DAA0) into
+  0x8000D7E0, the 8 diffusers' read positions (descriptors 0x8000C8C0 + 32 k, 9 × 16 bytes into 0x8000D120 + 0xA0 k)
+  and the 9 lines' (0x8000C9C0 + 32 k, 9 × 16 bytes, lines 4 and 8 10 × 16, into 0x8000CAF0 + 0xB0 k). Source
+  modulo 2^22 (the ring), 2^12, 2^16. Channel 42 (0xFC045540), started by 0x40096802 after the reverb, writes 256
+  bytes from the pointer at 0x8000D6B0 into the ring at the old write position, then by scatter-gather the 8 diffusers'
+  and the 9 lines' 128 bytes from their SRAM buffers to their write positions (0x40096DBA aims them; descriptors
+  0x8000C6A0 + 32 k, 0x8000C7A0 + 32 k; destination modulo 2^12, 2^16). Descriptors' fixed fields: 0x40096668 (delay
+  init) and 0x40096B86 (reverb init). 0x4008F80A polls channel 30's ESG: clear once the last descriptor is loaded.
+- [CORR 5] The SRAM is initialized at the start (0x4000045E): 0x40339000-0x40340330 to 0x80000000, 0x40340330-0x40347B90
+  to 0x80008000, the rest zero. It holds the pointer 0x8000D6B0 = 0x8000D6D0, the diffusers' lengths 0x8000D670
+  (53, 73, 113, 163, 251, 367, 491, 809 samples, ×4 bytes) and gains 0x8000D630, the lines' lengths 0x8000C63C (pre-delay
+  2000, then 2399, 3359, 4721, 7004, 2111, 3109, 4507, 6704 samples), the sine's rate 0x005937C8 at 0x8000C510.
+- [CORR 4.4] 0x8000DAC4 is the last block's delay time, 0x8000DAC8 the ring's write position (frames).
+- The EMAC: 0x40096890 leaves accumulator 2 holding the fade-out weight × tap B's frame 32 L from its first loop into
+  its second (the high-pass's), an accumulator carried between loops; the port keeps four accumulators and the MACSR
+  through the routines (`Emac4`). Assumed and checked by listing only: every routine the interrupt runs between the
+  block segment and 0x4008F1CA ends each accumulator with a `movclr`, so they are clear at its entry.
+
 ## 1. The audio interrupt 0x400A3856 (vector set at 0x400002FC; `rte` 0x400A54A8), per 32-sample block
 
 MACSR: saved, the accumulators saved, then **MACSR = 0x20** (fractional, no saturation, truncation) for the whole
@@ -253,51 +307,89 @@ modulation matrix act on the smoothed copy every block and are never smoothed.
 
 ## 4. What CPU #1 does with the 8 voices' outputs: 0x4008F1CA(dac, adc, P) — 986 instructions, 49 EMAC
 
-Input: CPU #2's previous block at 0x80003D50 (8 × 32 int32; one block old). ADC: 0x80003950 (8 ch).
+Ported (2026-10-23, `stMainOutput` and the files below; [CORR] in section 0). Input: CPU #2's previous block at
+0x80003D50 (8 × 32 int32; one block old). ADC: 0x80003950 (8 ch: 0-3 analog tracks, 4-5 external in, 6-7 the FX
+track's input). The routine reads only P (its first two arguments are not used). Gains are negative (INT32_MIN full);
+every one ramps over the block, step (target − current) >> 5 added after each sample.
 
-1. `0x40097414(P)` (173, 5 EMAC): delay time `= (TIME + 256) × 48000 >> 10 × 900 / tempo`, clamped 0x5DC00,
-   smoothed (×255/256 per block, 0x8000DAC0), read pointers 0x8000DAC4/DAC8 into a 2^19-frame stereo ring at
-   **DDR 0x4FC00000** (8 B per frame); sets up the reads into SRAM 0x8000C528.. [INFER: by eDMA].
-2. Per track t 0..11 (0x4008F21E-0x4008F474):
+1. `0x40097414(P)` (173, 5 EMAC, `prepareEffects`): the reverb's diffusers' and lines' read positions (write
+   position − length) into channel 30's descriptors; the reverb's sine oscillator (a rotation by 0x8000C510, outputs
+   0x8000C514 / 0x8000C518, the second also at 0x4550E1C8) and line 4's modulated position; the delay's time
+   `(TIME + 256) × 48000 >> 10 × 900 / tempo` frames, clamped (unsigned) to 0x5DC00, eased by about 1/256 per
+   block (sum = 255 (s >> 1) + 32 (t >> 1), 0x8000DAC0 = sum >> 7, which settles at 32 t; the time used is sum >>
+   12), its two taps (the new time, the last block's at 0x8000DAC4) behind the write position 0x8000DAC8; then
+   channel 30 runs (CORR 4.4-5).
+2. Per track t 0..11 (0x4008F21E-0x4008F474, `trackSends`):
    - gain `g = 0x4008ED48(level word P[2t], velocity, VOL +0x7C, kit byte (0x800030B8 + 0x123 t)+205)`:
      velocity curve table 0x401DB1DC[(mode & 3) × 128 + vel] × (LEV × VOL)² (frac EMAC, 38 instr.).
-     UT NOISE/IMPULSE on analog tracks × 0x401DC5E0[P+0x3E byte].
+     [CORR] An analog track's × 0x401DC5E0[signed byte P+0x3E] unless its machine id is 32 or 33.
    - pan `0x400A171A(PAN +0x7A)`: constant power via sine `0x400A16BC` (30 + 14 instr.).
-   - Digital t: direct-bus targets (e188 L / e160 R) = g × pan unless **ROUT +0x7E ≠ 0**; FX-bus targets (e138 /
-     e110) = g × pan when ROUT ≠ 0 and bit t of the mask 0x80003148 (or 0x8000314C if 0x80003148 < 0) is clear.
-     Analog t: e0d0 / e0b0 (their ADC signal; the analog direct path is analog).
-   - Sends: DEL +0x76 and REV +0x78 as −2 × v² (Q31), × g × pan, zero if bit t of 0x8000314A (or 0x8000314E) is set
-     [INFER: mute]; current gains at 0x80006328/08 (delay L/R), 0x800062E4/C0 (reverb) for digital,
-     0x80006280/60/40/20 for analog.
-   - Every gain ramps linearly over the block: increment = (target − current) >> 5.
-3. External in (0x4008F478-0x4008F76C): analog inputs' gains/sends (SyntHack's dual-mono block), from P+0x70A..
-4. Delay bus 0x8000DBD0 = Σ digital sends (8-ch sum `0x4008F03E`) + analog sends (4-ch `0x4008F13A`, at 0x8000DED0,
-   added in 0x4008F7DA). Waits on eDMA (0xFC0453DE bit 4). **Delay `0x40096890(out 0x8000DCD0, in 0x8000DBD0,
-   P+0x6E6)`** (229 instr., 34 EMAC): TIME, X (ping-pong), WID, FDBK, HPF/LPF one-poles from table 0x4029BFFC,
-   state 0x8000D908-0x8000DA1C, line via pointer 0x8000D6B0. `0x40096802` (30) advances the write pointer (+32
-   frames, mask 0x7FFFF) and programs the eDMA (TCDs 0xFC045540/50) between SRAM 0x8000C6A0 and DDR.
-5. Delay return → channel 8 of the track buffer (0x80004150, copy `0x4008F1B4`); delay→reverb send
-   (P+0x6F2, −2 v², zero if delay routed or muted). Reverb bus 0x8000DBD0 = Σ reverb sends (8 digital + delay
-   channel + 4 analog). **Reverb `0x40096E3C(out 0x8000DDD0, in 0x8000DBD0, P+0x6FA)`** (407 instr., 113 EMAC):
-   PRE, DEC, FREQ/GAIN shelving, HPF/LPF (table 0x4029B9FC and 0x4029BFFC), state 0x8000C310-0x8000D650; lines in
-   DDR: 8 × 4 KB at 0x4D600000 and 9 × 64 KB at 0x4D570000, pointers 0x8000D690 / 0x8000C660 advancing 0x80 B per
-   block, fed through SRAM descriptors 0x8000C6B0 / 0x8000C7B0 by `0x40096DBA` (39) [INFER: eDMA].
-   Reverb return → channel 9 (0x800041D0).
-6. Return levels: delay VOL P+0x6F4, reverb VOL P+0x706 (−2 v², muted by bits 12/13 of the mute mask); routed to
-   the direct bus (0x8000E1A8/E180) or the FX bus (E158/E130, E1AC..) by **delay FX routing P+0x6F6 (id 25)** and
-   **reverb FX routing P+0x708 (id 34)**.
-7. Buses (10-ch sum `0x4008EF14`, msac with per-sample gain ramps, gains stored negated):
-   **0x8000DAD0** (L at +0, R at +4, 8 B frames) = digital tracks not routed + routed-direct returns;
-   **0x8000DFD0** = digital tracks with ROUT + returns routed to the FX track. `0x4008EECA(bus, n)` (23 instr.)
-   post-processes each [INFER: DC/clip].
-8. DAC write (0x4008FBF0-0x4008FD68): DAD0 → TDM slots +0x1C/+0x08 of the DAC half `dac`, DFD0 → +0x14/+0x0C,
-   with one-pole smoothed output gains (0x7EB851EB / 0x0147AE14, state 0x43BD7688/84 and table 0x401DAFDC[P+0x740],
-   shift 3 − byte 0x80003144; muted when 0x8000313D/3C say so) [INFER: crossfade of the analog/digital headroom
-   setting]. Both buses then enter the **analog** mixer and the analog FX block; nothing digital follows.
-9. Meters (0x4008FD6A-0x4008FE2A): per track `0x4008ED48` again and `0x4008FEBC` (32) → 0x43BD768C (UI only).
-10. Overbridge frame **0x80004760** (32 frames × 20 longs): 0-1 = 0x8000DED0 (ADC-side mix [INFER: ADC 6/7, the
-    analog main before the master VCAs]), 2-9 = the 8 digital tracks (raw CPU #2 output, pre-gain, pre-pan),
-    10-13 = ADC 0-3 (analog tracks), 14-15 = ADC 6/7, 16-17 = delay + reverb returns (0x8000DCD0 + 0x8000DDD0).
+   - Digital t: direct-bus targets (0x8000E188 L / 0x8000E160 R) = g × pan unless **ROUT +0x7E ≠ 0**; FX-bus
+     targets (0x8000E138 / 0x8000E110) = g × pan when ROUT ≠ 0 and bit t of the FX bus mask (0x80003148, or
+     0x8000314C if 0x80003148 < 0) is clear. [CORR] Analog t: the ADC direct gains 0x8000E0F0 / 0x8000E0D0
+     (entries 0-3) take the FX-bus rule.
+   - Sends: DEL +0x76 and REV +0x78 as −2 v² (Q31), × g × pan, zero if bit t of the send mask (0x8000314A, or
+     0x8000314E) is set; current gains at 0x80006328 / 0x80006308 (delay L/R), 0x800062E4 / 0x800062C0 (reverb) for
+     digital t, entries 0-3 of 0x800062A0 / 0x80006280 / 0x80006260 / 0x80006240 for analog t.
+3. External in and FX track input (0x4008F478-0x4008F76C): entries 4-7 of the ADC arrays (CORR 4.3).
+4. Delay bus 0x8000DBD0 = Σ digital sends (8-ch sum `0x4008F03E`) + the 8 ADC channels' sends (the same sum into
+   0x8000DED0, added saturating at 0x4008F7E6). The poll of channel 30 (0xFC0453DE bit 4). **Delay
+   `0x40096890(out 0x8000DCD0, in 0x8000DBD0, P+0x6E6)`** (4.1). `0x40096802` (30, `writeLines`) moves the write
+   position 32 frames on (mask 0x7FFFF) and starts channel 42.
+5. Delay return → channel 8 of the track buffer (0x80004150, copy `0x4008F1B4`, one side at a time); delay→reverb
+   send (CORR 4.5). Reverb bus 0x8000DBD0 = Σ reverb sends (9-ch sum `0x4008EFAC`: 8 digital + the delay channel) +
+   the 8 ADC channels'. **Reverb `0x40096E3C(out 0x8000DDD0, in 0x8000DBD0, P+0x6FA)`** (4.2), then `0x40096DBA`
+   (39, `advanceReverbLines`): the lines' write positions (0x8000D690, 0x8000C660) into channel 42's descriptors,
+   then 0x80 bytes on. Reverb return → channel 9 (0x800041D0).
+6. Return levels: delay VOL P+0x6F4, reverb VOL P+0x706 (−2 v², zero by bits 12/13 of the **FX bus mask**);
+   routed to the direct bus (0x8000E1A8 / E180, E1AC / E184) or the FX bus (E158 / E130, E15C / E134) by **delay FX
+   routing P+0x6F6 (id 25)** and **reverb FX routing P+0x708 (id 34)**.
+7. Buses (10-ch sum `0x4008EF14`, `msac` with per-sample gain ramps): **0x8000DAD0** (L at +0, R at +4, 8 B frames)
+   = digital tracks not routed + the returns not routed; **0x8000DFD0** = digital tracks with ROUT + the returns
+   routed to the FX track. Then 0x8000DED0 (CORR 4.7). `0x4008EECA(bus, n)` = sat32(x × n): DAD0 × 10, DFD0 × 8.
+8. DAC write (0x4008FBF0-0x4008FD68): CORR 4.8. Both buses then enter the **analog** mixer and the analog FX block;
+   nothing digital follows.
+9. Overbridge gains (0x4008FD6A-0x4008FE2A): each track's buffer scaled in place (CORR 4.9-10).
+10. Overbridge frame **0x80004760** (32 frames × 20 longs):
+
+| Channel | Content |
+|---|---|
+| 0-1 | 0x8000DED0: the ADC side's direct mix (analog tracks routed to the FX track, external input, FX track input) + the FX bus 0x8000DFD0, × 8 |
+| 2-9 | the digital tracks 1-8: CPU #2's output × −(velocity curve × VOL², × LEV² when byte 0x80003145 ≠ 0), ramped; pre-pan, pre-send |
+| 10-13 | ADC 0-3 (analog tracks 9-12), scaled likewise (the machine's level 0x401E08E0 when 0x80003145 is 0) |
+| 14-15 | ADC 6-7, as read |
+| 16-17 | delay return + reverb return, saturated |
+| 18-19 | not written by 0x4008F1CA |
+
+### 4.1 The delay, 0x40096890 (229 instructions, 34 EMAC; `stMainDelay`)
+
+A stereo delay on a ring of 2^19 frames (4 MB at 0x4FC00000; the longest time, 0x5DC00 frames, is 8 s), read by
+channel 30 at two taps and written by channel 42, 32 frames per block. Per block: tap A at the new smoothed time,
+tap B at the last block's, crossfaded linearly over the block (B's weight from 0x8000D908 down, A's up to full): a
+time change glides without a click. The sum is soft-clipped (y = 2x − x|x|), scaled by 1/32 (ramped from
+0x8000D90C), then a one-pole high-pass (pole 0x4029BFFC[HPF >> 6]) and a one-pole low-pass (pole 0x4029BFFC[(HPF +
+LPF) >> 6]), × 16: that is the return (0x8000DCD0). The ring's next input, in place in the tap buffer: FDBK × −66053
+(saturated, ramped from the last block's, 0x8000D918) times the return, L and R swapped when X ≠ 0 (ping-pong), plus
+the input through four width gains from WID (with X: both inputs summed, (1 − w) to L, w to R; without: L' = (w +
+½) L + (½ − w) R, R' = 2w R for w ≤ ½, the mirror above), ramped (0x8000C300).
+
+### 4.2 The reverb, 0x40096E3C (407 instructions, 113 EMAC; `stMainReverb`)
+
+A feedback delay network of eight lines in two groups of four, after a pre-delay and eight diffusers:
+- Pre-delay: line 0 (64 KB at 0x4D570000), (PRE² >> 16) + 37 samples, at most 16384; its input the mono (L + R) / 2;
+  its output through a one-pole low-pass and high-pass (LPF, HPF, poles 0x4029BFFC).
+- Diffusion: 8 Schroeder allpasses in series on 4 KB lines at 0x4D600000 (53 to 809 samples), gain g_k =
+  0x8000D630[k] × 0x4029B6FC[DEC >> 8] (0x5B851EB8 above 63): y = −g x + (1 − g²) d, line input x + g d.
+- Two halves, lines 1-4 and 5-8 (64 KB each, 2399, 3359, 4721, 7004 and 2111, 3109, 4507, 6704 samples): each line's
+  output through a first-order shelving filter (coefficients f = 0x4029B7FC[FREQ >> 8], f ± (1 − f) GAIN, 2f − 1);
+  the first line of a half also takes the diffused input; the fourth (lines 4 and 8) is read at a position the
+  sine moves by about ±8 samples, interpolated with 4 taps of a 32-phase table (0x4029B9FC) and its fraction. The
+  return (0x8000DDD0) sums four lines on each side: L = lines 1, 6, 7 (the last block's, read before the second half
+  rewrites it) and 8, R = lines 2, 3, 4 and 5, lines 4 and 8 taken before their shelf. Each half's lines' inputs are
+  its four outputs through a 4 × 4 sign matrix (+ on the diagonal, − elsewhere), input j scaled by the long j of
+  0x401DF8E0 + 32 DEC (+ 16 for the second half).
+- Its state: 0x8000C310-0x8000C63C (filters, the half's four outputs, the shelves), 0x8000D650 (the diffusers'
+  gains); the lines' buffers 0x8000CAF0 + 0xB0 k and 0x8000D120 + 0xA0 k, read and written by channels 30 and 42.
 
 Digital vs analog: everything in sections 1-4 is code. The analog part is after the DACs: the analog mixer
 (master VCAs = CVs 35/36), the FX track's analog filter/drive (DFD0 goes through it), the master overdrive/filter,
@@ -316,9 +408,9 @@ model of that mixer; the stems (per-track, Overbridge 2-9 and the gains of step 
 | 0x400956BC | P, pitch, env 0x43BDC0A0 | 0x4550E1A8 | yes (sets MACSR itself) |
 | block builder | everything above | 0x80002000 (0x1B0) | as an interrupt segment 0x400A4A00-0x400A4DB8 with a6 frame and d2/d3/a5 masks seeded (like test_master_comp's HOOK..AFTER), stubbing the eDMA writes (0xFC04xxxx) |
 | 0x4008ED48, 0x400A171A, summing 0x4008EF14.. | args | none | yes, trivially |
-| 0x40096890 + 0x40097414 + 0x40096802 | P+0x6E6, tempo, SRAM windows | 0x8000D908.., 0x8000DAC0.. | yes for the DSP part if the SRAM windows 0x8000C528.. are filled by the harness as the eDMA would; the 4 MB DDR ring must be emulated (periph.py's eDMA, or copy TCD src→dst on the CSR write 0x11 to 0xFC04555E) |
-| 0x40096E3C + 0x40096DBA | P+0x6FA | 0x8000C310-0x8000D650, DDR lines | same eDMA caveat |
-| 0x4008F1CA | all buses, ADC/DAC rings, P | buses, DAC ring, 0x80004760 | yes with SRAM 64 KB + DDR pages mapped, the poll at 0x4008F80A answered (map 0xFC045000 with bit 4 clear), external-in state |
+| 0x40096890 + 0x40097414 + 0x40096802 | P+0x6E6, tempo, the taps' buffers, the ring | 0x8000D908.., 0x8000DAC0.., 0x8000C300, the ring | yes: `tools/fx3.py` runs channels 30 and 42 at their CSR write (CORR 4.4-5) |
+| 0x40096E3C + 0x40096DBA | P+0x6FA | 0x8000C310-0x8000D650, the lines | the same |
+| 0x4008F1CA | all buses, ADC, P, the SRAM image | buses, DAC ring, 0x80004760 | yes (fx3: SRAM image, the inits, peripherals as RAM, the DDR lines); the poll passes since the chain has ended |
 
 Memory to map: DDR 0x40000000 (section 3 at 0x40000400, BSS pages 0x41B9xxxx, 0x43BDxxxx, 0x444Dxxxx,
 0x454Exxxx, 0x4550xxxx-0x4556xxxx, FX lines 0x4D570000-0x4D610000, 0x4FC00000 + 4 MB), SRAM 0x80000000 (64 KB),
@@ -378,6 +470,20 @@ smoothing, matrix, LFOs, pitch loop, filter envelopes and cutoffs on one carried
 9. Delay (0x40097414, 0x40096890, 0x40096802) with the DDR ring modelled as the eDMA moves it.
 10. Reverb (0x40096E3C, 0x40096DBA).
 11. 0x4008F1CA whole: buses, routing flags, DAC write, Overbridge frame.
+   **Steps 8-11 done 2026-10-23** (`stMainEmac`, `stMainBus`, `stMainFx`, `stMainDelay`, `stMainReverb`,
+   `stMainOutput`; section 4, CORR in section 0). Tools: `tools/fx3.py` (the rig with channels 30 and 42 of the eDMA,
+   the SRAM image, the inits), `tools/mix3.py cases` (`vectors-main/mix.stv`: the 9 summing and scaling routines,
+   0x40097414, the delay, 0x40096802, the reverb, 0x40096DBA, the segment 0x4008F1DE-0x4008F80A and 0x4008F1CA, 250
+   cases each, plausible and one in four at edges, and the two inits) and `mix3.py sequence`
+   (`mix_sequence.stv/.sto`: 2 × 300 blocks of the block segment and 0x4008F1CA on one memory, the delay's and the
+   reverb's tails sounding, one with a feedback that saturates and one that dies away). Results: 3752 cases 0
+   differ; the sequences' 1959 calls 0 differ; end to end, 600 blocks of the port's own blocks played by the ported
+   voice CPU and mixed by the port (buses, returns, DAC slots, Overbridge frame) 0 differ. Coverage
+   (`mix_coverage.txt`): every routine and the segment 100 % of instructions and branch sides, but the poll's
+   loop-back 0x4008F816, dead (the eDMA has ended when the code polls).
+   The port's memory for the effects: SRAM as on the device (the image, `loadSramImage`, then `delayInit`,
+   `reverbInit`), the reverb's 576 + 32 KB of lines and the delay's ring as the code addresses them, 2^19 frames (4
+   MB, the write position runs through all of it in 16384 blocks, 11 s), held in 4 KB pages allocated as written.
 12. (Not code) model of the analog mixer and FX block, if a "Main" is wanted.
 
 ## Unknowns
@@ -388,8 +494,9 @@ smoothing, matrix, LFOs, pitch loop, filter envelopes and cutoffs on one carried
 - ~~Where the RNG of 0x40118EF8 keeps its seed~~: 0x402D701C / 0x402D7020 (section 3's data), 2026-10-23.
 - The names of the glide settings (+0x64 percent, +0x68 legato 0/1/2, +0x6C, +0x70, +0x74) and of the masks
   0x80003152 / 0x80003154 (gate, held [INFER]) as the UI calls them.
-- The meaning of masks 0x80003148/4A/4C/4E (FX-bus and send muting) and of 0x43BDE440 (kill).
-- The DAC output gain stage (0x401DAFDC, 0x80003144, 0x8000313C/D) and 0x4008EECA's role.
-- How the eDMA moves delay/reverb data between DDR and SRAM, exactly (TCD fields not decoded); delay and reverb
-  algorithms were located, not decoded. 0x8000DED0's exact content (Overbridge 0-1).
+- Which settings write the masks 0x80003148/4A/4C/4E (what their bits do is read, CORR 4.2), and 0x43BDE440 (kill).
+- What the DAC stage's other inputs are (the TDM ring 0x8000E1B0, the 32 samples at 0x43BDBF68 and their gain
+  0x43BDBF64) and which settings 0x401DAFDC[P+0x740], 0x80003144 and 0x8000313C/D stand for (CORR 4.8).
+- ~~The eDMA's moves, the delay and reverb algorithms, 0x8000DED0~~: read and ported, 2026-10-23 (CORR 4.4-5, 4.1, 4.2).
+- What the kit byte at +205 of each track's 0x123 bytes (the velocity curve's mode) and the pointer 0x800030B8 are.
 - Whether CPU #2's track stages read block 0x170 (velocity): not checked here (see trackstages.md).

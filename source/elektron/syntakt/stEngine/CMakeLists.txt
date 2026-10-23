@@ -15,7 +15,9 @@ add_library(stEngine STATIC stEmac.h stMemoryMap.h stVoice.h stVoice.cpp stStage
 	stSyTone.cpp stSyChord.cpp stSyToy.cpp stSyBits.cpp stSySwarm.cpp stSpTwinshot.cpp stVoiceCpu.h stVoiceCpu.cpp
 	stMainMemory.h stMainMix.h stMainMix.cpp stMainControl.h stMainControl.cpp
 	stMainModulation.h stMainModulation.cpp stMainLfo.h stMainLfo.cpp
-	stMainPitch.h stMainPitch.cpp stMainFilter.h stMainFilter.cpp stMainBlock.h stMainBlock.cpp)
+	stMainPitch.h stMainPitch.cpp stMainFilter.h stMainFilter.cpp stMainBlock.h stMainBlock.cpp
+	stMainEmac.h stMainBus.h stMainBus.cpp stMainFx.h stMainFx.cpp stMainDelay.h stMainDelay.cpp
+	stMainReverb.h stMainReverb.cpp stMainOutput.h stMainOutput.cpp)
 target_include_directories(stEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(TARGET stEngine PROPERTY FOLDER "Elektron/syntakt")
 
@@ -32,7 +34,7 @@ if(BUILD_TESTING)
 	target_link_libraries(stVoiceCpuTest PRIVATE stEngine)
 	set_property(TARGET stVoiceCpuTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stVoiceCpuTest COMMAND stVoiceCpuTest)
-	set_tests_properties(stVoiceCpuTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+	set_tests_properties(stVoiceCpuTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_fgCODE 77 TIMEOUT 300)
 
 	# CPU #1's ported routines against the original ones (SYNTAKT_SECTION3, SYNTAKT_MAIN_VECTORS: exit 77 without them)
 	add_executable(stMainOracleTest stMainOracleTest.cpp)
