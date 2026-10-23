@@ -17,7 +17,7 @@ add_library(stEngine STATIC stEmac.h stMemoryMap.h stVoice.h stVoice.cpp stStage
 	stMainModulation.h stMainModulation.cpp stMainLfo.h stMainLfo.cpp
 	stMainPitch.h stMainPitch.cpp stMainFilter.h stMainFilter.cpp stMainBlock.h stMainBlock.cpp
 	stMainEmac.h stMainBus.h stMainBus.cpp stMainFx.h stMainFx.cpp stMainDelay.h stMainDelay.cpp
-	stMainReverb.h stMainReverb.cpp stMainOutput.h stMainOutput.cpp)
+	stMainReverb.h stMainReverb.cpp stMainOutput.h stMainOutput.cpp stSyntakt.h stSyntakt.cpp)
 target_include_directories(stEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(TARGET stEngine PROPERTY FOLDER "Elektron/syntakt")
 
@@ -34,7 +34,7 @@ if(BUILD_TESTING)
 	target_link_libraries(stVoiceCpuTest PRIVATE stEngine)
 	set_property(TARGET stVoiceCpuTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stVoiceCpuTest COMMAND stVoiceCpuTest)
-	set_tests_properties(stVoiceCpuTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_fgCODE 77 TIMEOUT 300)
+	set_tests_properties(stVoiceCpuTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 	# CPU #1's ported routines against the original ones (SYNTAKT_SECTION3, SYNTAKT_MAIN_VECTORS: exit 77 without them)
 	add_executable(stMainOracleTest stMainOracleTest.cpp)
@@ -42,6 +42,14 @@ if(BUILD_TESTING)
 	set_property(TARGET stMainOracleTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stMainOracleTest COMMAND stMainOracleTest)
 	set_tests_properties(stMainOracleTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# syntakt::Syntakt end to end against the original firmware (SYNTAKT_SECTION3, SYNTAKT_SECTION7, SYNTAKT_SAMPLES,
+	# SYNTAKT_SCENARIO: exit 77 without them)
+	add_executable(stSyntaktTest stSyntaktTest.cpp)
+	target_link_libraries(stSyntaktTest PRIVATE stEngine)
+	set_property(TARGET stSyntaktTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME stSyntaktTest COMMAND stSyntaktTest)
+	set_tests_properties(stSyntaktTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 	# A machine rendered through VoiceCpu into a WAV, by hand (stRender SECTION7 OUT.wav MACHINE NOTE SECONDS)
 	add_executable(stRender stRender.cpp)
