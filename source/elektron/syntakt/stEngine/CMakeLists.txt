@@ -17,8 +17,15 @@ add_library(stEngine STATIC stEmac.h stMemoryMap.h stVoice.h stVoice.cpp stStage
 	stMainModulation.h stMainModulation.cpp stMainLfo.h stMainLfo.cpp
 	stMainPitch.h stMainPitch.cpp stMainFilter.h stMainFilter.cpp stMainBlock.h stMainBlock.cpp
 	stMainEmac.h stMainBus.h stMainBus.cpp stMainFx.h stMainFx.cpp stMainDelay.h stMainDelay.cpp
-	stMainReverb.h stMainReverb.cpp stMainOutput.h stMainOutput.cpp stSyntakt.h stSyntakt.cpp)
+	stMainReverb.h stMainReverb.cpp stMainOutput.h stMainOutput.cpp stSyntakt.h stSyntakt.cpp
+	stSimd.h stSimd.cpp stSimdAvx2.cpp)
 target_include_directories(stEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+# The AVX2 kernels, which run only where simd::avx2() finds the CPU has it: MSVC compiles their file alone for AVX2,
+# GCC and Clang their functions by a target attribute, so the rest of the build keeps its own flags
+if(MSVC AND CMAKE_CXX_COMPILER_ARCHITECTURE_ID MATCHES "x64")
+	set_source_files_properties(stSimdAvx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+endif()
 set_property(TARGET stEngine PROPERTY FOLDER "Elektron/syntakt")
 
 if(BUILD_TESTING)
@@ -42,6 +49,20 @@ if(BUILD_TESTING)
 	set_property(TARGET stMainOracleTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stMainOracleTest COMMAND stMainOracleTest)
 	set_tests_properties(stMainOracleTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# The scalar code the AVX2 kernels replace, against the original routines: the two oracle tests again with the
+	# kernels off (SYNTAKT_NO_AVX2), as on a CPU without AVX2
+	add_test(NAME stEngineOracleTestScalar COMMAND stEngineOracleTest)
+	add_test(NAME stMainOracleTestScalar COMMAND stMainOracleTest)
+	set_tests_properties(stEngineOracleTestScalar stMainOracleTestScalar PROPERTIES LABELS "FirmwareTest"
+		SKIP_RETURN_CODE 77 TIMEOUT 300 ENVIRONMENT "SYNTAKT_NO_AVX2=1")
+
+	# The AVX2 kernels against the scalar code on random states and edge values (exit 77 on a CPU without AVX2)
+	add_executable(stSimdTest stSimdTest.cpp)
+	target_link_libraries(stSimdTest PRIVATE stEngine)
+	set_property(TARGET stSimdTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME stSimdTest COMMAND stSimdTest)
+	set_tests_properties(stSimdTest PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 	# syntakt::Syntakt end to end against the original firmware (SYNTAKT_SECTION3, SYNTAKT_SECTION7, SYNTAKT_SAMPLES,
 	# SYNTAKT_SCENARIO: exit 77 without them)

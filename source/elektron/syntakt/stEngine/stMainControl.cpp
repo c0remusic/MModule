@@ -26,73 +26,56 @@ namespace syntakt::main
 				++b;
 			return b;
 		}
+
+		// A pass for every two engine words, one accumulator each (mac.w on the high and low halves of the target
+		// long), over the runs of targets (from the second long), states and outputs (from the long before
+		// Smoothed): the output long of a pass is written in the next one. Returns the last pass's
+		constexpr uint32_t SmoothPasses = (EngineWords + 1) / 2;
+
+		template<typename Targets, typename States, typename Outs>
+		int32_t smoothPasses(const Targets& _targets, const States& _states, const Outs& _outs, int32_t _pair,
+			int32_t _target)
+		{
+			constexpr int32_t TargetWeight = 0x03d70000;
+			constexpr int32_t StateWeight = 0x7c290000;
+			EmacWrap acc0, acc1;
+			for(uint32_t p = 0; p < SmoothPasses; ++p)
+			{
+				acc0.mac(TargetWeight, static_cast<int32_t>(static_cast<uint32_t>(_target) & 0xffff0000));
+				acc0.mac(StateWeight, _states.word(8 * p));
+				_outs.setWord(4 * p, _pair);
+				acc1.mac(TargetWeight, asl(_target, 16));
+				acc1.mac(StateWeight, _states.word(8 * p + 4));
+				_target = _targets.word(4 * p);
+				const int32_t s0 = acc0.storeClear();
+				_states.setWord(8 * p, s0);
+				const int32_t s1 = acc1.storeClear();
+				_states.setWord(8 * p + 4, s1);
+				const auto high = static_cast<uint32_t>(addWrap(s0, 0x8000)) & 0xffff0000;
+				const auto low = static_cast<uint32_t>(addWrap(s1, 0x8000)) >> 16;
+				_pair = static_cast<int32_t>(high | low);
+			}
+			return _pair;
+		}
 	}
 
 	uint32_t smooth(Memory& _mem, const uint32_t _target)
 	{
-		constexpr int32_t TargetWeight = 0x03d70000;
-		constexpr int32_t StateWeight = 0x7c290000;
+		const uint32_t target = _target + 4, out = Smoothed - 4;
+		const int32_t first = _mem.word(out), targets = _mem.word(_target);
 
-		// Two words a pass, one accumulator each (mac.w on the high and low halves of the target long). The output
-		// long of a pass is written in the next one, and the first pass writes back the long before Smoothed
-		EmacWrap acc0, acc1;
-		uint32_t target = _target, state = SmoothState, out = Smoothed - 4;
-		int32_t pair = _mem.word(out);
-		int32_t targets = _mem.word(target);
-		target += 4;
-
-		// The same passes on the three runs' bytes where the memory's table holds each whole (SRAM, normally): read
-		// and written in the same order, they are what word() and setWord() give and take
-		constexpr uint32_t Passes = (EngineWords + 1) / 2;
-		const uint8_t* targetAt = _mem.bytesAt(target, 4 * Passes);
-		uint8_t* stateAt = _mem.writableBytesAt(state, 8 * Passes);
-		uint8_t* outAt = _mem.writableBytesAt(out, 4 * (Passes + 1));
+		// On the three runs' bytes where the memory's table holds each whole (SRAM, normally), else through the memory
+		const uint8_t* targetAt = _mem.bytesAt(target, 4 * SmoothPasses);
+		uint8_t* stateAt = _mem.writableBytesAt(SmoothState, 8 * SmoothPasses);
+		uint8_t* outAt = _mem.writableBytesAt(out, 4 * (SmoothPasses + 1));
+		int32_t pair;
 		if(targetAt && stateAt && outAt)
-		{
-			for(uint32_t p = 0; p < Passes; ++p)
-			{
-				acc0.mac(TargetWeight, static_cast<int32_t>(static_cast<uint32_t>(targets) & 0xffff0000));
-				acc0.mac(StateWeight, Memory::wordAt(stateAt));
-				Memory::setWordAt(outAt, pair);
-				outAt += 4;
-				acc1.mac(TargetWeight, asl(targets, 16));
-				acc1.mac(StateWeight, Memory::wordAt(stateAt + 4));
-				targets = Memory::wordAt(targetAt);
-				targetAt += 4;
-				const int32_t s0 = acc0.storeClear();
-				Memory::setWordAt(stateAt, s0);
-				const int32_t s1 = acc1.storeClear();
-				Memory::setWordAt(stateAt + 4, s1);
-				stateAt += 8;
-				const auto high = static_cast<uint32_t>(addWrap(s0, 0x8000)) & 0xffff0000;
-				const auto low = static_cast<uint32_t>(addWrap(s1, 0x8000)) >> 16;
-				pair = static_cast<int32_t>(high | low);
-			}
-			out += 4 * Passes;
-		}
+			pair = smoothPasses(BytesRun<const uint8_t>{targetAt}, BytesRun<uint8_t>{stateAt}, BytesRun<uint8_t>{outAt},
+				first, targets);
 		else
-		{
-			for(uint32_t n = EngineWords; static_cast<int32_t>(n) > 0; n -= 2)
-			{
-				acc0.mac(TargetWeight, static_cast<int32_t>(static_cast<uint32_t>(targets) & 0xffff0000));
-				acc0.mac(StateWeight, _mem.word(state));
-				_mem.setWord(out, pair);
-				out += 4;
-				acc1.mac(TargetWeight, asl(targets, 16));
-				acc1.mac(StateWeight, _mem.word(state + 4));
-				targets = _mem.word(target);
-				target += 4;
-				const int32_t s0 = acc0.storeClear();
-				_mem.setWord(state, s0);
-				const int32_t s1 = acc1.storeClear();
-				_mem.setWord(state + 4, s1);
-				state += 8;
-				const auto high = static_cast<uint32_t>(addWrap(s0, 0x8000)) & 0xffff0000;
-				const auto low = static_cast<uint32_t>(addWrap(s1, 0x8000)) >> 16;
-				pair = static_cast<int32_t>(high | low);
-			}
-		}
-		_mem.setWord(out, pair);
+			pair = smoothPasses(MemoryRun{_mem, target}, MemoryRun{_mem, SmoothState}, MemoryRun{_mem, out}, first,
+				targets);
+		_mem.setWord(out + 4 * SmoothPasses, pair);
 
 		// memcpy 0x40115f78: at once where one page of the table holds each run and the runs do not overlap, else a
 		// byte at a time

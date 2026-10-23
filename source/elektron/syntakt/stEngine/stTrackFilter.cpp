@@ -1,6 +1,7 @@
 #include "stTrack.h"
 
 #include "stEmac.h"
+#include "stSimd.h"
 #include "stStages.h"
 
 namespace syntakt::track
@@ -200,6 +201,12 @@ namespace syntakt::track
 				_sram.at(Steps + 4 * i) = rampStepToZero(_sram.at(Target + 4 * i), _sram.at(cur + 4 * i));
 		}
 
+		// The coefficients' steps, which the two stages' loops read every sample and nothing in them writes: they
+		// write BufA and BufB alone
+		int32_t steps[8];
+		for(uint32_t i = 0; i < 8; ++i)
+			steps[i] = _sram.at(Steps + 4 * i);
+
 		// The state-space resonator
 		{
 			int32_t c0 = _sram.at(cur);
@@ -215,43 +222,17 @@ namespace syntakt::track
 			{
 				const int32_t x = _sram.at(_out + 4 * n);
 
-				// From clear accumulators (every sample's but perhaps the first's) each takes its six products at
-				// once (EmacT::setSum), the coefficients ramped after they are used as below
-				if(acc0.clear() && acc1.clear())
-				{
-					acc0.setSum(4 * Emac::product(c0, x) + Emac::product(c1, s1) - Emac::product(c2, s2));
-					acc1.setSum(-4 * Emac::product(c3, x) + Emac::product(c4, s1) + Emac::product(c5, s2));
-					c0 = addWrap(c0, _sram.at(Steps));
-					c1 = addWrap(c1, _sram.at(Steps + 4));
-					c2 = addWrap(c2, _sram.at(Steps + 8));
-					c3 = addWrap(c3, _sram.at(Steps + 12));
-					c4 = addWrap(c4, _sram.at(Steps + 16));
-					c5 = addWrap(c5, _sram.at(Steps + 20));
-					s1 = acc0.storeClear();
-					_sram.at(BufA + 4 * n) = s1 >> 1;
-					s2 = acc1.storeClear();
-					_sram.at(BufB + 4 * n) = s2;
-					continue;
-				}
-				acc0.mac(c0, x);
-				acc0.mac(c0, x);
-				acc0.mac(c0, x);
-				acc0.mac(c0, x);
-				c0 = addWrap(c0, _sram.at(Steps));
-				acc0.mac(c1, s1);
-				c1 = addWrap(c1, _sram.at(Steps + 4));
-				acc0.msac(c2, s2);
-				c2 = addWrap(c2, _sram.at(Steps + 8));
-				acc1.msac(c3, x);
-				acc1.msac(c3, x);
-				acc1.msac(c3, x);
-				acc1.msac(c3, x);
-				c3 = addWrap(c3, _sram.at(Steps + 12));
-				acc1.mac(c4, s1);
-				c4 = addWrap(c4, _sram.at(Steps + 16));
-				acc1.mac(c5, s2);
+				// Each accumulator's six products (EmacT::macs: at once from clear, every sample's but perhaps the
+				// first's), the coefficients ramped after they are used
+				acc0.macs(Mac{c0, x}, Mac{c0, x}, Mac{c0, x}, Mac{c0, x}, Mac{c1, s1}, Msac{c2, s2});
+				acc1.macs(Msac{c3, x}, Msac{c3, x}, Msac{c3, x}, Msac{c3, x}, Mac{c4, s1}, Mac{c5, s2});
+				c0 = addWrap(c0, steps[0]);
+				c1 = addWrap(c1, steps[1]);
+				c2 = addWrap(c2, steps[2]);
+				c3 = addWrap(c3, steps[3]);
+				c4 = addWrap(c4, steps[4]);
+				c5 = addWrap(c5, steps[5]);
 				s1 = acc0.storeClear();
-				c5 = addWrap(c5, _sram.at(Steps + 20));
 				_sram.at(BufA + 4 * n) = s1 >> 1;
 				s2 = acc1.storeClear();
 				_sram.at(BufB + 4 * n) = s2;
@@ -282,23 +263,15 @@ namespace syntakt::track
 			{
 				const int32_t x = _sram.at(_out + 4 * n);
 
-				// From a clear accumulator (always, after the resonator's movclr) its two products at once, and
-				// the one after the movclr (EmacT::setSum)
-				if(acc0.clear())
-				{
-					acc0.setSum(Emac::product(c7, z) + Emac::product(c6, x));
-				}
-				else
-				{
-					acc0.mac(c7, z);
-					acc0.mac(c6, x);
-				}
+				// Its two products (EmacT::macs: at once, the accumulator clear after the resonator's movclr), and
+				// the one after the movclr
+				acc0.macs(Mac{c7, z}, Mac{c6, x});
 				z = _sram.at(BufB + 4 * n);
-				c6 = addWrap(c6, _sram.at(Steps + 0x18));
-				c7 = addWrap(c7, _sram.at(Steps + 0x1c));
+				c6 = addWrap(c6, steps[6]);
+				c7 = addWrap(c7, steps[7]);
 				const int32_t xs = (x >> 1) >> 7;
 				int32_t y = acc0.storeClear();
-				acc0.setSum(Emac::product(gp, subWrap(xs, y)));
+				acc0.sumRun(runTerm(Mac{gp, subWrap(xs, y)}));
 				gp = addSat(gp, gs);
 				y = addWrap(y, xs) >> 2;
 				int32_t v = addWrap(acc0.storeClear(), y);
@@ -362,24 +335,42 @@ namespace syntakt::track
 		int32_t pa = _sram.at(mix + 4);
 		int32_t pb = _sram.at(mix + 8);
 
-		for(uint32_t n = 0; n < 32; ++n)
+		// The accumulator is clear after the second stage's movclr: the 32 frames in AVX2 where the CPU has it, the
+		// output apart from A and B
+		if(acc0.clear() && simd::avx2() && (_out + 128 <= BufA || BufB + 128 <= _out))
 		{
-			// From a clear accumulator (always, after the second stage's movclr) the three products at once
-			if(acc0.clear())
+			simd::RampMix m{};
+			m.src[0] = reinterpret_cast<const uint8_t*>(_sram.ptr(_out));
+			m.src[1] = reinterpret_cast<const uint8_t*>(_sram.ptr(BufA));
+			m.src[2] = reinterpret_cast<const uint8_t*>(_sram.ptr(BufB));
+			m.gains[0] = px;
+			m.gains[1] = pa;
+			m.gains[2] = pb;
+			m.steps[0] = sx;
+			m.steps[1] = sa;
+			m.steps[2] = sb;
+			m.channels = 3;
+			m.srcStride = 4;
+			m.dst = reinterpret_cast<uint8_t*>(_sram.ptr(_out));
+			m.dstStride = 4;
+			m.first = 0;
+			m.negate = false;
+			m.saturate = true;
+			m.bigEndian = false;
+			simd::rampMixAvx2(m);
+		}
+		else
+		{
+			for(uint32_t n = 0; n < 32; ++n)
 			{
-				acc0.setSum(Emac::product(px, _sram.at(_out + 4 * n)) + Emac::product(pa, _sram.at(BufA + 4 * n)) +
-					Emac::product(pb, _sram.at(BufB + 4 * n)));
+				// The three products (EmacT::macs: at once from clear)
+				acc0.macs(Mac{px, _sram.at(_out + 4 * n)}, Mac{pa, _sram.at(BufA + 4 * n)},
+					Mac{pb, _sram.at(BufB + 4 * n)});
+				px = addWrap(px, sx);
+				pa = addWrap(pa, sa);
+				pb = addWrap(pb, sb);
+				_sram.at(_out + 4 * n) = acc0.storeClear();
 			}
-			else
-			{
-				acc0.mac(px, _sram.at(_out + 4 * n));
-				acc0.mac(pa, _sram.at(BufA + 4 * n));
-				acc0.mac(pb, _sram.at(BufB + 4 * n));
-			}
-			px = addWrap(px, sx);
-			pa = addWrap(pa, sa);
-			pb = addWrap(pb, sb);
-			_sram.at(_out + 4 * n) = acc0.storeClear();
 		}
 
 		_sram.at(mix) = gx;

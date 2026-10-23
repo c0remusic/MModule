@@ -159,6 +159,24 @@ namespace syntakt
 			return static_cast<uint16_t>(mem.word(d + 16));
 		}
 
+		// The block's outputs from the Overbridge frames and the two buses
+		template<typename Run>
+		void takeOutputs(const Run& _frames, const Run& _direct, const Run& _fx)
+		{
+			for(uint32_t s = 0; s < BlockSize; ++s)
+			{
+				const uint32_t frame = 0x50 * s;
+				for(uint32_t t = 0; t < Tracks; ++t)
+					out[BlockSize * (Stem1 + t) + s] = _frames.word(frame + 8 + 4 * t);
+				out[BlockSize * ReturnsLeft + s] = _frames.word(frame + 0x40);
+				out[BlockSize * ReturnsRight + s] = _frames.word(frame + 0x44);
+				out[BlockSize * DirectLeft + s] = _direct.word(8 * s);
+				out[BlockSize * DirectRight + s] = _direct.word(8 * s + 4);
+				out[BlockSize * FxLeft + s] = _fx.word(8 * s);
+				out[BlockSize * FxRight + s] = _fx.word(8 * s + 4);
+			}
+		}
+
 		// The masks of the block from the calls since the last one, the gates the event loop leaves, then the block,
 		// the mix of the voice CPU's last one, and the voice CPU's turn
 		void block()
@@ -183,26 +201,24 @@ namespace syntakt
 			main::Emac4 acc;
 			main::mixOutput(mem, acc, main::Smoothed);
 
-			// The Overbridge frames and the buses in SRAM, whose bytes the memory gives whole
+			// The Overbridge frames and the buses in SRAM, on the bytes the memory gives whole, else through it
 			const uint8_t* frames = mem.bytesAt(main::Overbridge, 0x50 * BlockSize);
 			const uint8_t* direct = mem.bytesAt(main::DirectBus, 8 * BlockSize);
 			const uint8_t* fx = mem.bytesAt(main::FxBus, 8 * BlockSize);
-			for(uint32_t s = 0; s < BlockSize; ++s)
-			{
-				const uint8_t* frame = frames + 0x50 * s;
-				for(uint32_t t = 0; t < Tracks; ++t)
-					out[BlockSize * (Stem1 + t) + s] = main::Memory::wordAt(frame + 8 + 4 * t);
-				out[BlockSize * ReturnsLeft + s] = main::Memory::wordAt(frame + 0x40);
-				out[BlockSize * ReturnsRight + s] = main::Memory::wordAt(frame + 0x44);
-				out[BlockSize * DirectLeft + s] = main::Memory::wordAt(direct + 8 * s);
-				out[BlockSize * DirectRight + s] = main::Memory::wordAt(direct + 8 * s + 4);
-				out[BlockSize * FxLeft + s] = main::Memory::wordAt(fx + 8 * s);
-				out[BlockSize * FxRight + s] = main::Memory::wordAt(fx + 8 * s + 4);
-			}
+			if(frames && direct && fx)
+				takeOutputs(main::BytesRun<const uint8_t>{frames}, main::BytesRun<const uint8_t>{direct},
+					main::BytesRun<const uint8_t>{fx});
+			else
+				takeOutputs(main::MemoryRun{mem, main::Overbridge}, main::MemoryRun{mem, main::DirectBus},
+					main::MemoryRun{mem, main::FxBus});
 			const auto mixed = Clock::now();
 
 			uint8_t bytes[main::BlockBytes];
-			std::memcpy(bytes, mem.bytesAt(main::Block, main::BlockBytes), main::BlockBytes);
+			if(const uint8_t* block = mem.bytesAt(main::Block, main::BlockBytes))
+				std::memcpy(bytes, block, main::BlockBytes);
+			else
+				for(uint32_t i = 0; i < main::BlockBytes; ++i)
+					bytes[i] = mem.byte(main::Block + i);
 			runBlock(sram, globals, rom, bytes);
 			std::copy_n(sram.ptr(VoiceOut), voices.size(), voices.data());
 			position = 0;

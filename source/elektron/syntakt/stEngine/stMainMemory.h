@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cassert>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -398,5 +399,56 @@ namespace syntakt::main
 		std::array<uint16_t, 1u << (32 - ChunkShift)> m_chunks{};	// a chunk's table + 1, 0: none
 		std::vector<Chunk> m_table;
 		uint8_t* m_sram = nullptr;		// the first region's bytes
+	};
+
+	// CPU #1's SRAM on its bytes, for a routine whose every access through the view lies in SRAM, which the routine
+	// checks of the addresses it is given (holds): word() and setWord() as Memory's, without the table's test.
+	// Debug builds check each address
+	class SramView
+	{
+	public:
+		explicit SramView(Memory& _mem) : m_bytes(_mem.writableBytesAt(Memory::SramBase, Memory::SramSize)) {}
+
+		// The _n bytes from _address lie in SRAM
+		static bool holds(const uint32_t _address, const uint32_t _n)
+		{
+			return _address - Memory::SramBase <= Memory::SramSize - _n;
+		}
+
+		ST_FORCE_INLINE int32_t word(const uint32_t _address) const
+		{
+			assert(holds(_address, 4));
+			return Memory::wordAt(m_bytes + (_address - Memory::SramBase));
+		}
+
+		ST_FORCE_INLINE void setWord(const uint32_t _address, const int32_t _v) const
+		{
+			assert(holds(_address, 4));
+			Memory::setWordAt(m_bytes + (_address - Memory::SramBase), _v);
+		}
+
+	private:
+		uint8_t* m_bytes;
+	};
+
+	// A run of longs a routine reads and writes by offset, for a routine written once over both of its paths: on the
+	// bytes one page of the table holds whole (BytesRun, from bytesAt or writableBytesAt), or through word() and
+	// setWord() where it holds none (MemoryRun). Both read and write the same longs
+	template<typename Byte>
+	struct BytesRun
+	{
+		Byte* bytes;
+
+		int32_t word(const uint32_t _offset) const { return Memory::wordAt(bytes + _offset); }
+		void setWord(const uint32_t _offset, const int32_t _v) const { Memory::setWordAt(bytes + _offset, _v); }
+	};
+
+	struct MemoryRun
+	{
+		Memory& mem;
+		uint32_t address;
+
+		int32_t word(const uint32_t _offset) const { return mem.word(address + _offset); }
+		void setWord(const uint32_t _offset, const int32_t _v) const { mem.setWord(address + _offset, _v); }
 	};
 }

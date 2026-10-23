@@ -77,7 +77,7 @@ survey on six processes, `mdDrumsVst3HostTest` failed 5 runs of 10 on "a block s
 more, and passing then, the gate is green and says "timing test failed under load, passed on its second run". Any other
 failure, or a timing test failing twice, is red. Gate on a quiet machine whenever possible.
 
-Green is 28 passed out of 28: ctest adds the 4 fixture tests `mdEngineFirmwareTest` requires (`mdEngineFirmwareHits`, `mdEngineFirmwareRomBank`, `mdEngineFirmwareGroups` and `mdEngineFirmwareMaster` boot the firmware to record the hits, the voice DSP's UW bank, the Link and Choke scenarios and the master effect scenarios with the mixer DSP's memory, which `mdEngineFirmwareTest` compares the engine with).
+Green is 31 passed out of 31: `stEngineOracleTestScalar` and `stMainOracleTestScalar` run the Syntakt's two oracle tests again with the AVX2 kernels off (`SYNTAKT_NO_AVX2=1`), and ctest adds the 4 fixture tests `mdEngineFirmwareTest` requires (`mdEngineFirmwareHits`, `mdEngineFirmwareRomBank`, `mdEngineFirmwareGroups` and `mdEngineFirmwareMaster` boot the firmware to record the hits, the voice DSP's UW bank, the Link and Choke scenarios and the master effect scenarios with the mixer DSP's memory, which `mdEngineFirmwareTest` compares the engine with).
 
 `MD_X20_OS` names the user's own MDX X.20 OS file, kept beside the ROMs on this PC and never in the repository: `mdX20OsTest` reads it where it is set, and runs only its LZMA and refusal checks without it; `mdX20BuiltinsTest` plays X.20's built-in Machines from it, and nothing without it; `mdX20PortTest` compares the port of their routines with X.20's own run in a 68k (exit 77 without it).
 

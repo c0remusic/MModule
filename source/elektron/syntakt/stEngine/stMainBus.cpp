@@ -1,6 +1,7 @@
 #include "stMainBus.h"
 
 #include "stEmac.h"
+#include "stSimd.h"
 
 namespace syntakt::main
 {
@@ -10,22 +11,22 @@ namespace syntakt::main
 
 		// sumChannels' frames from _first on, from a clear accumulator in fractional mode (each frame's movclr
 		// leaves it clear for the next), on the buffers' and the bus side's bytes: a frame's Channels products sum
-		// in 64 bits at once, which Emac4::setSum proves the same as the steps for at most 256. Read and written in
-		// the steps' order, the bytes are what Memory::word() and setWord() give and take
+		// in 64 bits at once (Emac4::sumRun, at most MaxRunTerms). Read and written in the steps' order, the bytes
+		// are what Memory::word() and setWord() give and take
 		template<int Channels>
 		void sumDirect(Emac4& _acc, int32_t* _gains, const int32_t* _steps, const uint8_t* const* _src, uint8_t* _dst,
 			const uint32_t _first)
 		{
-			static_assert(Channels <= 256, "Emac4::setSum's bound");
+			static_assert(Channels <= MaxRunTerms, "Emac4::sumRun's bound");
 			int32_t gains[Channels];
 			for(int k = 0; k < Channels; ++k)
 				gains[k] = _gains[k];
 			for(uint32_t i = _first; i < BlockFrames; ++i)
 			{
-				int64_t sum = 0;
+				RunSum run;
 				for(int k = 0; k < Channels; ++k)
-					sum += Emac4::fractionalProduct(gains[k], Memory::wordAt(_src[k] + 4 * i));
-				_acc.setSum(0, -sum);
+					run.add(runTerm(Msac{gains[k], Memory::wordAt(_src[k] + 4 * i)}));
+				_acc.sumRun(0, run);
 				for(int k = 0; k < Channels; ++k)
 					gains[k] = addWrap(gains[k], _steps[k]);
 				Memory::setWordAt(_dst + 8 * i, _acc.storeClear(0));
@@ -63,7 +64,27 @@ namespace syntakt::main
 				gains[k] = addWrap(gains[k], _steps[k]);
 			_mem.setWord(_dst + 8 * i, acc.storeClear(0));
 		}
-		if(i < BlockFrames)
+		if(i < BlockFrames && simd::avx2())
+		{
+			simd::RampMix m{};
+			for(int k = 0; k < _channels; ++k)
+			{
+				m.src[k] = src[k];
+				m.gains[k] = gains[k];
+				m.steps[k] = _steps[k];
+				gains[k] = simd::ramped(gains[k], _steps[k], BlockFrames - i);
+			}
+			m.channels = _channels;
+			m.srcStride = 4;
+			m.dst = dst;
+			m.dstStride = 8;
+			m.first = i;
+			m.negate = true;
+			m.saturate = (acc.macsr() & Emac4::Omc) != 0;
+			m.bigEndian = true;
+			simd::rampMixAvx2(m);
+		}
+		else if(i < BlockFrames)
 		{
 			if(_channels == 8)
 				sumDirect<8>(acc, gains, _steps, src, dst, i);
@@ -86,8 +107,42 @@ namespace syntakt::main
 	void mixBuses(Memory& _mem, Emac4& _acc, const uint32_t _dst, const uint32_t _src, int32_t* _gains,
 		const int32_t* _steps)
 	{
+		// From two clear accumulators in fractional mode, the frames left in AVX2 a side at a time, on the buses'
+		// bytes, where the table holds them whole and _dst is _src or apart from both: a side's frames are read
+		// before they are written, the other side's are neither
+		const uint8_t* src = _mem.bytesAt(_src, 8 * BlockFrames);
+		const uint8_t* other = _mem.bytesAt(_src + 256, 8 * BlockFrames);
+		uint8_t* dst = _mem.writableBytesAt(_dst, 8 * BlockFrames);
+		const bool apart = _dst == _src || _dst + 8 * BlockFrames <= _src || _src + 16 * BlockFrames <= _dst;
+		const bool vector = simd::avx2() && src && other && dst && apart;
 		for(uint32_t i = 0; i < BlockFrames; ++i)
 		{
+			if(vector && _acc.fractional() && _acc.clear(0) && _acc.clear(1))
+			{
+				simd::RampMix m{};
+				m.gains[0] = _gains[0];
+				m.gains[1] = _gains[1];
+				m.steps[0] = _steps[0];
+				m.steps[1] = _steps[1];
+				m.channels = 2;
+				m.srcStride = 8;
+				m.dstStride = 8;
+				m.first = i;
+				m.negate = true;
+				m.saturate = (_acc.macsr() & Emac4::Omc) != 0;
+				m.bigEndian = true;
+				for(uint32_t side = 0; side < 8; side += 4)
+				{
+					m.src[0] = src + side;
+					m.src[1] = other + side;
+					m.dst = dst + side;
+					simd::rampMixAvx2(m);
+				}
+				_gains[0] = simd::ramped(_gains[0], _steps[0], BlockFrames - i);
+				_gains[1] = simd::ramped(_gains[1], _steps[1], BlockFrames - i);
+				return;
+			}
+
 			// Both sides are read before they are written: _dst may be _src
 			const int32_t l = _mem.word(_src + 8 * i), r = _mem.word(_src + 8 * i + 4);
 			_acc.msac(0, _gains[0], l);
@@ -108,7 +163,7 @@ namespace syntakt::main
 		acc.setMacsr(Emac4::Omc);
 
 		// A group whose four accumulators are clear (all but perhaps the first) takes each one's integer product
-		// at once (Emac4::setSum): with |_gain| <= 128 a product is at most 2^38 in magnitude, under its own check's
+		// at once (Emac4::sumRun): with |_gain| <= 128 a product is at most 2^38 in magnitude, under its own check's
 		// 2^39. The bus's bytes, where the table holds them whole, are what word() and setWord() give and take
 		uint8_t* bus = _mem.writableBytesAt(_bus, 8 * BlockFrames);
 		const bool direct = bus && _gain >= -128 && _gain <= 128;
@@ -116,8 +171,13 @@ namespace syntakt::main
 		{
 			if(direct && acc.allClear())
 			{
+				if(simd::avx2())
+				{
+					simd::scaleAvx2(bus, i, 2 * BlockFrames, _gain);
+					break;
+				}
 				for(int k = 0; k < 4; ++k)
-					acc.setSum(k, int64_t(_gain) * Memory::wordAt(bus + 4 * (i + static_cast<uint32_t>(k))));
+					acc.sumRun(k, int64_t(_gain) * Memory::wordAt(bus + 4 * (i + static_cast<uint32_t>(k))));
 				for(int k = 0; k < 4; ++k)
 					Memory::setWordAt(bus + 4 * (i + static_cast<uint32_t>(k)), acc.storeClear(k));
 				continue;
@@ -138,17 +198,34 @@ namespace syntakt::main
 		int32_t gain = _from;
 
 		// A group whose four accumulators are clear in fractional mode (all but perhaps the first) takes each one's
-		// product at once (Emac4::setSum). The buffer's bytes, where the table holds them whole, are what word() and
+		// product at once (Emac4::sumRun). The buffer's bytes, where the table holds them whole, are what word() and
 		// setWord() give and take
 		uint8_t* buffer = _mem.writableBytesAt(_buffer, 4 * BlockFrames);
 		for(uint32_t i = 0; i < BlockFrames; i += 4)
 		{
 			if(buffer && acc.fractional() && acc.allClear())
 			{
+				if(simd::avx2())
+				{
+					simd::RampMix m{};
+					m.src[0] = buffer;
+					m.gains[0] = gain;
+					m.steps[0] = step;
+					m.channels = 1;
+					m.srcStride = 4;
+					m.dst = buffer;
+					m.dstStride = 4;
+					m.first = i;
+					m.negate = true;
+					m.saturate = (acc.macsr() & Emac4::Omc) != 0;
+					m.bigEndian = true;
+					simd::rampMixAvx2(m);
+					break;
+				}
 				for(int k = 0; k < 4; ++k)
 				{
 					const int32_t v = Memory::wordAt(buffer + 4 * (i + static_cast<uint32_t>(k)));
-					acc.setSum(k, -Emac4::fractionalProduct(v, gain));
+					acc.sumRun(k, runTerm(Msac{v, gain}));
 					gain = addWrap(gain, step);
 				}
 				for(int k = 0; k < 4; ++k)

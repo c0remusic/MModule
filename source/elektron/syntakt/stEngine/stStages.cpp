@@ -61,7 +61,7 @@ namespace syntakt
 			const int32_t ramp = rampStepSat(level, g);
 			for(int n = 0; n < BlockSize; ++n)
 			{
-				Emac acc;
+				ProvedEmac acc;	// a product, then movclr
 				acc.msac(g, _buf[n]);
 				g = addSat(g, ramp);
 				_buf[n] = acc.storeClear();
@@ -246,7 +246,7 @@ namespace syntakt
 		const int32_t post = _v.at(Voice::DriveGain);
 		for(int n = 0; n < BlockSize; ++n)
 		{
-			Emac gain, drive;
+			ProvedEmac gain, drive;	// at most four products before each movclr
 			gain.mac(g, post);
 			for(int i = 0; i < 4; ++i)
 				drive.mac(pre, _out[n]);
@@ -266,8 +266,9 @@ namespace syntakt
 		int32_t x = _c[6];
 		int32_t y = _c[7];
 
-		// Two accumulators in turn, each summing a sample's three terms before one truncation
-		Emac acc0, acc1;
+		// Two accumulators in turn, each summing a sample's three terms before one truncation (ProvedEmac: never more
+		// before a movclr)
+		ProvedEmac acc0, acc1;
 		acc0.mac(c1, x);
 		x = _buf[0];
 		acc0.mac(c0, x);
@@ -301,7 +302,7 @@ namespace syntakt
 		const int32_t stepY = subWrap(_v.at(ty), gy) >> 5;
 		for(int n = 0; n < BlockSize; ++n)
 		{
-			Emac acc;
+			ProvedEmac acc;	// two products, then movclr
 			acc.mac(gx, _x[n]);
 			acc.mac(gy, _y[n]);
 			gx = addWrap(gx, stepX);
@@ -496,16 +497,15 @@ namespace syntakt
 	namespace
 	{
 		// The table lookup both oscillators share: index and fraction from the phase sum, linear interpolation
-		int32_t lookup(const int32_t* _table, Emac& _phase)
+		template<typename Phase>
+		int32_t lookup(const int32_t* _table, Phase& _phase)
 		{
 			const int32_t p = _phase.storeClear();
 			const int32_t i = (p & 0xffffff) >> 16;
 			const int32_t f = static_cast<int32_t>((static_cast<uint32_t>(p) & 0xffff) << 15);
-			// load, mac, msac at once (EmacT::setSum): the loaded word is at most 2^39 in magnitude as a product
-			// is, so the three terms stay under 2^47
+			// load, mac, msac at once (EmacT::loadMacs)
 			Emac acc;
-			acc.setSum(static_cast<int64_t>(_table[i]) * 256 + Emac::product(f, _table[i + 1]) -
-				Emac::product(f, _table[i]));
+			acc.loadMacs(_table[i], Mac{f, _table[i + 1]}, Msac{f, _table[i]});
 			return acc.storeClear();
 		}
 	}
@@ -528,7 +528,7 @@ namespace syntakt
 		int32_t phase = _v.unit(k, Voice::Phase);
 		int32_t s = _v.at(0x28);
 
-		Emac acc1;
+		ProvedEmac acc1;	// a load and at most two products before each movclr, as acc0's
 		acc1.load(phase);
 		acc1.mac(fb, s);
 		for(int n = 0; n < BlockSize; ++n)
@@ -536,7 +536,7 @@ namespace syntakt
 			fb = addWrap(fb, fbStep);
 			s = lookup(wave, acc1);
 			phase = addWrap(phase, inc) & 0xffffff;
-			Emac acc0;
+			ProvedEmac acc0;
 			acc0.msac(amount, s);
 			amount = addWrap(amount, amountStep);
 			acc1.load(phase);
@@ -571,7 +571,7 @@ namespace syntakt
 		int32_t phase = _v.unit(k, Voice::Phase);
 
 		// The phase sum, phase + depth1 src1 + depth2 src2, truncated once
-		Emac acc1;
+		ProvedEmac acc1;	// a load and at most two products before each movclr, as acc0's
 		acc1.load(phase);
 		acc1.mac(depth1, src1[0]);
 		for(int n = 0; n < BlockSize; ++n)
@@ -582,7 +582,7 @@ namespace syntakt
 			const int32_t s = lookup(wave, acc1);
 			phase = addWrap(phase, inc) & 0xffffff;
 			acc1.load(phase);
-			Emac acc0;
+			ProvedEmac acc0;
 			acc0.msac(amount, s);
 			amount = addWrap(amount, amountStep);
 			b[n] = s;
@@ -614,7 +614,7 @@ void scaledFeedbackOscillator(const int32_t _k, Voice& _v, const Rom& _rom)
 		int32_t phase = _v.unit(k, Voice::Phase);
 		int32_t y = _v.at(0x28);
 
-		Emac acc1;
+		ProvedEmac acc1;	// a load and at most two products before each movclr, as acc0's
 		acc1.load(phase);
 		acc1.mac(fb, y);
 		for(int n = 0; n < BlockSize; ++n)
@@ -623,7 +623,7 @@ void scaledFeedbackOscillator(const int32_t _k, Voice& _v, const Rom& _rom)
 			const int32_t p = acc1.storeClear();
 			const int32_t i = (p & 0xffffff) >> 16;
 			const int32_t f = static_cast<int32_t>((static_cast<uint32_t>(p) & 0xffff) << 15);
-			Emac acc0;
+			ProvedEmac acc0;
 			acc0.load(wave[i]);
 			acc0.mac(f, wave[i + 1]);
 			acc0.msac(f, wave[i]);
@@ -670,7 +670,7 @@ void gatedNoise(int32_t* _out, int32_t* _s)
 		}
 		for(int n = 0; n < BlockSize; ++n)
 		{
-			Emac acc;
+			ProvedEmac acc;	// four products, then movclr
 			for(int i = 0; i < 4; ++i)
 				acc.mac(g[i], _x[i][n]);
 			for(int i = 0; i < 4; ++i)
@@ -702,7 +702,7 @@ void gatedNoise(int32_t* _out, int32_t* _s)
 				h2 = _buf[n];
 				n2 = 0;
 			}
-			Emac acc;
+			ProvedEmac acc;	// two products, then movclr
 			acc.mac(w0, h1);
 			acc.mac(w1, h2);
 			n1 = addWrap(n1, 1);

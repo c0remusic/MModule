@@ -53,8 +53,8 @@ namespace syntakt::main
 			}
 		}
 
-		// memcpy of one transfer unit, by its size: a constant size each, which the compiler moves inline rather
-		// than calling memmove for a size it does not know
+		// memcpy of one transfer unit, by its size: a constant size for each of transferSize's, which the compiler
+		// moves inline rather than calling memmove for a size it does not know
 		ST_FORCE_INLINE void copyUnit(uint8_t* _to, const uint8_t* _from, const uint32_t _size)
 		{
 			switch(_size)
@@ -63,8 +63,94 @@ namespace syntakt::main
 			case 2: std::memcpy(_to, _from, 2); break;
 			case 4: std::memcpy(_to, _from, 4); break;
 			case 16: std::memcpy(_to, _from, 16); break;
-			default: std::memcpy(_to, _from, 32); break;
+			case 32: std::memcpy(_to, _from, 32); break;
+			default: std::memcpy(_to, _from, _size); break;
 			}
+		}
+
+		// A run of a major loop's bytes that one page of the table holds
+		struct Run
+		{
+			uint8_t* at;
+			uint32_t n;
+		};
+
+		constexpr int MaxRuns = 16;
+
+		// The _total bytes a side moves from _address in _size-byte units, each after the last (its offset its size),
+		// modulo 2^_mod, as runs of one page each: false where the units do not stay whole in the modulo window, a
+		// run's page is not the table's, or there are more than MaxRuns
+		template<bool Write>
+		bool streamRuns(Memory& _mem, uint32_t _address, uint32_t _total, const uint32_t _size, const uint32_t _mod,
+			Run* _runs, int& _count)
+		{
+			const uint32_t window = _mod ? uint32_t(1) << _mod : 0;
+			if(_mod && (window < _size || (_address & (window - 1)) % _size))
+				return false;
+			_count = 0;
+			while(_total)
+			{
+				uint32_t n = Memory::PageSize - (_address & (Memory::PageSize - 1));
+				if(_mod && window - (_address & (window - 1)) < n)
+					n = window - (_address & (window - 1));
+				if(_total < n)
+					n = _total;
+				uint8_t* at;
+				if constexpr(Write)
+					at = _mem.writableBytesAt(_address, n);
+				else
+					at = const_cast<uint8_t*>(_mem.bytesAt(_address, n));
+				if(!at || _count == MaxRuns)
+					return false;
+				_runs[_count++] = {at, n};
+				_total -= n;
+				_address = _mod ? (_address & ~(window - 1)) | ((_address + n) & (window - 1)) : _address + n;
+			}
+			return true;
+		}
+
+		// A major loop of _count minor loops at once, as a copy of its source's runs to its destination's, where every
+		// unit follows the last on both sides (SOFF the source's size, DOFF the destination's, NBYTES whole units of
+		// both), each side's runs lie in pages of the table and the two sides do not overlap: the bytes the units
+		// move, minor loop by minor loop. False where it cannot, and nothing moved
+		bool moveStream(Memory& _mem, const Tcd& _tcd, const uint32_t _count, const uint32_t _sb, const uint32_t _db,
+			const uint32_t _smod, const uint32_t _dmod)
+		{
+			if(_tcd.soff != static_cast<int32_t>(_sb) || _tcd.doff != static_cast<int32_t>(_db) || _tcd.nbytes % _sb ||
+				_tcd.nbytes % _db || _tcd.nbytes > MaxRuns * Memory::PageSize)
+				return false;
+			const uint32_t total = _count * _tcd.nbytes;
+			if(total > MaxRuns * Memory::PageSize)
+				return false;
+			Run from[MaxRuns], to[MaxRuns];
+			int froms, tos;
+			if(!streamRuns<false>(_mem, _tcd.saddr, total, _sb, _smod, from, froms) ||
+				!streamRuns<true>(_mem, _tcd.daddr, total, _db, _dmod, to, tos))
+				return false;
+			for(int i = 0; i < froms; ++i)
+				for(int j = 0; j < tos; ++j)
+					if(from[i].at < to[j].at + to[j].n && to[j].at < from[i].at + from[i].n)
+						return false;
+			int i = 0, j = 0;
+			uint32_t fi = 0, tj = 0;
+			while(i < froms)
+			{
+				const uint32_t n = from[i].n - fi < to[j].n - tj ? from[i].n - fi : to[j].n - tj;
+				std::memcpy(to[j].at + tj, from[i].at + fi, n);
+				fi += n;
+				tj += n;
+				if(fi == from[i].n)
+				{
+					++i;
+					fi = 0;
+				}
+				if(tj == to[j].n)
+				{
+					++j;
+					tj = 0;
+				}
+			}
+			return true;
 		}
 
 		void zero(Memory& _mem, const uint32_t _address, const uint32_t _bytes)
@@ -86,7 +172,8 @@ namespace syntakt::main
 
 	}
 
-	void modulatedPosition(Memory& _mem, Emac4& _acc, const uint32_t _base, const int32_t _sine, const uint32_t _at)
+	template<typename Acc>
+	void modulatedPosition(Memory& _mem, Acc& _acc, const uint32_t _base, const int32_t _sine, const uint32_t _at)
 	{
 		_acc.mac(0, 0x200000, _sine);
 		const int32_t sum = addWrap(_acc.storeClear(0), asl(_mem.word(_base), 18));
@@ -97,6 +184,9 @@ namespace syntakt::main
 		_mem.setWord(Modulated + 4, (sum >> 13) & 0x1f);
 		_mem.setWord(Modulated + 8, asl(sum, 18) & 0x7fffffff);
 	}
+
+	template void modulatedPosition(Memory&, Emac4&, uint32_t, int32_t, uint32_t);
+	template void modulatedPosition(Memory&, ProvedEmac4&, uint32_t, int32_t, uint32_t);
 
 	Tcd readTcd(const Memory& _mem, const uint32_t _address)
 	{
@@ -142,17 +232,22 @@ namespace syntakt::main
 		};
 		LastPage reads, writes;
 
+		// A minor loop moves through this buffer a chunk at a time: the eDMA's NBYTES has no such bound (the engine
+		// reads and writes the loop a transfer unit at a time), and a chunk is a whole number of units of any size
 		uint8_t data[256];
 		for(;;)
 		{
 			const uint32_t smod = _tcd.attr >> 11, dmod = (_tcd.attr >> 3) & 31;
 			const uint32_t sb = transferSize((_tcd.attr >> 8) & 7), db = transferSize(_tcd.attr & 7);
 			const uint32_t count = (_tcd.citer & 0x8000) ? _tcd.citer & 0x1ff : _tcd.citer & 0x7fff;
-			const uint32_t n = _tcd.nbytes < sizeof data ? _tcd.nbytes : sizeof data;
 			uint32_t s = _tcd.saddr, d = _tcd.daddr;
-			for(uint32_t it = 0; it < count; ++it)
+
+			// The minor loops at once where they move one stream, else a chunk of n bytes at a time: a transfer unit
+			// a page holds whole moves at once, else a byte at a time, as the same bytes
+			const bool streamed = moveStream(_mem, _tcd, count, sb, db, smod, dmod);
+			for(uint32_t it = 0, left = streamed ? 0 : _tcd.nbytes; it < count && left;)
 			{
-				// A transfer unit a page holds whole moves at once, else a byte at a time, as the same bytes
+				const uint32_t n = left < sizeof data ? left : static_cast<uint32_t>(sizeof data);
 				for(uint32_t k = 0; k + sb <= n; k += sb)
 				{
 					const uint8_t* from = reads.find(s, sb);
@@ -182,6 +277,12 @@ namespace syntakt::main
 						for(uint32_t b = 0; b < db; ++b)
 							_mem.setByte(d + b, data[k + b]);
 					d = step(d, _tcd.doff, dmod);
+				}
+				left -= n;
+				if(!left)
+				{
+					++it;
+					left = _tcd.nbytes;
 				}
 			}
 			if(!(_tcd.csr & 0x10))

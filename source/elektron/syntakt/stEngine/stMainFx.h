@@ -52,8 +52,9 @@ namespace syntakt::main
 
 	// A modulated line's position (0x40097414 for line 4, 0x40096e3c for line 8): its length at _base << 18 plus
 	// _sine x 0x200000, its whole samples at _at, their step from the last block, a 5-bit interpolation index and the
-	// fraction below it at 0x8000c51c, 0x8000c520, 0x8000c524
-	void modulatedPosition(Memory& _mem, Emac4& _acc, uint32_t _base, int32_t _sine, uint32_t _at);
+	// fraction below it at 0x8000c51c, 0x8000c520, 0x8000c524. For Emac4 and ProvedEmac4
+	template<typename Acc>
+	void modulatedPosition(Memory& _mem, Acc& _acc, uint32_t _base, int32_t _sine, uint32_t _at);
 
 	// 0x40097414(_p, the smoothed copy 0x80006348): the reverb's diffusers' and lines' read positions
 	// (write position less length) into channel 30's descriptors, its sine oscillator (0x8000c514/18, its output

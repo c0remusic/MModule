@@ -53,8 +53,9 @@ namespace syntakt::track
 			int32_t ge = _sram.at(DriveGainPrev + 4 * even), go = _sram.at(DriveGainPrev + 4 * odd);
 			const int32_t stepE = _sram.at(DriveGainStep + 4 * even), stepO = _sram.at(DriveGainStep + 4 * odd);
 
-			// The soft clip 2u - u|u| three times over, on the accumulator, its guard bits carried from pass to pass
-			EmacWrap accO, accE;
+			// The soft clip 2u - u|u| three times over, on the accumulator, its guard bits carried from pass to pass:
+			// seven products before each movclr, which never reach the 48-bit wrap (ProvedEmacWrap)
+			ProvedEmacWrap accO, accE;
 			accO.mac(go, xo[0]);
 			for(int n = 0; n < BlockSize; ++n)
 			{
@@ -109,7 +110,7 @@ namespace syntakt::track
 			const int32_t swe = subWrap(wet[0], we) >> 5, swo = subWrap(wet[1], wo) >> 5;
 			for(int n = 0; n < BlockSize; ++n)
 			{
-				EmacWrap a0, a1;
+				ProvedEmacWrap a0, a1;	// two products each, then movclr
 				a0.mac(de, xe[n]);
 				a0.mac(we, wetEven[n]);
 				a1.mac(doo, xo[n]);
@@ -162,7 +163,7 @@ namespace syntakt::track
 			int32_t* x0 = _sram.ptr(_out + TrackOutStride * t);
 			int32_t* x1 = _sram.ptr(_out + TrackOutStride * (t + 1));
 
-			Emac acc0, acc1, acc2, acc3;
+			ProvedEmac acc0, acc1, acc2, acc3;	// at most three products before each movclr
 			acc0.mac(pl0, lp0);
 			for(int n = 0; n < BlockSize; ++n)
 			{

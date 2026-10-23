@@ -23,8 +23,10 @@ $targets = @(
     "mdDrumsEngineTest", "mdDrumsDeviceTest", "mdDrumsProcessorTest", "mdDrumsSkinTest", "mdDrumsScreensTest",
     "mdDrumsBankTest", "mdDrumsHitPreviewTest", "mdDrumsFirstHitTest", "mdDrumsVst3HostTest", "mdDrumsUpdateTest",
     "mdX20OsTest", "mdX20BuiltinsTest", "mdX20PortTest", "synthLibResamplerTimingTest", "synthLibOutputChannelsTest",
-    "mdProtocolKitTest", "stEngineOracleTest", "stVoiceCpuTest", "stMainOracleTest", "stSyntaktTest")
-$tests = $targets + @("mdSlideFirmwareTest") | Where-Object { $_ -ne "mdTrigLatencyFirmwareTest" }
+    "mdProtocolKitTest", "stEngineOracleTest", "stVoiceCpuTest", "stMainOracleTest", "stSyntaktTest", "stSimdTest")
+# The Syntakt's two oracle tests run a second time with the AVX2 kernels off (SYNTAKT_NO_AVX2, set by ctest)
+$tests = $targets + @("mdSlideFirmwareTest", "stEngineOracleTestScalar", "stMainOracleTestScalar") |
+    Where-Object { $_ -ne "mdTrigLatencyFirmwareTest" }
 # Tests that compare the audio thread's wall-clock time with a bound
 $timingTests = @("mdDrumsVst3HostTest", "mdDrumsEngineTest")
 

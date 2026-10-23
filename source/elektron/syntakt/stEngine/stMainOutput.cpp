@@ -44,6 +44,22 @@ namespace syntakt::main
 			return static_cast<int8_t>(_mem.byte(static_cast<uint32_t>(_mem.word(KitPointer)) + 0x123 * _t + 205));
 		}
 
+		// The Overbridge frames' stems from the voice outputs and the ADC's buffers
+		template<typename Frames, typename Sources>
+		void copyStems(const Frames& _frames, const Sources& _voices, const Sources& _adc)
+		{
+			for(uint32_t i = 0; i < BlockFrames; ++i)
+			{
+				const uint32_t frame = 0x50 * i;
+				for(uint32_t t = 0; t < 8; ++t)
+					_frames.setWord(frame + 8 + 4 * t, _voices.word(128 * t + 4 * i));
+				for(uint32_t c = 0; c < 4; ++c)
+					_frames.setWord(frame + 0x28 + 4 * c, _adc.word(128 * c + 4 * i));
+				_frames.setWord(frame + 0x38, _adc.word(0x300 + 4 * i));
+				_frames.setWord(frame + 0x3c, _adc.word(0x380 + 4 * i));
+			}
+		}
+
 		// 0x4008f7e6, 0x4008f91e: SendBus += AnalogBus, saturated
 		void addAnalogSends(Memory& _mem)
 		{
@@ -379,21 +395,15 @@ namespace syntakt::main
 			_mem.setWord(OverbridgeGains + 4 * t, g.d0);
 		}
 
-		// The Overbridge frame: 2-9 the digital tracks, 10-13 ADC 0-3, 14-15 ADC 6-7. All three in SRAM, whose
-		// bytes the memory gives whole
+		// The Overbridge frame: 2-9 the digital tracks, 10-13 ADC 0-3, 14-15 ADC 6-7. All three in SRAM, on the
+		// bytes the memory gives whole, else through it
 		uint8_t* frames = _mem.writableBytesAt(Overbridge, 0x50 * BlockFrames);
 		const uint8_t* voices = _mem.bytesAt(VoiceOutputs, 128 * 8);
 		const uint8_t* adc = _mem.bytesAt(Adc, 128 * 8);
-		for(uint32_t i = 0; i < BlockFrames; ++i)
-		{
-			uint8_t* frame = frames + 0x50 * i;
-			for(uint32_t t = 0; t < 8; ++t)
-				Memory::setWordAt(frame + 8 + 4 * t, Memory::wordAt(voices + 128 * t + 4 * i));
-			for(uint32_t c = 0; c < 4; ++c)
-				Memory::setWordAt(frame + 0x28 + 4 * c, Memory::wordAt(adc + 128 * c + 4 * i));
-			Memory::setWordAt(frame + 0x38, Memory::wordAt(adc + 0x300 + 4 * i));
-			Memory::setWordAt(frame + 0x3c, Memory::wordAt(adc + 0x380 + 4 * i));
-		}
+		if(frames && voices && adc)
+			copyStems(BytesRun<uint8_t>{frames}, BytesRun<const uint8_t>{voices}, BytesRun<const uint8_t>{adc});
+		else
+			copyStems(MemoryRun{_mem, Overbridge}, MemoryRun{_mem, VoiceOutputs}, MemoryRun{_mem, Adc});
 		_acc.setMacsr(0x20);
 		return static_cast<int32_t>(SendBus);
 	}
