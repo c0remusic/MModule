@@ -42,5 +42,9 @@ SRR, DIST (`mdEngine/engine/TrackFx.h`).
 - Amendé le 2026-10-24 (révélé par le mockup v5 : la chaîne MD comptait trois étages pour deux emplacements) :
   l'AMD du MD (modulation d'amplitude par oscillateur) n'est pas reprise, l'utilisateur la juge inutile. Une piste MD
   reste exacte tant que son AMD d'origine est à 0, sa valeur par défaut.
+- Amendé le 2026-10-24 (inventaire du DT2, ticket « Effets master ») : le BR du DT2 n'est pas un type de drive, il
+  passe dans la voix DT2 (page SRC du sample, toujours en premier) ; types de drive : Off, Syntakt drive, MD DIST,
+  MD SRR, DT2 Overdrive, DT2 SRR. La BAND gagne un bouton avant/après le filtre (avant par défaut) et un quatrième
+  type, le base-width du DT2.
 - Une piste dont la chaîne reste celle de sa famille reste fidèle à son firmware ; tout ajout (MIX, EQ 3 bandes,
   étage d'une autre famille) est marqué « + ».
