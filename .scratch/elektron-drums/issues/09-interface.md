@@ -29,3 +29,6 @@ Exigences de l'utilisateur (2026-10-24), du mockup v2 :
 - Accent : la barre en haut du pas fait « trop IA » ; variantes dans le v8 : intensité de LED (trig normal à mi-intensité, accentué pleinement allumé, comme les touches Elektron), couleur de trig, hauteur selon la vélocité.
 - Valeur au centre des knobs : jamais écrasée, tronquée ou chevauchée par l'anneau, vérifiée avec la valeur la plus longue de chaque paramètre.
 - Choix du v8 : police Saira Semi Condensed (valeurs en IBM Plex Sans Condensed pour les chiffres fixes) ; accent par hauteur selon la vélocité ; trigs dans l'accent unique (teal) ; plus aucune barre ou bande colorée pour marquer une sélection : fond plus clair et texte plein, comme Overbridge.
+- Valeurs toujours dans l'anneau du knob, jamais dessous : taille de texte unique par taille de knob, knobs agrandis au besoin (deux tailles au plus), formats raccourcis.
+- Mêmes proportions pour tous les knobs : texte de valeur, épaisseur d'anneau et étiquette dans un rapport fixe au diamètre ; on ne réduit jamais le texte d'un seul knob pour faire tenir une valeur.
+- Plus d'anneaux en pointillés ou en tirets autour des knobs : modulation = fin arc plein à la couleur du modulateur, de la valeur à valeur + profondeur ; lock = valeur à la couleur d'accent ; valeur jouée = petit repère sur l'anneau.
