@@ -106,6 +106,40 @@ namespace syntakt
 				return false;
 			}
 
+			// The range of internal id _id in descriptor group _group (the first descriptor naming it); false if none
+			bool descriptorRange(const int _group, const int _id, Syntakt::Range& _range) const
+			{
+				for(int i = 0; i < DescriptorCount; ++i)
+				{
+					const uint32_t d = Descriptors + DescriptorBytes * static_cast<uint32_t>(i);
+					if(mem.word(d) != _group || mem.word(d + 4) != _id)
+						continue;
+					_range.min = static_cast<uint16_t>(mem.word(d + 8));
+					_range.max = static_cast<uint16_t>(mem.word(d + 12));
+					return true;
+				}
+				return false;
+			}
+
+			// As defaultOf, the range
+			Syntakt::Range rangeOf(const int _machine, const int _t, const int _id) const
+			{
+				Syntakt::Range r;
+				if(_t == FxTrack)
+				{
+					for(const int g : FxGroups)
+						if(descriptorRange(g, _id, r))
+							return r;
+					return {};
+				}
+				if(descriptorRange(_machine, _id, r))
+					return r;
+				for(const int g : TrackGroups)
+					if(descriptorRange(g, _id, r))
+						return r;
+				return {};
+			}
+
 			uint16_t defaultOf(const int _machine, const int _t, const int _id) const
 			{
 				uint16_t v = 0;
@@ -372,6 +406,46 @@ namespace syntakt
 		if(!m)
 			return;
 		m->mem.setHalf(main::Engine + 2 * static_cast<uint32_t>(t), _value);
+	}
+
+	int Syntakt::machine(const int _track) const
+	{
+		int t;
+		const Machine* m = m_state->machine(_track, t);
+		return m ? m->mem.byte(main::Machines + static_cast<uint32_t>(t)) : 0;
+	}
+
+	uint16_t Syntakt::parameter(const int _track, const int _id) const
+	{
+		int t;
+		const Machine* m = m_state->machine(_track, t);
+		if(!m || _id < 0 || _id >= TrackParameterEnd)
+			return 0;
+		return m->kit[static_cast<size_t>(t)][static_cast<size_t>(_id)];
+	}
+
+	uint16_t Syntakt::fxParameter(const int _id) const
+	{
+		if(_id < 0 || _id >= FxParameterEnd)
+			return 0;
+		return static_cast<uint16_t>(m_state->a->mem.half(engineWord(FxTrack, _id)));
+	}
+
+	uint16_t Syntakt::level(const int _track) const
+	{
+		int t;
+		const Machine* m = m_state->machine(_track, t);
+		return m ? static_cast<uint16_t>(m->mem.half(main::Engine + 2 * static_cast<uint32_t>(t))) : 0;
+	}
+
+	Syntakt::Range Syntakt::parameterRange(const int _machine, const int _id) const
+	{
+		return m_state->a->rangeOf(_machine, 0, _id);
+	}
+
+	Syntakt::Range Syntakt::fxParameterRange(const int _id) const
+	{
+		return m_state->a->rangeOf(0, FxTrack, _id);
 	}
 
 	void Syntakt::setTempo(const double _bpm)

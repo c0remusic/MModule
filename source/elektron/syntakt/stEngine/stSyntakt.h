@@ -117,6 +117,25 @@ namespace syntakt
 		// Track _track's level (LEV, the kit's, 0 to 0x7f00): the buses and the stems take it squared
 		void setLevel(int _track, uint16_t _value);
 
+		// The kit as the module holds it: the defaults it starts with, then what the calls above set (a lock leaves
+		// it as it is). 0 outside the module's tracks or ids
+		int machine(int _track) const;
+		uint16_t parameter(int _track, int _id) const;
+		uint16_t fxParameter(int _id) const;
+		uint16_t level(int _track) const;
+
+		// The range section 3's descriptors give a value: a track's parameter _id when the track plays _machine (the
+		// machine's own descriptors for the SYN page), an FX parameter; first the minimum, then the maximum, 0 to
+		// 0x7f00 where no descriptor names the id
+		struct Range
+		{
+			uint16_t min = 0;
+			uint16_t max = 0x7f00;
+		};
+
+		Range parameterRange(int _machine, int _id) const;
+		Range fxParameterRange(int _id) const;
+
 		// The tempo, which the LFOs synced to it and the delay's time follow
 		void setTempo(double _bpm);
 
