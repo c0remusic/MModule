@@ -1,0 +1,1224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drums mockup v3b</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;0,700;1,800&family=Barlow+Semi+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+	--bg:#0e0f10; --win:#1f2124; --bar:#26292d; --box:#2c2f33; --boxhd:#3a3e43; --well:#1b1d20; --line:#3d4147;
+	--tx:#dcdfe3; --mut:#8d939b; --dim:#5d636b;
+	--t:#39b5c8; --g:#86c25a; --p:#9a80dc; --s:#e2876f; --y:#e8c25a; --a:#e39a47; --b:#6e9fe6; --w:#b8bdc4;
+	--plus:#e8c25a; --m:#e98bd6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font-family:'Barlow Semi Condensed','Barlow',sans-serif;font-size:13px;
+	display:flex;justify-content:center;align-items:flex-start;min-height:100vh;padding:12px 0;user-select:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+select{font:inherit;color:var(--tx);background:var(--well);border:1px solid var(--line);border-radius:2px;height:24px;padding:0 6px}
+.win{position:relative;width:1600px;height:1000px;background:var(--win);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 0 0 1px #000,0 20px 60px #000a}
+
+/* top bar */
+.top{height:44px;flex:none;display:flex;align-items:stretch;background:var(--bar);border-bottom:1px solid #000}
+.brand{display:flex;align-items:center;gap:10px;padding:0 16px;font-size:21px}
+.brand .wm{font-family:'Barlow';font-style:italic;font-weight:800;letter-spacing:.5px;color:#f2f2f2}
+.brand .sl{color:var(--mut);font-weight:300}
+.brand .pr{color:var(--y);font-weight:500;font-family:'Barlow'}
+.top .sp{flex:1}
+.mtab{padding:0 26px;display:flex;align-items:center;font-size:16px;font-weight:600;color:#cfd3d8}
+.mtab.on{background:var(--win);color:var(--t)}
+.ico{width:44px;display:flex;align-items:center;justify-content:center;color:#aab0b7}
+.ico svg{width:22px;height:22px}
+
+/* track tabs */
+.tracks{height:34px;flex:none;display:flex;background:var(--bar);border-bottom:1px solid #000}
+.tt{flex:1;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;color:#c7cbd0;border-right:1px solid #1d1f22;white-space:nowrap}
+.tt:hover{background:#2e3236}
+.tt.on{background:var(--win);color:var(--t)}
+.tt.kit{flex:1.7;justify-content:flex-start;padding-left:14px}
+.tt.sys{color:#e6e8ea;background:#2c3034}
+.tt.sys.on{background:var(--win);color:var(--t)}
+
+/* chain strip */
+.chain{height:32px;flex:none;display:flex;align-items:center;gap:0;padding:0 8px;background:#1a1c1f;border-bottom:1px solid #000}
+.chain .lab{color:var(--dim);font-size:11px;font-weight:600;letter-spacing:1px;margin-right:10px}
+.ch{height:22px;white-space:nowrap;display:flex;align-items:center;gap:5px;padding:0 10px;background:var(--box);border:1px solid var(--line);border-radius:2px;font-size:12px;font-weight:600;color:#cfd3d8}
+.ch:hover{border-color:#6b7178}
+.ch i{width:7px;height:7px;border-radius:50%;display:inline-block}
+.ch small{color:var(--mut);font-weight:500}
+.arr{color:var(--dim);margin:0 5px;font-size:12px}
+.chain .info{margin-left:auto;display:flex;gap:16px;color:var(--mut);font-size:12px}
+.chain .info b{color:var(--tx);font-weight:600}
+
+/* pages */
+.main{flex:1;position:relative;overflow:hidden}
+.page{position:absolute;inset:0;display:none;padding:6px;gap:6px;grid-template-columns:repeat(12,1fr);overflow:auto}
+.page.on{display:grid}
+.tp{grid-template-rows:1fr 1fr}
+#b-seq{position:absolute;left:6px;right:6px;bottom:6px;height:180px;display:none}
+#b-seq.on{display:flex}
+svg.fit{flex:1 1 0;min-height:0;height:auto}
+.k .lr{display:none}
+.k.lk .lr{display:block}
+.k.lk .l{color:#fff}
+.k.lk .l:after{content:" \25CF";font-size:9px;vertical-align:2px}
+.st.msel{outline:2px dashed var(--t)}
+.tsteps .st{height:58px}
+.hd .tabs button.dis{color:#5d636b}
+.lockban{display:none;margin-left:10px;padding:1px 8px;background:#f2f4f6;color:#1a1c1f;font-size:12px;font-weight:700;border-radius:2px;letter-spacing:.5px}
+.lockban.on{display:inline-block}
+.lockrec{height:22px;padding:0 8px;background:#34383d;font-size:11px;font-weight:700;color:#c3c7cc;border-radius:2px}
+.lockrec.on{background:#c94a4a;color:#fff}
+.tsteps .st.sel{outline:2px solid #fff;background-image:linear-gradient(#ffffff26,#ffffff26)}
+.lane{display:flex;align-items:stretch;gap:6px;flex:1;min-height:50px;max-height:110px}
+.lane .ln{width:110px;flex:none;background:#24272a;padding:4px 6px;font-size:12px;font-weight:600;display:flex;flex-direction:column;justify-content:space-between}
+.lane .ln small{color:var(--mut);font-weight:500}
+.lane .cells{flex:1;display:grid;grid-template-columns:repeat(16,1fr);gap:3px;cursor:crosshair}
+.lane .cells i{background:#24272a;position:relative}
+.lane .cells i b{position:absolute;left:0;right:0;bottom:0;background:var(--y);opacity:.8}
+.lane .cells i:nth-child(4n+1){box-shadow:inset 0 2px 0 #4a5057}
+.lane.new .ln{box-shadow:inset 0 0 0 1px var(--y)}
+#learn.on{background:var(--y);color:#2a2410}
+.box.exp{position:absolute;z-index:15;box-shadow:0 14px 50px #000d;outline:1px solid var(--acc,#888)}
+.k{position:relative}
+.k .pb{display:none;position:absolute;top:15px;right:calc(50% - var(--ks)/2 - 9px);width:15px;height:15px;border-radius:50%;background:#f2f4f6;color:#1a1c1f;font-size:13px;font-weight:700;line-height:15px;text-align:center;font-style:normal;cursor:pointer;box-shadow:0 1px 4px #000a}
+.tp .k:hover .pb,.k.popk .pb{display:block}
+.kpop{position:absolute;z-index:30;width:220px;background:#3a3e43;border:1px solid #555b62;box-shadow:0 10px 30px #000c;padding:4px}
+.kpop .kph{font-size:12px;font-weight:700;color:var(--mut);padding:4px 6px;letter-spacing:.5px;text-transform:uppercase}
+.kpop button{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 8px;font-size:13px;font-weight:600;color:#e6e8ea;text-align:left}
+.kpop button:hover{background:#4a4f56}
+.kpop button[disabled]{color:#7d838a}
+.kpop button i{width:10px;height:10px;border-radius:50%}
+.kpop .kpf{font-size:11px;color:var(--mut);padding:4px 8px 3px;border-top:1px solid #4a4f56;margin-top:3px}
+.slotc{display:flex;align-items:center;gap:5px;background:#24272a;border-left:3px solid var(--a);padding:4px 4px 4px 6px;margin-bottom:5px}
+.slotc .n{color:var(--mut);font-weight:700;width:10px}
+.slotc select{flex:1;min-width:0;height:22px;font-size:12px}
+.slotc .pp{font-size:10px;font-weight:700;color:var(--a);width:28px;text-align:center}
+.k.nol .l{display:none}
+.sname{height:24px;display:inline-flex;align-items:center;padding:0 10px;background:#111315;font-size:14px;font-weight:600;letter-spacing:.5px;min-width:150px;margin-right:4px}
+.btn.sm{height:22px;padding:0 9px;font-size:11px;margin-right:2px}
+.learnhost{position:relative;overflow:hidden;flex:1}
+.learnclone{position:absolute;left:0;top:0;width:1600px;height:808px;display:grid;grid-template-columns:repeat(12,1fr);grid-template-rows:1fr 1fr;gap:6px;padding:6px;transform-origin:0 0;background:var(--win)}
+.learnclone .k{cursor:copy}
+.learnclone .k:hover svg{filter:drop-shadow(0 0 6px #fff)}
+.lfoh{height:20px;display:inline-flex;align-items:center;padding:0 7px;margin-left:5px;border-radius:10px;background:color-mix(in srgb,var(--lc) 22%,#1a1c1f);border:1px solid var(--lc);color:var(--lc);font-size:11px;font-weight:700;cursor:grab;white-space:nowrap}
+.ahint{display:none;margin-left:10px;padding:2px 9px;border-radius:2px;background:var(--lc,var(--y));color:#1f1a0c;font-size:12px;font-weight:700;white-space:nowrap}
+.ahint.on{display:inline-block}
+.assign{height:24px;padding:0 10px;background:#34383d;font-size:11px;font-weight:700;color:#d6d9dd;border-radius:2px}
+.assign.on{background:var(--y);color:#2a2410;box-shadow:0 0 8px #e8c25a80}
+.lfoghost{position:absolute;z-index:20;pointer-events:none;padding:2px 8px;border-radius:10px;background:var(--lc);color:#1f1a0c;font-size:11px;font-weight:700;box-shadow:0 4px 12px #000a}
+.ghostline{position:absolute;left:0;top:0;z-index:19;pointer-events:none}
+.k.droptgt svg{filter:drop-shadow(0 0 7px var(--m))}
+.k.flashk svg{filter:drop-shadow(0 0 8px #fff)}
+.st.play{box-shadow:inset 0 -3px 0 #f2f4f6}
+.tt{font-size:14px;gap:5px}
+.tt .tl{width:7px;height:7px;border-radius:50%;background:color-mix(in srgb,var(--t) calc(var(--lv,0)*100%),#3a3e43);box-shadow:0 0 calc(var(--lv,0)*8px) var(--t);flex:none}
+.tt .tpl{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;border-radius:2px;color:#8d939b;font-size:9px;font-style:normal;flex:none}
+.tt .tpl:hover{background:#3f444a;color:#fff}
+.trksel button{height:22px;font-size:11px;padding:0 2px}
+.lockrow{display:flex;justify-content:space-between;padding:3px 8px;background:#24272a;font-size:12px}
+.lockrow b{color:#fff;font-weight:600}
+#p-fx{grid-template-rows:1.3fr 1fr}
+#p-master{grid-template-rows:1fr 1.15fr}
+#p-seq{grid-template-rows:124px 196px 1fr}
+#p-kit{grid-template-rows:1fr 230px}
+#p-browser{grid-template-rows:1fr}
+
+.box{background:var(--box);border:1px solid #3a3d42;display:flex;flex-direction:column;min-width:0;min-height:0;outline:2px solid transparent;transition:outline-color .25s}
+.box.flash{outline-color:var(--t)}
+.hd{height:28px;flex:none;background:var(--boxhd);display:flex;align-items:stretch;padding-left:10px}
+.hd h2{font-size:15px;font-weight:700;letter-spacing:.3px;color:#d4d7db;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.hd h2 small{font-weight:500;color:var(--mut);font-size:13px;letter-spacing:0}
+.hd .tabs{margin-left:auto;display:flex}
+.hd .tabs button{padding:0 12px;font-size:13px;font-weight:600;color:#c0c4c9}
+.hd .tabs button.on{background:#2f3337;color:var(--acc,var(--t))}
+.bd{flex:1;padding:8px;position:relative;min-height:0}
+.pane{display:none;height:100%}
+.pane.on{display:flex}
+.pane:not(.on){display:none!important}
+.col{flex-direction:column}
+.plus{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:2px;background:var(--plus);color:#1a1a1a;font-size:12px;font-weight:700;line-height:1;font-family:'Barlow'}
+
+/* knobs */
+.k{display:inline-flex;flex-direction:column;align-items:center;width:var(--kw,76px);cursor:ns-resize;font-style:normal}
+.k .l{font-size:13px;color:#cdd1d6;height:17px;white-space:nowrap}
+.k svg{display:block}
+.k text{font-family:'Barlow Semi Condensed';font-weight:500;fill:#e8eaed}
+.kr{display:flex;justify-content:space-around;align-items:flex-start}
+
+/* fader */
+.f{display:flex;flex-direction:column;align-items:center;gap:4px;width:42px;cursor:ns-resize}
+.f .l{font-size:13px;color:#cdd1d6}
+.f .tr{position:relative;width:24px;flex:1}
+.f .tr:before{content:'';position:absolute;left:11px;top:0;bottom:0;width:2px;background:#15171a}
+.f .fill{position:absolute;left:11px;bottom:0;width:2px;background:var(--fc,#d9dce0)}
+.f .cap{position:absolute;left:3px;width:18px;height:6px;background:#e7e9ec;border-radius:1px;transform:translateY(3px)}
+.f .v{font-size:13px;color:#e3e5e8}
+
+/* segmented, buttons */
+.seg{display:flex;gap:2px}
+.seg button{flex:1;height:24px;background:#34383d;font-size:12px;font-weight:600;color:#c3c7cc;padding:0 6px;white-space:nowrap}
+.seg button.on{background:#3e4349;color:var(--acc,var(--t));box-shadow:inset 0 0 0 1px #4a5057}
+.btn{height:26px;padding:0 14px;background:#3a3e44;font-size:13px;font-weight:600;color:#d6d9dd;border-radius:1px}
+.btn:hover{background:#444950}
+.well{background:var(--well)}
+
+/* graphs */
+svg.g{display:block;width:100%;background:var(--well)}
+.gridl{stroke:#ffffff14;stroke-width:1}
+
+/* machine */
+.fam{display:flex;gap:2px;margin-bottom:8px}
+.fam button{flex:1;height:24px;background:#33373b;font-size:11px;font-weight:600;color:#bfc4c9;white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:4px}
+.fam button.on{background:#3d4248;color:var(--t);box-shadow:inset 0 -2px 0 var(--t)}
+.mgrid{width:226px;flex:none;overflow:auto;padding-right:4px}
+.mgrid .gh{grid-column:1/-1;font-size:11px;color:var(--mut);font-weight:600;letter-spacing:1px;margin:4px 0 0}
+.mgrid .gg{display:grid;grid-template-columns:1fr 1fr;gap:3px}
+.mb{height:31px;background:#34383d;font-size:12px;font-weight:700;color:#d8dbdf;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 4px}
+.mb:hover{background:#3d4247}
+.mb.on{background:#262a2e;color:var(--t);box-shadow:inset 0 0 0 1px #3a6e78}
+.mgrid::-webkit-scrollbar,.scroll::-webkit-scrollbar{width:6px}
+.mgrid::-webkit-scrollbar-thumb,.scroll::-webkit-scrollbar-thumb{background:#454a50}
+
+/* drive */
+.slot{background:#24272a;border-left:3px solid var(--a);padding:5px 6px;margin-bottom:5px}
+.slot.sel{background:#2f3236}
+.slot .r1{display:flex;align-items:center;gap:4px}
+.slot .r1 .n{width:14px;color:var(--mut);font-weight:700}
+.slot select{flex:1;height:22px;font-size:12px;min-width:0}
+.slot .ib{width:20px;height:22px;background:#33373b;color:#b9bec4;font-size:11px}
+.slot .r2{display:flex;align-items:center;gap:6px;margin-top:4px}
+.slot .r2 .seg{width:86px}
+.slot .r2 .seg button{height:20px;font-size:11px}
+.hs{flex:1;height:4px;background:#15171a;position:relative;cursor:ew-resize}
+.hs b{position:absolute;left:0;top:0;bottom:0;background:var(--a)}
+.slot .r2 em{font-style:normal;width:22px;text-align:right;color:#dfe2e5}
+.add{width:100%;height:24px;border:1px dashed #50565d;color:#aeb3b9;font-weight:600;font-size:12px}
+
+/* lfo */
+.shapes{display:flex;gap:1px;background:#00000040}
+.shapes button{flex:1;height:22px;background:#3a3423;display:flex;align-items:center;justify-content:center}
+.shapes button.on{background:var(--y)}
+.shapes button svg{width:20px;height:14px}
+.shapes button path{stroke:var(--y);stroke-width:1.6;fill:none}
+.shapes button.on path{stroke:#2a2410}
+.vseg{display:flex;flex-direction:column;gap:3px;width:62px}
+.vseg button{height:25px;background:#34383d;font-size:12px;font-weight:700;color:#d8dbdf}
+.vseg button.on{color:var(--y);box-shadow:inset 0 0 0 1px #6f6030}
+
+/* filter types */
+.ftypes{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:#00000040;margin-bottom:6px}
+.ftypes button{height:22px;background:#3c2e2a;font-size:11px;font-weight:700;color:#e6a593;display:flex;align-items:center;justify-content:center;gap:3px;position:relative}
+.ftypes button.on{background:var(--s);color:#2b1a15}
+.ftypes button.dt{background:#33302e}
+.ftypes button.dt.on{background:var(--s)}
+.ftypes button .plus{width:11px;height:11px;font-size:10px;position:absolute;right:1px;top:1px}
+
+/* bottom band */
+.band{display:none;height:58px;flex:none;gap:6px;padding:0 6px 6px}
+.pads{flex:1;display:grid;grid-template-columns:repeat(16,1fr);gap:4px}
+.pad{border:2px solid #4a4f55;border-radius:5px;background:#26292c;color:#8e949b;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;white-space:nowrap}
+.pad.on{border-color:var(--t);color:var(--t)}
+.pad.hit{background:#35505a}
+.kb{width:470px;position:relative;background:#111}
+.kb .w{position:absolute;top:0;bottom:0;background:#eceff1;border-right:1px solid #999}
+.kb .bk{position:absolute;top:0;height:58%;background:#111;border-radius:0 0 2px 2px}
+.kb .w span{position:absolute;bottom:2px;left:2px;font-size:9px;color:#222;font-weight:700}
+
+/* footer */
+.foot{height:26px;flex:none;display:flex;align-items:center;gap:16px;padding:0 12px;background:var(--bar);border-top:1px solid #000;color:var(--mut);font-size:12px}
+.foot .sp{flex:1}
+.foot select{height:20px;font-size:12px}
+.foot .wm{font-family:'Barlow';font-style:italic;font-weight:800;color:#e9e9e9;font-size:15px;letter-spacing:.5px}
+
+/* seq */
+.steps{display:grid;grid-template-columns:repeat(16,1fr);gap:5px}
+.st{height:62px;background:#34383d;border-radius:2px;position:relative;display:flex;flex-direction:column;justify-content:flex-end;padding:3px 4px;cursor:pointer}
+.st:nth-child(4n+1){box-shadow:inset 0 2px 0 #5a6067}
+.st.trig{background:#7b3a35}
+.st.trig.lk{background:#7b5a2d}
+.st.sel{outline:2px solid var(--t)}
+.st .no{position:absolute;top:3px;left:4px;font-size:11px;color:#9aa0a7;font-weight:600}
+.st .cd{font-size:10px;font-weight:700;color:#f3d9b4}
+.st .lkdot{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:#fff}
+.st .rt{display:flex;gap:2px;height:4px}
+.st .rt i{flex:1;background:#ffffff90}
+.st .mt{position:absolute;bottom:0;height:2px;background:var(--t)}
+.rowl{font-size:11px;color:var(--mut);font-weight:600;letter-spacing:1px;width:58px;flex:none}
+.mini{display:grid;grid-template-columns:repeat(16,1fr);gap:3px;flex:1}
+.mini i{height:14px;background:#34383d}
+.mini i.on{background:var(--acc,#7b3a35)}
+.pgs{display:flex;gap:4px}
+.pgs i{width:26px;height:6px;background:#3a3e43}
+.pgs i.on{background:var(--t)}
+.pgs i.dis{background:#26292c}
+.trk{display:flex;align-items:center;gap:6px;height:28px;padding:0 6px;border-bottom:1px solid #24272a}
+.trk.on{background:#323639}
+.trk .nm{width:56px;font-weight:700;font-size:12px}
+.trk .mb2{width:22px;height:20px;background:#34383d;font-size:11px;font-weight:700;color:#aab}
+.trk .mb2.on{background:#c7a34a;color:#222}
+.trk .mini i{height:12px}
+.pat{display:grid;grid-template-columns:repeat(8,1fr);gap:3px}
+.pat button{height:26px;background:#34383d;font-weight:700;font-size:12px}
+.pat button.on{background:#262a2e;color:var(--t);box-shadow:inset 0 0 0 1px #3a6e78}
+.pat button.q{color:var(--y)}
+.lbl{font-size:11px;color:var(--mut);font-weight:600;letter-spacing:1px;margin-bottom:4px}
+.lock{display:flex;justify-content:space-between;padding:4px 8px;background:#24272a;margin-bottom:3px;font-size:12px}
+.lock b{color:var(--y);font-weight:600}
+.led{width:9px;height:9px;border-radius:50%;background:#5c6;box-shadow:0 0 6px #5c6;display:inline-block}
+
+/* mixer channels */
+.chs{display:grid;grid-template-columns:repeat(16,1fr);gap:4px;height:100%}
+.cs{background:#24272a;display:flex;flex-direction:column;align-items:center;padding:6px 2px;gap:5px}
+.cs .nm{font-weight:700;font-size:12px}
+.cs .ms{display:flex;gap:2px}
+.cs .ms button{width:22px;height:18px;background:#34383d;font-size:11px;font-weight:700;color:#aab0b6}
+.cs .ms button.m.on{background:#c7a34a;color:#222}
+.cs .ms button.s.on{background:#3c9bab;color:#111}
+.cs .meter{display:flex;gap:2px;flex:1;width:100%;justify-content:center}
+.vm{width:5px;background:#15171a;position:relative}
+.vm b{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(#e2595a 0,#e8c25a 18%,#86c25a 40%)}
+.cs .out{font-size:11px;color:var(--mut)}
+
+.kitlist{display:grid;align-content:start;grid-template-columns:repeat(8,1fr);gap:3px}
+.kitlist button{height:36px;background:#34383d;font-size:12px;font-weight:600;text-align:left;padding:0 6px;color:#cfd3d7;overflow:hidden;white-space:nowrap}
+.kitlist button small{display:block;color:var(--mut);font-size:10px}
+.kitlist button.on{color:var(--t);box-shadow:inset 0 0 0 1px #3a6e78;background:#262a2e}
+.kitlist button.e{color:#5f656c}
+.ov{display:grid;grid-template-columns:repeat(16,1fr);gap:3px}
+.ov div{background:#24272a;padding:6px 5px;font-size:11px;line-height:1.5;color:var(--mut);min-height:0}
+.ov div b{display:block;color:var(--tx);font-size:13px}
+.ov div .fm{color:var(--t)}
+.field{height:34px;background:#15171a;display:flex;align-items:center;padding:0 12px;font-size:18px;font-weight:600;letter-spacing:.5px}
+.matrix{display:grid;grid-template-columns:70px repeat(16,1fr);gap:2px;font-size:11px}
+.matrix div{height:26px;display:flex;align-items:center;justify-content:center;background:#24272a;color:#d6d9dc}
+.matrix div.h{background:none;color:var(--mut);font-weight:700}
+.matrix div.rl{justify-content:flex-start;padding-left:6px;background:none;font-weight:700}
+.cell{position:relative}
+.cell b{position:absolute;left:0;bottom:0;top:0;background:var(--cc);opacity:.45}
+.cell span{position:relative}
+</style>
+</head>
+<body>
+<div class="win">
+
+<!-- ======== TOP BAR ======== -->
+<div class="top">
+	<div class="brand"><span class="wm">elektron</span><span class="sl">/</span><span class="pr">Drums</span></div>
+	<div class="sp"></div>
+	<button class="mtab on" data-mtab="editor">Kit Editor</button>
+	<button class="mtab" data-mtab="browser">Sound Browser</button>
+	<div class="ico" title="Keyboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="6" width="20" height="12"/><path d="M6 6v7M10 6v7M14 6v7M18 6v7"/></svg></div>
+	<div class="ico" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></div>
+	<div class="ico" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h16M4 12h16M4 17h16"/></svg></div>
+</div>
+
+<!-- ======== TRACK TABS ======== -->
+<div class="tracks" id="tracks"></div>
+
+<!-- ======== SIGNAL CHAIN ======== -->
+<div class="chain" id="chain">
+	<span class="sname">WINSTON KICK</span><button class="btn sm">SAVE</button><button class="btn sm">RELOAD</button><button class="btn sm" style="margin-right:14px">CLEAR</button>
+	<span class="lab">SIGNAL</span>
+	<button class="ch" data-to="b-machine"><i style="background:var(--t)"></i>MACHINE<span style="color:var(--dim)">+</span><i style="background:var(--g)"></i>SAMPLE</button><span class="arr">&#9656;</span>
+	<button class="ch" data-to="b-drive"><i style="background:var(--a)"></i>DRIVE <small id="c-pre">pre: ST DRIVE</small></button><span class="arr">&#9656;</span>
+	<button class="ch" data-to="b-band"><i style="background:var(--b)"></i>BAND <small id="c-band">BASE/WIDTH</small></button><span class="arr">&#9656;</span>
+	<button class="ch" data-to="b-filter"><i style="background:var(--s)"></i>FILTER <small id="c-filt">LP2</small></button><span class="arr">&#9656;</span>
+	<button class="ch" data-to="b-drive"><i style="background:var(--a)"></i>DRIVE <small id="c-post">post: MD SRR</small></button><span class="arr">&#9656;</span>
+	<button class="ch" data-to="b-amp"><i style="background:var(--p)"></i>AMP</button><span class="arr">&#9656;</span>
+	<button class="ch" data-to="b-mixer"><i style="background:var(--w)"></i>SENDS</button>
+	<span class="lab" style="margin-left:14px">MOD</span><span class="lfoh" data-lfo="0" style="--lc:var(--y)" title="Drag onto a knob">&#8801; LFO1</span><span class="lfoh" data-lfo="1" style="--lc:var(--m)" title="Drag onto a knob">&#8801; LFO2</span><span id="ahint" class="ahint"></span>
+	<div class="info"><span style="white-space:nowrap">Track <b id="i-trk">1 &middot; BD MODERN</b></span><span style="display:none">Out <b id="i-out">Main</b></span><span>CPU <b>6.8&nbsp;%</b></span></div>
+</div>
+
+<div class="main">
+
+<!-- =================== TRACK PAGE: every box at once =================== -->
+<section class="page on tp" id="p-track">
+
+	<div class="box" id="b-machine" style="grid-column:1/span 5;grid-row:1;--acc:var(--t)">
+		<div class="hd"><h2>MACHINE <small id="m-title">BD MODERN &middot; Syntakt digital</small></h2>
+			<div class="tabs"><button class="on" data-p="m-syn">Synth</button><button data-p="m-info">Sound</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column">
+			<div class="fam" id="fams"></div>
+			<div class="pane on" id="m-syn" style="gap:12px;flex:1;min-height:0">
+				<div class="mgrid" id="mgrid"></div>
+				<div style="flex:1;display:flex;gap:4px;min-width:0">
+					<div style="flex:1;display:flex;flex-direction:column;justify-content:space-around" id="mknobs"></div>
+					<div class="f" data-v="100" data-max="127" style="--fc:var(--t);width:44px"><span class="l">Volume</span><div class="tr"></div><span class="v"></span></div>
+				</div>
+			</div>
+			<div class="pane col" id="m-info" style="gap:9px;padding:2px 4px">
+				<div style="display:flex;align-items:center;gap:10px"><span style="width:80px;color:#cdd1d6">Chromatic</span><div class="seg" style="flex:1"><button class="on">SYNTH</button><button class="on">SAMPLE</button></div></div>
+				<div style="display:flex;align-items:center;gap:10px"><span style="width:80px;color:#cdd1d6">Velocity</span><div class="seg" style="flex:1"><button>LINEAR</button><button class="on">SOFT</button><button>HARD</button><button>FIXED</button></div></div>
+				<div style="display:flex;align-items:center;gap:10px"><span style="width:80px;color:#cdd1d6">Choke</span><select style="flex:1"><option>None</option><option>Group A</option></select></div>
+				<div style="color:var(--mut);line-height:1.5"><span id="m-eng">Syntakt OS port, exact against the firmware oracle.</span> Families marked <span class="plus">+</span> are approximations, not firmware.</div>
+			</div>
+		</div>
+	</div>
+
+	<div class="box" id="b-sample" style="grid-column:6/span 3;grid-row:1;--acc:var(--g)">
+		<div class="hd"><h2>SAMPLE LAYER</h2><div class="tabs"><button class="on" data-p="s-main">Layer</button><button data-p="s-opt">Options</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:6px">
+			<div style="display:flex;gap:6px"><select style="flex:1"><option>034 &middot; Hate Sound</option><option>084 &middot; mdloop</option><option>(none)</option></select><button class="btn" style="height:24px;padding:0 8px">Load&hellip;</button></div>
+			<svg class="g fit" id="g-wave"></svg>
+			<div class="pane on kr" id="s-main" style="height:auto">
+				<i class="k" data-l="Start" data-v="6" data-c="g" data-id="ss" data-sz="38" style="--kw:62px"></i>
+				<i class="k" data-l="End" data-v="90" data-c="g" data-id="se" data-sz="38" style="--kw:62px"></i>
+				<i class="k" data-l="Loop" data-v="0" data-c="g" data-id="sl" data-sz="38" style="--kw:62px" data-f="loop"></i>
+				<i class="k" data-l="Tune" data-v="-3" data-min="-24" data-max="24" data-c="g" data-sz="38" style="--kw:62px"></i>
+				<i class="k" data-l="Level" data-v="100" data-c="g" data-sz="38" style="--kw:62px"></i>
+				<i class="k" data-l="Mix M&#8596;S" data-v="40" data-c="g" data-sz="38" style="--kw:62px" data-f="mix"></i>
+			</div>
+			<div class="pane col" id="s-opt" style="height:auto;gap:4px">
+				<div class="seg" style="--acc:var(--g)"><button class="on">FWD</button><button>REV</button><button>LOOP</button><button>PING</button></div>
+				<div class="seg" style="--acc:var(--g)"><button class="on">WITH MACHINE</button><button>OWN NOTE</button></div>
+				<div class="seg" style="--acc:var(--g)"><button class="on">CHAIN</button><button>FILTER ONLY</button><button>DIRECT</button></div>
+			</div>
+		</div>
+	</div>
+
+	<div class="box" id="b-filter" style="grid-column:9/span 3;grid-row:1;--acc:var(--s)">
+		<div class="hd"><h2>FILTER <small id="f-title">(LP2 &middot; Syntakt multimode)</small></h2></div>
+		<div class="bd" style="display:flex;flex-direction:column">
+			<div class="ftypes" id="ftypes"></div>
+			<svg class="g fit" id="g-filter"></svg>
+			<div class="kr" style="margin-top:6px">
+				<i class="k" data-l="Frequency" data-v="78" data-c="s" data-id="fq" data-sz="46" style="--kw:96px"></i>
+				<i class="k" data-l="Resonance" data-v="42" data-c="s" data-id="rs" data-sz="46" style="--kw:96px"></i>
+				<i class="k" data-l="Env. Depth" data-v="12" data-min="-64" data-max="63" data-c="s" data-id="fe" data-sz="46" style="--kw:96px"></i>
+			</div>
+		</div>
+	</div>
+
+	<div class="box" id="b-amp" style="grid-column:12/span 1;grid-row:1;--acc:var(--p)">
+		<div class="hd"><h2>AMP</h2></div>
+		<div class="bd" style="display:flex;flex-direction:column;justify-content:space-around;align-items:center;padding:4px 0">
+			<i class="k" data-l="Volume" data-v="110" data-c="p" data-sz="40" style="--kw:100px"></i>
+			<i class="k" data-l="Pan" data-v="0" data-min="-64" data-max="63" data-c="p" data-sz="40" style="--kw:100px" data-f="pan"></i>
+			<i class="k" data-l="Accent" data-v="32" data-c="p" data-sz="40" style="--kw:100px"></i>
+			<i class="k" data-l="Vel&#8594;Vol" data-v="64" data-c="p" data-sz="40" style="--kw:100px"></i>
+		</div>
+	</div>
+
+	<div class="box" id="b-drive" style="grid-column:1/span 2;grid-row:2;--acc:var(--a)">
+		<div class="hd"><h2>DRIVE <small id="d-count">3 slots</small></h2><div class="tabs"><button class="xp" title="Open for detail">&#10530;</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:4px">
+			<div id="slots" class="scroll" style="overflow:auto;min-height:0;flex:1 1 auto"></div>
+			<button class="add" id="addslot">+ ADD SLOT</button>
+		</div>
+	</div>
+
+	<div class="box" id="b-band" style="grid-column:3/span 2;grid-row:2;--acc:var(--b)">
+		<div class="hd"><h2>BAND</h2><div class="tabs"><button class="on" data-p="bn-bw" data-band="BASE/WIDTH">B/W</button><button data-p="bn-eq" data-band="3-BAND EQ">EQ <span class="plus" style="width:12px;height:12px;font-size:10px">+</span></button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:6px">
+			<svg class="g fit" id="g-band"></svg>
+			<div class="pane on kr" id="bn-bw" style="height:auto">
+				<i class="k" data-l="Base" data-v="0" data-c="b" data-sz="44" style="--kw:96px" data-id="bb"></i>
+				<i class="k" data-l="Width" data-v="127" data-c="b" data-sz="44" style="--kw:96px" data-id="bw"></i>
+			</div>
+			<div class="pane kr" id="bn-eq" style="height:auto">
+				<i class="k" data-l="Low" data-v="6" data-min="-64" data-max="63" data-c="b" data-sz="40" style="--kw:72px" data-id="el"></i>
+				<i class="k" data-l="Mid" data-v="-10" data-min="-64" data-max="63" data-c="b" data-sz="40" style="--kw:72px" data-id="em"></i>
+				<i class="k" data-l="High" data-v="14" data-min="-64" data-max="63" data-c="b" data-sz="40" style="--kw:72px" data-id="eh"></i>
+			</div>
+		</div>
+	</div>
+
+	<div class="box" id="b-env" style="grid-column:5/span 3;grid-row:2;--acc:var(--p)">
+		<div class="hd"><h2>ENVELOPES</h2><div class="tabs" id="envtabs"><button data-env="f">Filter</button><button class="on" data-env="a">Amp</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:6px">
+			<div class="shapes" id="envmodes">
+				<button style="flex:2;font-size:11px;font-weight:700;color:var(--p);background:#2e2a3c">RESTART</button>
+				<button class="on" style="font-size:11px;font-weight:700;color:#221c33;background:var(--p)">ADSR</button>
+				<button style="background:#2e2a3c;font-size:11px;font-weight:700;color:var(--p)">AHD</button>
+				<button style="background:#2e2a3c;font-size:11px;font-weight:700;color:var(--p)">AD</button>
+				<button style="flex:2;font-size:11px;font-weight:700;color:var(--p);background:#2e2a3c">INFINITE</button>
+			</div>
+			<svg class="g fit" id="g-env" style="cursor:crosshair"></svg>
+			<div class="kr" id="envknobs">
+				<i class="k" data-l="Attack" data-v="3" data-c="p" data-id="ea" data-sz="44" style="--kw:84px"></i>
+				<i class="k" data-l="Decay" data-v="40" data-c="p" data-id="ed" data-sz="44" style="--kw:84px"></i>
+				<i class="k" data-l="Sustain" data-v="70" data-c="p" data-id="es" data-sz="44" style="--kw:84px"></i>
+				<i class="k" data-l="Release" data-v="34" data-c="p" data-id="er" data-sz="44" style="--kw:84px"></i>
+			</div>
+		</div>
+	</div>
+
+	<div class="box" id="b-mod" style="grid-column:8/span 3;grid-row:2;--acc:var(--y)">
+		<div class="hd"><h2>LFO</h2><div class="tabs" id="lfotabs"><button class="on" data-lfo="0">LFO 1</button><button data-lfo="1">LFO 2</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:6px">
+			<div style="display:flex;gap:8px;flex:1;min-height:0">
+				<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+					<div class="shapes" id="lshapes"></div>
+					<svg class="g fit" id="g-lfo"></svg>
+				</div>
+				<div class="vseg" id="ltrig" style="width:54px"></div>
+			</div>
+			<div style="display:flex;gap:6px;align-items:center">
+				<select id="ldest" style="flex:1;min-width:0"><option>None</option>
+					<optgroup label="Machine"><option data-k="b-machine|Tune">Machine Tune</option><option data-k="b-machine|Decay">Machine Decay</option><option data-k="b-machine|Sweep Depth">Machine Sweep Depth</option></optgroup>
+					<optgroup label="Sample"><option data-k="b-sample|Start">Sample Start</option><option data-k="b-sample|Tune">Sample Tune</option><option data-k="b-sample|Level">Sample Level</option></optgroup>
+					<optgroup label="Drive"><option data-k="b-drive|Slot 1 Amount">Drive Slot 1 Amount</option><option data-k="b-drive|Slot 2 Amount">Drive Slot 2 Amount</option></optgroup>
+					<optgroup label="Band"><option data-k="b-band|Base">Band Base</option><option data-k="b-band|Width">Band Width</option></optgroup>
+					<optgroup label="Filter"><option data-k="b-filter|Frequency">Filter Frequency</option><option data-k="b-filter|Resonance">Filter Resonance</option><option data-k="b-filter|Env. Depth">Filter Env. Depth</option></optgroup>
+					<optgroup label="Amp"><option data-k="b-amp|Volume">Amp Volume</option><option data-k="b-amp|Pan">Amp Pan</option></optgroup>
+					<optgroup label="Mixer"><option data-k="b-mixer|Delay">Mixer Delay</option><option data-k="b-mixer|Reverb">Mixer Reverb</option></optgroup></select>
+				<button class="assign">ASSIGN</button>
+			</div>
+			<div class="kr">
+				<i class="k" data-l="Speed" data-v="28" data-min="-64" data-max="63" data-c="y" data-sz="38" style="--kw:68px" data-id="lsp"></i>
+				<i class="k" data-l="Mult" data-v="9" data-min="0" data-max="11" data-c="y" data-sz="38" style="--kw:68px" data-f="mult"></i>
+				<i class="k" data-l="Depth" data-v="44" data-min="-64" data-max="63" data-c="y" data-sz="38" style="--kw:68px" data-id="ldp"></i>
+				<i class="k" data-l="Fade" data-v="0" data-min="-64" data-max="63" data-c="y" data-sz="38" style="--kw:68px"></i>
+				<i class="k" data-l="Phase" data-v="14" data-c="y" data-sz="38" style="--kw:68px" data-id="lph"></i>
+			</div>
+		</div>
+	</div>
+
+	<div class="box" id="b-mixer" style="grid-column:11/span 2;grid-row:2;--acc:var(--w)">
+		<div class="hd"><h2>MIXER</h2></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:6px">
+			<div style="display:flex;justify-content:space-between;flex:1;min-height:0">
+				<div class="f" data-v="11" style="width:42px"><span class="l">Delay</span><div class="tr"></div><span class="v"></span></div>
+				<div class="f" data-v="49" style="width:42px"><span class="l">Reverb</span><div class="tr"></div><span class="v"></span></div>
+				<div class="f" data-v="0" style="width:42px"><span class="l">Chorus</span><div class="tr"></div><span class="v"></span></div>
+				<div class="f" data-v="20" style="width:42px"><span class="l">Ph/Fl</span><div class="tr"></div><span class="v"></span></div>
+				<div class="f" data-v="100" style="--fc:var(--t);width:42px"><span class="l">Track</span><div class="tr"></div><span class="v"></span></div>
+			</div>
+			<div style="display:flex;gap:6px;align-items:center"><span class="lbl" style="margin:0">OUT</span><select id="outsel" style="flex:1"></select></div>
+		</div>
+	</div>
+</section>
+
+<!-- =================== FX PAGE =================== -->
+<section class="page" id="p-fx">
+	<div class="box" style="grid-column:span 3;--acc:var(--t)">
+		<div class="hd"><h2>DELAY</h2><div class="tabs"><button class="on">Syntakt</button><button>DT2</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:8px">
+			<svg class="g" id="g-delay" viewBox="0 0 320 96" height="96"></svg>
+			<div class="kr"><i class="k" data-l="Time" data-v="48" data-c="t" data-sz="46"></i><i class="k" data-l="Feedback" data-v="52" data-c="t" data-sz="46"></i><i class="k" data-l="Width" data-v="90" data-c="t" data-sz="46"></i><i class="k" data-l="Mix" data-v="100" data-c="t" data-sz="46"></i></div>
+			<div class="kr"><i class="k" data-l="HPF" data-v="20" data-c="t" data-sz="46"></i><i class="k" data-l="LPF" data-v="110" data-c="t" data-sz="46"></i><i class="k" data-l="Rev Send" data-v="0" data-c="t" data-sz="46"></i><i class="k" data-l="Ping-Pong" data-v="1" data-max="1" data-c="t" data-sz="46" data-f="onoff"></i></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 3;--acc:var(--b)">
+		<div class="hd"><h2>REVERB</h2><div class="tabs"><button class="on">Syntakt</button><button>DT2</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:8px">
+			<svg class="g" id="g-rev" viewBox="0 0 320 96" height="96"></svg>
+			<div class="kr"><i class="k" data-l="Pre-Delay" data-v="12" data-c="b" data-sz="46"></i><i class="k" data-l="Decay" data-v="80" data-c="b" data-sz="46"></i><i class="k" data-l="Size" data-v="64" data-c="b" data-sz="46"></i><i class="k" data-l="Mix" data-v="100" data-c="b" data-sz="46"></i></div>
+			<div class="kr"><i class="k" data-l="Shelf Freq" data-v="70" data-c="b" data-sz="46"></i><i class="k" data-l="Shelf Gain" data-v="40" data-c="b" data-sz="46"></i><i class="k" data-l="HPF" data-v="16" data-c="b" data-sz="46"></i><i class="k" data-l="LPF" data-v="100" data-c="b" data-sz="46"></i></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 3;--acc:var(--g)">
+		<div class="hd"><h2>CHORUS <small>DT2</small></h2></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:8px">
+			<svg class="g" id="g-cho" viewBox="0 0 320 96" height="96"></svg>
+			<div class="kr"><i class="k" data-l="Depth" data-v="50" data-c="g" data-sz="46"></i><i class="k" data-l="Speed" data-v="30" data-c="g" data-sz="46"></i><i class="k" data-l="Width" data-v="127" data-c="g" data-sz="46"></i><i class="k" data-l="Mix" data-v="100" data-c="g" data-sz="46"></i></div>
+			<div class="kr"><i class="k" data-l="HPF" data-v="0" data-c="g" data-sz="46"></i><i class="k" data-l="Del Send" data-v="0" data-c="g" data-sz="46"></i><i class="k" data-l="Rev Send" data-v="20" data-c="g" data-sz="46"></i><i class="k" data-l="Pre-Delay" data-v="8" data-c="g" data-sz="46"></i></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 3;--acc:var(--p)">
+		<div class="hd"><h2>PHASER / FLANGER</h2><div class="tabs" id="phtabs"><button class="on">Virus</button><button>Octatrack</button><button>Own <span class="plus" style="width:12px;height:12px;font-size:10px">+</span></button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:8px">
+			<div class="seg" style="--acc:var(--p)"><button class="on">PHASER</button><button>FLANGER</button></div>
+			<svg class="g" id="g-ph" viewBox="0 0 320 66" height="66"></svg>
+			<div class="kr"><i class="k" data-l="Rate" data-v="22" data-c="p" data-sz="46"></i><i class="k" data-l="Depth" data-v="80" data-c="p" data-sz="46"></i><i class="k" data-l="Feedback" data-v="70" data-min="-64" data-max="63" data-c="p" data-sz="46"></i><i class="k" data-l="Mix" data-v="64" data-c="p" data-sz="46"></i></div>
+			<div class="kr"><i class="k" data-l="Stages" data-v="6" data-min="1" data-max="12" data-c="p" data-sz="46"></i><i class="k" data-l="Spread" data-v="40" data-c="p" data-sz="46"></i><i class="k" data-l="Center" data-v="60" data-c="p" data-sz="46"></i><i class="k" data-l="Del Time" data-v="10" data-c="p" data-sz="46"></i></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 8">
+		<div class="hd"><h2>SENDS <small>all 16 tracks, per effect</small></h2></div>
+		<div class="bd"><div class="matrix" id="matrix"></div></div>
+	</div>
+	<div class="box" style="grid-column:span 4;--acc:var(--w)">
+		<div class="hd"><h2>FX RETURNS</h2></div>
+		<div class="bd" style="display:flex;justify-content:space-around">
+			<div class="f" data-v="100" style="--fc:var(--t)"><span class="l">Delay</span><div class="tr"></div><span class="v"></span></div>
+			<div class="f" data-v="96" style="--fc:var(--b)"><span class="l">Reverb</span><div class="tr"></div><span class="v"></span></div>
+			<div class="f" data-v="90" style="--fc:var(--g)"><span class="l">Chorus</span><div class="tr"></div><span class="v"></span></div>
+			<div class="f" data-v="80" style="--fc:var(--p)"><span class="l">Ph/Fl</span><div class="tr"></div><span class="v"></span></div>
+		</div>
+	</div>
+</section>
+
+<!-- =================== MASTER PAGE =================== -->
+<section class="page" id="p-master">
+	<div class="box" style="grid-column:span 5;--acc:var(--t)">
+		<div class="hd"><h2>COMPRESSOR <small>DT2</small></h2><div class="tabs"><button class="on">On</button><button>Bypass</button></div></div>
+		<div class="bd" style="display:flex;gap:10px">
+			<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between">
+				<div class="kr"><i class="k" data-l="Threshold" data-v="80" data-c="t" data-sz="46"></i><i class="k" data-l="Attack" data-v="20" data-c="t" data-sz="46"></i><i class="k" data-l="Release" data-v="60" data-c="t" data-sz="46"></i><i class="k" data-l="Makeup" data-v="30" data-c="t" data-sz="46"></i></div>
+				<div class="kr"><i class="k" data-l="SC Filter" data-v="40" data-c="t" data-sz="46"></i><i class="k" data-l="Mix" data-v="127" data-c="t" data-sz="46"></i><i class="k" data-l="Out Gain" data-v="64" data-c="t" data-sz="46"></i></div>
+				<div><div class="lbl">RATIO</div><div class="seg"><button>2:1</button><button class="on">4:1</button><button>8:1</button><button>MAX</button></div></div>
+				<div style="display:flex;gap:6px;align-items:center"><span class="lbl" style="margin:0">SIDECHAIN</span><select style="flex:1"><option>Main (self)</option><option>Track 1 BD</option><option>Track 2 SD</option></select></div>
+			</div>
+			<div style="width:64px;display:flex;flex-direction:column;align-items:center;gap:4px">
+				<span class="lbl" style="margin:0">GR</span>
+				<div style="flex:1;width:18px;background:#15171a;position:relative"><b id="gr" style="position:absolute;left:0;right:0;top:0;background:var(--s)"></b></div>
+				<span id="grv" style="font-size:13px">-3.1 dB</span>
+			</div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 4;--acc:var(--s)">
+		<div class="hd"><h2>OVERDRIVE <small>DT2</small></h2><div class="tabs"><button class="on">On</button><button>Bypass</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:8px">
+			<svg class="g" id="g-od" viewBox="0 0 300 110" height="110"></svg>
+			<div class="kr"><i class="k" data-l="Drive" data-v="34" data-c="s" data-sz="50" data-id="od"></i><i class="k" data-l="Tone" data-v="64" data-c="s" data-sz="50"></i><i class="k" data-l="Level" data-v="100" data-c="s" data-sz="50"></i></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 3">
+		<div class="hd"><h2>MAIN OUT</h2></div>
+		<div class="bd" style="display:flex;justify-content:space-around;align-items:stretch">
+			<div style="display:flex;gap:4px;align-items:stretch;padding:6px 0 22px"><div class="vm" style="width:14px"><b id="ml" style="height:60%"></b></div><div class="vm" style="width:14px"><b id="mr" style="height:55%"></b></div></div>
+			<div class="f" data-v="100" style="--fc:var(--t)"><span class="l">Main</span><div class="tr"></div><span class="v"></span></div>
+			<div style="display:flex;flex-direction:column;justify-content:center;gap:10px;font-size:12px;color:var(--mut)"><div>Peak <b style="color:var(--tx)">-4.2 dBFS</b></div><div>Latency <b style="color:var(--tx)">83 smp</b></div><div>Rate <b style="color:var(--tx)">48 kHz</b></div></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 12">
+		<div class="hd"><h2>MIXER <small>16 channels</small></h2></div>
+		<div class="bd"><div class="chs" id="chs"></div></div>
+	</div>
+</section>
+
+<!-- =================== SEQ PAGE =================== -->
+<section class="page" id="p-seq">
+	<div class="box" style="grid-column:span 5">
+		<div class="hd"><h2>PATTERN <small>A01 &middot; queued A02</small></h2></div>
+		<div class="bd"><div class="pat" id="pat"></div>
+			<div style="display:flex;align-items:center;gap:6px;margin-top:6px"><span class="lbl" style="margin:0">CHAIN</span><div class="seg" style="flex:1"><button class="on">A01</button><button class="on">A01</button><button class="on">A02</button><button class="on">A05</button><button>+</button></div></div></div>
+	</div>
+	<div class="box" style="grid-column:span 4">
+		<div class="hd"><h2>SETTINGS</h2></div>
+		<div class="bd" style="display:flex;gap:8px;align-items:flex-start">
+			<i class="k" data-l="Length" data-v="32" data-min="1" data-max="64" data-c="t" data-sz="42" style="--kw:66px" data-id="len"></i>
+			<i class="k" data-l="Swing" data-v="58" data-min="50" data-max="80" data-c="t" data-sz="42" style="--kw:66px" data-f="pct"></i>
+			<div style="flex:1"><div class="lbl">SCALE</div><div class="seg" id="scale"><button>1/8</button><button>1/4</button><button>1/2</button><button>3/4</button><button class="on">1x</button><button>3/2</button><button>2x</button></div>
+			<div class="lbl" style="margin-top:8px">PAGE</div><div class="pgs" id="pgs"><i class="on"></i><i></i><i class="dis"></i><i class="dis"></i></div></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 3">
+		<div class="hd"><h2>TRANSPORT</h2></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:6px">
+			<div style="display:flex;gap:10px;align-items:center;font-size:13px"><span class="led"></span><b>Synced to Live</b><span style="color:var(--mut)">slave, 24 ppqn</span></div>
+			<div style="display:flex;gap:14px;font-size:22px;font-weight:600"><span>120.00 <small style="font-size:12px;color:var(--mut)">BPM</small></span><span id="pos">2.3.1</span></div>
+			<div style="display:flex;gap:4px"><div class="seg" style="--acc:var(--y);flex:1"><button id="fill">FILL</button><button>MUTE MODE</button></div><button class="lockrec on" style="height:24px">LIVE &middot; LOCK REC</button></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 9;--acc:var(--t)">
+		<div class="hd"><h2>STEPS <small id="st-title">BD 1 &middot; pattern A01 &middot; page 1 of 2</small></h2><div class="tabs" id="pgtabs"><button class="on">1-16</button><button>17-32</button><button>33-48</button><button>49-64</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:6px">
+			<div class="seg trksel"><button class="on">BD 1</button><button class="">SD 2</button><button class="">RS 3</button><button class="">CP 4</button><button class="">BT 5</button><button class="">BD 6</button><button class="">TO 7</button><button class="">XT 8</button><button class="">CH 9</button><button class="">OH 10</button><button class="">CY 11</button><button class="">CB 12</button><button class="">PC 13</button><button class="">SY 14</button><button class="">HH 15</button><button class="">SP 16</button></div>
+			<div class="steps"></div>
+			<div style="display:flex;align-items:center"><span class="rowl">ACCENT</span><div class="mini r-acc" style="--acc:var(--y)"></div></div>
+			<div style="display:flex;align-items:center"><span class="rowl">SLIDE</span><div class="mini r-sld" style="--acc:var(--p)"></div></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 3;--acc:var(--y)">
+		<div class="hd"><h2>STEP <small id="sd-title">5</small></h2></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:6px">
+			<div class="lbl" style="margin:0">TRIG CONDITION</div>
+			<select style="width:100%" id="cond"><option>None</option><option>FILL</option><option>!FILL</option><option>PRE</option><option>!PRE</option><option>NEI</option><option>1ST</option><option selected>1:2</option><option>2:2</option><option>1:4</option><option>3:4</option><option>50 %</option><option>25 %</option><option>&hellip; 65 in all</option></select>
+			<div class="lbl" style="margin:4px 0 0">RATCHET</div>
+			<div class="seg" id="ratchet"><button class="on">1</button><button>2</button><button>3</button><button>4</button><button>5</button><button>6</button><button>7</button><button>8</button></div>
+			<div class="lbl" style="margin:4px 0 0">MICRO-TIMING <span id="mtv" style="color:var(--tx)">+5/384</span></div>
+			<div style="height:30px;background:var(--well);position:relative" id="mtbar">
+				<div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:#ffffff40"></div>
+				<div id="mtcap" style="position:absolute;top:5px;bottom:5px;width:6px;background:var(--t);left:60%"></div>
+			</div>
+		</div>
+	</div>
+	<div class="box" id="b-lanes" style="grid-column:span 6;--acc:var(--y)">
+		<div class="hd"><h2>LOCK LANES <small>Track 1 &middot; page 1</small></h2><div class="tabs"><button class="on">Draw</button><button>Erase</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:5px">
+			<div id="lanes" style="display:flex;flex-direction:column;gap:5px;flex:1;min-height:0"></div>
+			<div style="display:flex;gap:6px;align-items:center;margin-top:auto">
+				<select id="addlane" style="flex:none;width:200px"><option>+ Add lane from menu&hellip;</option><optgroup label="Machine"><option>Tune</option><option>Decay</option></optgroup><optgroup label="Sample"><option>Start</option><option>End</option></optgroup><optgroup label="Drive"><option>Slot 1 Amount</option><option>Slot 2 Amount</option></optgroup><optgroup label="Band"><option>Base</option><option>Width</option></optgroup><optgroup label="Filter"><option>Frequency</option><option>Resonance</option></optgroup><optgroup label="Amp"><option>Volume</option><option>Pan</option></optgroup><optgroup label="Mixer"><option>Delay</option><option>Reverb</option></optgroup><optgroup label="LFO 1"><option>Speed</option><option>Depth</option></optgroup></select>
+				<span id="learnhint" style="font-size:12px;color:var(--mut)">Click a knob in the track view beside, or pick from the menu. Drag across a lane to draw; Alt-click clears a step.</span>
+			</div>
+		</div>
+	</div>
+	<div class="box" id="b-learn" style="grid-column:span 6;--acc:var(--t)">
+		<div class="hd"><h2>BD 1 &middot; TRACK VIEW <small>click a knob to add its lane</small></h2></div>
+		<div class="bd" style="display:flex;padding:6px"><div class="learnhost" id="learnhost"></div></div>
+	</div>
+</section>
+
+<!-- =================== KIT PAGE =================== -->
+<section class="page" id="p-kit">
+	<div class="box" style="grid-column:span 5">
+		<div class="hd"><h2>KIT SETTINGS</h2><div class="tabs"><button class="on">Kit</button><button>Tags</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:10px">
+			<div class="field">RAINY DAY</div>
+			<div style="display:flex;gap:6px"><button class="btn">Save&hellip;</button><button class="btn">Save as&hellip;</button><button class="btn">Reload</button><button class="btn">Clear</button><span style="flex:1"></span><button class="btn">Import</button><button class="btn">Export</button></div>
+			<div style="color:var(--mut)">Slot 07 &middot; changed since saved &middot; 16 tracks, 3 samples, 1 Analog-approx machine <span class="plus">+</span></div>
+			<div class="lbl" style="margin-top:6px">TEMPO AND SCALE GO WITH</div>
+			<div class="seg" style="width:260px"><button class="on">THE PATTERN</button><button>THE KIT</button></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 7">
+		<div class="hd"><h2>KITS <small>64 slots</small></h2><div class="tabs"><button class="on">1-32</button><button>33-64</button></div></div>
+		<div class="bd"><div class="kitlist" id="kitlist"></div></div>
+	</div>
+	<div class="box" style="grid-column:span 12">
+		<div class="hd"><h2>TRACKS IN THIS KIT</h2></div>
+		<div class="bd"><div class="ov" id="ov" style="height:100%"></div></div>
+	</div>
+</section>
+
+<!-- =================== SOUND BROWSER =================== -->
+<section class="page" id="p-browser">
+	<div class="box" style="grid-column:span 12">
+		<div class="hd"><h2>SOUND BROWSER</h2><div class="tabs"><button class="on">Kits</button><button>Sounds</button><button>Samples</button></div></div>
+		<div class="bd" style="display:flex;gap:8px">
+			<div style="width:260px;display:flex;flex-direction:column;gap:6px"><div class="field" style="font-size:14px;color:var(--mut)">Search&hellip;</div>
+				<div class="lbl">FAMILY</div><div class="vseg" style="width:100%" id="bfam"></div></div>
+			<div style="flex:1" class="kitlist" id="blist"></div>
+		</div>
+	</div>
+</section>
+
+</div>
+
+<!-- ======== PADS + KEYBOARD ======== -->
+<div class="band"><div class="pads" id="pads"></div><div class="kb" id="kb"></div></div>
+
+<!-- ======== FOOTER ======== -->
+<div class="foot">
+	<span>Mockup v3b &middot; layout only, no sound</span>
+	<span class="sp"></span>
+	<select id="zoomsel"><option>75 %</option><option selected>100 %</option><option>125 %</option><option>150 %</option></select>
+	<span>Version 0.3.0</span>
+	<span class="wm">elektron</span>
+</div>
+</div>
+
+<script>
+// ---------------- data ----------------
+const FAM = [
+	{id:'st', n:'Syntakt', groups:[['DIGITAL',['BD MODERN','SD BASIC','CY ALLOY','PC CARBON','SD VINTAGE','CP VINTAGE','SY TONE','SY CHORD','SY TOY','SY BITS','SY SWARM','SP TWINSHOT']]]},
+	{id:'md', n:'Machinedrum', groups:[['TRX',['TRX-BD','TRX-SD','TRX-XT','TRX-CP','TRX-RS','TRX-CB','TRX-CH','TRX-OH','TRX-CY','TRX-MA','TRX-CL','TRX-XC','TRX-B2','TRX-S2']],['EFM',['EFM-BD','EFM-SD','EFM-XT','EFM-CP','EFM-RS','EFM-CB','EFM-HH','EFM-CY']],['E12',['E12-BD','E12-SD','E12-HT','E12-LT','E12-CP','E12-RS','E12-CB','E12-CH','E12-OH','E12-RC','E12-CC','E12-BR','E12-TA','E12-TR','E12-SH','E12-BC']],['P-I',['PI-BD','PI-SD','PI-MT','PI-ML','PI-MA','PI-RS','PI-RC','PI-CC','PI-HH']],['GND',['GND-SN','GND-NS','GND-IM','GND-SW','GND-PU']],['ROM',['ROM-01','ROM-02','ROM-03','ROM-04']]]},
+	{id:'mc', n:'Model:Cycles', groups:[['MACHINES',['KICK','SNARE','METAL','PERC','TONE','CHORD']]]},
+	{id:'dt', n:'Digitakt II', groups:[['MACHINES',['ONE SHOT','WERP']]]},
+	{id:'dn', n:'Digitone II FM DRUM', groups:[['MACHINES',['FM DRUM']]]},
+	{id:'ar', n:'Rytm', groups:[['BD',['BD HARD','BD CLASSIC','BD FM','BD PLASTIC','BD SILKY','BD SHARP','BD ACOUSTIC']],['SD',['SD HARD','SD CLASSIC','SD FM','SD NATURAL','SD ACOUSTIC']],['OTHER',['RS HARD','RS CLASSIC','CP CLASSIC','BT CLASSIC','XT CLASSIC','CH CLASSIC','OH CLASSIC','CY CLASSIC','CB CLASSIC','HH BASIC','CY RIDE','CY METALLIC','NOISE GEN','IMPULSE']]]},
+	{id:'an', n:'Analog-approx', plus:1, groups:[['SYNTAKT ANALOG',['BD ANALOG','SD ANALOG','RS ANALOG','CP ANALOG','BT ANALOG','HH ANALOG','CY ANALOG','CB ANALOG']]]},
+];
+const PARAMS = {
+	'BD MODERN':['Tune','Decay','Sweep Depth','Sweep Time','Hold','Transient','Drive','Level'],
+	'TRX-BD':['PTCH','DEC','RAMP','RDEC','STRT','NOIS','HARM','CLIP'],
+	'TRX-SD':['PTCH','DEC','BUMP','BENV','SNAP','TONE','TUNE','CLIP'],
+	'EFM-BD':['PTCH','DEC','RAMP','RDEC','MOD','MFRQ','MDEC','FB'],
+	'KICK':['Pitch','Decay','Color','Shape','Sweep','Contour'],
+	'BD HARD':['Tune','Sweep Time','Sweep Depth','Decay Time','Hold Time','Transient','Waveform','Level'],
+	'FM DRUM':['Tune','Decay','FM Amount','FM Ratio','FM Decay','Noise','Transient','Body'],
+	'ONE SHOT':['Tune','Start','Length','Bit Red.','Slot','Loop','Level','Play Mode'],
+};
+const famDefault = {st:['Tune','Decay','Color','Shape','Sweep','Contour','Param 7','Level'],md:['P1','P2','P3','P4','P5','P6','P7','P8'],mc:['Pitch','Decay','Color','Shape','Sweep','Contour'],dt:PARAMS['ONE SHOT'],dn:PARAMS['FM DRUM'],ar:PARAMS['BD HARD'],an:['Tune','Decay','Sweep','Snap','Tone','Noise','Body','Level']};
+const famLabel = {st:'Syntakt digital',md:'Machinedrum OS 1.63',mc:'Model:Cycles',dt:'Digitakt II',dn:'Digitone II',ar:'Analog Rytm digital layer',an:'Analog-approx, not firmware'};
+const TRK = [
+	['st','BD MODERN'],['st','SD BASIC'],['md','TRX-RS'],['st','CP VINTAGE'],['ar','BT CLASSIC'],['md','EFM-BD'],['mc','TONE'],['md','TRX-XT'],
+	['ar','CH CLASSIC'],['ar','OH CLASSIC'],['st','CY ALLOY'],['md','TRX-CB'],['st','PC CARBON'],['st','SY TONE'],['an','HH ANALOG'],['st','SP TWINSHOT']];
+const short = m => { const t = m.replace(/^(TRX|EFM|E12|PI|GND)-/,'').split(' ')[0]; return t.slice(0,2); };
+const FTYPES = [
+	['LP2','st'],['LP1','st'],['BP','st'],['HP1','st'],['HP2','st'],['BS','st'],['PK','st'],
+	['ST 8?','st'],['MULTI','dt'],['LP4','dt'],['LEGACY','dt'],['COMB-','dt'],['COMB+','dt'],['EQ','dt']];
+// brief: 8 Syntakt + 6 DT2 = 14; the 8th Syntakt type is unknown here (see notes). DT2's "Legacy LP/HP" drawn as two cells.
+const DRIVES = ['Syntakt drive','MD DIST','MD SRR','DT2 Overdrive','DT2 Bit Reduction','DT2 SRR'];
+let slots = [{t:0,pos:'pre',v:64},{t:2,pos:'post',v:40},{t:4,pos:'post',v:20},{t:3,pos:'post',v:52}];
+let state = {track:0, fam:'st', machine:'BD MODERN', ftype:0, lfo:[{shape:1,trig:1},{shape:3,trig:0}], cur:0, env:{a:{a:3,d:40,s:70,r:34},f:{a:0,d:30,s:0,r:20}}, envSel:'a'};
+
+// ---------------- helpers ----------------
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const NS = 'http://www.w3.org/2000/svg';
+const col = c => getComputedStyle(document.documentElement).getPropertyValue('--'+c).trim();
+const pol = (cx,cy,r,a) => [cx + r*Math.sin(a*Math.PI/180), cy - r*Math.cos(a*Math.PI/180)];
+function arc(cx,cy,r,a0,a1){ const [x0,y0]=pol(cx,cy,r,a0),[x1,y1]=pol(cx,cy,r,a1); return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${a1-a0>180?1:0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`; }
+
+// ---------------- knobs ----------------
+const KN = {};
+function fmt(el,v){
+	switch(el.dataset.f){
+		case 'pan': return v==0?'C':(v<0?'L'+(-v):'R'+v);
+		case 'loop': return v==0?'OFF':v;
+		case 'mix': return v+':'+(127-v>99?'99':127-v);
+		case 'mult': return '×'+[1,2,4,8,16,32,64,128,256,512,1024,2048][v%12];
+		case 'onoff': return v?'ON':'OFF';
+		case 'pct': return v+'%';
+	}
+	return v;
+}
+function makeKnob(el){
+	const sz = +(el.dataset.sz||56), min=+(el.dataset.min??0), max=+(el.dataset.max??127), c=col(el.dataset.c||'t');
+	const r = sz/2-4, cx=sz/2, cy=sz/2;
+	el.innerHTML = `<span class="l">${el.dataset.l}</span><svg width="${sz}" height="${sz}"><circle cx="${cx}" cy="${cy}" r="${r-3.5}" fill="#1c1e21"/><path class="tk" d="${arc(cx,cy,r,-135,135)}" stroke="#15171a" stroke-width="6" fill="none" stroke-linecap="round"/><path class="vl" stroke="${c}" stroke-width="6" fill="none" stroke-linecap="round"/><circle class="dt" r="2.6" fill="#f2f4f6"/><path class="md" stroke-width="3.5" fill="none" stroke-linecap="round" style="cursor:ew-resize"/><circle class="pd" r="3.4" stroke="#fff" stroke-width="1.2" style="display:none"/><circle class="lr" cx="${cx}" cy="${cy}" r="${r-5.5}" fill="none" stroke="#ffffff" stroke-width="2" stroke-dasharray="4 2.5"/><text x="${cx}" y="${cy+5}" text-anchor="middle" font-size="${sz>50?16:14}"></text></svg><b class="pb" title="Modulate or lock">+</b>`;
+	el.style.setProperty('--ks',sz+'px');
+	const vl=el.querySelector('.vl'), dt=el.querySelector('.dt'), tx=el.querySelector('text');
+	const bip = min<0;
+	el.set = v => {
+		v = Math.max(min,Math.min(max,Math.round(v))); el.v=v;
+		const a = -135 + 270*(v-min)/(max-min), a0 = bip ? 0 : -135;
+		vl.setAttribute('d', Math.abs(a-a0)<0.5 ? '' : (a>a0?arc(cx,cy,r,a0,a):arc(cx,cy,r,a,a0)));
+		const [x,y]=pol(cx,cy,r,a); dt.setAttribute('cx',x); dt.setAttribute('cy',y);
+		tx.textContent = fmt(el,v);
+		el.drawMod&&el.drawMod();
+		el.dispatchEvent(new CustomEvent('kv',{detail:v}));
+	};
+	const md=el.querySelector('.md'), pd=el.querySelector('.pd'), ang=v=>-135+270*(Math.max(min,Math.min(max,v))-min)/(max-min);
+	el.drawMod=()=>{ const m=(typeof MODS!=='undefined')&&MODS[modKey(el)]; el.mod=m; if(!m){ md.setAttribute('d',''); pd.style.display='none'; return; }
+		const a0=ang(el.v), a1=ang(el.v+m.depth*(max-min)/127); md.setAttribute('stroke',LFOC[m.lfo]); pd.setAttribute('fill',LFOC[m.lfo]);
+		md.setAttribute('d', Math.abs(a1-a0)<1?'':(a1>a0?arc(cx,cy,r-7,a0,a1):arc(cx,cy,r-7,a1,a0))); pd.style.display=''; el.animMod(0); };
+	el.animMod=t=>{ const m=el.mod; if(!m) return; const pv=el.v+m.depth*(max-min)/127*(0.5+0.5*Math.sin(t/2.5)), [x,y]=pol(cx,cy,r,ang(pv)); pd.setAttribute('cx',x); pd.setAttribute('cy',y); };
+	md.addEventListener('pointerdown',e=>{ e.stopPropagation(); md.setPointerCapture(e.pointerId); const x0=e.clientX, d0=el.mod.depth;
+		md.onpointermove=ev=>{ el.mod.depth=Math.max(-64,Math.min(63,Math.round(d0+(ev.clientX-x0)/2))); el.drawMod(); }; md.onpointerup=()=>md.onpointermove=null; });
+	el.set(+el.dataset.v);
+	el.addEventListener('pointerdown',e=>{
+		if(e.target.closest('.pb')){ e.stopPropagation(); openPop(el); return; }
+		el.setPointerCapture(e.pointerId); const y0=e.clientY, v0=el.v;
+		
+		const lockable = false; // v3b: locks live in the lanes, knobs never lock
+		const mv = ev => { el.set(v0 + (y0-ev.clientY)*(max-min)/160); if(lockable){ LRANGE[lkey(el)]=[min,max]; SEL.forEach(i=>{ (LOCKS[i]=LOCKS[i]||{})[lkey(el)]=el.v; STEPS[i].trig=true; }); el.classList.add('lk'); } };
+		const up = () => { el.removeEventListener('pointermove',mv); el.removeEventListener('pointerup',up); if(lockable) buildSteps(); };
+		el.addEventListener('pointermove',mv); el.addEventListener('pointerup',up);
+	});
+	if(el.dataset.id) KN[el.dataset.id]=el;
+}
+function makeFader(el){
+	const max=+(el.dataset.max||127), tr=el.querySelector('.tr'), vv=el.querySelector('.v');
+	tr.innerHTML='<div class="fill"></div><div class="cap"></div>';
+	const fill=tr.querySelector('.fill'), cap=tr.querySelector('.cap');
+	el.set = v => { v=Math.max(0,Math.min(max,Math.round(v))); el.v=v; const p=v/max*100; fill.style.height=p+'%'; cap.style.bottom=p+'%'; vv.textContent=v; };
+	el.set(+el.dataset.v);
+	el.addEventListener('pointerdown',e=>{ el.setPointerCapture(e.pointerId); const y0=e.clientY, v0=el.v, h=tr.clientHeight;
+		const mv=ev=>el.set(v0+(y0-ev.clientY)*max/h); const up=()=>{el.removeEventListener('pointermove',mv);el.removeEventListener('pointerup',up)};
+		el.addEventListener('pointermove',mv); el.addEventListener('pointerup',up); });
+}
+
+// ---------------- segmented + sub-tabs ----------------
+document.addEventListener('click',e=>{
+	const b = e.target.closest('.seg button, .vseg button');
+	if(b && b.parentElement.id!=='ltrig'){ [...b.parentElement.children].forEach(x=>x.classList.remove('on')); b.classList.add('on'); }
+	const t = e.target.closest('.hd .tabs button');
+	if(t){
+		[...t.parentElement.children].forEach(x=>x.classList.remove('on')); t.classList.add('on');
+		if(t.dataset.p){ const box=t.closest('.box'); box.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.id===t.dataset.p)); }
+		if(t.dataset.band) $('#c-band').textContent=t.dataset.band;
+	}
+});
+
+// ---------------- top tabs / pages ----------------
+function show(page){
+	const id = page==='track' ? 'track' : page;
+	$$('.page').forEach(p=>p.classList.toggle('on',p.id==='p-'+id));
+	$('#chain').style.visibility = page==='track'?'visible':'hidden';
+	const sq=$('#b-seq'); if(sq) sq.classList.toggle('on', page==='track');
+	if(typeof collapse==='function'&&page!=='track') collapse();
+	redraw(); if(page==='seq'&&typeof fitLearn==='function') fitLearn();
+}
+document.addEventListener('click',e=>{ const g=e.target.closest('[data-go]'); if(g){ $$('.tt').forEach(x=>x.classList.toggle('on',x.textContent==='SEQ')); show(g.dataset.go); } });
+function buildTracks(){
+	const T=$('#tracks'); T.innerHTML='';
+	const mk=(txt,cls,fn)=>{const b=document.createElement('button');b.className='tt '+cls;b.textContent=txt;b.onclick=()=>{$$('.tt').forEach(x=>x.classList.remove('on'));b.classList.add('on');fn();};T.appendChild(b);return b;};
+	mk('KIT - RAINY DAY','kit',()=>show('kit'));
+	TRK.forEach(([f,m],i)=>{ const b=mk(short(m)+' '+(i+1),'',()=>{selectTrack(i);show('track');}); if(i===state.track) b.classList.add('on'); b.dataset.t=i;
+		b.innerHTML=`<i class="tl"></i><span class="tn">${short(m)} ${i+1}</span><i class="tpl" title="Play this track (LIVE: records a trig)">&#9654;</i>`;
+		b.querySelector('.tpl').addEventListener('click',e=>{ e.stopPropagation(); hitTrack(i); if(document.querySelector('.lockrec.on')&&i===state.track){ STEPS[tick%16].trig=true; buildSteps(); } }); });
+	mk('FX','sys',()=>show('fx')); mk('MASTER','sys',()=>show('master')); mk('SEQ','sys',()=>show('seq'));
+}
+$$('.mtab').forEach(b=>b.onclick=()=>{ $$('.mtab').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+	if(b.dataset.mtab==='browser') show('browser'); else { const on=$('.tt.on'); on?on.click():show('track'); } });
+$$('.ch').forEach(c=>c.onclick=()=>{ const bx=$('#'+c.dataset.to); bx.classList.add('flash'); setTimeout(()=>bx.classList.remove('flash'),700); });
+
+// ---------------- machine box ----------------
+function buildFams(){
+	const F=$('#fams'); F.innerHTML='';
+	FAM.forEach(f=>{ const b=document.createElement('button'); b.innerHTML=f.n+(f.plus?' <span class="plus">+</span>':''); if(f.id===state.fam) b.classList.add('on');
+		b.onclick=()=>{ state.fam=f.id; buildFams(); buildGrid(); }; F.appendChild(b); });
+}
+function buildGrid(){
+	const G=$('#mgrid'); G.innerHTML=''; const f=FAM.find(x=>x.id===state.fam);
+	f.groups.forEach(([gname,list])=>{
+		if(f.groups.length>1){ const h=document.createElement('div'); h.className='gh'; h.textContent=gname; G.appendChild(h); }
+		const gg=document.createElement('div'); gg.className='gg';
+		list.forEach(m=>{ const b=document.createElement('button'); b.className='mb'+(m===state.machine?' on':''); b.textContent=m; b.onclick=()=>setMachine(f.id,m); gg.appendChild(b); });
+		G.appendChild(gg);
+	});
+}
+function setMachine(fam,m){
+	state.fam=fam; state.machine=m; TRK[state.track]=[fam,m];
+	const p = PARAMS[m] || famDefault[fam];
+	const K=$('#mknobs'); K.innerHTML='';
+	for(let r=0;r<2;r++){ const row=document.createElement('div'); row.className='kr';
+		p.slice(r*4,r*4+4).forEach((l,i)=>{ const k=document.createElement('i'); k.className='k'; k.dataset.l=l; k.dataset.v=[64,80,42,32,100,17,0,110][r*4+i]; k.dataset.c='t'; k.dataset.sz=50; k.style.setProperty('--kw','86px'); row.appendChild(k); makeKnob(k); });
+		K.appendChild(row); }
+	$('#m-title').innerHTML = m+' &middot; '+famLabel[fam]+(fam==='an'?' <span class="plus">+</span>':'');
+	$('#m-eng').textContent = fam==='an' ? 'Approximate circuit model, tuned by ear: not a firmware port.' : (fam==='md'?'Machinedrum OS 1.63 voice code on an emulated DSP56300, exact against the firmware.':'Firmware port, exact against its oracle.');
+	$('#i-trk').textContent = (state.track+1)+' · '+m;
+	const tb=$(`.tt[data-t="${state.track}"]`); if(tb&&tb.querySelector('.tn')) tb.querySelector('.tn').textContent=short(m)+' '+(state.track+1);
+	$$('.pad')[state.track] && ($$('.pad')[state.track].textContent=(state.track+1)+':'+short(m));
+	buildGrid(); buildFams(); buildSteps(); if(typeof MODS!=='undefined') applyMods();
+}
+function selectTrack(i){ state.track=i; const [f,m]=TRK[i]; setMachine(f,m); $$('.pad').forEach((p,j)=>p.classList.toggle('on',j===i)); }
+
+// ---------------- filter ----------------
+function buildFtypes(){
+	const F=$('#ftypes'); F.innerHTML='';
+	FTYPES.forEach(([n,src],i)=>{ const b=document.createElement('button'); b.className=(src==='dt'?'dt ':'')+(i===state.ftype?'on':''); b.textContent=n; b.title=(src==='dt'?'Digitakt II':'Syntakt multimode')+' · '+n;
+		b.onclick=()=>{ state.ftype=i; buildFtypes(); drawFilter(); }; F.appendChild(b); });
+}
+// 15 names listed, 14 drawn: EQ is reached through the last cell's title (kept simple: COMB+ and EQ share the last row)
+function magDb(type,x,q){
+	const re=1-x*x, im=x/q, den=Math.hypot(re,im);
+	let m;
+	switch(type){
+		case 'LP2': case 'LEGACY': case 'MULTI': m=1/den; break;
+		case 'LP1': m=1/Math.hypot(1,x); break;
+		case 'HP1': m=x/Math.hypot(1,x); break;
+		case 'HP2': m=x*x/den; break;
+		case 'BP': m=(x/q)/den; break;
+		case 'BS': m=Math.abs(re)/den+0.02; break;
+		case 'PK': case 'EQ': return 12*Math.exp(-Math.pow(Math.log2(x)*2.2,2))*(q/2);
+		case 'LP4': m=1/(den*den); break;
+		case 'COMB-': case 'COMB+': { const ph=x*Math.PI*6, g=0.4+q/8, s=type==='COMB+'?1:-1; m=Math.hypot(1+s*g*Math.cos(ph), s*g*Math.sin(ph))/(1+g); break; }
+		default: m=1/den;
+	}
+	return 20*Math.log10(Math.max(m,1e-4));
+}
+function drawFilter(){
+	const g=$('#g-filter'), [W,H]=fit(g,620,200), t=FTYPES[state.ftype][0];
+	const fq = KN.fq?KN.fq.v:78, rs=KN.rs?KN.rs.v:42, fc = 20*Math.pow(1000,fq/127), q=0.6+rs/127*7;
+	const y=db=>H*0.38 - db*(H/60);
+	let d=''; for(let i=0;i<=W;i+=2){ const f=20*Math.pow(1000,i/W); const db=Math.max(-40,Math.min(20,magDb(t,f/fc,q))); d+=(i?'L':'M')+i+' '+y(db).toFixed(1); }
+	const c=col('s');
+	let grid=''; [100,1000,10000].forEach(f=>{const x=Math.log(f/20)/Math.log(1000)*W; grid+=`<line class="gridl" x1="${x}" y1="0" x2="${x}" y2="${H}"/>`;});
+	grid+=`<line class="gridl" x1="0" y1="${y(0)}" x2="${W}" y2="${y(0)}"/>`;
+	g.innerHTML = grid+`<path d="${d}L${W} ${H}L0 ${H}Z" fill="${c}" fill-opacity=".28"/><path d="${d}" stroke="${c}" stroke-width="2" fill="none"/>`;
+	const srcName = FTYPES[state.ftype][1]==='dt'?'Digitakt II':'Syntakt multimode';
+	$('#f-title').textContent = '('+t+' · '+srcName+')'; $('#c-filt').textContent=t;
+}
+
+function fit(g,dw,dh){ const W=g.clientWidth||dw, H=g.clientHeight||dh; g.setAttribute('viewBox',`0 0 ${W} ${H}`); return [W,H]; }
+function drawBand(){
+	const g=$('#g-band'), [W,H]=fit(g,440,80), c=col('b'), eq=$('#bn-eq').classList.contains('on');
+	const y=db=>H/2-db*H/40; let d='';
+	for(let i=0;i<=W;i+=3){ const f=i/W; let db;
+		if(eq){ const L=(KN.el?KN.el.v:0)/64*12, M=(KN.em?KN.em.v:0)/64*12, Hh=(KN.eh?KN.eh.v:0)/64*12; db=L/(1+Math.exp((f-0.22)*18))+M*Math.exp(-Math.pow((f-0.5)*6,2))+Hh/(1+Math.exp(-(f-0.78)*18)); }
+		else { const b=(KN.bb?KN.bb.v:0)/127, w=(KN.bw?KN.bw.v:127)/127; db=(f<b?-18*(b-f)*4:0)+(f>b+w?-18*(f-b-w)*4:0); db=Math.max(-18,db); }
+		d+=(i?'L':'M')+i+' '+y(db).toFixed(1); }
+	g.innerHTML=`<line class="gridl" x1="0" y1="${H/2}" x2="${W}" y2="${H/2}"/><path d="${d}L${W} ${H}L0 ${H}Z" fill="${c}" fill-opacity=".25"/><path d="${d}" stroke="${c}" stroke-width="2" fill="none"/><text x="6" y="13" font-size="11" fill="#8d939b">${eq?'3-band EQ (added, not firmware)':'BASE / WIDTH (Syntakt)'}</text>`;
+}
+function redraw(){ if(!KN.fq) return; drawFilter(); drawEnv(); drawWave(); drawLfo(); drawBand(); }
+window.addEventListener('click',e=>{ if(e.target.closest('#b-band .tabs')) setTimeout(drawBand,0); });
+
+// ---------------- envelope (draggable) ----------------
+let EW=600,EH=300;
+function envPts(e){ const W=EW,H=EH, top=12, bot=H-10, u=(W-60)/4, sx=v=>v/127*u;
+	const x1=10+sx(e.a), x2=x1+sx(e.d)+4, x3=Math.max(x2+30,W-u-20), x4=Math.min(W-10,x3+sx(e.r)+4), ys=bot-(bot-top)*e.s/127;
+	return [[8,bot],[x1,top],[x2,ys],[x3,ys],[x4,bot]]; }
+function drawEnv(){
+	const g=$('#g-env'); [EW,EH]=fit(g,600,300);
+	const e=state.env[state.envSel], c=col(state.envSel==='a'?'p':'s'), p=envPts(e);
+	const d='M'+p.map(q=>q.map(v=>v.toFixed(1)).join(' ')).join('L');
+	g.innerHTML = `<rect width="${EW}" height="${EH}" fill="#2a2638"/><line class="gridl" x1="${EW/2}" y1="0" x2="${EW/2}" y2="${EH}"/><line class="gridl" x1="0" y1="${EH/2}" x2="${EW}" y2="${EH/2}"/><path d="${d}L${p[4][0]} ${EH}L10 ${EH}Z" fill="${c}" fill-opacity=".3"/><path d="${d}" stroke="${c}" stroke-width="2" fill="none"/>`+
+		p.slice(1).map((q,i)=>`<circle data-i="${i+1}" cx="${q[0]}" cy="${q[1]}" r="6" fill="${c}" stroke="#1b1d20" stroke-width="2" style="cursor:grab"/>`).join('')+
+		`<text x="${p[3][0]-30}" y="${p[3][1]-6}" fill="${c}" font-size="11" opacity=".7">${state.envSel==='a'?'Amp':'Filter'}</text>`;
+}
+$('#g-env').addEventListener('pointerdown',ev=>{
+	const c=ev.target.closest('circle'); if(!c) return; const i=+c.dataset.i, g=$('#g-env'); g.setPointerCapture(ev.pointerId);
+	const r=g.getBoundingClientRect(), e=state.env[state.envSel], p0=envPts(e), u=(EW-60)/4, top=12, bot=EH-10;
+	const mv=m=>{ const x=m.clientX-r.left, y=m.clientY-r.top, k=v=>Math.max(0,Math.min(127,Math.round(v)));
+		if(i===1) e.a=k((x-10)/u*127);
+		if(i===2){ e.d=k((x-p0[1][0]-4)/u*127); e.s=k((bot-y)/(bot-top)*127); }
+		if(i===3) e.s=k((bot-y)/(bot-top)*127);
+		if(i===4) e.r=k((x-p0[3][0]-4)/u*127);
+		syncEnvKnobs(); drawEnv(); };
+	const up=()=>{g.removeEventListener('pointermove',mv);g.removeEventListener('pointerup',up)};
+	g.addEventListener('pointermove',mv); g.addEventListener('pointerup',up);
+});
+let envSync=false;
+function syncEnvKnobs(){ const e=state.env[state.envSel]; envSync=true; KN.ea.set(e.a); KN.ed.set(e.d); KN.es.set(e.s); KN.er.set(e.r); envSync=false; }
+$$('#envtabs button').forEach(b=>b.addEventListener('click',()=>{ state.envSel=b.dataset.env; const c=state.envSel==='a'?'p':'s';
+	$('#b-env').style.setProperty('--acc',col(c)); $$('#envknobs .k').forEach(k=>{k.dataset.c=c; k.dataset.v=k.v; makeKnob(k);}); hookEnv(); syncEnvKnobs(); drawEnv(); }));
+function hookEnv(){ [['ea','a'],['ed','d'],['es','s'],['er','r']].forEach(([id,f])=>KN[id].addEventListener('kv',e=>{ if(envSync) return; state.env[state.envSel][f]=e.detail; drawEnv(); })); }
+
+// ---------------- sample waveform ----------------
+let seed=7; const rnd=()=>{seed=(seed*16807)%2147483647; return seed/2147483647;};
+const WAVE=[...Array(240)].map((_,i)=>{ const t=i/240; return (0.15+0.85*Math.exp(-t*3.2))*(0.35+0.65*rnd())*(t<0.62?1:0.25); });
+function drawWave(){
+	const g=$('#g-wave'), [W,H]=fit(g,480,200), c=col('g'), s=(KN.ss?KN.ss.v:6)/127*W, e=(KN.se?KN.se.v:90)/127*W, lp=KN.sl?KN.sl.v:0;
+	let bars=''; WAVE.forEach((a,i)=>{ const x=i*W/240, h=a*(H-30)/2, inr=x>=s&&x<=e; bars+=`<rect x="${x}" y="${(H+16)/2-h}" width="1.4" height="${2*h}" fill="${inr?c:'#4b5a42'}"/>`; });
+	g.innerHTML = `<rect x="0" y="0" width="${W}" height="16" fill="#3d5a2c"/><rect x="${Math.min(s,e)}" y="0" width="${Math.abs(e-s)}" height="16" fill="${c}" fill-opacity=".55"/><rect x="${Math.min(s,e)}" y="16" width="${Math.abs(e-s)}" height="${H-16}" fill="${c}" fill-opacity=".08"/>`+bars+
+		`<line x1="${s}" y1="0" x2="${s}" y2="${H}" stroke="#e8f5dc"/><rect x="${s-1}" y="1" width="14" height="14" fill="#2a3a20" stroke="#e8f5dc"/><text x="${s+3}" y="12" font-size="11" fill="#e8f5dc" font-weight="700">S</text>`+
+		`<line x1="${e}" y1="0" x2="${e}" y2="${H}" stroke="#e8f5dc"/><rect x="${e-13}" y="1" width="14" height="14" fill="#2a3a20" stroke="#e8f5dc"/><text x="${e-9}" y="12" font-size="11" fill="#e8f5dc" font-weight="700">E</text>`+
+		(lp?`<text x="${W-30}" y="12" font-size="11" fill="#1d2a14" font-weight="700">LOOP</text>`:'');
+}
+
+// ---------------- drive slots ----------------
+function buildSlots(){
+	const S=$('#slots'); S.innerHTML=''; const open=$('#b-drive').classList.contains('exp');
+	slots.forEach((s,i)=>{
+		const d=document.createElement('div');
+		if(!open){
+			d.className='slotc';
+			d.innerHTML=`<span class="n">${i+1}</span><select>${DRIVES.map((n,j)=>`<option ${j===s.t?'selected':''}>${n}</option>`).join('')}</select><span class="pp">${s.pos.toUpperCase()}</span><i class="k nol" data-l="Slot ${i+1} Amount" data-v="${s.v}" data-c="a" data-sz="30" style="--kw:34px"></i>`;
+			d.querySelector('select').onchange=e=>{s.t=e.target.selectedIndex; chainText();};
+			S.appendChild(d); const k=d.querySelector('.k'); makeKnob(k); k.addEventListener('kv',e=>s.v=e.detail); return;
+		}
+		d.className='slot'+(i===0?' sel':'');
+		d.innerHTML=`<div class="r1"><span class="n">${i+1}</span><select>${DRIVES.map((n,j)=>`<option ${j===s.t?'selected':''}>${n}</option>`).join('')}</select><button class="ib" data-a="up">&#9650;</button><button class="ib" data-a="dn">&#9660;</button><button class="ib" data-a="rm">&#10005;</button></div>
+		<div class="r2" style="gap:10px"><div class="seg" style="--acc:var(--a)"><button class="${s.pos==='pre'?'on':''}" data-a="pre">PRE</button><button class="${s.pos==='post'?'on':''}" data-a="post">POST</button></div>
+		<i class="k" data-l="Slot ${i+1} Amount" data-v="${s.v}" data-c="a" data-sz="34" style="--kw:84px"></i><i class="k" data-l="Level" data-v="100" data-c="a" data-sz="34" style="--kw:60px"></i><i class="k" data-l="Mix" data-v="127" data-c="a" data-sz="34" style="--kw:60px"></i></div>`;
+		d.querySelector('select').onchange=e=>{s.t=e.target.selectedIndex; chainText();};
+		d.addEventListener('click',e=>{ const a=e.target.dataset.a; if(!a) return;
+			if(a==='up'&&i>0) [slots[i-1],slots[i]]=[slots[i],slots[i-1]];
+			if(a==='dn'&&i<slots.length-1) [slots[i+1],slots[i]]=[slots[i],slots[i+1]];
+			if(a==='rm') slots.splice(i,1);
+			if(a==='pre'||a==='post') s.pos=a;
+			buildSlots(); });
+		S.appendChild(d); d.querySelectorAll('.k').forEach(makeKnob); d.querySelector('.k').addEventListener('kv',e=>s.v=e.detail);
+	});
+	$('#d-count').textContent=slots.length+' slot'+(slots.length===1?'':'s'); chainText(); if(typeof applyMods==='function') applyMods();
+}
+const DSH=['ST DRIVE','MD DIST','MD SRR','DT2 OD','DT2 BITS','DT2 SRR'];
+function chainText(){
+	const pre=slots.filter(s=>s.pos==='pre').map(s=>DSH[s.t]), post=slots.filter(s=>s.pos==='post').map(s=>DSH[s.t]);
+	$('#c-pre').textContent='pre: '+(pre.join(', ')||'none'); $('#c-post').textContent='post: '+(post.join(', ')||'none');
+}
+$('#addslot').onclick=()=>{ if(slots.length<6){ slots.push({t:0,pos:'post',v:32}); buildSlots(); } };
+
+// ---------------- LFO ----------------
+const SHAPES=['TRI','SINE','SQR','SAW','EXP','RMP','RND'];
+function lfoY(s,t){ t=t-Math.floor(t);
+	switch(s){case 0:return t<.5?4*t-1:3-4*t; case 1:return Math.sin(t*2*Math.PI); case 2:return t<.5?1:-1; case 3:return 1-2*t; case 4:return 2*Math.exp(-t*4)-1; case 5:return 2*t-1; case 6:return [0.6,-0.4,0.9,-0.8,0.1,-0.2,0.7,-0.9][Math.floor(t*8)];}}
+function buildShapes(){
+	const S=$('#lshapes'); S.innerHTML=''; const L=state.lfo[state.cur];
+	SHAPES.forEach((n,i)=>{ const b=document.createElement('button'); b.title=n; if(i===L.shape) b.classList.add('on');
+		let d=''; for(let x=0;x<=20;x++){ d+=(x?'L':'M')+x+' '+(7-6*lfoY(i,x/20)).toFixed(1); }
+		b.innerHTML=`<svg viewBox="0 0 20 14"><path d="${d}"/></svg>`; b.onclick=()=>{L.shape=i;buildShapes();drawLfo();}; S.appendChild(b); });
+	const T=$('#ltrig'); T.querySelectorAll('button').forEach(b=>b.remove());
+	['FREE','TRIG','HOLD','ONE','HALF'].forEach((n,i)=>{ const b=document.createElement('button'); b.textContent=n; if(i===L.trig) b.classList.add('on'); b.onclick=()=>{L.trig=i;buildShapes();}; T.appendChild(b); });
+}
+function drawLfo(){
+	const g=$('#g-lfo'), [W,H]=fit(g,330,200), L=state.lfo[state.cur], c=col('y'), dep=(KN.ldp?KN.ldp.v:44)/64, ph=(KN.lph?KN.lph.v:14)/128;
+	let d=''; for(let x=0;x<=W;x+=2){ d+=(x?'L':'M')+x+' '+(H/2-lfoY(L.shape,x/W*2+ph)*dep*(H/2-8)).toFixed(1); }
+	g.innerHTML=`<rect width="${W}" height="${H}" fill="#3a3320"/><line class="gridl" x1="${W/2}" y1="0" x2="${W/2}" y2="${H}"/><line class="gridl" x1="0" y1="${H/2}" x2="${W}" y2="${H/2}"/><path d="${d}L${W} ${H/2}L0 ${H/2}Z" fill="${c}" fill-opacity=".25"/><path d="${d}" stroke="${c}" stroke-width="2.2" fill="none"/><circle cx="0" cy="${H/2-lfoY(L.shape,ph)*dep*(H/2-8)}" r="4" fill="${c}"/>`;
+}
+$$('#lfotabs button').forEach(b=>b.addEventListener('click',()=>{state.cur=+b.dataset.lfo; buildShapes(); drawLfo();}));
+
+// ---------------- FX graphs ----------------
+function drawFx(){
+	let s=''; for(let i=0;i<9;i++){ const x=10+i*34, h=80*Math.pow(0.78,i); s+=`<rect x="${x}" y="${90-h}" width="6" height="${h}" fill="${col('t')}" opacity="${i%2?0.6:1}"/>`; }
+	$('#g-delay').innerHTML=s+`<text x="300" y="14" font-size="11" fill="#8d939b" text-anchor="end">1/8 dotted</text>`;
+	let d='M0 90'; for(let x=0;x<=320;x+=2){ d+=`L${x} ${(90-78*Math.exp(-x/110)*(x<12?x/12:1)*(0.8+0.2*Math.sin(x*1.7))).toFixed(1)}`; }
+	$('#g-rev').innerHTML=`<path d="${d}L320 90Z" fill="${col('b')}" fill-opacity=".3"/><path d="${d}" stroke="${col('b')}" fill="none" stroke-width="1.5"/>`;
+	let a='',b=''; for(let x=0;x<=320;x+=2){ a+=(x?'L':'M')+x+' '+(48-24*Math.sin(x/40)).toFixed(1); b+=(x?'L':'M')+x+' '+(48-24*Math.sin(x/40+2)).toFixed(1); }
+	$('#g-cho').innerHTML=`<path d="${a}" stroke="${col('g')}" fill="none" stroke-width="2"/><path d="${b}" stroke="${col('g')}" fill="none" stroke-width="2" opacity=".5"/>`;
+	let p=''; for(let x=0;x<=320;x+=2){ const f=x/320; let m=1; for(let k=1;k<=3;k++) m*=Math.abs(Math.sin(f*Math.PI*(k*1.6)+0.4))*0.6+0.4; p+=(x?'L':'M')+x+' '+(60-54*m).toFixed(1); }
+	$('#g-ph').innerHTML=`<path d="${p}L320 66L0 66Z" fill="${col('p')}" fill-opacity=".3"/><path d="${p}" stroke="${col('p')}" fill="none" stroke-width="2"/>`;
+	drawOd();
+}
+function drawOd(){ const dr=(KN.od?KN.od.v:34)/127*8+0.5; let d=''; for(let x=0;x<=300;x+=3){ const t=x/300*2-1; d+=(x?'L':'M')+x+' '+(55-48*Math.tanh(t*dr)/Math.tanh(dr)).toFixed(1); }
+	$('#g-od').innerHTML=`<line class="gridl" x1="150" y1="0" x2="150" y2="110"/><line class="gridl" x1="0" y1="55" x2="300" y2="55"/><path d="M0 103L300 7" stroke="#ffffff22" stroke-dasharray="3 3"/><path d="${d}" stroke="${col('s')}" fill="none" stroke-width="2.2"/><text x="6" y="14" font-size="11" fill="#8d939b">transfer curve</text>`; }
+
+// ---------------- builders for other pages ----------------
+function buildMisc(){
+	// output routing
+	$('#outsel').innerHTML='<option>Main</option>'+[...Array(15)].map((_,i)=>`<option>Out ${String(i+1).padStart(2,'0')}</option>`).join('');
+	$('#outsel').onchange=e=>$('#i-out').textContent=e.target.value;
+	// pads
+	$('#pads').innerHTML=TRK.map(([f,m],i)=>`<div class="pad${i===0?' on':''}">${i+1}:${short(m)}</div>`).join('');
+	$$('.pad').forEach((p,i)=>p.onpointerdown=()=>{p.classList.add('hit');setTimeout(()=>p.classList.remove('hit'),120);});
+	// keyboard
+	const K=$('#kb'); let h=''; const nw=21, w=470/nw; for(let i=0;i<nw;i++){ h+=`<div class="w" style="left:${i*w}px;width:${w}px">${i%7===0?`<span>C${i/7}</span>`:''}</div>`; }
+	for(let i=0;i<nw;i++){ if([0,1,3,4,5].includes(i%7)&&i<nw-1) h+=`<div class="bk" style="left:${(i+1)*w-w*0.3}px;width:${w*0.6}px"></div>`; }
+	K.innerHTML=h;
+	// sends matrix
+	const FXN=[['DELAY','t'],['REVERB','b'],['CHORUS','g'],['PH/FL','p']];
+	let m='<div class="h"></div>'+TRK.map(([f,mm],i)=>`<div class="h">${short(mm)} ${i+1}</div>`).join('');
+	FXN.forEach(([n,c],r)=>{ m+=`<div class="rl" style="color:var(--${c})">${n}</div>`; TRK.forEach((_,i)=>{ const v=Math.round(((i*37+r*53)%127)*(((i+r)%3)?1:0)); m+=`<div class="cell" style="--cc:var(--${c})"><b style="width:${v/127*100}%"></b><span>${v}</span></div>`; }); });
+	$('#matrix').innerHTML=m+'<div class="rl" style="grid-column:1/-1;color:var(--mut);font-weight:500;height:auto;margin-top:8px">Drag a cell to set a send. Each column is the same value as that track\'s MIXER box.</div>';
+	// master mixer
+	$('#chs').innerHTML=TRK.map(([f,mm],i)=>`<div class="cs"><span class="nm">${short(mm)} ${i+1}</span><i class="k" data-l="" data-v="${[0,-10,12,0,-20,8,0,30,-30,20,0,-5,15,-15,0,0][i]}" data-min="-64" data-max="63" data-c="w" data-sz="30" style="--kw:34px" data-f="pan"></i><div class="ms"><button class="m${i===6?' on':''}">M</button><button class="s">S</button></div><div class="meter"><div class="vm"><b style="height:${20+i*37%60}%"></b></div><div class="f" data-v="${[110,100,90,96,100,104,80,90,70,74,84,88,92,100,60,100][i]}" style="width:26px"><div class="tr"></div><span class="v"></span></div></div><span class="out">${i===0?'Out 01':i===1?'Out 02':'Main'}</span></div>`).join('');
+	$$('.cs .ms button').forEach(b=>b.onclick=()=>b.classList.toggle('on'));
+	// seq
+	$('#pat').innerHTML=[...Array(16)].map((_,i)=>`<button class="${i===0?'on':''}${i===1?' q':''}">A${String(i+1).padStart(2,'0')}</button>`).join('');
+	$$('#pat button').forEach(b=>b.onclick=()=>{$$('#pat button').forEach(x=>x.classList.remove('on'));b.classList.add('on');});
+	if($('#seqtracks')) $('#seqtracks').innerHTML=TRK.map(([f,mm],i)=>`<div class="trk${i===0?' on':''}"><span class="nm">${short(mm)} ${i+1}</span><button class="mb2${i===6?' on':''}">M</button><div class="mini">${[...Array(16)].map((_,s)=>`<i class="${((s*(i+3)+i)%(i%4+3)===0)?'on':''}"></i>`).join('')}</div></div>`).join('');
+	$$('#seqtracks .mb2').forEach(b=>b.onclick=()=>b.classList.toggle('on'));
+	$$('#seqtracks .trk').forEach((t,i)=>t.addEventListener('click',e=>{ if(e.target.classList.contains('mb2')) return; $$('#seqtracks .trk').forEach(x=>x.classList.remove('on')); t.classList.add('on'); $('#st-title').textContent=`Track ${i+1} · ${short(TRK[i][1])} ${i+1} · page 1 of 2`; }));
+	buildSteps();
+	// kit list
+	const names=['TRX UW','EFM HEAVY','HYBRID 1','RAINY DAY','STRANGE','MC TONES','RAINY DAY','DT2 BREAKS','FM KIT','NIGHT SHIFT','ROOM','ANALOG?','DUB','808ISH','TECHNO 1','TECHNO 2'];
+	$('#kitlist').innerHTML=[...Array(32)].map((_,i)=>{ const n=names[i]; return `<button class="${i===6?'on':''}${n?'':' e'}">${String(i+1).padStart(2,'0')} ${n||'(empty)'}<small>${n?(i%3?'16 tracks':'16 tracks, 2 samples'):''}</small></button>`; }).join('');
+	$$('#kitlist button').forEach(b=>b.onclick=()=>{$$('#kitlist button').forEach(x=>x.classList.remove('on'));b.classList.add('on');});
+	$('#ov').innerHTML=TRK.map(([f,mm],i)=>`<div><b>${short(mm)} ${i+1}</b><span class="fm">${FAM.find(x=>x.id===f).n.replace(' FM DRUM','')}</span><br>${mm}<br>${[1,4,15].includes(i)?'+ sample':'no sample'}<br>${i===0?'Out 01':i===1?'Out 02':'Main'}<br>${i%3===0?'2 drives':'1 drive'}<br>${FTYPES[(i*3)%14][0]}</div>`).join('');
+	// browser
+	$('#bfam').innerHTML=FAM.map((f,i)=>`<button class="${i===0?'on':''}">${f.n}${f.plus?' +':''}</button>`).join('');
+	$('#blist').innerHTML=FAM[0].groups[0][1].concat(FAM[1].groups[0][1]).map(n=>`<button>${n}<small>preset sounds: 12</small></button>`).join('');
+}
+let STEPS=[...Array(16)].map((_,i)=>({trig:[0,4,8,10,12,14].includes(i), cond:i===4?'1:2':(i===14?'FILL':''), rt:i===12?3:1, mt:i===4?5:(i===10?-6:0), acc:[0,8].includes(i), sld:i===10}));
+// locks: step -> {box|label: raw knob value}; ranges per key for the lanes
+let LOCKS={0:{'b-drive|Slot 1 Amount':90}, 2:{'b-drive|Slot 1 Amount':30}, 6:{'b-machine|Tune':76}, 8:{'b-drive|Slot 1 Amount':110,'b-machine|Tune':30}, 4:{'b-machine|Tune':40,'b-filter|Frequency':96}, 10:{'b-filter|Frequency':40}, 14:{'b-machine|Decay':110}, 12:{'b-filter|Frequency':70}};
+const LRANGE={'b-drive|Slot 1 Amount':[0,127],'b-machine|Tune':[0,127],'b-sample|Start':[0,127],'b-filter|Frequency':[0,127],'b-machine|Decay':[0,127]};
+let LANES=['b-filter|Frequency','b-machine|Tune','b-drive|Slot 1 Amount'];
+const BOXN={'b-machine':'Machine','b-sample':'Sample','b-filter':'Filter','b-amp':'Amp','b-drive':'Drive','b-band':'Band','b-env':'Env','b-mod':'LFO','b-sound':'Sound','b-mixer':'Mixer'};
+const lkey=k=>(k.closest('[data-box]')?k.closest('[data-box]').dataset.box:k.closest('.box').id)+'|'+k.dataset.l;
+const lname=k=>(BOXN[k.split('|')[0]]||'')+' '+k.split('|')[1];
+let SEL=new Set([4]);
+let selStep=4, learn=false, newLane=null;
+function buildSteps(){
+	const html=STEPS.map((s,i)=>{ const n=Object.keys(LOCKS[i]||{}).length; return `<div class="st${s.trig?' trig':''}${n?' lk':''}${SEL.has(i)?' sel':''}" data-i="${i}"><span class="no">${i+1}</span>${n?'<i class="lkdot"></i>':''}<span class="cd">${s.cond}</span><div class="rt">${s.rt>1?[...Array(s.rt)].map(()=>'<i></i>').join(''):''}</div>${s.mt?`<i class="mt" style="left:50%;width:${Math.abs(s.mt)*2}px;${s.mt<0?'transform:translateX(-100%)':''}"></i>`:''}</div>`; }).join('');
+	$$('.steps').forEach(c=>c.innerHTML=html);
+	$$('.st').forEach(el=>{
+		el.onclick=ev=>{ const i=+el.dataset.i;
+			if(ev.ctrlKey||ev.metaKey||ev.shiftKey){ SEL.has(i)?SEL.delete(i):SEL.add(i); }
+			else { if(SEL.has(i)&&SEL.size===1) SEL.clear(); else { SEL.clear(); SEL.add(i); } }
+			if(SEL.size) selStep=[...SEL][0]; buildSteps(); };
+		el.ondblclick=()=>{ const i=+el.dataset.i; STEPS[i].trig=!STEPS[i].trig; buildSteps(); };
+	});
+	[['r-acc','acc'],['r-sld','sld'],['r-lks','lk']].forEach(([cls,f])=>$$('.'+cls).forEach(row=>{
+		row.innerHTML=STEPS.map((s,i)=>`<i class="${(f==='lk'?Object.keys(LOCKS[i]||{}).length:s[f])?'on':''}" data-i="${i}"></i>`).join('');
+		row.querySelectorAll('i').forEach(c=>c.onclick=()=>{ if(f!=='lk'){ const s=STEPS[+c.dataset.i]; s[f]=!s[f]; buildSteps(); } }); }));
+	// knobs holding a lock on the selection get the lock ring
+	const held={}; SEL.forEach(i=>Object.entries(LOCKS[i]||{}).forEach(([k,v])=>held[k]=v));
+	$$('#b-learn .k').forEach(k=>k.classList.toggle('lk', LANES.includes(lkey(k))));
+	const sl=[...SEL].sort((a,b)=>a-b).map(i=>i+1);
+	const ban=$('#lockban'); if(ban){ ban.classList.toggle('on',sl.length>0); ban.textContent='LOCK: step'+(sl.length>1?'s ':' ')+sl.join(', '); }
+	$$('.lockpanel').forEach(lp=>lp.innerHTML = `<div class="lbl" style="margin:0 0 2px">${sl.length?(sl.length>1?'STEPS '+sl.join(', '):'STEP '+sl[0]):'NO STEP SELECTED'} &middot; <span style="color:var(--y)">${Object.keys(held).length} LOCKS</span></div>`+
+		Object.entries(held).slice(0,3).map(([k,v])=>`<div class="lockrow"><span>${lname(k)}</span><b>${v}</b></div>`).join('')+
+		`<div style="font-size:11px;color:var(--mut);margin-top:auto;line-height:1.35">${sl.length?'Any knob turned now locks on '+(sl.length>1?'these steps':'this step')+'. Esc or a click on empty space releases.':'Click a step: it stays selected. Ctrl-click adds steps.'} Double-click toggles a trig.</div>`);
+	const s=STEPS[selStep]; $('#sd-title').textContent=(selStep+1)+(s.trig?' · trig':' · no trig');
+	$('#mtv').textContent=(s.mt>=0?'+':'')+s.mt+'/384'; $('#mtcap').style.left=`calc(${50+s.mt/23*48}% - 3px)`;
+	$$('#ratchet button').forEach((b,i)=>b.classList.toggle('on',i+1===s.rt));
+	buildLanes();
+}
+function buildLanes(){
+	const L=$('#lanes'); if(!L) return;
+	L.innerHTML=LANES.map(k=>{ const [mn,mx]=LRANGE[k]||[0,127];
+		return `<div class="lane${k===newLane?' new':''}" data-k="${k}"><div class="ln">${lname(k)}<small>${mn}..${mx}</small></div><div class="cells">${STEPS.map((_,i)=>{ const v=(LOCKS[i]||{})[k]; return `<i data-i="${i}">${v==null?'':`<b style="height:${(v-mn)/(mx-mn)*100}%"></b>`}</i>`; }).join('')}</div></div>`; }).join('');
+	L.querySelectorAll('.lane').forEach(lane=>{ const k=lane.dataset.k, cells=lane.querySelector('.cells'), [mn,mx]=LRANGE[k]||[0,127];
+		cells.addEventListener('pointerdown',e=>{ const c0=e.target.closest('i'); if(!c0) return;
+			if(e.altKey||$('#b-lanes .tabs .on').textContent==='Erase'){ const i=+c0.dataset.i; if(LOCKS[i]) delete LOCKS[i][k]; buildSteps(); return; }
+			cells.setPointerCapture(e.pointerId);
+			const paint=ev=>{ const r=cells.getBoundingClientRect(), i=Math.max(0,Math.min(15,Math.floor((ev.clientX-r.left)/r.width*16))), f=1-(ev.clientY-r.top)/r.height;
+				(LOCKS[i]=LOCKS[i]||{})[k]=Math.round(mn+Math.max(0,Math.min(1,f))*(mx-mn));
+				const cell=cells.children[i]; cell.innerHTML=`<b style="height:${(LOCKS[i][k]-mn)/(mx-mn)*100}%"></b>`; };
+			paint(e); cells.onpointermove=paint; cells.onpointerup=()=>{ cells.onpointermove=null; buildSteps(); }; }); });
+}
+if($('#learn')) $('#learn').onclick=()=>{ learn=!learn; $('#learn').classList.toggle('on',learn); $('#learnhint').textContent=learn?'LEARN armed: open a track page and touch a knob.':'Press LEARN, then touch a knob on a track page: its lane appears here. Drag across a lane to draw values; Alt-click a cell clears it.'; };
+function learnKnob(el){ const k=lkey(el); LRANGE[k]=[+(el.dataset.min??0),+(el.dataset.max??127)]; if(!LANES.includes(k)) LANES.push(k); if(LANES.length>5) LANES.shift(); newLane=k; learn=false; $('#learnhint').textContent='Lane added: '+lname(k)+'.'; buildLanes(); }
+$$('.lockrec').forEach(b=>b.onclick=()=>{ const on=!b.classList.contains('on'); $$('.lockrec').forEach(x=>x.classList.toggle('on',on)); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&SEL.size){ SEL.clear(); buildSteps(); } });
+document.querySelector('.main').addEventListener('click',e=>{ if(!SEL.size||e.target.closest('button,select,.k,.f,.st,svg,.slot,.mini,.lane,.hd')) return; SEL.clear(); buildSteps(); });
+$('#ratchet').addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return; STEPS[selStep].rt=+b.textContent; buildSteps(); });
+$('#mtbar').addEventListener('pointerdown',e=>{ const bar=$('#mtbar'), r=bar.getBoundingClientRect(); const set=ev=>{ STEPS[selStep].mt=Math.max(-23,Math.min(23,Math.round(((ev.clientX-r.left)/r.width-0.5)*46))); buildSteps(); }; set(e); bar.setPointerCapture(e.pointerId); bar.onpointermove=set; bar.onpointerup=()=>bar.onpointermove=null; });
+$('#cond').onchange=e=>{ STEPS[selStep].cond=e.target.value==='None'?'':e.target.value; buildSteps(); };
+$('#scale').addEventListener('click',()=>{});
+
+
+// ---------------- LFO destinations: ASSIGN (latched), drag handles, ring on the target ----------------
+const LFOC=[col('y'), col('m')];
+let MODS={'b-filter|Frequency':{lfo:0,depth:30}};
+let assignArmed=-1;
+function modKey(el){ try{ return lkey(el); }catch(e){ return null; } }
+function applyMods(){ $$('.k').forEach(k=>k.drawMod&&k.drawMod()); updateDest(); }
+function updateDest(){ const sel=$('#ldest'); if(!sel) return; const e=Object.entries(MODS).find(([k,m])=>m.lfo===state.cur);
+	const name=e?lname(e[0]):'None'; [...sel.options].forEach(o=>o.selected=(o.dataset.k?lname(o.dataset.k):o.textContent)===name); }
+function setMod(el,lfo){ const k=modKey(el); if(!k) return; Object.keys(MODS).forEach(x=>{ if(MODS[x].lfo===lfo) delete MODS[x]; }); MODS[k]={lfo,depth:24}; applyMods(); el.classList.add('flashk'); setTimeout(()=>el.classList.remove('flashk'),600); }
+function arm(lfo){ assignArmed=lfo; $$('.assign').forEach(b=>b.classList.toggle('on',lfo>=0)); const h=$('#ahint'); h.classList.toggle('on',lfo>=0); h.textContent='LFO '+(lfo+1)+' ASSIGN: touch a knob'; h.style.setProperty('--lc',LFOC[Math.max(0,lfo)]); }
+document.addEventListener('pointerdown',e=>{ if(assignArmed<0) return; const k=e.target.closest('.tp .k'); if(!k||k.closest('#b-mod')) return; setMod(k,assignArmed); arm(-1); e.stopPropagation(); },true);
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') arm(-1); });
+$$('.assign').forEach(b=>b.onclick=()=>arm(assignArmed>=0?-1:state.cur));
+$('#ldest').onchange=e=>{ const k=e.target.selectedOptions[0].dataset.k; Object.keys(MODS).forEach(x=>{ if(MODS[x].lfo===state.cur) delete MODS[x]; }); if(k) MODS[k]={lfo:state.cur,depth:24}; applyMods(); };
+$$('#lfotabs button').forEach(b=>b.addEventListener('click',()=>{ if(assignArmed>=0) arm(state.cur); updateDest(); }));
+// drag handles in the signal strip
+function clearGhost(){ $$('.lfoghost,.ghostline').forEach(x=>x.remove()); $$('.k.droptgt').forEach(x=>x.classList.remove('droptgt')); }
+$$('.lfoh').forEach(h=>h.addEventListener('pointerdown',e=>{ clearGhost(); const lfo=+h.dataset.lfo, win=$('.win').getBoundingClientRect();
+	const g=document.createElement('div'); g.className='lfoghost'; g.textContent=h.textContent; g.style.setProperty('--lc',LFOC[lfo]); $('.win').appendChild(g);
+	const mv=ev=>{ g.style.left=(ev.clientX-win.left+6)+'px'; g.style.top=(ev.clientY-win.top+6)+'px'; $$('.k.droptgt').forEach(x=>x.classList.remove('droptgt')); const t=document.elementFromPoint(ev.clientX,ev.clientY); const k=t&&t.closest('.tp .k'); if(k) k.classList.add('droptgt'); };
+	const up=ev=>{ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); const t=document.elementFromPoint(ev.clientX,ev.clientY); const k=t&&t.closest('.tp .k'); clearGhost(); if(k) setMod(k,lfo); };
+	mv(e); document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up); e.preventDefault(); }));
+function drawGhostOver(knob,lfo){ const win=$('.win').getBoundingClientRect(), r=knob.querySelector('svg').getBoundingClientRect(), h=$$('.lfoh')[lfo].getBoundingClientRect();
+	const x=r.left-win.left+r.width*0.62, y=r.top-win.top+r.height*0.55;
+	const g=document.createElement('div'); g.className='lfoghost'; g.textContent='LFO'+(lfo+1); g.style.setProperty('--lc',LFOC[lfo]); g.style.left=x+'px'; g.style.top=y+'px'; $('.win').appendChild(g);
+	const hx=h.left-win.left+h.width/2, hy=h.bottom-win.top;
+	const ln=document.createElementNS(NS,'svg'); ln.setAttribute('class','ghostline'); ln.setAttribute('width',1440); ln.setAttribute('height',900);
+	ln.innerHTML=`<path d="M${hx} ${hy} C ${hx} ${hy+120}, ${x+10} ${y-120}, ${x+10} ${y}" stroke="${LFOC[lfo]}" stroke-width="2" stroke-dasharray="5 4" fill="none"/>`; $('.win').appendChild(ln);
+	knob.classList.add('droptgt'); }
+
+// ---------------- knob popover: '+' badge or right-click -> LFO 1 / LFO 2 / lock ----------------
+function closePop(){ $$('.kpop').forEach(p=>p.remove()); $$('.k.popk').forEach(k=>k.classList.remove('popk')); }
+function openPop(el){
+	closePop(); const win=$('.win').getBoundingClientRect(), r=el.getBoundingClientRect(), k=modKey(el);
+	const sl=[...SEL].sort((a,b)=>a-b).map(i=>i+1), hasSteps=!!document.getElementById('b-seq');
+	const p=document.createElement('div'); p.className='kpop';
+	p.innerHTML=`<div class="kph">${lname(k)}</div>
+		<button data-a="0"><i style="background:${LFOC[0]}"></i>Modulate by LFO 1</button>
+		<button data-a="1"><i style="background:${LFOC[1]}"></i>Modulate by LFO 2</button>
+		${hasSteps?`<button data-a="lock" ${sl.length?'':'disabled'}><i style="background:#fff"></i>${sl.length?'Lock on step'+(sl.length>1?'s ':' ')+sl.join(', '):'Lock: select steps first'}</button>`:`<button data-a="lane"><i style="background:#fff"></i>Add a lock lane (SEQ)</button>`}
+		<div class="kpf">Then drag the coloured ring on the knob for depth.</div>`;
+	p.style.left=Math.min(r.right-win.left-6,1600-230)+'px'; p.style.top=(r.top-win.top+14)+'px';
+	p.addEventListener('pointerdown',e=>e.stopPropagation());
+	p.onclick=e=>{ const b=e.target.closest('button'); if(!b) return; const a=b.dataset.a;
+		if(a==='0'||a==='1') setMod(el,+a);
+		if(a==='lock'){ LRANGE[k]=[+(el.dataset.min??0),+(el.dataset.max??127)]; SEL.forEach(i=>{ (LOCKS[i]=LOCKS[i]||{})[k]=el.v; }); buildSteps(); }
+		if(a==='lane'){ learnKnob(el); }
+		closePop(); };
+	$('.win').appendChild(p); el.classList.add('popk');
+}
+document.addEventListener('pointerdown',e=>{ if(!e.target.closest('.kpop')&&!e.target.closest('.pb')) closePop(); });
+document.addEventListener('contextmenu',e=>{ const k=e.target.closest('.tp .k'); if(!k) return; e.preventDefault(); openPop(k); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closePop(); collapse(); } });
+
+// ---------------- box expand: a header click opens the box over its neighbours ----------------
+// an absolute grid child is placed in its grid area: span the whole grid while open, offsets from the grid's content box
+function collapse(){ const b=$('.box.exp'); if(!b) return; b.classList.remove('exp'); b.style.left=b.style.top=b.style.width=b.style.height=''; b.style.gridArea=b.dataset.ga; if(b.id==='b-drive') buildSlots(); redraw(); }
+function expand(b,w,h){ collapse(); const pg=b.closest('.page'); const L=b.offsetLeft, T=b.offsetTop; w=Math.max(b.offsetWidth,w||640); h=Math.max(b.offsetHeight,h||400);
+	b.dataset.ga=b.style.gridArea; b.style.gridArea='1 / 1 / -1 / -1';
+	b.classList.add('exp'); b.style.left=(Math.min(L,pg.clientWidth-w-6)-6)+'px'; b.style.top=(Math.min(T,pg.clientHeight-h-6)-6)+'px'; b.style.width=w+'px'; b.style.height=h+'px';
+	if(b.id==='b-drive') buildSlots(); redraw(); }
+$$('#p-track .box .hd h2').forEach(h=>{ h.style.cursor='zoom-in'; h.title='Open this box for detail (Esc closes)'; h.addEventListener('click',()=>{ const b=h.closest('.box'); b.classList.contains('exp')?collapse():expand(b); }); });
+$$('#p-track .xp').forEach(x=>x.addEventListener('click',()=>{ const b=x.closest('.box'); b.classList.contains('exp')?collapse():expand(b,560,400); }));
+
+// ---------------- footer zoom ----------------
+$('#zoomsel').onchange=e=>{ $('.win').style.zoom=parseInt(e.target.value)/100; };
+
+const LED=Array(16).fill(0); LED[0]=1; LED[1]=0.55; LED[8]=0.25;
+function hitTrack(i){ LED[i]=1; drawLeds(); }
+function drawLeds(){ $$('.tt[data-t]').forEach(b=>b.style.setProperty('--lv',LED[+b.dataset.t].toFixed(2))); }
+function buildLearn(){ const host=$('#learnhost'); const c=$('#p-track').cloneNode(true); c.className='learnclone'; c.removeAttribute('id');
+	c.querySelectorAll('[id]').forEach(e=>{ if(e.id.startsWith('b-')) e.dataset.box=e.id; e.removeAttribute('id'); });
+	c.querySelectorAll('.pb').forEach(e=>e.remove());
+	c.querySelectorAll('.k').forEach(k=>k.addEventListener('click',()=>{ learnKnob(k); buildSteps(); }));
+	host.innerHTML=''; host.appendChild(c); }
+function fitLearn(){ const host=$('#learnhost'), c=host.firstChild; if(!c) return; const sc=Math.min(host.clientWidth/1600, host.clientHeight/808); c.style.transform=`scale(${sc})`; buildSteps(); }
+// ---------------- init ----------------
+buildTracks(); buildFams(); buildMisc();
+$$('.k').forEach(makeKnob); $$('.f').forEach(makeFader);
+setMachine('st','BD MODERN');
+buildSteps();
+buildFtypes(); drawFilter(); ['fq','rs'].forEach(id=>KN[id].addEventListener('kv',drawFilter));
+hookEnv(); drawEnv();
+drawWave(); ['ss','se','sl'].forEach(id=>KN[id].addEventListener('kv',drawWave));
+buildSlots(); buildShapes(); drawLfo(); ['ldp','lph'].forEach(id=>KN[id].addEventListener('kv',drawLfo));
+drawFx(); KN.od.addEventListener('kv',drawOd);
+['bb','bw','el','em','eh'].forEach(id=>KN[id].addEventListener('kv',drawBand));
+show('track');
+applyMods();
+buildLearn();
+arm(0);
+setTimeout(()=>expand($('#b-drive'),620,420),120);
+KN.len.addEventListener('kv',e=>{ const n=Math.ceil(e.detail/16); $$('#pgs i').forEach((p,i)=>{p.className=i===0?'on':(i<n?'':'dis');}); $('#st-title').textContent=$('#st-title').textContent.replace(/of \d+/,'of '+n); });
+// live meters
+let tick=0; setInterval(()=>{ tick++; const gr=3+2.5*Math.abs(Math.sin(tick/3)); $('#gr').style.height=gr/12*100+'%'; $('#grv').textContent='-'+gr.toFixed(1)+' dB';
+	$('#ml').style.height=(55+30*Math.abs(Math.sin(tick/2.3)))+'%'; $('#mr').style.height=(52+30*Math.abs(Math.sin(tick/2.1+1)))+'%';
+	$$('.cs .vm b').forEach((b,i)=>b.style.height=(i===6?0:(15+60*Math.abs(Math.sin(tick/(2+i%5)+i))))+'%');
+	$$('.st').forEach(e=>e.classList.toggle('play',+e.dataset.i===tick%16));
+	$$('.k').forEach(k=>k.animMod&&k.animMod(tick));
+	if(tick>12){ for(let i=0;i<16;i++) LED[i]*=0.8; const st=tick%16; if([0,4,8,12].includes(st)) LED[0]=1; if([4,12].includes(st)) LED[1]=1; if(st%2===0) LED[8]=0.9; }
+	drawLeds();
+	$('#pos').textContent=`${1+Math.floor(tick/16)%4}.${1+Math.floor(tick/4)%4}.${1+tick%4}`; },120);
+</script>
+</body>
+</html>

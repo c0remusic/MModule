@@ -1,0 +1,818 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drums mockup v1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+	/* Page around the window */
+	* { box-sizing: border-box; }
+	body { margin: 0; background: #0e0f10; color: #d8d6d0; font: 14px/1.5 "Inter", system-ui, sans-serif; --s: 1; }
+	@media (max-width: 1340px) { body { --s: 0.85; } }
+	@media (max-width: 1140px) { body { --s: 0.68; } }
+	@media (max-width: 900px) { body { --s: 0.5; } }
+	@media (max-width: 640px) { body { --s: 0.27; } }
+	header.intro { padding: 18px 28px 6px; max-width: 1296px; }
+	header.intro h1 { font-size: 20px; margin: 0 0 6px; font-weight: 600; }
+	header.intro p, p.capn { margin: 2px 0 6px; color: #a3a6ab; max-width: 1296px; }
+	h2.cap { margin: 36px 28px 4px; font-size: 16px; font-weight: 600; color: #e8e6e0; }
+	p.capn { margin: 0 28px 10px; }
+	.viewport { margin: 0 28px 8px; width: calc(1296px * var(--s)); height: calc(824px * var(--s)); overflow: hidden; border: 1px solid #333; }
+	.frame { width: 1296px; height: 824px; transform: scale(var(--s)); transform-origin: 0 0; }
+
+	/* The window: MoDule v22's tokens, grid and type (16 columns of 64 px, gutters of 16, margins of 16; 12/14/22/34),
+	   plus one token for what is ours (--add) and the firmware badge. */
+	.ui { --chrome: #1b1c1e; --surface: #26272a; --display: #151618; --line: #3a3c40; --rule: #55585e; --tick: #3c3e43;
+		--ink: #f2f2f2; --ink-dim: #a7aaaf; --ink-faint: #8e9197; --accent: #6fd1c4; --on-accent: #10201e; --mute: #ff7a5c;
+		--track: #6e7177; --add: #e6b85c; }
+	.ui { position: relative; width: 1296px; height: 824px; background: var(--chrome); color: var(--ink); font-family: "Inter", sans-serif; user-select: none; overflow: hidden; }
+	.ui * { box-sizing: border-box; }
+	.cell, .bg, .rule, .slot, .pop, .screen { position: absolute; }
+	.cell { display: flex; align-items: center; min-width: 0; white-space: nowrap; gap: 8px; }
+	.cell.c { justify-content: center; }
+	.cell.r { justify-content: flex-end; }
+	.label { font-size: 12px; font-weight: 500; color: var(--ink-dim); line-height: 16px; }
+	.code { font-weight: 600; letter-spacing: 1px; }
+	.value { font-size: 14px; font-variant-numeric: tabular-nums; line-height: 16px; }
+	.meta { font-size: 14px; color: var(--ink-dim); line-height: 16px; }
+	.hint { font-size: 12px; color: var(--ink-faint); line-height: 16px; }
+	.num { font-variant-numeric: tabular-nums; }
+	.link { font-size: 14px; color: var(--ink); cursor: pointer; }
+	.link:hover { text-decoration: underline; text-decoration-color: var(--track); text-underline-offset: 4px; }
+	[tabindex] { outline: none; cursor: pointer; }
+	.bg.surface { background: var(--surface); }
+	.bg.display { background: var(--display); }
+	.rule { background: var(--rule); height: 1px; }
+	.vrule { position: absolute; background: var(--line); width: 1px; }
+
+	/* Origin badges: FW, the machine's own code, exact to its firmware; ADD, ours. */
+	.bdg { font-style: normal; font-size: 12px; font-weight: 600; letter-spacing: 1px; line-height: 14px; padding: 0 3px; border: 1px solid var(--track); color: var(--ink-dim); flex: none; }
+	.bdg.add { border-color: var(--add); color: var(--add); }
+	.bdg.miss { border-color: var(--mute); color: var(--mute); }
+
+	/* Top bar */
+	.logo { font-weight: 700; font-size: 14px; letter-spacing: 2px; gap: 6px; }
+	.logo span { color: var(--ink-dim); font-weight: 400; letter-spacing: 0; }
+	.tab { font-size: 14px; font-weight: 500; color: var(--ink-dim); justify-content: center; z-index: 1; }
+	.tab:hover, .tab.on { color: var(--ink); }
+	.tab span { align-self: stretch; display: flex; align-items: center; }
+	.tab.on span { box-shadow: inset 0 -2px 0 var(--accent); }
+	.stat { font-size: 14px; color: var(--ink); }
+	.stat .label { color: var(--ink-faint); }
+	.dot { width: 8px; height: 8px; flex: none; background: var(--mute); }
+	.dot.ok { background: var(--accent); }
+	.cpubar { width: 48px; height: 2px; background: var(--track); position: relative; }
+	.cpubar b { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); }
+	.outbars { display: grid; gap: 4px; align-content: center; }
+	.outbars i { display: block; height: 2px; background: var(--track); position: relative; }
+	.outbars i b { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); }
+
+	/* Track list */
+	.tn { font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+	.tn.trig { color: var(--accent); }
+	.tname { font-size: 14px; color: var(--ink); line-height: 16px; }
+	.tmach { font-size: 12px; letter-spacing: .5px; color: var(--ink-dim); line-height: 16px; }
+	.tmach.miss { color: var(--mute); }
+	.torg { font-size: 12px; color: var(--ink-faint); justify-content: flex-end; }
+	.tlev { font-size: 12px; color: var(--ink-dim); justify-content: flex-end; font-variant-numeric: tabular-nums; }
+	.hl { background: var(--line); }
+	.hl.on { background: var(--accent); }
+	.selbar { background: var(--accent); }
+	.toggle { justify-content: center; border: 1px solid var(--track); font-size: 12px; font-weight: 600; color: var(--ink-dim); }
+	.toggle:hover { border-color: var(--ink-dim); color: var(--ink); }
+	.toggle.mute.on { background: var(--mute); border-color: var(--mute); color: #111; }
+	.toggle.solo.on { background: var(--ink); border-color: var(--ink); color: #111; }
+	.kitbar { font-size: 14px; color: var(--ink); align-items: baseline; }
+	.kitbar .label { color: var(--ink-faint); }
+	.kitsave { font-size: 14px; color: var(--ink); font-weight: 600; justify-content: flex-end; }
+	.tcap { font-size: 22px; font-weight: 600; line-height: 24px; }
+	.step { font-size: 20px; color: var(--ink-dim); justify-content: center; }
+	.step:hover { color: var(--ink); }
+
+	/* Head band: the track's signal flow, whose slots are the pages' tabs */
+	.grp { font-size: 12px; font-weight: 600; color: var(--ink); line-height: 16px; }
+	.grp::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+	.pgcap { font-size: 12px; font-weight: 600; color: var(--ink-dim); line-height: 16px; cursor: pointer; }
+	.pgcap::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+	.pgcap:hover { color: var(--ink); }
+	.pgcap.on { color: var(--ink); }
+	.pgcap.on::after { height: 2px; background: var(--accent); }
+	.slot { border: 1px solid var(--track); padding: 6px 8px; display: flex; flex-direction: column; gap: 0; cursor: pointer; overflow: hidden; }
+	.slot:hover { border-color: var(--ink-dim); }
+	.slot.on { background: var(--surface); border-color: var(--ink-dim); }
+	.slot.empty { border-style: dashed; color: var(--ink-faint); align-items: center; justify-content: center; font-size: 14px; }
+	.slot .sh { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; letter-spacing: 1px; color: var(--ink-dim); line-height: 16px; }
+	.slot .sh .bdg { margin-left: auto; }
+	.slot .sl { font-size: 12px; letter-spacing: .5px; color: var(--ink); line-height: 16px; white-space: nowrap; }
+	.slot .sl i { font-style: normal; color: var(--ink-dim); }
+	.slot .sf { margin-top: auto; font-size: 12px; font-weight: 600; letter-spacing: 1px; color: var(--ink-faint); line-height: 16px; }
+	.slot.src { flex-direction: row; align-items: center; gap: 8px; padding: 0 12px; }
+	.slot.src .mn { font-size: 22px; letter-spacing: 1px; line-height: 24px; }
+	.slot.src .ln { font-size: 14px; }
+	.slot.src .chev { margin-left: auto; width: 8px; height: 8px; border-right: 2px solid var(--ink-dim); border-bottom: 2px solid var(--ink-dim); transform: rotate(45deg); margin-bottom: 4px; }
+	.minibars { display: flex; gap: 6px; align-items: flex-end; height: 24px; margin-top: 4px; }
+	.minibars span { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 12px; color: var(--ink-faint); }
+	.minibars b { width: 6px; background: var(--ink-dim); display: block; }
+	.flow { position: absolute; height: 2px; background: var(--track); }
+	.flow::after { content: ""; position: absolute; right: -1px; top: -3px; border-left: 6px solid var(--track); border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
+	.velv { font-size: 14px; color: var(--ink); justify-content: center; }
+	.playkey { justify-content: center; border: 1px solid var(--track); }
+	.playkey path { fill: var(--ink); }
+
+	/* Bands */
+	.btitle { font-size: 22px; font-weight: 600; letter-spacing: 1.5px; line-height: 24px; }
+	.knob { justify-content: center; cursor: ns-resize; }
+	.kl { justify-content: center; gap: 4px; }
+	.kl .label { letter-spacing: 1px; }
+	.kl.lfo .label { color: var(--ink); text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 4px; text-decoration-thickness: 2px; }
+	.kv { justify-content: center; color: var(--ink-faint); }
+	.kv.edited { color: var(--ink); }
+	.field { box-shadow: inset 0 -1px 0 var(--track); font-size: 14px; color: var(--ink); cursor: pointer; }
+	.field::after { content: "\25BE"; margin-left: auto; color: var(--ink-dim); font-size: 12px; }
+	.field:hover { box-shadow: inset 0 -1px 0 var(--ink); }
+	.field.open { box-shadow: inset 0 -2px 0 var(--accent); }
+	.chips { display: grid; gap: 4px; align-items: stretch; }
+	.chip { height: 24px; display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 500; letter-spacing: .5px; color: var(--ink-dim); background: transparent; box-shadow: inset 0 0 0 1px var(--line); cursor: pointer; }
+	.chip:hover { color: var(--ink); background: var(--surface); }
+	.chip.on { background: var(--accent); color: var(--on-accent); box-shadow: none; }
+	.chip.on .bdg { border-color: var(--on-accent); color: var(--on-accent); }
+	.chip.wide { justify-content: flex-start; padding: 0 8px; }
+	.chip.wide .bdg { margin-left: auto; }
+	.dlist { display: grid; grid-template-rows: repeat(4, 24px); row-gap: 8px; }
+	.drow { display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 4px; font-size: 14px; color: var(--ink-dim); cursor: grab; }
+	.drow.on { background: var(--surface); color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); }
+	.drow .n { width: 12px; font-size: 12px; color: var(--ink-faint); }
+	.drow .t { width: 112px; overflow: hidden; text-overflow: ellipsis; }
+	.drow .pp { font-size: 12px; font-weight: 600; letter-spacing: 1px; width: 36px; text-align: center; box-shadow: inset 0 0 0 1px var(--track); line-height: 20px; }
+	.drow .pp.post { color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink-dim); }
+	.drow.add { color: var(--ink-faint); cursor: pointer; }
+	.screen { background: var(--display); box-shadow: inset 1px 0 0 var(--rule); }
+	.screen canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+	.stitle { position: absolute; left: 16px; right: 16px; top: 16px; height: 24px; display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--ink); white-space: nowrap; }
+	.stitle .note { margin-left: auto; display: flex; gap: 12px; align-items: center; }
+	.lg { display: inline-flex; align-items: center; gap: 4px; }
+	.lg i { width: 12px; height: 2px; display: inline-block; }
+	.info { position: absolute; display: grid; align-content: start; row-gap: 4px; white-space: normal; }
+	.info .label { color: var(--ink-faint); }
+	.info .meta { line-height: 20px; }
+
+	/* Popovers and overlays */
+	.pop { background: var(--display); box-shadow: 0 0 0 1px var(--rule), 0 12px 32px rgba(0,0,0,.5); padding: 16px; z-index: 5; display: grid; align-content: start; row-gap: 4px; }
+	.pop .ph { display: flex; align-items: center; gap: 8px; height: 24px; margin-bottom: 4px; }
+	.pop .ph .done { margin-left: auto; font-weight: 600; font-size: 14px; color: var(--ink); }
+	.pi { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; font-size: 14px; color: var(--ink-dim); cursor: pointer; }
+	.pi:hover { background: var(--surface); color: var(--ink); }
+	.pi.on { color: var(--ink); box-shadow: inset 2px 0 0 var(--accent); background: var(--surface); }
+	.pi .bdg { margin-left: auto; }
+	.pi.sep { border-top: 1px solid var(--line); margin-top: 4px; }
+	.mgrid { display: grid; grid-template-columns: 112px repeat(10, 64px); grid-auto-rows: 28px; column-gap: 4px; row-gap: 4px; }
+	.mgrid .label { align-self: center; }
+	.mc { display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; letter-spacing: 1px; color: var(--ink-dim); cursor: pointer; }
+	.mc:hover { color: var(--ink); background: var(--surface); }
+	.mc.on { background: var(--accent); color: var(--on-accent); }
+	.dim { opacity: .35; }
+
+	/* Machine browser */
+	.ohead { gap: 8px; font-size: 14px; font-weight: 600; color: var(--ink); line-height: 16px; }
+	.ohead span { color: var(--ink-faint); font-weight: 500; font-size: 12px; }
+	.ohead::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+	.mach { font-size: 14px; letter-spacing: 1px; color: var(--ink-dim); cursor: pointer; }
+	.mach.sm { font-size: 12px; }
+	.mach:hover { color: var(--ink); }
+	.mach.cur { color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); }
+	.mach.miss { color: var(--track); cursor: default; }
+	.fam { font-size: 12px; font-weight: 600; letter-spacing: 1px; color: var(--ink); }
+	.fam span { color: var(--ink-faint); font-weight: 500; letter-spacing: 0; }
+	.bact { gap: 24px; font-size: 14px; color: var(--ink-dim); justify-content: flex-end; }
+	.bact .keep { color: var(--ink); font-weight: 600; }
+
+	/* Mix */
+	.stripsel { background: var(--accent); }
+	.sn { font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+	.sn.on { color: var(--accent); }
+	.sm { font-size: 12px; letter-spacing: .5px; color: var(--ink-dim); }
+	.vu { background: var(--display); }
+	.vu b { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); }
+	.fader .rail { position: absolute; left: 39px; top: 0; bottom: 0; width: 2px; background: var(--track); }
+	.fader .capf { position: absolute; left: 16px; width: 48px; height: 8px; background: var(--ink); }
+	.outf { font-size: 12px; justify-content: center; border: 1px solid var(--track); color: var(--ink-dim); }
+	.outf.on { background: var(--ink); color: #111; border-color: var(--ink); font-weight: 600; }
+	.hbar { background: var(--line); }
+	.hbar b { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); }
+	.hbar.gr b { left: auto; right: 0; background: var(--add); }
+
+	/* Kits and samples */
+	.slotk { gap: 8px; font-size: 14px; color: var(--ink-dim); align-items: baseline; }
+	.slotk .num { width: 24px; font-size: 12px; color: var(--ink-faint); }
+	.slotk.on { color: var(--ink); }
+	.slotk.empty { color: var(--ink-faint); }
+	.kact { gap: 24px; font-size: 14px; color: var(--ink-dim); }
+	.kact .load { color: var(--ink); font-weight: 600; }
+	.th { font-size: 12px; font-weight: 600; color: var(--ink-faint); }
+	.tr { font-size: 14px; color: var(--ink-dim); }
+	.tr.on { color: var(--ink); }
+	.btn { justify-content: center; font-size: 14px; font-weight: 600; border: 1px solid var(--ink-dim); color: var(--ink); }
+	.btn.pri { background: var(--ink); color: #111; border-color: var(--ink); }
+	.drop { border: 1px dashed var(--track); justify-content: center; font-size: 12px; color: var(--ink-faint); }
+	.fwrow { display: grid; grid-template-columns: 16px 128px 1fr auto; align-items: center; column-gap: 8px; height: 28px; font-size: 14px; color: var(--ink-dim); }
+	.fwrow b { font-weight: 400; color: var(--ink); }
+	.fwrow .hint { overflow: hidden; text-overflow: ellipsis; }
+	.legend { gap: 6px; font-size: 12px; color: var(--ink-faint); }
+</style>
+</head>
+<body>
+<header class="intro">
+	<h1>Batterie Elektron, maquette v1</h1>
+	<p>Une fenêtre façon Overbridge, sœur de MoDule v22 : même grille (16 colonnes de 64 px, gouttières de 16, 1296 × 824 à 100 %), mêmes tailles de texte (12, 14, 22, 34), mêmes boutons (piste 270°, arc et aiguille, gris à leur défaut, encre une fois réglés). Onglets Track, Mix, FX ; Kits par la ligne du kit, échantillons par la couche ; état des firmwares, tempo, fréquence, CPU dans la barre du haut.</p>
+	<p>Piste : la bande d'en-tête est le chemin du signal (machine + couche, drives, bande, filtre, drive post, ampli, envois, LFO). Ses emplacements sont les onglets des trois pages de la piste : <b>Source</b>, <b>Chain</b>, <b>Sends and LFOs</b>. Cliquer une légende au-dessus des emplacements change de page dans la première fenêtre. Badges : <b>FW</b>, le code de la machine, exact au firmware ; <b>ADD</b>, un ajout à nous.</p>
+</header>
+
+<h2 class="cap">1. Piste, page Source (état principal)</h2>
+<p class="capn">Piste 01 : BD MODERN du Syntakt, avec une couche sample sommée avant la chaîne. Bande 1 : SYN 1-8 et le niveau de la machine ; bande 2 : la couche (sample, sens, niveau, accord, début, fin, enveloppe propre) ; bande 3 : le coup, machine et couche superposées.</p>
+<div class="viewport"><div class="frame" id="main"></div></div>
+
+<h2 class="cap">2. Piste, page Chain, menu du type de Drive 2 ouvert</h2>
+<p class="capn">Trois drives empilés, chacun avant (PRE) ou après (POST) le filtre, glissés dans la liste ; type au choix parmi six. Bande en EQ 3 bandes (ajout). Filtre multimode du Syntakt, ses 8 types, son enveloppe et le suivi de clavier. Ampli AHD/ADSR.</p>
+<div class="viewport"><div class="frame" id="chain1"></div></div>
+
+<h2 class="cap">3. Piste 12, page Chain : filtres du Digitakt II, bande BASE/WIDTH du Syntakt</h2>
+<p class="capn">Une piste sur SLICE du Digitakt II : un seul drive (Overdrive DT2), la bande en BASE/WIDTH (firmware), le filtre DT2 et ses six types. Pas de couche : l'emplacement dit « Add layer ».</p>
+<div class="viewport"><div class="frame" id="chain12"></div></div>
+
+<h2 class="cap">4. Piste, page Sends and LFOs</h2>
+<p class="capn">Envois delay, reverb, chorus, phaser/flanger (ajout), pan, niveau, sortie (Main ou Out 01-15). LFO 1 sur FREQ du filtre (souligné en accent sur sa page), LFO 2 sur la profondeur du LFO 1.</p>
+<div class="viewport"><div class="frame" id="mod"></div></div>
+
+<h2 class="cap">5. Destination du LFO 2 ouverte</h2>
+<p class="capn">N'importe quel paramètre de la piste, page par page, LFO 1 compris.</p>
+<div class="viewport"><div class="frame" id="dest"></div></div>
+
+<h2 class="cap">6. Navigateur de machines</h2>
+<p class="capn">Par origine : Syntakt (12 numériques), Machinedrum (familles et User Machines), Model:Cycles, Digitone II, Digitakt II, couche du Rytm. Une origine sans firmware chargé reste grisée, avec « Locate file ». Aperçu du coup à droite.</p>
+<div class="viewport"><div class="frame" id="browser"></div></div>
+
+<h2 class="cap">7. Mix</h2>
+<p class="capn">16 tranches : niveau, pan, 4 envois, M et S, sortie, VU. Master en bas : compresseur et overdrive du Digitakt II, niveau, crêtes et réduction de gain.</p>
+<div class="viewport"><div class="frame" id="mix"></div></div>
+
+<h2 class="cap">8. FX</h2>
+<p class="capn">Delay et reverb au parfum Syntakt ou Digitakt II ; chorus du Syntakt ; phaser/flanger maison (ajout). Sous eux, les quatre envois des 16 pistes.</p>
+<div class="viewport"><div class="frame" id="fx"></div></div>
+
+<h2 class="cap">9. Kits</h2>
+<p class="capn">64 emplacements, comme MoDule : Load, Save here, Rename, Delete, import et export.</p>
+<div class="viewport"><div class="frame" id="kits"></div></div>
+
+<h2 class="cap">10. Bibliothèque d'échantillons</h2>
+<p class="capn">Import WAV, AIFF, FLAC (bouton ou dépôt sur la fenêtre), écoute, assignation à la couche d'une piste.</p>
+<div class="viewport"><div class="frame" id="lib"></div></div>
+
+<h2 class="cap">11. Firmwares, qualité, CPU (menu de la barre du haut)</h2>
+<p class="capn">Quelles familles viennent des fichiers firmware de l'utilisateur, lesquelles manquent ; fréquence des moteurs et rééchantillonnage ; part de CPU par moteur ; version.</p>
+<div class="viewport"><div class="frame" id="status"></div></div>
+<div style="height:48px"></div>
+
+<script>
+"use strict";
+// Grid: column c (1-16) starts at 16 + 80 (c - 1); n columns span 64 n + 16 (n - 1).
+const X = c => 16 + 80 * (c - 1), W = n => 64 * n + 16 * (n - 1);
+const box = (c, n, y, h) => `left:${X(c)}px;top:${y}px;width:${W(n)}px;height:${h}px`;
+const raw = (x, w, y, h) => `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+const two = n => String(n).padStart(2, "0");
+const sgn = v => { const d = v - 64; return d > 0 ? "+" + d : String(d); };
+const FW = `<i class="bdg fw" title="Firmware engine: the machine's own code, exact sample for sample">FW</i>`;
+const ADD = `<i class="bdg add" title="Addition: ours, not from a firmware">ADD</i>`;
+const MISS = `<i class="bdg miss" title="Firmware file not found">NO FW</i>`;
+const cell = (cls, style, html = "", attr = "") => `<div class="cell ${cls}" style="${style}" ${attr}>${html}</div>`;
+
+// A flat knob filling its box, as MoDule's: a 270 degree track, the value as an arc, a pointer; dim at its default.
+function knobSvg(size, value, def = value, bip = false) {
+	const r = size / 2 - 3, c = size / 2, a0 = 0.75 * Math.PI, sweep = 1.5 * Math.PI, at = v => a0 + sweep * v / 127;
+	const p = (t, rr) => [c + rr * Math.cos(t), c + rr * Math.sin(t)];
+	const arc = (from, to) => { const [f, t] = from <= to ? [from, to] : [to, from], [x0, y0] = p(f, r), [x1, y1] = p(t, r); return `M${x0} ${y0} A${r} ${r} 0 ${t - f > Math.PI ? 1 : 0} 1 ${x1} ${y1}`; };
+	const a = at(value), from = bip ? at(64) : a0, edited = value !== def;
+	const [x0, y0] = p(a, r * 0.35), [x1, y1] = p(a, r - 5);
+	return `<svg width="${size}" height="${size}" aria-hidden="true"><path d="${arc(a0, a0 + sweep)}" stroke="var(--track)" stroke-width="2" fill="none"/>
+		${edited && a !== from ? `<path d="${arc(from, a)}" stroke="var(--ink)" stroke-width="3" fill="none"/>` : ""}
+		<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="${edited ? "var(--ink)" : "var(--ink-dim)"}" stroke-width="2"/></svg>`;
+}
+const playSvg = `<svg width="18" height="20" viewBox="0 0 14 16" aria-hidden="true"><path d="M2 1 L13 8 L2 15 Z"/></svg>`;
+
+// A band of 208 px: title (y0 + 24), groups (+ 56), knobs (+ 80), names (+ 152), values (+ 168); 24 px of room under.
+const T = (y0, html, c = 4, n = 9) => cell("", box(c, n, y0 + 24, 24), html);
+const G = (c, n, y0, name, extra = "") => cell("grp", box(c, n, y0 + 56, 16), name + extra);
+const K = (c, y0, name, v, def, o = {}) =>
+	cell("knob", box(c, 1, y0 + 80, 64), knobSvg(64, v, def, o.bip), `data-p="${o.id || name}" tabindex="0" role="slider" aria-label="${name}" title="${o.tip || name}: drag up or down, Shift fine, double-click for the default"`) +
+	cell("kl" + (o.lfo ? " lfo" : ""), box(c, 1, y0 + 152, 16), `<span class="label code">${name}</span>${o.badge || ""}`) +
+	cell("kv" + (v !== def ? " edited" : ""), box(c, 1, y0 + 168, 16), `<span class="value">${o.fmt ? o.fmt(v) : v}</span>`);
+const chips = (style, cols, items, on) => `<div class="chips" style="position:absolute;${style};grid-template-columns:repeat(${cols},1fr)">${items.map(t => `<span class="chip${t === on ? " on" : ""}" tabindex="0">${t}</span>`).join("")}</div>`;
+const SCR = (x, w, y, h, title, note, draw, extra = "") => `<div class="screen" style="${raw(x, w, y, h)}"><canvas data-draw="${draw}" data-w="${w}" data-h="${h}"></canvas><div class="stitle">${title}<span class="note">${note}</span></div>${extra}</div>`;
+const lg = (color, text) => `<span class="lg hint"><i style="background:${color}"></i>${text}</span>`;
+
+// Origins and the 16 tracks of the kit played ("Night shift", slot 03).
+const ORG = { ST: "Syntakt", MD: "Machinedrum", MC: "Model:Cycles", DN: "Digitone II", DT: "Digitakt II", AR: "Analog Rytm" };
+const tracks = [
+	["Kick", "BD MODERN", "ST", 100, 0, 0, 1], ["Snare", "SD VINTAGE", "ST", 92, 0, 0, 0], ["Clap", "CP VINTAGE", "ST", 88, 0, 0, 1],
+	["Hat", "METAL", "MC", 74, 0, 0, 1], ["Open hat", "TRX-OH", "MD", 70, 0, 0, 0], ["Ride", "CY ALLOY", "ST", 64, 0, 0, 0],
+	["Perc", "PC CARBON", "ST", 80, 0, 0, 1], ["Tom", "EFM-XT", "MD", 84, 0, 0, 0], ["Rim", "TRX-RS", "MD", 78, 0, 0, 0],
+	["Chord", "SY CHORD", "ST", 72, 1, 0, 0], ["FM tom", "FM DRUM", "DN", 80, 0, 0, 0], ["Break", "SLICE", "DT", 90, 0, 0, 1],
+	["Vox", "WERP", "DT", 60, 0, 0, 0], ["Cow", "ROM-05", "MD", 76, 0, 0, 0], ["Swarm", "SY SWARM", "ST", 58, 0, 0, 0],
+	["Shot", "SP TWINSHOT", "ST", 82, 0, 0, 1]];
+const missing = o => o === "DN"; // Digitone II's firmware file is not found in this mockup
+
+// The two tracks the Track renders show: their slots and pages.
+const CFG = {
+	t1: { sel: 0, layer: "kick_sub.wav",
+		drives: [["Syntakt drive", "PRE", "ST DRV", 48], ["Digitakt II Bit reduction", "PRE", "DT2 BIT", 3], ["Machinedrum SRR", "POST", "MD SRR", 16]],
+		band: "eq", filter: { eng: "Syntakt", type: "LP2", freq: 74, reso: 32 }, amp: "AHD" },
+	t12: { sel: 11, layer: null,
+		drives: [["Digitakt II Overdrive", "PRE", "DT2 OD", 30]],
+		band: "bw", filter: { eng: "Digitakt II", type: "LP4", freq: 88, reso: 20 }, amp: "ADSR" }};
+
+// ---------------------------------------------------------------- top bar (every view)
+function topBar(view) {
+	const tabs = [["track", "Track"], ["mix", "Mix"], ["fx", "FX"]].map(([k, t], i) =>
+		cell("tab" + (k === view ? " on" : ""), box(4 + i, 1, 0, 56), `<span>${t}</span>`, `tabindex="0" role="tab"`)).join("");
+	return cell("logo", box(1, 3, 0, 56), `DRUMS<span>0.1.0</span>`, `title="Working name; version 0.1.0"`) + tabs +
+		cell("stat", box(7, 4, 16, 24), `<span class="dot"></span>Firmware: Digitone II missing &#9662;`, `data-status tabindex="0" title="Which machine families your firmware files give, the engines' rates, CPU"`) +
+		cell("stat num", box(11, 2, 16, 24), `<span class="label">Tempo</span>122.00<span class="label">Host</span>`, `title="From the host's transport; the LFOs and the delay sync to it"`) +
+		cell("stat num", box(13, 1, 16, 24), `<span class="label">Rate</span>44.1k`, `title="Host at 44.1 kHz: the 48 kHz engines (Syntakt, Model:Cycles, Digitakt II) are resampled"`) +
+		cell("stat num", box(14, 1, 16, 24), `<span class="label">CPU</span>7%`, `title="Share of one core, all 16 tracks and the FX"`) +
+		`<div class="cpubar" style="position:absolute;${raw(X(14) + 4, 56, 44, 2)}"><b style="width:12%"></b></div>` +
+		cell("stat num", box(15, 1, 16, 24), `<span class="label">Size</span>100%`) +
+		cell("", box(16, 1, 16, 16), `<span class="label">Main</span>`) +
+		`<div class="outbars" style="position:absolute;${box(16, 1, 32, 8)}"><i><b style="width:62%"></b></i><i><b style="width:58%"></b></i></div>` +
+		`<div class="rule" style="${raw(0, 1296, 55, 1)}"></div>`;
+}
+
+// ---------------------------------------------------------------- track list (columns 1-3), rows of 36 from y 200
+function trackList(sel) {
+	let h = cell("kitbar", raw(16, 168, 80, 24), `<span class="label">Kit</span><span class="label num">03</span>Night shift &#9662;`, `data-kits tabindex="0" title="Kits: load, save, rename, import, export"`) +
+		cell("kitsave", raw(192, 40, 80, 24), "Save", `title="Save the changes in slot 03 (Ctrl+S)"`) +
+		cell("tcap", raw(16, 160, 112, 24), `<span class="label num" style="font-size:12px">${two(sel + 1)}</span>${tracks[sel][0]}`) +
+		cell("step", raw(184, 24, 112, 24), "&#8249;", `tabindex="0" title="Previous track"`) + cell("step", raw(208, 24, 112, 24), "&#8250;", `tabindex="0" title="Next track"`) +
+		cell("", raw(16, 120, 176, 16), `<span class="hint">Track, machine</span>`) + cell("r", raw(132, 36, 176, 16), `<span class="hint">Lev</span>`) +
+		cell("c", raw(176, 24, 176, 16), `<span class="hint">M</span>`) + cell("c", raw(208, 24, 176, 16), `<span class="hint">S</span>`);
+	tracks.forEach(([name, mach, org, lev, mute, solo, hit], i) => {
+		const y = 200 + 36 * i, on = i === sel, miss = missing(org);
+		if(on) h += `<div class="bg surface" style="${raw(0, 240, y, 36)}"></div><div class="bg selbar" style="${raw(0, 4, y + 6, 24)}"></div>`;
+		h += cell("tn" + (hit ? " trig" : ""), raw(16, 24, y + 6, 24), two(i + 1), `tabindex="0" title="Play track ${two(i + 1)}"`) +
+			cell("tname", raw(48, 76, y + 2, 16), name, `tabindex="0"`) +
+			`<div class="hl${hit ? " on" : ""}" style="position:absolute;${raw(128, 8, y + 6, 8)}" title="Hit light"></div>` +
+			cell("tlev", raw(140, 28, y + 2, 16), lev) +
+			cell("tmach" + (miss ? " miss" : ""), raw(48, 96, y + 18, 16), miss ? mach + ", no FW" : mach) +
+			cell("torg", raw(140, 28, y + 18, 16), org, `title="${ORG[org]}"`) +
+			cell("toggle mute" + (mute ? " on" : ""), raw(176, 24, y + 6, 24), "M", `tabindex="0" role="switch"`) +
+			cell("toggle solo" + (solo ? " on" : ""), raw(208, 24, y + 6, 24), "S", `tabindex="0" role="switch"`);
+	});
+	return h + cell("legend", raw(16, 224, 792, 16), `${FW}firmware engine ${ADD}ours`);
+}
+
+// ---------------------------------------------------------------- head band: the track's signal flow (y 56-200)
+function headBand(cfg, page) {
+	const t = tracks[cfg.sel], pre = cfg.drives.filter(d => d[1] === "PRE"), post = cfg.drives.filter(d => d[1] === "POST");
+	const cap = (c, n, key, text) => cell("pgcap" + (page === key ? " on" : ""), box(c, n, 72, 16), text, `data-page="${key}" tabindex="0" role="tab"`);
+	const slot = (c, n, key, html, cls = "") => `<div class="slot ${cls}${page === key ? " on" : ""}" style="${box(c, n, 96, 80)}" data-page="${key}" tabindex="0">${html}</div>`;
+	const flow = (x, w, y = 135) => `<div class="flow" style="${raw(x, w, y, 2)}"></div>`;
+	const drv = list => list.length ? list.map(d => `<div class="sl">${d[2]}</div>`).join("") : `<div class="sl"><i>empty</i></div>`;
+	const foot = (text, b) => `<div class="sf" style="display:flex;align-items:center;gap:4px">${text}${b ? `<span style="margin-left:auto;display:flex">${b}</span>` : ""}</div>`;
+	const fw = t[2] === "DN" ? MISS : FW;
+	let h = cap(4, 4, "src", "Source") + cap(8, 6, "chain", "Chain") + cap(14, 2, "mod", "Sends and LFOs");
+	// Source: the machine and the layer, summed before the chain.
+	h += `<div class="slot src${page === "src" ? " on" : ""}" style="${raw(X(4), W(4), 96, 38)}" data-page="src" data-browse tabindex="0" title="Click: this page; the name opens the machine browser; wheel steps machines">
+			<span class="mn">${t[1]}</span><span class="label">${ORG[t[2]]}</span>${fw}<span class="chev"></span></div>`;
+	h += cfg.layer
+		? `<div class="slot src${page === "src" ? " on" : ""}" style="${raw(X(4), W(4), 138, 38)}" data-page="src" tabindex="0"><span class="label">+ Layer</span><span class="ln">${cfg.layer}</span><span class="label">TWINSHOT player</span>${FW}</div>`
+		: `<div class="slot src empty" style="${raw(X(4), W(4), 138, 38)}" tabindex="0">+ Add layer</div>`;
+	h += flow(X(7) + 64, 16);
+	h += slot(8, 1, "chain", `<div class="sh">DRIVE</div>${drv(pre)}${foot("PRE", FW)}`, "", ) + flow(X(8) + 64, 16);
+	h += slot(9, 1, "chain", `<div class="sh">BAND</div><div class="sl">${cfg.band === "eq" ? "EQ 3" : "BASE"}</div><div class="sl"><i>${cfg.band === "eq" ? "MG +12" : "WDTH"}</i></div>${foot("", cfg.band === "eq" ? ADD : FW)}`) + flow(X(9) + 64, 16);
+	h += slot(10, 2, "chain", `<div class="sh">FILTER ${FW}</div><div class="sl">${cfg.filter.eng === "Syntakt" ? "ST multimode" : "DT2 filter"} <i>${cfg.filter.type}</i></div><div class="sl"><i>FREQ</i> ${cfg.filter.freq} <i>RESO</i> ${cfg.filter.reso}</div>${cfg.sel === 0 ? `<div class="sf">LFO 1 on FREQ</div>` : ""}`) + flow(X(11) + 64, 16);
+	h += post.length ? slot(12, 1, "chain", `<div class="sh">DRIVE</div>${drv(post)}${foot("POST", FW)}`) : `<div class="slot empty" style="${box(12, 1, 96, 80)}" title="Drag a drive here to put it after the filter">+</div>`;
+	h += flow(X(12) + 64, 16);
+	h += slot(13, 1, "chain", `<div class="sh">AMP</div><div class="sl">${cfg.amp}</div><div class="sl"><i>DEC</i> 52</div>${foot("", FW)}`) + flow(X(13) + 64, 16);
+	const bars = [["D", 40], ["R", 24], ["C", 0], ["P", 12]].map(([l, v]) => `<span><b style="height:${2 + v / 127 * 22}px"></b>${l}</span>`).join("");
+	h += slot(14, 1, "mod", `<div class="sh">SENDS</div><div class="minibars">${bars}</div><div class="sf">MAIN</div>`);
+	h += slot(15, 1, "mod", `<div class="sh">LFO</div><div class="sl">1 <i>FREQ</i></div><div class="sl">2 <i>L1 DEP</i></div>${foot("", FW)}`);
+	h += cell("playkey", box(16, 1, 96, 48), playSvg, `tabindex="0" title="Play the track at the velocity under"`) +
+		cell("velv num", box(16, 1, 152, 24), `<span class="label">Vel</span>110`, `title="Drag up or down: the play key's velocity"`);
+	return h + `<div class="rule" style="${raw(0, 1296, 199, 1)}"></div>`;
+}
+
+// ---------------------------------------------------------------- pages (x 240-1296, y 200-824, three bands)
+const bandRules = `<div class="rule" style="${raw(240, 1056, 407, 1)}"></div><div class="rule" style="${raw(240, 1056, 615, 1)}"></div>`;
+const surface = `<div class="bg surface" style="${raw(240, 1056, 200, 624)}"></div>`;
+
+function pageSource() {
+	let y = 200, h = T(y, `<span class="btitle">BD MODERN</span><span class="meta">Syntakt digital machine</span>${FW}`);
+	h += G(4, 1, y, "Pitch") + G(5, 2, y, "Envelope") + G(7, 2, y, "Sweep") + G(9, 3, y, "Tone") + G(12, 1, y, "Mix");
+	h += K(4, y, "TUNE", 58, 64, { bip: true, fmt: sgn, id: "t1_syn1" }) + K(5, y, "DEC", 70, 64, { id: "t1_syn2" }) + K(6, y, "HOLD", 20, 20, { id: "t1_syn3" }) +
+		K(7, y, "SWT", 48, 40, { id: "t1_syn4" }) + K(8, y, "SWD", 90, 80, { id: "t1_syn5" }) + K(9, y, "TRAN", 32, 32, { id: "t1_syn6" }) +
+		K(10, y, "MOD", 0, 0, { id: "t1_syn7" }) + K(11, y, "FB", 12, 0, { id: "t1_syn8" }) + K(12, y, "LEV", 110, 100, { id: "t1_machLev", tip: "Machine level, before it sums with the layer" });
+	h += `<div class="info" style="${raw(X(13), W(4), y + 24, 160)}">
+		<span class="label">Engine</span><span class="meta">Syntakt OS 1.41, digital engine 0: its own code, sample for sample</span>
+		<span class="label" style="margin-top:8px">Machine</span><span><span class="link" data-browse tabindex="0">Browse machines</span></span>
+		<span class="hint">Wheel on the name steps machines; double-click a knob for the machine's default</span></div>`;
+	y = 408;
+	h += T(y, `<span class="btitle">LAYER</span><span class="meta">kick_sub.wav, summed with the machine before the chain</span>${FW}`);
+	h += G(4, 2, y, "Sample") + G(6, 1, y, "Mix") + G(7, 1, y, "Pitch") + G(8, 2, y, "Range") + G(10, 3, y, "Envelope");
+	h += cell("field", box(4, 2, y + 80, 24), "kick_sub.wav", `tabindex="0" data-p="t1_layerSample" title="Choose from the library"`) +
+		chips(box(4, 2, y + 112, 52), 2, ["FWD", "REV", "LOOP", "PING"], "FWD") +
+		cell("", box(4, 2, y + 168, 16), `<span class="link" style="font-size:12px" data-lib tabindex="0">Open library</span><span class="hint">or drop a file</span>`);
+	h += K(6, y, "LEV", 96, 100, { id: "t1_layerLev" }) + K(7, y, "TUNE", 52, 64, { bip: true, fmt: v => sgn(v) + " st", id: "t1_layerTune" }) +
+		K(8, y, "STRT", 0, 0, { id: "t1_layerStart" }) + K(9, y, "END", 74, 127, { id: "t1_layerEnd" }) +
+		K(10, y, "ATK", 0, 0, { id: "t1_layerAtk" }) + K(11, y, "HOLD", 8, 0, { id: "t1_layerHold" }) + K(12, y, "DEC", 60, 64, { id: "t1_layerDec" });
+	h += SCR(X(13) - 16, 1296 - X(13) + 16, y, 208, "Sample", `<span class="hint">0.42 s, 48 kHz, mono</span>`, "sample");
+	y = 616;
+	h += SCR(240, 1056, y, 208, "Hit", lg("var(--ink-dim)", "BD MODERN") + lg("var(--accent)", "Layer") + `<span class="hint">Last hit, velocity 110</span>`, "hit");
+	return h;
+}
+
+function pageChain(cfg, menu) {
+	let y = 200, h = T(y, `<span class="btitle">DRIVES AND BAND</span><span class="meta">Drives run in order; each sits before or after the filter</span>`, 4, 12);
+	h += G(4, 4, y, "Drives, in order") + G(8, 9, y, "Band", cfg.band === "eq" ? ADD : FW);
+	const rows = cfg.drives.map((d, i) => `<div class="drow${i === 0 ? " on" : ""}" tabindex="0" title="Drag to reorder; click PRE or POST to move it across the filter"><span class="n">${i + 1}</span><span class="t">${d[0]}</span><span class="pp${d[1] === "POST" ? " post" : ""}">${d[1]}</span>${FW}</div>`).join("") +
+		(cfg.drives.length < 4 ? `<div class="drow add" tabindex="0">+ Add drive</div>` : "");
+	h += `<div class="dlist" style="position:absolute;${box(4, 3, y + 80, 120)}">${rows}</div>`;
+	const d0 = cfg.drives[0];
+	h += K(7, y, "AMT", d0[3], 0, { id: "t1_drive1Amt", tip: `Drive 1 (${d0[0]}) amount` });
+	h += `<div class="chips" style="position:absolute;${box(8, 2, y + 80, 52)};grid-template-columns:1fr">
+		<span class="chip wide${cfg.band === "bw" ? " on" : ""}" tabindex="0">Syntakt base, width${FW}</span>
+		<span class="chip wide${cfg.band === "eq" ? " on" : ""}" tabindex="0">3-band EQ${ADD}</span></div>`;
+	if(cfg.band === "eq") {
+		const hz = v => { const f = 20 * Math.pow(1000, v / 127); return f < 1000 ? Math.round(f) + " Hz" : (f / 1000).toFixed(1) + " k"; };
+		const db = v => { const d = Math.round((v - 64) * 18 / 64); return (d > 0 ? "+" : "") + d + " dB"; };
+		h += K(10, y, "LF", 40, 40, { fmt: hz }) + K(11, y, "LG", 70, 64, { bip: true, fmt: db }) + K(12, y, "MF", 64, 70, { fmt: hz }) +
+			K(13, y, "MG", 76, 64, { bip: true, fmt: db }) + K(14, y, "MQ", 50, 40, { fmt: v => (0.3 + v / 127 * 9.7).toFixed(1) }) +
+			K(15, y, "HF", 100, 100, { fmt: hz }) + K(16, y, "HG", 58, 64, { bip: true, fmt: db });
+	} else {
+		h += K(10, y, "BASE", 0, 0) + K(11, y, "WDTH", 80, 127) +
+			`<div class="info" style="${raw(X(12), W(5), y + 84, 80)}"><span class="hint">BASE and WIDTH: the Syntakt's own band filter, exact. The 3-band EQ (low shelf, mid bell, high shelf) is ours.</span></div>`;
+	}
+	y = 408;
+	const st = cfg.filter.eng === "Syntakt";
+	h += T(y, `<span class="btitle">FILTER</span><span class="meta">${st ? "Syntakt multimode" : "Digitakt II filter"}</span>${FW}`);
+	h += G(4, 2, y, "Type") + G(6, 3, y, "Filter") + G(9, 6, y, "Envelope");
+	h += `<div class="chips" style="position:absolute;${box(4, 2, y + 80, 24)};grid-template-columns:1fr 1fr"><span class="chip${st ? " on" : ""}" tabindex="0">Syntakt</span><span class="chip${st ? "" : " on"}" tabindex="0">Digitakt II</span></div>`;
+	h += st ? chips(box(4, 2, y + 112, 52), 4, ["LP2", "LP1", "BP", "HP1", "HP2", "BS", "PK", "AP"], cfg.filter.type)
+		: chips(box(4, 2, y + 112, 80), 2, ["MULTI", "LP4", "LEGACY", "COMB-", "COMB+", "EQ"], cfg.filter.type);
+	h += K(6, y, "FREQ", cfg.filter.freq, 127, { lfo: st, tip: "Cutoff; LFO 1 modulates it" }) + K(7, y, "RESO", cfg.filter.reso, 0) + K(8, y, "KEY", 32, 0, { tip: "Key tracking" }) +
+		K(9, y, "DLY", 0, 0) + K(10, y, "ATK", 4, 0) + K(11, y, "DEC", 44, 64) + K(12, y, "SUS", 0, 127) + K(13, y, "REL", 20, 32) +
+		K(14, y, "DEP", 82, 64, { bip: true, fmt: sgn, tip: "Envelope depth on the cutoff" });
+	h += SCR(X(15) - 16, 1296 - X(15) + 16, y, 208, "Response", "", st ? "filter" : "filter4");
+	y = 616;
+	h += T(y, `<span class="btitle">AMP</span><span class="meta">Track amplitude envelope</span>${FW}`);
+	h += G(4, 5, y, "Envelope") + G(9, 1, y, "Mode");
+	h += K(4, y, "ATK", 0, 0) + K(5, y, "HOLD", 10, 0) + K(6, y, "DEC", 52, 64) + K(7, y, "SUS", cfg.amp === "ADSR" ? 90 : 0, 0) + K(8, y, "REL", cfg.amp === "ADSR" ? 40 : 0, 0);
+	h += chips(box(9, 1, y + 80, 52), 1, ["AHD", "ADSR"], cfg.amp);
+	h += SCR(X(10) - 16, 1296 - X(10) + 16, y, 208, "Amp envelope", `<span class="hint">${cfg.amp}</span>`, cfg.amp === "AHD" ? "ahd" : "adsr");
+	if(menu) {
+		const types = [["Syntakt drive"], ["Machinedrum DIST"], ["Machinedrum SRR"], ["Digitakt II Overdrive"], ["Digitakt II Bit reduction"], ["Digitakt II Sample rate reduction"]];
+		h += `<div class="pop" style="${raw(X(4) + 16, 336, 340, 300)}"><div class="ph"><span class="label">Drive 2 type</span></div>
+			${types.map(([t]) => `<div class="pi${t === "Digitakt II Bit reduction" ? " on" : ""}" tabindex="0">${t}${FW}</div>`).join("")}
+			<div class="pi sep" tabindex="0">Move after the filter</div><div class="pi" tabindex="0">Remove</div></div>`;
+	}
+	return h;
+}
+
+function pageMod(dest) {
+	let y = 200, h = T(y, `<span class="btitle">SENDS AND OUTPUT</span><span class="meta">To the FX tab's four effects, then Main or an Out</span>`, 4, 12);
+	h += G(4, 4, y, "Sends") + G(8, 2, y, "Channel") + G(10, 2, y, "Output");
+	h += K(4, y, "DEL", 40, 0) + K(5, y, "REV", 24, 0) + K(6, y, "CHO", 0, 0) + K(7, y, "PHA", 12, 0, { badge: ADD, tip: "Send to the phaser/flanger (ours)" }) +
+		K(8, y, "PAN", 64, 64, { bip: true, fmt: v => v === 64 ? "C" : (v < 64 ? "L" + (64 - v) : "R" + (v - 64)) }) + K(9, y, "LEV", 100, 100);
+	h += cell("field", box(10, 2, y + 80, 24), "Main", `tabindex="0" data-p="t1_out" title="Main, or Out 01 to Out 15"`) +
+		`<div class="info" style="${raw(X(10), W(2), y + 112, 64)}"><span class="hint">Main or Out 01-15. A track on an Out still sends to the FX.</span></div>`;
+	h += `<div class="info" style="${raw(X(12), W(5) - 16, y + 80, 112)}"><span class="meta">Delay: Syntakt flavour ${FW}</span><span class="meta">Reverb: Digitakt II flavour ${FW}</span><span class="meta">Chorus: Syntakt ${FW}</span><span class="meta">Phaser/flanger: ours ${ADD}</span></div>`;
+	const lfo = (y, n, wave, mode, vals, defs, destTxt, destSub, draw, open) => {
+		let s = T(y, `<span class="btitle">LFO ${n}</span><span class="meta">modulates ${destTxt}</span>${FW}`);
+		s += G(4, 2, y, "Wave") + G(6, 2, y, "Mode") + G(8, 2, y, "Rate") + G(10, 2, y, "Shape") + G(12, 1, y, "Depth") + G(13, 2, y, "Destination");
+		s += chips(box(4, 2, y + 80, 52), 4, ["TRI", "SIN", "SQR", "SAW", "EXP", "RMP", "RND"], wave) +
+			chips(box(6, 2, y + 80, 52), 3, ["FREE", "TRIG", "HOLD", "ONE", "HALF"], mode);
+		const mult = ["1", "2", "4", "8", "16", "32", "64", "128"];
+		s += K(8, y, "SPD", vals[0], defs[0], { bip: true, fmt: v => String(v - 64) }) + K(9, y, "MULT", vals[1], defs[1], { fmt: v => "x" + mult[Math.min(7, v >> 4)] + " BPM" , tip: "Multiplier, synced to the host's tempo" }) +
+			K(10, y, "FADE", vals[2], defs[2], { bip: true, fmt: sgn }) + K(11, y, "PHAS", vals[3], defs[3], { tip: "Start phase" }) +
+			K(12, y, "DEP", vals[4], defs[4], { bip: true, fmt: sgn, lfo: n === 1 });
+		s += cell("field" + (open ? " open" : ""), box(13, 2, y + 80, 24), destTxt.split(",")[0], `tabindex="0" data-p="t1_lfo${n}Dest" title="Any parameter of the track, LFO ${3 - n} included"`) +
+			cell("", box(13, 2, y + 112, 16), `<span class="hint">${destSub}</span>`);
+		return s + SCR(X(15) - 16, 1296 - X(15) + 16, y, 208, "Wave", "", draw);
+	};
+	h += lfo(408, 1, "TRI", "TRIG", [72, 48, 64, 0, 104], [80, 32, 64, 0, 64], "FREQ, filter", "Filter page, track 01", "lfo1");
+	h += lfo(616, 2, "SIN", "FREE", [60, 32, 64, 32, 40], [80, 32, 64, 0, 64], "DEP, LFO 1", "LFO 1's depth", "lfo2", dest);
+	if(dest) {
+		const rowsM = [["Machine", ["TUNE", "DEC", "HOLD", "SWT", "SWD", "TRAN", "MOD", "FB", "LEV"]], ["Layer", ["LEV", "TUNE", "STRT", "END", "ATK", "HOLD", "DEC"]],
+			["Drives", ["AMT 1", "AMT 2", "AMT 3"]], ["Band", ["LF", "LG", "MF", "MG", "MQ", "HF", "HG"]], ["Filter", ["FREQ", "RESO", "KEY", "DLY", "ATK", "DEC", "SUS", "REL", "DEP"]],
+			["Amp", ["ATK", "HOLD", "DEC", "SUS", "REL"]], ["Sends", ["DEL", "REV", "CHO", "PHA", "PAN", "LEV"]], ["LFO 1", ["SPD", "MULT", "FADE", "PHAS", "DEP"]]];
+		const grid = rowsM.map(([l, ps]) => `<span class="label">${l}</span>` + ps.map(p => `<span class="mc${l === "LFO 1" && p === "DEP" ? " on" : ""}" tabindex="0">${p}</span>`).join("") + "<span></span>".repeat(10 - ps.length)).join("");
+		h += `<div class="pop" style="${raw(240, 1040, 296, 392)}"><div class="ph"><span class="btitle" style="font-size:22px">LFO 2 modulates</span><span class="meta">any parameter of track 01, LFO 1 included</span><span class="done" tabindex="0">Done</span></div>
+			<div class="mgrid">${grid}</div></div>`;
+	}
+	return h;
+}
+
+// Machine browser: over the pages (x 240-1296, y 200-824)
+function browser() {
+	let h = `<div class="bg surface" style="${raw(240, 1056, 200, 624)}"></div>`;
+	h += cell("", box(4, 9, 224, 24), `<span class="btitle">Choose a machine</span><span class="meta">for track 01, Kick</span>`) +
+		cell("bact", box(13, 4, 224, 24), `<span tabindex="0">Cancel</span><span class="keep" tabindex="0">Keep</span>`);
+	const cells = (c, y, list, cols, cur, cls = "", rowH = 32) => list.map((m, i) => cell("mach " + cls + (m === cur ? " cur" : ""), box(c + (i % cols), 1, y + rowH * Math.floor(i / cols), 24), m, `tabindex="0"`)).join("");
+	// Row 1: the newer machines, each origin with its firmware state
+	let y = 264;
+	h += cell("ohead", box(4, 3, y, 16), `Syntakt <span>12 digital, OS 1.41</span>${FW}`);
+	h += cells(4, y + 32, ["BD MODERN", "SD BASIC", "CY ALLOY", "PC CARBON", "SY TONE", "SY CHORD", "SD VINTAGE", "CP VINTAGE", "SY TOY", "SY BITS", "SY SWARM", "SP TWINSHOT"].map(s => s), 3, "BD MODERN", "sm");
+	h += cell("ohead", box(7, 2, y, 16), `Model:Cycles${FW}`) + cells(7, y + 32, ["KICK", "SNARE", "METAL", "PERC", "TONE", "CHORD"], 2, "", "sm");
+	h += cell("ohead", box(9, 1, y, 16), `Digitone II`) + cell("mach sm miss", box(9, 1, y + 32, 24), "FM DRUM") +
+		`<div class="info" style="${raw(X(9), W(1), y + 64, 64)}">${MISS}<span class="link" style="font-size:12px" tabindex="0">Locate file</span></div>`;
+	h += cell("ohead", box(10, 2, y, 16), `Digitakt II${FW}`) + cells(10, y + 32, ["ONE-SHOT", "WERP", "REPEAT", "SLICE"], 1, "", "sm");
+	h += cell("ohead", box(12, 1, y, 16), `Rytm`) + cell("mach sm", box(12, 1, y + 32, 24), "SAMPLE", `tabindex="0" title="Analog Rytm's sample layer, alone or as a layer"`) +
+		`<div class="info" style="${raw(X(12), W(1), y + 64, 64)}">${FW}<span class="hint">alone or as a layer</span></div>`;
+	// Row 2: the Machinedrum's families, OS 1.63
+	y = 432;
+	h += cell("ohead", box(4, 9, y, 16), `Machinedrum <span>OS 1.63, 7 families and your User Machines</span>${FW}`);
+	const fams = [["TRX", "analog", ["TRX-BD", "TRX-B2", "TRX-SD", "TRX-S2", "TRX-XT", "TRX-XC", "TRX-CP", "TRX-RS", "TRX-CB", "TRX-CH", "TRX-OH", "TRX-CY", "TRX-MA", "TRX-CL"]],
+		["EFM", "FM", ["EFM-BD", "EFM-SD", "EFM-XT", "EFM-CP", "EFM-RS", "EFM-CB", "EFM-HH", "EFM-CY"]],
+		["E12", "samples", ["E12-BD", "E12-SD", "E12-HT", "E12-LT", "E12-CP", "E12-RS", "E12-CB", "E12-CH", "E12-OH", "E12-RC", "E12-CC", "E12-BR", "E12-TA", "E12-TR", "E12-SH", "E12-BC"]],
+		["P-I", "physical", ["PI-BD", "PI-SD", "PI-MT", "PI-ML", "PI-MA", "PI-RS", "PI-RC", "PI-CC", "PI-HH"]],
+		["GND", "generators", ["GND-SN", "GND-NS", "GND-IM", "GND-SW", "GND-PU"]],
+		["ROM", "UW bank", Array.from({ length: 48 }, (_, i) => "ROM-" + two(i + 1))],
+		["USR", "User Machines", ["USR-01", "USR-02", "USR-03"]]];
+	fams.forEach(([f, kind, list], k) => {
+		const c = 4 + k, shown = list.slice(0, 9);
+		h += cell("fam", box(c, 1, y + 24, 16), f) + cell("", box(c, 1, y + 40, 16), `<span class="hint">${kind}</span>`);
+		h += cells(c, y + 64, shown, 1, "", "sm", 28);
+		if(list.length > shown.length) h += cell("", box(c, 1, y + 64 + 28 * 9, 24), `<span class="link" style="font-size:12px" tabindex="0">+${list.length - shown.length} more</span>`);
+	});
+	h += `<div class="info" style="${raw(X(11), W(2), y + 64, 120)}"><span class="hint">USR: X.20's packages from your Library, as in MoDule. ROM: the UW bank of your flash image, ROM-33 to -48 your samples.</span></div>`;
+	// Preview
+	h += SCR(X(13) - 16, 1296 - X(13) + 16, 264, 560, "Preview", `<span class="hint">BD MODERN</span>`, "preview",
+		`<div class="info" style="${raw(16, 288, 392, 140)}"><span class="label">BD MODERN</span><span class="meta">Syntakt digital kick: a swept sine with a transient. Firmware engine, exact.</span>
+		<span class="meta" style="display:flex;gap:8px;align-items:center;margin-top:8px"><i style="width:16px;height:16px;background:var(--ink);display:inline-block"></i>Listen while choosing</span></div>`);
+	return h;
+}
+
+function trackView(cfg, page, overlay) {
+	let h = topBar("track") + trackList(cfg.sel) + headBand(cfg, page) + surface + bandRules;
+	if(overlay === "browser") return h + browser();
+	if(page === "src") h += pageSource();
+	if(page === "chain") h += pageChain(cfg, overlay === "drivemenu");
+	if(page === "mod") h += pageMod(overlay === "dest");
+	if(overlay === "status") h += statusMenu();
+	return h;
+}
+
+// ---------------------------------------------------------------- Mix
+function mixView() {
+	let h = topBar("mix");
+	h += `<div class="bg surface" style="${raw(0, 56, 56, 572)}"></div><div class="bg selbar" style="${raw(0, 56 + 32, 56, 4)}"></div>`;
+	tracks.forEach(([name, mach, org, lev, mute, solo, hit], i) => {
+		const c = i + 1, x = X(c), miss = missing(org);
+		if(i > 0) h += `<div class="vrule" style="${raw(x - 8, 1, 56, 572)}"></div>`;
+		h += cell("sn" + (hit ? " on" : ""), raw(x, 64, 72, 16), `${two(c)}<span class="hl${hit ? " on" : ""}" style="width:8px;height:8px;display:inline-block"></span>`) +
+			cell("tname", raw(x, 64, 88, 16), name) + cell("sm" + (miss ? " tmach miss" : ""), raw(x, 64, 104, 16), mach.length > 9 ? mach.slice(0, 9) : mach);
+		const sends = [["DEL", [40, 10, 30, 0, 20, 0, 12, 18, 30, 50, 0, 20, 60, 0, 40, 30][i]], ["REV", [24, 30, 50, 20, 40, 60, 20, 30, 10, 70, 0, 10, 80, 20, 60, 40][i]],
+			["CHO", [0, 0, 20, 0, 0, 30, 0, 0, 0, 60, 0, 0, 40, 0, 50, 0][i]], ["PHA", [12, 0, 0, 30, 0, 0, 0, 0, 0, 0, 0, 40, 0, 0, 70, 0][i]]];
+		sends.forEach(([n, v], k) => {
+			const sx = x + (k % 2) * 36, sy = 128 + 52 * Math.floor(k / 2);
+			h += cell("knob", raw(sx, 28, sy, 28), knobSvg(28, v, 0), `tabindex="0" title="${n}, track ${two(c)}"`) + cell("c", raw(sx, 28, sy + 32, 16), `<span class="label code" style="letter-spacing:0">${n}</span>`);
+		});
+		const pan = [64, 60, 70, 50, 76, 40, 88, 64, 54, 64, 64, 64, 72, 58, 64, 64][i];
+		h += cell("knob", raw(x, 28, 232, 28), knobSvg(28, pan, 64, true), `tabindex="0" title="PAN, track ${two(c)}"`) +
+			cell("", raw(x + 36, 28, 238, 16), `<span class="value" style="font-size:12px">${pan === 64 ? "C" : pan < 64 ? "L" + (64 - pan) : "R" + (pan - 64)}</span>`);
+		const top = 276, hh = 240, fy = top + hh - Math.round(hh * lev / 127);
+		const peak = hit ? 0.35 + (i % 4) * 0.1 : 0.05;
+		h += `<div class="vu" style="position:absolute;${raw(x, 4, top, hh)}"><b style="height:${Math.round(peak * 100)}%"></b></div>` +
+			`<div class="fader" style="position:absolute;${raw(x, 64, top, hh)}" tabindex="0" title="Level, track ${two(c)}"><div class="rail"></div><div class="capf" style="top:${fy - top - 4}px"></div></div>` +
+			cell("c value", raw(x, 64, 524, 16), lev) +
+			cell("toggle mute" + (mute ? " on" : ""), raw(x + 4, 24, 548, 24), "M", `tabindex="0"`) + cell("toggle solo" + (solo ? " on" : ""), raw(x + 36, 24, 548, 24), "S", `tabindex="0"`) +
+			cell("outf" + (i === 11 ? " on" : ""), raw(x + 4, 56, 588, 24), i === 11 ? "Out 03" : "Main", `tabindex="0" title="Main, or Out 01-15; the wheel steps them"`);
+	});
+	h += `<div class="rule" style="${raw(0, 1296, 627, 1)}"></div>`;
+	const y = 628, K2 = (c, name, v, def, o = {}) =>
+		cell("knob", box(c, 1, y + 68, 64), knobSvg(64, v, def, o.bip), `tabindex="0"`) + cell("kl", box(c, 1, y + 140, 16), `<span class="label code">${name}</span>`) +
+		cell("kv" + (v !== def ? " edited" : ""), box(c, 1, y + 156, 16), `<span class="value">${o.fmt ? o.fmt(v) : v}</span>`);
+	h += cell("", box(1, 6, y + 16, 24), `<span class="btitle">MASTER</span><span class="meta">After the FX returns, on Main</span>`);
+	h += cell("grp", box(1, 8, y + 48, 16), `Compressor <span class="hint" style="font-weight:500">Digitakt II</span>${FW}`) + cell("grp", box(9, 2, y + 48, 16), `Overdrive${FW}`) + cell("grp", box(12, 5, y + 48, 16), "Main");
+	h += K2(1, "THR", 90, 127) + K2(2, "ATK", 20, 20) + K2(3, "REL", 50, 40) + K2(4, "MUG", 12, 0) + K2(5, "RAT", 64, 32, { fmt: () => "4:1" }) +
+		K2(6, "SCS", 0, 0, { fmt: () => "Main" }) + K2(7, "SCF", 30, 0) + K2(8, "MIX", 127, 127) + K2(9, "DRV", 24, 0) + K2(10, "LEV", 110, 100);
+	h += cell("", box(12, 1, y + 72, 16), `<span class="label">L</span>`) + `<div class="hbar" style="position:absolute;${raw(X(12) + 24, W(5) - 24, y + 78, 4)}"><b style="width:66%"></b></div>` +
+		cell("", box(12, 1, y + 96, 16), `<span class="label">R</span>`) + `<div class="hbar" style="position:absolute;${raw(X(12) + 24, W(5) - 24, y + 102, 4)}"><b style="width:62%"></b></div>` +
+		cell("", box(12, 1, y + 120, 16), `<span class="label">GR</span>`) + `<div class="hbar gr" style="position:absolute;${raw(X(12) + 24, W(5) - 24, y + 126, 4)}"><b style="width:14%"></b></div>` +
+		cell("", box(12, 5, y + 148, 16), `<span class="hint">Peak -6.2 dBFS, gain reduction 2.4 dB</span>`);
+	return h;
+}
+
+// ---------------------------------------------------------------- FX
+function fxView() {
+	let h = topBar("fx");
+	const fx = (c, y, title, feed, flavour, groups, knobs) => {
+		let s = cell("", box(c, 8, y + 24, 24), `<span class="btitle">${title}</span><span class="meta">${feed}</span>`);
+		s += cell("", box(c, 8, y + 60, 24), flavour);
+		let k = c;
+		groups.forEach(([g, n, b]) => { s += cell("grp", box(k, n, y + 116, 16), g + (b || "")); k += n; });
+		knobs.forEach(([name, v, def, o = {}], i) => {
+			const kc = c + i;
+			s += o.toggle ? cell("toggle solo" + (v ? " on" : ""), raw(X(kc) + 8, 48, y + 160, 24), name, `tabindex="0" role="switch"`) :
+				cell("knob", box(kc, 1, y + 140, 64), knobSvg(64, v, def, o.bip), `tabindex="0"`);
+			s += cell("kl", box(kc, 1, y + 212, 16), `<span class="label code">${o.toggle ? "PING" : name}</span>`) +
+				cell("kv" + (v !== def ? " edited" : ""), box(kc, 1, y + 228, 16), `<span class="value">${o.fmt ? o.fmt(v) : (o.toggle ? (v ? "On" : "Off") : v)}</span>`);
+		});
+		return s;
+	};
+	const flav = (on, opts) => `<span class="label">Flavour</span><div class="chips" style="grid-template-columns:repeat(${opts.length},auto)">${opts.map(o => `<span class="chip wide${o === on ? " on" : ""}" style="padding:0 12px" tabindex="0">${o}${o === "Ours" ? ADD : FW}</span>`).join("")}</div>`;
+	const div = ["1/64", "1/32", "1/16", "1/8", "3/16", "1/4", "3/8", "1/2"];
+	h += fx(1, 56, "DELAY", "fed by the tracks' DEL", flav("Syntakt", ["Syntakt", "Digitakt II"]), [["Delay", 4], ["Filter", 2], ["Output", 1]],
+		[["TIME", 64, 64, { fmt: v => div[v >> 4] }], ["PING", 1, 0, { toggle: true }], ["WID", 100, 127], ["FDBK", 56, 40], ["HPF", 10, 0], ["LPF", 100, 127], ["MIX", 110, 100]]);
+	h += fx(9, 56, "REVERB", "fed by the tracks' REV", flav("Digitakt II", ["Syntakt", "Digitakt II"]), [["Reverb", 2], ["Shelf", 2], ["Filter", 2], ["Output", 1]],
+		[["PRE", 8, 0], ["DEC", 90, 64], ["SHF", 80, 64], ["SHG", 50, 64, { bip: true, fmt: sgn }], ["HPF", 20, 0], ["LPF", 96, 127], ["MIX", 100, 100]]);
+	h += `<div class="rule" style="${raw(0, 1296, 327, 1)}"></div>`;
+	h += fx(1, 328, "CHORUS", "fed by the tracks' CHO", `<span class="label">Engine</span><span class="meta">Syntakt chorus</span>${FW}`, [["Chorus", 2], ["Tone", 2], ["Feeds", 2], ["Output", 1]],
+		[["DEP", 60, 64], ["SPD", 30, 20], ["HPF", 0, 0], ["WID", 127, 127], ["DEL", 0, 0], ["REV", 20, 0], ["MIX", 100, 100]]);
+	h += fx(9, 328, "PHASER / FLANGER", "fed by the tracks' PHA", `<span class="label">Mode</span><div class="chips" style="grid-template-columns:auto auto"><span class="chip on" style="padding:0 12px">PHASER</span><span class="chip" style="padding:0 12px">FLANGER</span></div>${ADD}<span class="hint">ours: no Elektron box has one</span>`,
+		[["Motion", 2, ADD], ["Tone", 3], ["Stereo", 1], ["Output", 1]],
+		[["RATE", 40, 32], ["DEP", 80, 64], ["FDBK", 70, 64, { bip: true, fmt: sgn }], ["FREQ", 60, 64], ["STAG", 32, 32, { fmt: v => (2 + (v >> 5) * 2) + " st" }], ["SPRD", 90, 64], ["MIX", 100, 100]]);
+	h += `<div class="rule" style="${raw(0, 1296, 599, 1)}"></div>`;
+	h += cell("", box(1, 3, 628, 24), `<span class="btitle">Sends</span>`) + cell("", box(4, 13, 628, 24), `<span class="meta">Every track's DEL, REV, CHO and PHA; a track on its own Out sends too</span>`);
+	tracks.forEach(([name], i) => {
+		const x = X(i + 1);
+		h += cell("sn", raw(x, 64, 664, 16), `${two(i + 1)} <span class="tname" style="font-size:12px;color:var(--ink-dim)">${name}</span>`);
+		[["DEL", 40], ["REV", 24], ["CHO", i % 3 ? 0 : 20], ["PHA", i % 4 ? 0 : 30]].forEach(([n, v], k) => {
+			const sx = x + (k % 2) * 36, sy = 688 + 64 * Math.floor(k / 2);
+			h += cell("knob", raw(sx, 28, sy, 28), knobSvg(28, (v + i * 7) % 90, 0), `tabindex="0"`) + cell("c", raw(sx, 28, sy + 32, 16), `<span class="label code" style="letter-spacing:0">${n}</span>`);
+		});
+	});
+	return h;
+}
+
+// ---------------------------------------------------------------- Kits overlay
+function kitsView() {
+	let h = topBar("track");
+	h += cell("kitbar", raw(16, 168, 80, 24), `<span class="label">Kit</span><span class="label num">03</span>Night shift &#9652;`) + cell("kitsave", raw(192, 40, 80, 24), "Save");
+	h += cell("", box(1, 8, 124, 24), `<span class="btitle">Kits</span><span class="meta">64 slots, kept by the plug-in, shared by every set</span>`) +
+		cell("bact", box(12, 5, 124, 24), `<span tabindex="0">Import</span><span tabindex="0">Export</span><span class="keep" tabindex="0">Done</span>`) +
+		`<div class="rule" style="${raw(0, 1296, 175, 1)}"></div>`;
+	const names = ["Dub techno", "Broken 140", "Night shift", "Rytm tools", "Cycles jam", "Electro", "Machinedrum UW", "Syntakt kit", "Half time", "Minimal", "Industrial", "Garage", "Breaks", "Tape kit"];
+	for(let i = 0; i < 64; i++) {
+		const col = Math.floor(i / 16), row = i % 16, x = X(1 + 3 * col), y = 184 + 40 * row, nm = names[i];
+		if(i === 2) h += `<div class="bg surface" style="${raw(x - 16, 240, y - 8, 40)}"></div><div class="bg selbar" style="${raw(x - 16, 4, y, 24)}"></div>`;
+		h += cell("slotk" + (i === 2 ? " on" : "") + (nm ? "" : " empty"), raw(x, 224, y, 24), `<span class="num">${two(i + 1)}</span>${nm || "Empty"}`, `tabindex="0"`);
+	}
+	h += `<div class="vrule" style="${raw(968, 1, 176, 648)}"></div>`;
+	h += cell("", raw(976, 304, 184, 24), `<span class="label">Slot 03, playing</span>`) + cell("", raw(976, 304, 208, 32), `<span class="btitle" style="letter-spacing:0">Night shift</span>`) +
+		cell("grp", raw(976, 304, 256, 16), "Tracks");
+	tracks.forEach(([, mach], i) => { h += cell("slotk", raw(976 + (i >= 8 ? 160 : 0), 144, 280 + 24 * (i % 8), 24), `<span class="num">${two(i + 1)}</span><span style="font-size:12px;letter-spacing:.5px">${mach}</span>`); });
+	h += `<div class="info" style="${raw(976, 304, 480, 56)}"><span class="hint">A kit keeps the 16 machines, their layers (the samples by name), chains, LFOs, sends and the FX. Not mutes, solos, outputs.</span></div>`;
+	h += cell("kact", raw(976, 304, 552, 24), `<span class="load" tabindex="0">Load</span><span tabindex="0">Save here</span><span tabindex="0">Rename</span><span tabindex="0">Delete</span>`) +
+		cell("", raw(976, 304, 584, 16), `<span class="hint">Saved 2 minutes ago</span>`);
+	return h;
+}
+
+// ---------------------------------------------------------------- Sample library overlay
+function libView() {
+	let h = topBar("track");
+	h += cell("", box(1, 8, 80, 24), `<span class="btitle">Samples</span><span class="meta">142 in the library, shared by every set</span>`) +
+		cell("bact", box(12, 5, 80, 24), `<span class="keep" tabindex="0">Done</span>`) + `<div class="rule" style="${raw(0, 1296, 127, 1)}"></div>`;
+	const folders = [["All", 142], ["Imported", 38], ["Used by this kit", 3], ["Recent", 12], ["Machinedrum ROM", 32], ["Rytm factory", 0]];
+	folders.forEach(([f, n], i) => {
+		const y = 144 + 40 * i;
+		if(i === 0) h += `<div class="bg surface" style="${raw(0, 240, y - 8, 40)}"></div><div class="bg selbar" style="${raw(0, 4, y, 24)}"></div>`;
+		h += cell("slotk" + (i === 0 ? " on" : ""), raw(16, 224, y, 24), `${f}<span class="hint" style="margin-left:auto">${n || "no firmware"}</span>`, `tabindex="0"`);
+	});
+	h += cell("btn", box(1, 3, 424, 32), "Import WAV, AIFF, FLAC...", `tabindex="0"`) +
+		cell("drop", box(1, 3, 472, 96), "or drop files on the window", ``);
+	const cols = [[4, 4, "Name"], [8, 1, "Length"], [9, 1, "Rate"], [10, 1, "Ch"], [11, 1, "Format"]];
+	h += cols.map(([c, n, t]) => cell("th", box(c, n, 144, 16), t)).join("") + cell("th", raw(X(12), 64, 144, 16), "Used by");
+	const files = [["kick_sub.wav", "0.42 s", "48k", "1", "WAV", "T01"], ["amen_170.wav", "1.41 s", "44.1k", "2", "WAV", "T12"], ["vox_chop_03.aif", "0.88 s", "48k", "1", "AIFF", "T13"],
+		["clap_room.flac", "0.61 s", "96k", "2", "FLAC", ""], ["rim_dry.wav", "0.12 s", "44.1k", "1", "WAV", ""], ["hat_tape.wav", "0.20 s", "48k", "1", "WAV", ""],
+		["tom_low.aif", "0.95 s", "44.1k", "1", "AIFF", ""], ["noise_burst.flac", "0.33 s", "48k", "2", "FLAC", ""], ["sub_808ish.wav", "1.80 s", "48k", "1", "WAV", ""],
+		["shaker_loop.wav", "0.75 s", "44.1k", "2", "WAV", ""], ["snare_body.aif", "0.38 s", "48k", "1", "AIFF", ""], ["perc_click.wav", "0.05 s", "48k", "1", "WAV", ""],
+		["ride_bell.flac", "2.20 s", "48k", "2", "FLAC", ""], ["glitch_07.wav", "0.27 s", "44.1k", "1", "WAV", ""], ["choir_hit.wav", "1.10 s", "48k", "2", "WAV", ""],
+		["cow_tuned.wav", "0.30 s", "48k", "1", "WAV", ""], ["kick_click.wav", "0.08 s", "48k", "1", "WAV", ""]];
+	files.forEach((f, i) => {
+		const y = 176 + 36 * i;
+		if(i === 0) h += `<div class="bg surface" style="${raw(X(4) - 8, W(9) + 16, y - 6, 36)}"></div>`;
+		h += cell("tr" + (i === 0 ? " on" : ""), box(4, 4, y, 24), f[0], `tabindex="0"`) + cell("tr num", box(8, 1, y, 24), f[1]) + cell("tr num", box(9, 1, y, 24), f[2]) +
+			cell("tr num", box(10, 1, y, 24), f[3]) + cell("tr", box(11, 1, y, 24), f[4]) + cell("tr", raw(X(12), 64, y, 24), f[5] ? `<span class="label">${f[5]}</span>` : "");
+	});
+	h += SCR(X(13) - 16, 1296 - X(13) + 16, 128, 696, "kick_sub.wav", `<span class="hint">0.42 s</span>`, "libwave",
+		`<div class="info" style="${raw(16, 288, 240, 300)}"><span class="meta">48 kHz, mono, 24-bit WAV; kept in the library as imported, played by the TWINSHOT player.</span>
+		<span class="meta" style="display:flex;gap:8px;align-items:center;margin-top:8px"><i style="width:16px;height:16px;background:var(--ink);display:inline-block"></i>Listen on click</span>
+		<span class="label" style="margin-top:16px">Assign to</span>
+		<span class="field cell" style="position:relative;height:24px">Layer of track 01, Kick</span>
+		<span class="cell btn pri" style="position:relative;height:32px;margin-top:8px">Assign</span>
+		<span class="hint" style="margin-top:8px">Or drag the row onto a track in the list.</span></div>`);
+	return h;
+}
+
+// ---------------------------------------------------------------- Status menu: firmware, quality, CPU, version
+function statusMenu() {
+	const rows = [["ok", "Syntakt", "OS 1.41: 12 digital machines, filters, drives, FX", "found"], ["ok", "Machinedrum", "OS 1.63 flash image: 7 families, UW bank", "found"],
+		["ok", "Model:Cycles", "OS 1.x: 6 machines", "found"], ["ok", "Digitakt II", "OS 1.x: 4 sampler engines, filters, FX", "found"], ["ok", "Analog Rytm", "MKII OS: sample layer", "found"],
+		["miss", "Digitone II", "No file: FM DRUM unavailable", "Locate..."]];
+	const cpu = [["Syntakt (8 tracks)", 3.1], ["Machinedrum (4)", 1.2], ["Digitakt II (2)", 0.9], ["Resampling", 0.8], ["FX and mix", 1.0]];
+	return `<div class="pop" style="${raw(X(7), 544, 56, 600)}">
+		<div class="ph"><span class="btitle" style="font-size:22px">Firmware</span><span class="meta">from your own files, never shipped</span></div>
+		${rows.map(([s, n, d, a]) => `<div class="fwrow"><span class="dot${s === "ok" ? " ok" : ""}"></span><b>${n}</b><span class="hint">${d}</span>${s === "ok" ? `<span class="hint">${a}</span>` : `<span class="link" style="font-size:14px">${a}</span>`}</div>`).join("")}
+		<span class="hint">Files are read from Documents/.../roms; a family whose file is missing stays grey in the browser and its tracks play silence.</span>
+		<div class="cell grp" style="position:relative;margin-top:16px;height:16px">Quality</div>
+		<span class="meta">Each engine runs at its own rate: Syntakt, Model:Cycles, Digitakt II at 48 kHz; Machinedrum at 44.1 kHz. Host at 44.1 kHz: the 48 kHz engines are resampled.</span>
+		<div class="chips" style="grid-template-columns:auto auto auto;justify-content:start;margin-top:4px"><span class="label" style="align-self:center;margin-right:8px">Resampler</span><span class="chip wide on" style="padding:0 12px">Short polyphase</span><span class="chip wide" style="padding:0 12px">High</span></div>
+		<div class="cell grp" style="position:relative;margin-top:16px;height:16px">CPU, 7% of a core</div>
+		${cpu.map(([n, v]) => `<div class="fwrow" style="grid-template-columns:160px 1fr 48px;height:20px"><span class="hint">${n}</span><span class="hbar" style="position:relative;height:4px"><b style="width:${v / 7 * 100}%"></b></span><span class="hint num" style="text-align:right">${v.toFixed(1)}%</span></div>`).join("")}
+		<div class="cell" style="position:relative;margin-top:12px;height:24px"><span class="meta">Version 0.1.0</span><span class="link" style="font-size:14px">Check for updates</span></div></div>`;
+}
+
+// ---------------------------------------------------------------- canvases
+const COL = { ink: "#f2f2f2", dim: "#a7aaaf", faint: "#8e9197", track: "#6e7177", accent: "#6fd1c4", tick: "#3c3e43" };
+function seeded(s) { return () => (s = (s * 16807) % 2147483647) / 2147483647; }
+function draw(cv) {
+	const w = +cv.dataset.w, h = +cv.dataset.h, k = cv.dataset.draw;
+	cv.width = w * 2; cv.height = h * 2;
+	const g = cv.getContext("2d"); g.scale(2, 2);
+	const px = 16, pw = w - 32, top = 48, ph = h - 48 - 36, mid = top + ph / 2;
+	g.font = "12px Inter, sans-serif"; g.fillStyle = COL.faint;
+	// Axis words centred on their tick, kept inside the plot's 16 px margins.
+	const ticks = (labels) => labels.forEach(([f, t]) => { const x = px + f * pw, tw = g.measureText(t).width; g.fillStyle = COL.tick; g.fillRect(x, top + ph + 4, 1, 4); g.fillStyle = COL.faint; g.fillText(t, Math.min(px + pw - tw, Math.max(px, x - tw / 2)), h - 16); });
+	const wave = (f, color, alpha = 1, dur = 1) => {
+		g.globalAlpha = alpha; g.fillStyle = color;
+		for(let i = 0; i < pw; i += 2) {
+			let lo = 0, hi = 0;
+			for(let s = 0; s < 6; s++) { const v = f((i + s / 3) / pw * dur); lo = Math.min(lo, v); hi = Math.max(hi, v); }
+			g.fillRect(px + i, mid - hi * ph / 2, 1.5, Math.max(1, (hi - lo) * ph / 2));
+		}
+		g.globalAlpha = 1;
+	};
+	const line = (pts, color, width = 2, fill) => {
+		g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y));
+		g.strokeStyle = color; g.lineWidth = width; g.stroke();
+		if(fill) { g.lineTo(pts[pts.length - 1][0], top + ph); g.lineTo(pts[0][0], top + ph); g.closePath(); g.globalAlpha = .12; g.fillStyle = color; g.fill(); g.globalAlpha = 1; }
+	};
+	const r = seeded(11);
+	const bd = t => { const T = t * 0.4; const ph2 = 2 * Math.PI * (50 * T + 110 * 0.03 * (1 - Math.exp(-T / 0.03))); return Math.exp(-T / 0.11) * Math.sin(ph2) * 0.9 + (T < 0.004 ? (r() - .5) * 0.6 : 0); };
+	const sub = t => { const T = t * 0.4 - 0.004; return T < 0 ? 0 : Math.min(1, T / 0.002) * Math.exp(-T / 0.16) * Math.sin(2 * Math.PI * 43 * T) * 0.6; };
+	if(k === "hit" || k === "preview") {
+		g.fillStyle = COL.tick; g.fillRect(px, mid, pw, 1);
+		wave(bd, COL.dim, .9);
+		if(k === "hit") wave(sub, COL.accent, .55);
+		const env = []; for(let i = 0; i <= 60; i++) { const t = i / 60; env.push([px + t * pw, mid - Math.exp(-t * 0.4 / 0.12) * ph / 2 * 0.95]); }
+		if(k === "hit") line(env, COL.accent, 2);
+		ticks([[0, "0"], [0.25, "100 ms"], [0.5, "200 ms"], [0.75, "300 ms"], [1, "400 ms"]]);
+	}
+	if(k === "sample" || k === "libwave") {
+		const end = k === "sample" ? 74 / 127 : 1;
+		g.fillStyle = COL.tick; g.fillRect(px, mid, pw, 1);
+		wave(t => (t > end ? 0.35 : 1) * sub(t * 1.05 + 0.01) / 0.6, k === "sample" ? COL.ink : COL.dim, 1);
+		if(k === "sample") {
+			g.globalAlpha = .55; g.fillStyle = COL.display || "#151618"; g.fillRect(px + end * pw, top, pw * (1 - end), ph); g.globalAlpha = 1;
+			g.fillStyle = COL.accent; g.fillRect(px, top, 1, ph); g.fillRect(px + end * pw, top, 1, ph);
+			g.fillStyle = COL.faint; g.fillText("STRT", px + 4, top + 12); g.fillText("END", px + end * pw + 4, top + 12);
+			const env = [[px, top + ph], [px + 1, top + 4], [px + pw * 0.06, top + 4]]; for(let i = 1; i <= 30; i++) { const t = i / 30; env.push([px + pw * (0.06 + t * 0.6), top + 4 + (ph - 4) * (1 - Math.exp(-t * 3)) ]); }
+			line(env, COL.accent, 2);
+		}
+		ticks([[0, "0"], [0.5, "0.21 s"], [1, "0.42 s"]]);
+	}
+	if(k === "filter" || k === "filter4") {
+		const fx = f => px + Math.log(f / 20) / Math.log(1000) * pw, dbY = d => top + (12 - d) / 36 * ph;
+		g.fillStyle = COL.tick; g.fillRect(px, dbY(0), pw, 1); g.fillStyle = COL.faint; g.fillText("0 dB", px, dbY(0) - 4);
+		const fc = k === "filter" ? 20 * Math.pow(1000, 74 / 127) : 20 * Math.pow(1000, 88 / 127), q = k === "filter" ? 2.2 : 1.2, ord = k === "filter" ? 2 : 4;
+		const pts = []; for(let i = 0; i <= 80; i++) { const f = 20 * Math.pow(1000, i / 80), x = f / fc; const m = 1 / Math.sqrt(Math.pow(1 - x * x, 2) + Math.pow(x / q, 2)); pts.push([fx(f), dbY(Math.max(-24, 20 * Math.log10(m) * ord / 2))]); }
+		line(pts, COL.accent, 2);
+		ticks([[Math.log(5) / Math.log(1000), "100"], [Math.log(50) / Math.log(1000), "1k"], [Math.log(500) / Math.log(1000), "10k"]]);
+	}
+	if(k === "ahd" || k === "adsr") {
+		const pts = k === "ahd" ? [[0, 1], [0.01, 0], [0.06, 0], [0.6, 1], [1, 1]] : [[0, 1], [0.03, 0], [0.08, 0], [0.3, 0.3], [0.7, 0.3], [0.9, 1], [1, 1]];
+		line(pts.map(([x, y]) => [px + x * pw, top + y * ph]), COL.accent, 2, true);
+		ticks([[0, "0"], [0.5, "250 ms"], [1, "500 ms"]]);
+	}
+	if(k === "lfo1" || k === "lfo2") {
+		const tri = p => 1 - 4 * Math.abs(((p + .25) % 1) - .5), sin = p => Math.sin(2 * Math.PI * p);
+		const f = k === "lfo1" ? tri : sin, amp = k === "lfo1" ? 0.8 : 0.4;
+		g.fillStyle = COL.tick; g.fillRect(px, mid, pw, 1);
+		const pts = []; for(let i = 0; i <= 120; i++) { const t = i / 120; pts.push([px + t * pw, mid - f(t * 2) * amp * ph / 2]); }
+		line(pts, COL.accent, 2);
+		ticks([[0, "0"], [1, "2 bars"]]);
+	}
+}
+
+// ---------------------------------------------------------------- mount
+const mount = (id, html) => { const f = document.getElementById(id); f.innerHTML = `<div class="ui">${html}</div>`; f.querySelectorAll("canvas[data-draw]").forEach(draw); return f; };
+let mainPage = "src";
+function renderMain() {
+	const f = mount("main", trackView(CFG.t1, mainPage));
+	f.querySelectorAll("[data-page]").forEach(e => e.addEventListener("click", () => { mainPage = e.dataset.page; renderMain(); }));
+}
+renderMain();
+mount("chain1", trackView(CFG.t1, "chain", "drivemenu"));
+mount("chain12", trackView(CFG.t12, "chain"));
+mount("mod", trackView(CFG.t1, "mod"));
+mount("dest", trackView(CFG.t1, "mod", "dest"));
+mount("browser", trackView(CFG.t1, "src", "browser"));
+mount("mix", mixView());
+mount("fx", fxView());
+mount("kits", kitsView());
+mount("lib", libView());
+mount("status", trackView(CFG.t1, "src", "status"));
+</script>
+</body>
+</html>

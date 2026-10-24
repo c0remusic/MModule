@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drums fidelity variants</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,600;0,700;1,800&family=Barlow+Semi+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0e0f10;--win:#1f2124;--box:#2c2f33;--boxhd:#3a3e43;--well:#1b1d20;--tx:#dcdfe3;--mut:#8d939b;--t:#39b5c8;--s:#e2876f;--y:#e8c25a}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font-family:'Barlow Semi Condensed',sans-serif;font-size:13px;padding:16px 0;display:flex;flex-direction:column;align-items:center;gap:16px}
+h1{width:1600px;font-size:18px;font-weight:600;color:#cfd3d8;padding:0 8px}
+h1 small{font-size:13px;color:var(--mut);font-weight:500;margin-left:8px}
+.row{width:1600px;background:var(--win);box-shadow:0 0 0 1px #000}
+.lab{height:32px;display:flex;align-items:center;gap:12px;padding:0 12px;background:#26292d;border-bottom:1px solid #000;font-size:14px;font-weight:700;letter-spacing:.3px}
+.lab span{font-weight:500;color:var(--mut);font-size:13px;letter-spacing:0}
+.lab .warn{margin-left:auto;padding:2px 8px;background:var(--y);color:#2a2410;font-weight:700;font-size:12px;border-radius:2px}
+.ex{display:grid;grid-template-columns:5fr 3fr 3fr;gap:8px;padding:8px;height:336px}
+.box{background:var(--box);border:1px solid #3a3d42;display:flex;flex-direction:column;min-width:0}
+.hd{height:28px;flex:none;background:var(--boxhd);display:flex;align-items:center;padding:0 10px;font-size:15px;font-weight:700;color:#d4d7db;gap:6px}
+.hd small{font-weight:500;color:var(--mut);font-size:13px}
+.hd .tabs{margin-left:auto;display:flex;gap:2px}
+.hd .tabs b{padding:0 10px;font-size:13px;font-weight:600;color:#c0c4c9;line-height:28px}
+.hd .tabs b.on{background:#2f3337;color:var(--acc)}
+.bd{flex:1;padding:8px;display:flex;gap:12px;min-height:0}
+.mg{width:200px;display:grid;grid-template-columns:1fr 1fr;gap:3px;align-content:start}
+.mg b{height:38px;display:flex;align-items:center;justify-content:center;background:#34383d;font-size:12px;font-weight:700;color:#d8dbdf}
+.mg b.on{background:#262a2e;color:var(--t);box-shadow:inset 0 0 0 1px #3a6e78}
+.kn{flex:1;display:grid;grid-template-columns:repeat(4,1fr);align-content:space-around;justify-items:center}
+.k{display:flex;flex-direction:column;align-items:center;gap:4px;width:92px}
+.k .l{font-size:12px;color:#cdd1d6;white-space:nowrap}
+.k .v{font-size:12px;color:#e8eaed}
+.col{flex-direction:column}
+.g{flex:1 1 0;height:0;min-height:0;width:100%;display:block;background:var(--well)}
+.ft{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;flex:none}
+.ft b{height:22px;display:flex;align-items:center;justify-content:center;background:#3c2e2a;color:#e6a593;font-size:11px;font-weight:700}
+.ft b.on{background:var(--s);color:#2b1a15}
+.ft b.dt{background:#33302e}
+.kr{display:flex;justify-content:space-around;flex:none}
+.sh{display:flex;gap:1px;flex:none}
+.sh b{flex:1;height:22px;background:#3a3423;display:flex;align-items:center;justify-content:center}
+.sh b.on{background:var(--y)}
+.sh svg{width:20px;height:14px}
+
+/* ---------- (b) TEXTURED: grain, gradients, soft bevels; light from top-left ---------- */
+.tex .ex{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .06 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),linear-gradient(160deg,#25282c,#1b1d20)}
+.tex .box{background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),linear-gradient(165deg,#34383d,#272a2e);border:0;border-radius:4px;
+	box-shadow:inset 1px 1px 0 #ffffff1a,inset -1px -1px 0 #0000004d,3px 4px 10px #0007}
+.tex .hd{background:linear-gradient(#444950,#363a3f);border-radius:4px 4px 0 0;box-shadow:inset 0 1px 0 #ffffff1f,0 1px 0 #0006}
+.tex .mg b,.tex .ft b,.tex .sh b{border-radius:2px;box-shadow:inset 1px 1px 0 #ffffff14,inset -1px -1px 0 #00000040}
+.tex .mg b{background:linear-gradient(#3b3f45,#2f3237)}
+.tex .mg b.on{background:linear-gradient(#22262a,#2a2e33);box-shadow:inset 1px 1px 3px #0009,inset 0 0 0 1px #3a6e78}
+.tex .g{border-radius:3px;box-shadow:inset 2px 2px 5px #000a,inset -1px -1px 0 #ffffff12}
+
+/* ---------- (c) PHOTOREAL approximation: anodised panel, lit metal caps, knurling, cast shadows ---------- */
+.pho .ex{background:repeating-linear-gradient(90deg,#ffffff05 0 1px,transparent 1px 3px),linear-gradient(160deg,#2a2c30,#17181b)}
+.pho .box{border:0;border-radius:3px;background:
+	url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E"),
+	repeating-linear-gradient(0deg,#ffffff04 0 1px,transparent 1px 2px),linear-gradient(160deg,#3a3d42,#2a2c30 60%,#232528);
+	box-shadow:inset 1px 1px 0 #ffffff26,inset -1px -1px 0 #00000080,4px 6px 14px #000b;position:relative}
+.pho .box:before,.pho .box:after{content:'';position:absolute;width:7px;height:7px;border-radius:50%;top:38px;background:radial-gradient(circle at 35% 35%,#c9cdd2,#5d6168 60%,#2a2c2f);box-shadow:1px 1px 2px #000}
+.pho .box:before{left:5px}.pho .box:after{right:5px}
+.pho .hd{background:linear-gradient(#4a4e55,#33363b);border-radius:3px 3px 0 0;box-shadow:inset 0 1px 0 #ffffff2e,0 2px 3px #0008;text-shadow:0 1px 0 #000}
+.pho .mg b{border-radius:3px;background:linear-gradient(170deg,#4a4e55,#2c2f33);box-shadow:inset 1px 1px 0 #ffffff26,inset -1px -1px 0 #0009,2px 3px 4px #0009}
+.pho .mg b.on{background:linear-gradient(170deg,#1f2326,#2b3034);box-shadow:inset 2px 2px 4px #000c,inset 0 0 0 1px #3a6e78,0 0 8px #39b5c844}
+.pho .g{border-radius:4px;box-shadow:inset 3px 3px 8px #000,inset -1px -1px 0 #ffffff1a;background:linear-gradient(160deg,#ffffff0d,transparent 40%),#121416}
+.pho .ft b,.pho .sh b{box-shadow:inset 1px 1px 0 #ffffff1a,inset -1px -1px 0 #0008}
+
+/* photoreal knob: HTML layers, one light from top-left */
+.pk{position:relative;border-radius:50%}
+.pk .ring{position:absolute;inset:0}
+.pk .skirt{position:absolute;inset:14%;border-radius:50%;
+	background:radial-gradient(circle at 30% 25%,#ffffff40,transparent 55%),repeating-conic-gradient(#1c1d20 0 3deg,#55595f 3deg 6deg);
+	box-shadow:3px 5px 7px #000c,1px 2px 2px #000a}
+.pk .cap{position:absolute;inset:24%;border-radius:50%;
+	background:radial-gradient(circle at 32% 28%,#ffffffb0 0,#ffffff00 38%),
+		conic-gradient(from 210deg,#8d939a,#eef0f2 35deg,#9ba1a8 80deg,#d9dce0 150deg,#7c8289 215deg,#c4c8cd 285deg,#8d939a);
+	box-shadow:inset 1px 1px 1px #ffffffc0,inset -2px -2px 3px #0007,0 0 0 1px #1a1b1d}
+/* the highlight stays with the light; only the pointer layer turns */
+.pk .ptr{position:absolute;left:50%;top:6%;width:3px;height:32%;margin-left:-1.5px;background:#1b1c1e;border-radius:2px;box-shadow:1px 1px 0 #ffffff66}
+</style>
+</head>
+<body>
+<h1>Fidelity, three ways <small>MACHINE + FILTER + LFO from v4, same values; only the rendering changes. Key light top-left in (b) and (c).</small></h1>
+
+<div class="row" id="vflat"><div class="lab">(a) FLAT <span>like Overbridge: vector rings, flat panels, one accent per section</span></div><div class="ex"></div></div>
+<div class="row tex" id="vtex"><div class="lab">(b) TEXTURED <span>subtle grain, gradients, soft bevels on panels, knob caps with a gradient</span></div><div class="ex"></div></div>
+<div class="row pho" id="vpho"><div class="lab">(c) PHOTOREAL <span>lit metal caps, knurled skirts, cast shadows, anodised panel, screws</span><span class="warn">Approximation in CSS/SVG. True photoreal = 3D-rendered filmstrips, heavier assets</span></div><div class="ex"></div></div>
+
+<script>
+const MACH=['BD MODERN','SD BASIC','CY ALLOY','PC CARBON','SD VINTAGE','CP VINTAGE','SY TONE','SY CHORD','SY TOY','SY BITS','SY SWARM','SP TWINSHOT'];
+const KN=[['Tune',0,-24,24],['Pitch Sweep',16],['Punch',0,0,1,'OFF'],['Decay',64],['Square Modulation',10],['Triangle Mod+Fdbk',16],['Modulation Env',24],['Overdrive',0]];
+const FT=['LP','HP','EQ1','EQ2','EQ3','EQ4','EQ5','OFF','MULTI','LP4','EQ','COMB-','LEGACY','COMB+'];
+const pol=(cx,cy,r,a)=>[cx+r*Math.sin(a*Math.PI/180),cy-r*Math.cos(a*Math.PI/180)];
+const arc=(cx,cy,r,a0,a1)=>{const [x0,y0]=pol(cx,cy,r,a0),[x1,y1]=pol(cx,cy,r,a1);return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${a1-a0>180?1:0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;};
+
+// one knob, three renderings; the value, the angle and the colour stay the same
+function knob(style,l,v,mn=0,mx=127,txt,c='#39b5c8',sz=48){
+	const a=-135+270*(v-mn)/(mx-mn), a0=mn<0?0:-135, cx=sz/2, r=sz/2-4;
+	const val=Math.abs(a-a0)<0.5?'':(a>a0?arc(cx,cx,r,a0,a):arc(cx,cx,r,a,a0));
+	const t=txt??v;
+	let g;
+	if(style==='flat'){
+		const [x,y]=pol(cx,cx,r,a);
+		g=`<svg width="${sz}" height="${sz}"><circle cx="${cx}" cy="${cx}" r="${r-3.5}" fill="#1c1e21"/><path d="${arc(cx,cx,r,-135,135)}" stroke="#15171a" stroke-width="6" fill="none" stroke-linecap="round"/><path d="${val}" stroke="${c}" stroke-width="6" fill="none" stroke-linecap="round"/><circle cx="${x}" cy="${y}" r="2.6" fill="#f2f4f6"/><text x="${cx}" y="${cx+5}" text-anchor="middle" font-size="16" font-family="Barlow Semi Condensed" font-weight="500" fill="#e8eaed">${t}</text></svg>`;
+		return `<div class="k"><span class="l">${l}</span>${g}</div>`;
+	}
+	if(style==='tex'){
+		const S=sz+8, C=S/2, R=S/2-3, [x1,y1]=pol(C,C,R-9,a), [x2,y2]=pol(C,C,R-17,a), id='g'+Math.random().toString(36).slice(2,7);
+		const v2=Math.abs(a-a0)<0.5?'':(a>a0?arc(C,C,R,a0,a):arc(C,C,R,a,a0));
+		g=`<svg width="${S}" height="${S}"><defs><radialGradient id="${id}" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#5a5f66"/><stop offset=".55" stop-color="#2e3135"/><stop offset="1" stop-color="#1a1c1f"/></radialGradient>
+			<linearGradient id="${id}b" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff40"/><stop offset="1" stop-color="#00000080"/></linearGradient></defs>
+			<path d="${arc(C,C,R,-135,135)}" stroke="#121315" stroke-width="4" fill="none" stroke-linecap="round"/><path d="${v2}" stroke="${c}" stroke-width="4" fill="none" stroke-linecap="round"/>
+			<circle cx="${C+1.5}" cy="${C+2.5}" r="${R-6}" fill="#0008"/><circle cx="${C}" cy="${C}" r="${R-6}" fill="url(#${id})" stroke="url(#${id}b)" stroke-width="1.5"/>
+			<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#f2f4f6" stroke-width="2.4" stroke-linecap="round"/></svg>`;
+		return `<div class="k"><span class="l">${l}</span>${g}<span class="v">${t}</span></div>`;
+	}
+	// photoreal approximation: an LED ring outside, a knurled skirt and a lit metal cap that rotates
+	const S=sz+12, C=S/2, R=S/2-2;
+	const v3=Math.abs(a-a0)<0.5?'':(a>a0?arc(C,C,R,a0,a):arc(C,C,R,a,a0));
+	g=`<div class="pk" style="width:${S}px;height:${S}px"><svg class="ring" width="${S}" height="${S}"><path d="${arc(C,C,R,-135,135)}" stroke="#0b0c0d" stroke-width="3" fill="none"/><path d="${v3}" stroke="${c}" stroke-width="3" fill="none" style="filter:drop-shadow(0 0 3px ${c})"/></svg><div class="skirt"></div><div class="cap"></div><div class="cap" style="background:none;box-shadow:none;transform:rotate(${a}deg)"><div class="ptr"></div></div></div>`;
+	return `<div class="k"><span class="l">${l}</span>${g}<span class="v">${t}</span></div>`;
+}
+function filterCurve(W,H){ const fc=20*Math.pow(1000,78/127), q=0.6+42/127*7; let d='';
+	for(let i=0;i<=W;i+=2){ const f=20*Math.pow(1000,i/W), x=f/fc, den=Math.hypot(1-x*x,x/q), db=Math.max(-40,Math.min(20,20*Math.log10(1/den))); d+=(i?'L':'M')+i+' '+(H*0.38-db*H/60).toFixed(1); }
+	return `<svg class="g" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${d}L${W} ${H}L0 ${H}Z" fill="#e2876f" fill-opacity=".28"/><path d="${d}" stroke="#e2876f" stroke-width="2" fill="none"/></svg>`; }
+function lfoCurve(W,H){ let d=''; for(let x=0;x<=W;x+=2) d+=(x?'L':'M')+x+' '+(H/2-Math.sin((x/W*2+0.11)*2*Math.PI)*0.69*(H/2-8)).toFixed(1);
+	return `<svg class="g" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><rect width="${W}" height="${H}" fill="#3a3320" opacity=".7"/><path d="${d}L${W} ${H/2}L0 ${H/2}Z" fill="#e8c25a" fill-opacity=".25"/><path d="${d}" stroke="#e8c25a" stroke-width="2.2" fill="none"/></svg>`; }
+const shp=['M0 13L10 1L20 13','M0 7Q5 -5 10 7T20 7','M0 12H10V2H20','M0 2L20 12','M0 2Q4 12 20 12','M0 12L20 2','M0 9H5V3H10V11H15V5H20'];
+
+function excerpt(style){
+	const y='#e8c25a', s='#e2876f';
+	return `<div class="box" style="--acc:#39b5c8"><div class="hd">MACHINE <small>BD MODERN &middot; Syntakt digital</small><div class="tabs"><b class="on">Synth</b><b>Sound</b></div></div>
+		<div class="bd"><div class="mg">${MACH.map((m,i)=>`<b class="${i?'':'on'}">${m}</b>`).join('')}</div>
+		<div class="kn">${KN.map(([l,v,mn,mx,t])=>knob(style,l,v,mn??0,mx??127,t)).join('')}</div></div></div>
+	<div class="box" style="--acc:${s}"><div class="hd">FILTER <small>(LP &middot; Syntakt digital)</small></div>
+		<div class="bd col" style="gap:8px"><div class="ft">${FT.map((n,i)=>`<b class="${i===0?'on':''}${i>7?' dt':''}">${n}</b>`).join('')}</div>${filterCurve(420,160)}
+		<div class="kr">${knob(style,'Frequency',78,0,127,null,s)}${knob(style,'Resonance',42,0,127,null,s)}${knob(style,'Env. Depth',12,-64,63,null,s)}</div></div></div>
+	<div class="box" style="--acc:${y}"><div class="hd">LFO<div class="tabs"><b class="on">LFO 1</b><b>LFO 2</b></div></div>
+		<div class="bd col" style="gap:8px"><div class="sh">${shp.map((d,i)=>`<b class="${i===1?'on':''}"><svg viewBox="0 0 20 14"><path d="${d}" stroke="${i===1?'#2a2410':y}" stroke-width="1.6" fill="none"/></svg></b>`).join('')}</div>${lfoCurve(420,150)}
+		<div class="kr">${knob(style,'Speed',48,-64,63,null,y,44)}${knob(style,'Multiplier',1,0,11,'×2',y,36)}${knob(style,'Fade In/Out',0,-64,63,null,y,36)}${knob(style,'Start Phase',0,0,127,null,y,36)}${knob(style,'Depth',44,-64,63,null,y,44)}</div></div></div>`;
+}
+document.querySelector('#vflat .ex').innerHTML=excerpt('flat');
+document.querySelector('#vtex .ex').innerHTML=excerpt('tex');
+document.querySelector('#vpho .ex').innerHTML=excerpt('pho');
+</script>
+</body>
+</html>

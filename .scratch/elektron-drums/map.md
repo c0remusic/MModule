@@ -1,0 +1,73 @@
+# Instrument de batterie Elektron (VST)
+
+Label: wayfinder:map
+
+## Destination
+
+Une spécification de la v1 de l'instrument et une feuille de route ordonnée jusqu'à l'instrument complet, sans
+décision ouverte : un seul VST de batterie (rien d'autre que des batteries) dont l'interface est l'instrument, façon
+Overbridge, 16 pistes, avec les machines des boîtes Elektron, un séquenceur interne, et au plus 15 % d'un cœur à
+16 pistes.
+
+## Notes
+
+- Domaine : portage exact de firmwares Elektron (Syntakt fait : `source/elektron/syntakt/stEngine`, `syntakt::Syntakt`,
+  le VST3 ST Drums ; Machinedrum exact dans MoDule : `source/elektron/md/mdEngine`). Notes de portage :
+  `.scratch/elektron-engines/` (README, cpu1.md, machines.md, analog-literature.md, performance-research.md).
+- Règle d'exactitude (amendée 2026-10-24 : la performance passe avant la fidélité) : chaque étage repris d'un firmware
+  est vérifié contre l'oracle ; exact à l'échantillon quand cela ne coûte rien, sinon réécrit pour la vitesse (flottant,
+  SIMD sur les voix, contrôle au bloc) et vérifié à une tolérance mesurée contre l'oracle. Les ajouts (EQ 3 bandes,
+  effets maison, jonction des effets à 16 pistes, modèles analogiques approximatifs) sont signalés comme tels, dans le
+  code comme dans l'interface.
+- Performance : 15 % d'un cœur au grand maximum à 16 pistes, pour l'instrument final. Toute décision dit son coût.
+  Règles du code audio : aucune allocation ni verrou sur le fil audio (tout préparé avant le rendu) ; SIMD sur les
+  voix et les étages communs ; suréchantillonnage des drives commutable (off / 2x / 4x, HIIR), off par défaut ;
+  dénormaux coupés (FTZ/DAZ) dès qu'un étage passe en flottant. Références : `research/references-dsp.md`.
+- Skills à consulter : grilling et domain-modeling pour les tickets de conversation, research pour les recherches,
+  prototype pour l'interface, karpathy-guidelines pour tout code. Mémoire : elektron-drum-sampler-goal.
+- Les tickets sont en français.
+- MoDule reste un plug-in à part (le Machinedrum exact) ; l'instrument part de ST Drums et embarque le moteur du
+  Machinedrum comme une famille de machines.
+
+## Decisions so far
+
+- Destination fixée (2026-10-24) : spécification v1 + feuille de route ; v1 = machines Syntakt et Machinedrum (déjà
+  exactes), layering avec un sample, chaîne à emplacements, envois, interface, séquenceur interne ; Model:Cycles,
+  Digitakt II, Digitone II FM DRUM, couche du Rytm et machines analogiques (approximatives, sans machine) en jalons
+  suivants.
+- Machines analogiques : exactes sur leur part numérique (port des routines du CPU #1 qui pilotent les circuits),
+  approximatives sur le timbre (modèles de circuits réglés à l'oreille sur des enregistrements publics) ; affinables
+  plus tard avec des enregistrements réels.
+- Aucun émulateur au rendu, aucun firmware chez l'utilisateur visé (2026-10-24) : chaque moteur est du C++ réécrit,
+  prouvé à l'oracle ; le Machinedrum aussi est porté (le mdEngine de MoDule, qui émule DSP56300 et 68k, devient
+  l'oracle). Les firmwares servent aux tests ; voir les tickets du port du Machinedrum et de l'instrument sans firmware.
+- [Fonctions de MoDule Seq](issues/06-module-seq.md): 16 Patterns de 1-64 pas, 7 échelles, 24 Locks, 65 Conditions, ratchets, micro-timing, Swing/Accent/Slide par Pattern, chaînes, transport esclave de Live ; tout en notes vers MoDule (36-51, 64-114, hello 124-127), pas d'enregistrement live.
+- [Faisabilité du Digitakt II](issues/12-digitakt-ii.md): faisable par port C++ des routines SHARC (filtres, effets, voix localisés, partagés avec le Digitone II) contre l'oracle digikit ; émulation ~1 cœur exclue, port estimé 5-10 % [INFER], 6-10 semaines agent ; exact à l'émulateur, pas au silicium.
+- [Faisabilité du FM DRUM du Digitone II](issues/13-digitone-ii-fm-drum.md): faisable ; routine SHARC+ `0x1c778b` par voix (tampon de 32 flottants à 48 kHz avant ampli et filtre), oracle sharcvm (GPL-2.0+) et digikit (AGPL) ; 3-5 semaines agent, 2-5 % d'un cœur pour 16 voix [INFER], coût réel à mesurer.
+- [Moteur du Machinedrum comme famille de machines](issues/03-moteur-machinedrum.md): oui, voix brute via `EngineT::voiceBlock()` (gain vel/LEV/VOL à appliquer soi-même) ; fixe ~2 % + ~0,85 %/piste MD jouée (16 pistes ≈ 15,6 %, 4 ≈ 5,4 %), master MD +3-4,7 % ; DIST+SRR seuls bit-exacts à ~0,03 %/piste via une entrée publique dans `TrackFx`, mais décalés de 48/44,1 hors 44,1 kHz.
+- [Machines analogiques sans machine](issues/14-analogiques-sans-machine.md): 30 routines CPU #1 petites (105-778 instr., aides communes), port exact faisable ; piste 12 = six fréquences 808 lues dans le firmware (modèle Werner) ; aucun enregistrement public isolé à réglages connus (meilleur : Science Lab + `.stprj`) ; modèle boîte blanche mesuré 0,03-0,14 % d'un cœur par voix.
+- [Séquenceurs des machines Elektron](issues/07-sequenceurs-elektron.md): MD = 24 ppqn, locks, accent, slide, swing, échelles (lu, mesuré, sans conditions/micro-timing/retrigs) ; Syntakt CPU #1 lisible et portable (conditions 0x401181D4, pas 0x4008B882, micro-timing 1/24 pas, retrigs grille 960/ronde, livraison au bloc de 32) ; Digitakt II manuel seulement (128 pas, FILL séparé, 80 locks).
+- [Budget CPU de l'instrument à 16 pistes](issues/01-budget-cpu.md): mesuré (machine chargée) : Syntakt 16 pistes 13,7 % quel que soit le nombre de pistes jouées ; MD ≈ 5 % + 1,05 %/piste active (16 ≈ 21,7 %, dont voix DSP 11,7, chaîne+mix 4,5, maître 3,6, tick 1,9) ; MameHq 17 voies 24 % contre 1,2 % pour un polyphasé 16 coefficients ; EQ+2 drives+layer+envois ~3 % à 16 (drives suréchantillonnés 2× +8,6) ; pire cas ~26 % : le MD est à diviser par ~2,2 (port C++ des voix, SoA de la chaîne), le Syntakt à ramener de 13,7 à ~10 %.
+- [Effets du Virus](issues/15-effets-virus.md): port C++ exact possible contre Gearmulator (entrée audio du Virus comme banc) mais routines à localiser dans un programme DSP monolithique sans carte, conversions de paramètres incluses ; seule ROM présente : installeur TI d'OsTIrus (pas d'A/B/C) ; pas de flanger Virus à part ; l'Octatrack (ColdFire + DSP56xxx, OS 1.40C public déjà téléchargé, 44,1 kHz) a phaser, flanger, chorus de piste : meilleur candidat, non tenté.
+- [Faisabilité du Model:Cycles](issues/11-model-cycles.md): faisable, cible la plus simple : un ColdFire V4e sans DSP, répartiteur `0x400a7d4a` (6 voix, tables render `0x40118610` / update `0x40118628`, 43 routines, 3 414 instr.) qui tourne seul hors OS (sondé dans Unicorn + EMAC SyntHack) ; 5,6-8,5 k instr./voix/bloc de 32 à 48 kHz ; port exact ≈ 0,35-0,5 %/voix, flottant SIMD 3-5× moins [INFER] ; 4-7 sessions agent.
+- [Instrument sans firmware chez l'utilisateur](issues/18-sans-firmware.md): le port du Syntakt ne lit aucun code, seulement des données (mesuré par XOR de pages : S7 ~183 Ko de tables et d'image SRAM, S3 ~26 Ko) ; 5 tables régénérées au mot près par formule, le reste (~170 tables) à régénérer par famille, chacune testée contre le firmware (4-8 sessions [INFER]) ; descripteurs, état SRAM du CPU #1 (143 mots), kits et samples (SP TWINSHOT, UW du MD, DT2) remplaçables ; MD : tables DSP/OS à inventorier avec le ticket 17.
+- [Port du Machinedrum en C++](issues/17-port-machinedrum.md): DSP2 = 44 renders (39 à porter sans INP/RAM-R), 11 385 instr. statiques, presque rien de partagé hors tables ; 55 fonctions de coefficients 68k (4 714 instr.), master 1 215 instr. ; bit-exact entier mesuré à 0,30 ns/instr. DSP (JIT ~2,7) → ~0,07-0,3 %/voix, ~6-10 % pour 16 pistes avec `TrackFx` [INFER] ; flottant : ×1,5 seulement sur les voix, SIMD utile sur `TrackFx` et le master (~2-5 % pour 16) ; risque audible en flottant : P-I ; 2-3 semaines agent (+1 pour le flottant SIMD) ; ordre ROM/TRX, EFM, E12, P-I.
+- [Qualité audio : pratiques et coûts pour l'instrument](issues/19-qualite-audio.md): ne corriger que les ajouts, jamais un étage porté ; PolyBLEP (analogiques), drives HIIR 2x en SIMD sur les voix (0,012 %/voix en AVX2 contre 0,19 % scalaire, ASR -58 contre -24,5 dB : le +8,6 du ticket 01 tombe à ~0,4 % [INFER]), ADAA1 sur l'écrêtage dur, SVF TPT, Hermite (sinc 8 en HQ), rampes 64 éch. sur coupures ajoutées, FTZ/DAZ ; polyphasé du ticket 01 à phase inversée (THD+N -22 dB, corrigé -73) ; 16 tests de qualité et seuils (Q1-Q16).
+- [Chaîne de piste : emplacements, ordre, routage](issues/02-chaine-de-piste.md): squelette fixe machine+sample, 2 drives (pré ou post filtre, 8 types, MIX « + » à 100 %), BAND (BASE/WIDTH, EQ MD, EQ 3 bandes « + »), FILTER 15 types avec enveloppe commune, AMP, envois post-ampli ; chaîne de la famille par défaut ; mono jusqu'au pan ; suréchantillonnage global, 2x par défaut.
+
+## Not yet specified
+
+- Tolérance face à l'oracle quand un étage n'est plus exact : seuil (null test en dB, écart d'enveloppe, écoute ?),
+  par étage ou global ; et si le port exact du Syntakt déjà fait est réécrit en flottant pour tenir le budget.
+
+- Format des kits et des presets ; ce qu'un kit garde (machines, chaîne, séquences ?).
+- Bibliothèque d'échantillons : import, stockage, partage entre instances (comme les Samples de MoDule).
+- Choix du phaser et du flanger : Octatrack, Virus (selon la recherche), ou maison.
+- Couche échantillon du Rytm.
+- Nom du produit.
+- Ordre exact des jalons après la v1 (dépend des recherches de faisabilité et du budget CPU).
+
+## Out of scope
+
+- Les synthés (Digitone FM TONE, WAVETONE, SWARMER, Analog Four, Monomachine) : l'instrument ne fait que des
+  batteries.
