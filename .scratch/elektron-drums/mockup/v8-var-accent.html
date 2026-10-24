@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drums v8 accent variants</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0f1011;--tx:#e8e9eb;--mut:#a9adb3}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);width:1600px;margin:0 auto;font-family:'Barlow Semi Condensed',sans-serif}
+.lab{height:44px;display:flex;align-items:center;gap:16px;padding:0 12px}
+.lab h2{font-size:20px;font-weight:600}
+.lab span{font-size:14px;color:var(--mut)}
+iframe{display:block;width:1600px;height:176px;border:0}
+</style>
+</head>
+<body>
+<section><div class="lab"><h2>(a) LED intensity</h2><span>trig half lit, accent fully lit</span></div><iframe src="v8.html?stepsonly&acc=led" title="LED intensity"></iframe></section>
+<section><div class="lab"><h2>(b) Trig colour</h2><span>accent in amber</span></div><iframe src="v8.html?stepsonly&acc=col" title="Trig colour"></iframe></section>
+<section><div class="lab"><h2>(c) Velocity height</h2><span>fill follows velocity, accent fills the step</span></div><iframe src="v8.html?stepsonly&acc=vel" title="Velocity height"></iframe></section>
+</body>
+</html>

@@ -46,5 +46,9 @@ SRR, DIST (`mdEngine/engine/TrackFx.h`).
   passe dans la voix DT2 (page SRC du sample, toujours en premier) ; types de drive : Off, Syntakt drive, MD DIST,
   MD SRR, DT2 Overdrive, DT2 SRR. La BAND gagne un bouton avant/après le filtre (avant par défaut) et un quatrième
   type, le base-width du DT2.
+- LFO synchronisés au tempo de l'hôte (demande de l'utilisateur, 2026-10-24) : réglage SYNC / HZ par LFO (pas « FREE », déjà un mode de trig), SYNC par
+  défaut. En SYNC, la vitesse est une division musicale (de 1/64 à 16 mesures, pointée et triolet), la vitesse et le
+  multiplicateur des LFO Elektron (déjà relatifs au tempo sur le Syntakt et le DT2) s'y traduisent, et la phase suit
+  la position du transport de l'hôte (en mode de trig TRIG, elle redémarre au trig). En HZ, vitesse en Hz.
 - Une piste dont la chaîne reste celle de sa famille reste fidèle à son firmware ; tout ajout (MIX, EQ 3 bandes,
   étage d'une autre famille) est marqué « + ».

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drums v8 font variants</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&family=Archivo+Narrow:wght@400;500;600;700&family=Saira+Semi+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0f1011;--tx:#e8e9eb;--mut:#a9adb3;--t:#62b3bf}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);width:1600px;margin:0 auto}
+.v{display:flex;flex-direction:column}
+.lab{height:44px;display:flex;align-items:center;gap:24px;padding:0 12px}
+.lab h2{font-size:20px;font-weight:600}
+.lab .s{font-size:11px;color:var(--mut)}
+.lab .s b{color:var(--tx);font-weight:600}
+.lab .tn{font-size:12px;color:var(--mut);margin-left:auto}
+.lab .tn b{color:var(--t);font-weight:600}
+iframe{display:block;width:1600px;height:560px;border:0}
+.probe{position:absolute;visibility:hidden;white-space:nowrap;font-size:14px;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div id="list"></div>
+<script>
+const FONTS=[['a','IBM Plex Sans Condensed'],['b','Archivo Narrow'],['c','Saira Semi Condensed']];
+const L=document.getElementById('list');
+FONTS.forEach(([k,f])=>{
+	const v=document.createElement('section'); v.className='v'; v.style.fontFamily=`'${f}',sans-serif`;
+	v.innerHTML=`<div class="lab"><h2>(${k}) ${f}</h2><span class="s">11 px: Swing <b>58</b> &middot; Len <b>32</b> &middot; 1/16. &middot; Env. Depth <b>-12</b> &middot; 0123456789</span><span class="tn" data-f="${f}">tabular figures <b>&hellip;</b></span></div>`+
+		`<iframe src="v8.html?excerpt&font=${encodeURIComponent(f)}" title="${f}"></iframe>`;
+	L.appendChild(v); });
+// tabular figures: with font-variant-numeric:tabular-nums, ten 1s and ten 0s measure the same in a font that has tnum
+document.fonts.ready.then(()=>Promise.all(FONTS.map(([,f])=>document.fonts.load(`14px '${f}'`)))).then(()=>{
+	document.querySelectorAll('.tn').forEach(el=>{ const f=el.dataset.f, w=s=>{ const p=document.createElement('span'); p.className='probe'; p.style.fontFamily=`'${f}'`; p.textContent=s; document.body.appendChild(p); const x=p.getBoundingClientRect().width; p.remove(); return x; };
+		const a=w('1111111111'), b=w('0000000000'); el.dataset.ok=Math.abs(a-b)<0.5?'1':'0'; el.querySelector('b').textContent=Math.abs(a-b)<0.5?'yes':'no ('+a.toFixed(1)+' / '+b.toFixed(1)+')'; }); });
+</script>
+</body>
+</html>
