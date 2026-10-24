@@ -1,8 +1,8 @@
 # Séquenceur interne
 
 Type: grilling
-Status: open
-Assignee:
+Status: resolved
+Assignee: c0remusic
 Blocked by: 06, 07
 
 ## Question
@@ -21,3 +21,31 @@ ces deux options (mockups v3a et v3b) et veut un mode « live » (enregistrement
 en lecture) ; question ouverte : piloter le séquenceur depuis Push (Live garde Push ; un compagnon Max for Live peut
 en prendre les contrôles, ou le mode User de Push envoie ses pads en MIDI à la piste). À trancher : comment la page du séquenceur montre la page de l'instrument (à côté, en dessous, la même
 page avec la rangée de pas incrustée), sélection de plusieurs pas, et lecture des locks posés sur chaque pas.
+
+## Answer
+
+Décidé avec l'utilisateur le 2026-10-24 (grilling, Q1-Q13 ; recherches « Fonctions de MoDule Seq » et « Séquenceurs
+des machines Elektron » ; mockups v3a à v5).
+
+- Base : les fonctions de MoDule Seq, en interne, sans notes MIDI entre séquenceur et pistes : 65 conditions, ratchets
+  1-8 avec courbe de vélocité, micro-timing ±23/24 de pas, swing 50-80 %, accent et slide par pattern, mutes, fill
+  tenu, chaînes de patterns.
+- Longueur et échelle par piste (polymétrie) ; une longueur de pattern commune fixe le changement de pattern.
+- 128 patterns (8 banques de 16), 64 pas au plus par piste.
+- Transport de l'hôte seulement (play, stop, tempo, position), pas d'horloge libre ; pattern choisi par un paramètre
+  hôte automatisable « Pattern » ou par program change MIDI. Un pattern demandé part à la fin du pattern en cours.
+- Le MIDI entrant (notes 36-51) joue toujours les pistes ; en mode LIVE il s'enregistre sur les pas, comme les
+  mouvements de knobs (LOCK REC).
+- Un pas porte : trig, note, vélocité, durée, condition, micro-timing, ratchet (nombre, vitesse, courbe), accent,
+  slide, locks sur n'importe quel paramètre de la piste, sans plafond (stockage clairsemé). Le slide fait glisser les
+  paramètres verrouillés vers les valeurs du pas suivant, comme sur le MD et le Syntakt.
+- Conditions aléatoires tirées d'une graine par passage : un rendu ou un bounce rejoue ce qu'on a entendu.
+- Trigs à l'échantillon près, sans gigue (amende « Une fréquence commune pour tous les moteurs », qui les plaçait au
+  bloc : le micro-timing est plus fin qu'un bloc, et une gigue variable fait varier la phase des sons empilés) ;
+  enveloppes et LFO avancent au bloc.
+- Locks : box de pas fixe en bas de chaque page de piste avec sélection verrouillée, plus lignes de locks sur l'onglet
+  SEQ, choisies dans la liste des paramètres verrouillables ; menu « + » d'un knob.
+- Push : en deuxième temps (compagnon Max for Live, `grab_control` à vérifier) ; les 64 relais couvrent les knobs en v1.
+- Édition en v1 : copier/coller de pas, de pistes et de patterns, effacer, décaler une piste ; euclidien et aléatoire
+  plus tard. Export d'un pattern en fichier MIDI par glisser-déposer (trigs en notes 36-51 avec vélocité, sans les
+  locks) ; pas de mode song, l'hôte arrange.

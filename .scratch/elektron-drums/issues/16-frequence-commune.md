@@ -31,7 +31,8 @@ travaillent à 44,1 ou 48 kHz, et l'instrument doit sonner pareil aux deux.
 - Fréquences internes : SY TONE à 2x l'hôte ; SY BITS, SY SWARM et les SRR (MD, DT2) gardent leur fréquence absolue
   en Hz par échantillonneur-bloqueur (leur grain lo-fi est cette fréquence).
 - Blocs de 32 échantillons à toutes les fréquences ; les constantes qui avancent par bloc (enveloppes, LFO, lissage)
-  sont recalculées depuis la fréquence pour garder les mêmes temps ; trigs placés au bloc (0,73 ms à 44,1 kHz).
+  sont recalculées depuis la fréquence pour garder les mêmes temps. Trigs : amendé par « Séquenceur interne », ils
+  sonnent à l'échantillon près, plus au début du bloc.
 - Tolérance quand un étage n'est plus exact : les 16 tests de qualité et seuils de la recherche « Qualité audio »
   (`research/19-qualite-audio.md` §11), deux seuils à valider à l'écoute.
 - Le Syntakt livré devient une réécriture rapide (flottant, SIMD) paramétrée par la fréquence et vérifiée à tolérance ;
