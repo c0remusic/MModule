@@ -57,16 +57,14 @@ Overbridge, 16 pistes, avec les machines des boîtes Elektron, un séquenceur in
 - [Une fréquence commune pour tous les moteurs](issues/16-frequence-commune.md): tous les moteurs à la fréquence de l'hôte, plus aucun rééchantillonneur ; exacts à leur fréquence d'origine, adaptés ailleurs, test « sonne pareil » 44,1/48 kHz par machine ; 88,2/96 kHz rendus à mi-fréquence + HIIR 2x ; lo-fi à fréquence absolue ; blocs de 32 ; tolérance = 16 tests de la recherche qualité ; Syntakt livré en réécriture rapide, port exact gardé comme référence.
 - [Source de machine d'une piste](issues/04-source-de-machine.md): une voix mono par piste, de n'importe quelle famille, familles mélangées sans limite ; voix éteintes non rendues ; aucun coût fixe par famille ; changer de machine remet ses défauts et retire ses locks (annulable) ; chokes et LFO entre pistes.
 - [Layering d'un sample dans la piste](issues/05-layering.md): lecteur = moteur sampler du DT2 porté, donc le layering quitte la v1 pour le jalon du Digitakt II ; sommé à la machine avant les drives ; niveau propre, accord suivant la note, début, longueur, boucle, sens, enveloppe propre, décalage 0-100 ms ; éteint par défaut.
+- [Paramètres hôte et sorties](issues/10-parametres-hote.md): tout automatisable (~1 260 paramètres, identifiants figés), paramètres de machine génériques à valeur nommée ; machine et famille hors automation ; 64 relais en 8 pages pour Push ; Main + 15 sorties stéréo, piste séparée sans effets d'envoi, retours d'effets routables, master sur Main.
 
 ## Not yet specified
 
-
-- Format des kits et des presets ; ce qu'un kit garde (machines, chaîne, séquences ?).
-- Bibliothèque d'échantillons : import, stockage, partage entre instances (comme les Samples de MoDule).
-- Choix du phaser et du flanger : Octatrack, Virus (selon la recherche), ou maison.
+- Bibliothèque d'échantillons : import, stockage, partage entre instances (comme les Samples de MoDule) ; se précise
+  avec le port du lecteur du DT2.
 - Couche échantillon du Rytm.
 - Nom du produit.
-- Ordre exact des jalons après la v1 (dépend des recherches de faisabilité et du budget CPU).
 
 ## Out of scope
 
