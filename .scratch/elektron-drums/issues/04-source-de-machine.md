@@ -28,5 +28,6 @@ bibliothèque de voix, plus une machine émulée entière.
 - Changer de machine en cours : voix coupée avec une rampe de 64 échantillons ; paramètres de machine aux défauts de la
   nouvelle (comme ASSIGN MACHINE du MD) ; locks des paramètres de l'ancienne machine retirés, avec annulation ; chaîne,
   ampli, LFO, envois et autres locks gardés.
-- Groupes de choke entre pistes, toutes familles ; un LFO vise sa piste par défaut et peut viser un paramètre d'une
-  autre piste, comme sur le MD.
+- Chokes par cible, pas par groupes (amendé par l'utilisateur le 2026-10-24) : une piste désigne directement la ou
+  les pistes qu'elle coupe, toutes familles, comme les Chokes de MoDule ; aucune par défaut. Un LFO vise sa piste par
+  défaut et peut viser un paramètre d'une autre piste, comme sur le MD.

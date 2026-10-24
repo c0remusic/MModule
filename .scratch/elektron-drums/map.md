@@ -33,8 +33,8 @@ Overbridge, 16 pistes, avec les machines des boîtes Elektron, un séquenceur in
 
 - Destination fixée (2026-10-24) : spécification v1 + feuille de route ; v1 = machines Syntakt et Machinedrum (déjà
   exactes), chaîne à emplacements, envois, interface, séquenceur interne ; Model:Cycles, Digitakt II (avec le layering
-  d'un sample, amendé : il attend le lecteur du DT2), Digitone II FM DRUM, couche du Rytm et machines analogiques
-  (approximatives, sans machine) en jalons suivants.
+  d'un sample, amendé : il attend le lecteur du DT2), couche du Rytm et machines analogiques (approximatives, sans
+  machine) en jalons suivants. Le FM DRUM du Digitone II est retiré (hors périmètre, 2026-10-24).
 - Machines analogiques : exactes sur leur part numérique (port des routines du CPU #1 qui pilotent les circuits),
   approximatives sur le timbre (modèles de circuits réglés à l'oreille sur des enregistrements publics) ; affinables
   plus tard avec des enregistrements réels.
@@ -55,18 +55,18 @@ Overbridge, 16 pistes, avec les machines des boîtes Elektron, un séquenceur in
 - [Qualité audio : pratiques et coûts pour l'instrument](issues/19-qualite-audio.md): ne corriger que les ajouts, jamais un étage porté ; PolyBLEP (analogiques), drives HIIR 2x en SIMD sur les voix (0,012 %/voix en AVX2 contre 0,19 % scalaire, ASR -58 contre -24,5 dB : le +8,6 du ticket 01 tombe à ~0,4 % [INFER]), ADAA1 sur l'écrêtage dur, SVF TPT, Hermite (sinc 8 en HQ), rampes 64 éch. sur coupures ajoutées, FTZ/DAZ ; polyphasé du ticket 01 à phase inversée (THD+N -22 dB, corrigé -73) ; 16 tests de qualité et seuils (Q1-Q16).
 - [Chaîne de piste : emplacements, ordre, routage](issues/02-chaine-de-piste.md): squelette fixe machine+sample, 2 drives (pré ou post filtre, 7 types, MIX « + » à 100 % ; AMD du MD abandonnée), BAND (BASE/WIDTH, EQ MD, EQ 3 bandes « + »), FILTER 15 types avec enveloppe commune, AMP, envois post-ampli ; chaîne de la famille par défaut ; mono jusqu'au pan ; suréchantillonnage global, 2x par défaut.
 - [Une fréquence commune pour tous les moteurs](issues/16-frequence-commune.md): tous les moteurs à la fréquence de l'hôte, plus aucun rééchantillonneur ; exacts à leur fréquence d'origine, adaptés ailleurs, test « sonne pareil » 44,1/48 kHz par machine ; 88,2/96 kHz rendus à mi-fréquence + HIIR 2x ; lo-fi à fréquence absolue ; blocs de 32 ; tolérance = 16 tests de la recherche qualité ; Syntakt livré en réécriture rapide, port exact gardé comme référence.
-- [Source de machine d'une piste](issues/04-source-de-machine.md): une voix mono par piste, de n'importe quelle famille, familles mélangées sans limite ; voix éteintes non rendues ; aucun coût fixe par famille ; changer de machine remet ses défauts et retire ses locks (annulable) ; chokes et LFO entre pistes.
+- [Source de machine d'une piste](issues/04-source-de-machine.md): une voix mono par piste, de n'importe quelle famille, familles mélangées sans limite ; voix éteintes non rendues ; aucun coût fixe par famille ; changer de machine remet ses défauts et retire ses locks (annulable) ; chokes par piste cible (pas de groupes) et LFO entre pistes.
 - [Layering d'un sample dans la piste](issues/05-layering.md): lecteur = moteur sampler du DT2 porté, donc le layering quitte la v1 pour le jalon du Digitakt II ; sommé à la machine avant les drives ; niveau propre, accord suivant la note, début, longueur, boucle, sens, enveloppe propre, décalage 0-100 ms ; éteint par défaut.
 - [Paramètres hôte et sorties](issues/10-parametres-hote.md): tout automatisable (~1 260 paramètres, identifiants figés), paramètres de machine génériques à valeur nommée ; machine et famille hors automation ; 64 relais en 8 pages pour Push ; Main + 15 sorties stéréo, piste séparée sans effets d'envoi, retours d'effets routables, master sur Main.
 - [Sources des effets d'envoi](issues/20-effets-envoi.md): delay et reverb au choix (Syntakt en v1, Echo et Gate Box du MD avec son port, DT2 à son jalon) ; chorus, phaser et flanger maison réglés à l'oreille contre le Virus TI d'OsTIrus, chorus DT2 en plus à son jalon ; un exemplaire partagé de chaque, retours parallèles sauf delay vers reverb ; master renvoyé à « Effets master », après l'inventaire du DT2.
 - [Séquenceur interne](issues/08-sequenceur-interne.md): fonctions de MoDule Seq en interne, longueur et échelle par piste, 128 patterns de 64 pas, transport de l'hôte, pattern par paramètre ou program change ; locks illimités, slide, conditions à graine ; trigs à l'échantillon près ; box de pas + lignes de locks ; mode LIVE ; Push et euclidien plus tard ; export MIDI.
 - [Effets master](issues/24-effets-master.md): compresseur puis overdrive du DT2 en v1, portés en avance (premier morceau du port du DT2, harnais d'oracle d'abord), ordre et réglages du firmware ; overdrive analogique du Syntakt « ≈ » au jalon analogique ; chaîne amendée : BR dans la voix DT2, BAND avant/après filtre avec le base-width du DT2.
 - [Cartographie du firmware du Digitakt II](issues/23-cartographie-dt2.md): 1 147 fonctions DSP, 123 (12 278 instr.) dans la boucle de bloc ; chaîne voix → BR `0x1cdd8b` (trouvé) → overdrive/SRR/base-width pré ou post → filtre → env. ampli ; 6 filtres vérifiés (index = type+1), coefficients sur le DSP ; master = compresseur + même saturateur, pas d'EQ ; LFO sur ColdFire ; coûts statiques seulement (~6,5-8,4 k instr./voix), oracle dynamique pas prêt (sharcvm DN2 seul, coupled-run sans entrées).
+- [Format des kits et de l'état](issues/21-format-des-kits.md): kit = tout le son, patterns à part avec un kit en référence ; banque de 64 kits partagée, patterns dans le projet ; état = kit joué, patterns, globaux, samples ; format versionné par identifiant ; sons de piste ; contenu d'usine maison ; samples de l'utilisateur et contenu Elektron du propriétaire importé (dossier « Elektron », bouton d'import), jamais livré ; explorateur 3 colonnes, par source ou par type (deviné, corrigeable).
+- [Ordre des jalons après la v1](issues/22-ordre-des-jalons.md): v1 = Syntakt rapide, MD porté, chaîne, envois, master DT2, séquenceur, kits, interface, sans firmware chez l'utilisateur ; puis J2 Digitakt II, J3 Model:Cycles, J4 analogiques, J5 couche Rytm ; même critère de fin pour tous (oracle/tolérance, 44,1 = 48, ≤ 15 %, gate vert, sans firmware) ; ensuite spécification v1 puis tickets.
 
 ## Not yet specified
 
-- Bibliothèque d'échantillons : import, stockage, partage entre instances (comme les Samples de MoDule) ; se précise
-  avec le port du lecteur du DT2.
 - Couche échantillon du Rytm.
 - Nom du produit.
 
@@ -74,3 +74,5 @@ Overbridge, 16 pistes, avec les machines des boîtes Elektron, un séquenceur in
 
 - Les synthés (Digitone FM TONE, WAVETONE, SWARMER, Analog Four, Monomachine) : l'instrument ne fait que des
   batteries.
+- [Le FM DRUM du Digitone II](issues/13-digitone-ii-fm-drum.md) : faisable d'après sa recherche, mais retiré par
+  l'utilisateur le 2026-10-24, qui ne s'en servira pas.
