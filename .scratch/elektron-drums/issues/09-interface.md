@@ -32,3 +32,5 @@ Exigences de l'utilisateur (2026-10-24), du mockup v2 :
 - Valeurs toujours dans l'anneau du knob, jamais dessous : taille de texte unique par taille de knob, knobs agrandis au besoin (deux tailles au plus), formats raccourcis.
 - Mêmes proportions pour tous les knobs : texte de valeur, épaisseur d'anneau et étiquette dans un rapport fixe au diamètre ; on ne réduit jamais le texte d'un seul knob pour faire tenir une valeur.
 - Plus d'anneaux en pointillés ou en tirets autour des knobs : modulation = fin arc plein à la couleur du modulateur, de la valeur à valeur + profondeur ; lock = valeur à la couleur d'accent ; valeur jouée = petit repère sur l'anneau.
+- Couleurs (retour sur le v11) : comme Overbridge, une couleur saturée par section qui hiérarchise : anneaux des knobs, écran teinté et contrôles sélectionnés de la box dans sa couleur ; en-têtes neutres ; teal global réservé à l'état global. La passe taste avait trop désaturé.
+- CPU : en haut, à gauche de « Kit editor », en pourcentage (seule exception au « pas de % ») avec une petite barre (0-100 % d'un cœur, repère à 15 %, ambre au-dessus de 15 %, rouge au-dessus de 25 %).

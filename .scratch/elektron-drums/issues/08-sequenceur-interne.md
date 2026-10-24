@@ -45,6 +45,11 @@ des machines Elektron » ; mockups v3a à v5).
   enveloppes et LFO avancent au bloc.
 - Locks : box de pas fixe en bas de chaque page de piste avec sélection verrouillée, plus lignes de locks sur l'onglet
   SEQ, choisies dans la liste des paramètres verrouillables ; menu « + » d'un knob.
+- Ajouté par l'utilisateur le 2026-10-24 : sur un pas vide sélectionné, tourner un knob crée un trig portant ce lock
+  (Alt en tournant : un lock sans note) ; la valeur d'un trig se règle ensuite en glissant verticalement sur le pas
+  (sa hauteur suit) ou en continuant de tourner le knob. Modes d'édition de la box de pas : Trig, Vel, Accent, Slide.
+  En Vel, la hauteur d'un trig est sa vélocité et se règle en glissant ; en Trig, les trigs sont des blocs pleins et
+  glisser sur un trig sélectionné règle la valeur du dernier paramètre verrouillé pour lui.
 - Push : en deuxième temps (compagnon Max for Live, `grab_control` à vérifier) ; les 64 relais couvrent les knobs en v1.
 - Édition en v1 : copier/coller de pas, de pistes et de patterns, effacer, décaler une piste ; euclidien et aléatoire
   plus tard. Export d'un pattern en fichier MIDI par glisser-déposer (trigs en notes 36-51 avec vélocité, sans les

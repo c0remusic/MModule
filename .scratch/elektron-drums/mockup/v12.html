@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en" data-acc="vel">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drums mockup v12</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@400;500;600;700;800&family=IBM+Plex+Sans+Condensed:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="v12.css">
+</head>
+<body>
+<div class="win">
+
+<!-- ======== TOP BAR ======== -->
+<div class="top">
+	<div class="brand"><span class="wm">elektron</span><span class="sl">/</span><span class="pr">Drums</span></div>
+	<div class="sp"></div>
+	<div class="cpu" id="cpu" title="Instrument CPU, share of one core (the tick is the 15 % budget)"><span>CPU <b id="cpuv"></b></span><i class="cpubar"><b id="cpub"></b><u></u></i></div>
+	<button class="mtab on" data-mtab="editor">Kit editor</button>
+	<button class="mtab" data-mtab="browser">Sound browser</button>
+	<div class="ico" title="Keyboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="6" width="20" height="12"/><path d="M6 6v7M10 6v7M14 6v7M18 6v7"/></svg></div>
+	<div class="ico" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></div>
+	<div class="ico" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7h16M4 12h16M4 17h16"/></svg></div>
+</div>
+
+<!-- ======== TRACK TABS ======== -->
+<div class="tracks" id="tracks"></div>
+
+<!-- ======== SIGNAL CHAIN ======== -->
+<div class="chain" id="chain">
+	<div class="hrow1">
+		<span class="sname" id="sname" title="Sound name">Winston kick</span>
+		<button class="mmenu" id="mmenu" title="Machine: click to choose"><small id="mm-fam">Syntakt</small><b id="mm-name">BD MODERN</b><svg viewBox="0 0 14 14"><path d="M3 5l4 4 4-4"/></svg></button>
+		<button class="btn" id="chokebtn" title="Tracks this track cuts when it plays">Choke<span id="chokeval"></span></button>
+		<span class="sp"></span>
+		<button class="btn" title="Save the sound (Ctrl+S)">Save</button><button class="btn">Reload</button><button class="btn">Clear</button>
+	</div>
+</div>
+
+<div class="main">
+
+<!-- =================== TRACK PAGE: every box at once =================== -->
+<section class="page on tp" id="p-track">
+<div class="trow" id="row1">
+	<div class="box" id="b-machine" style="--acc:var(--k);--acc-w:var(--k-w);--acc-s:var(--k-s);--acc-t:var(--k-t)">
+		<div class="hd"><h2>Machine</h2>
+			<div class="tabs"><button class="on" data-p="m-syn">Synth</button><button data-p="m-info">Sound</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column">
+			<div class="pane on col" id="m-syn" style="flex:1;min-height:0;gap:8px">
+				<svg class="g scr" id="g-mdisp"></svg>
+				<div style="display:flex;flex-direction:column;min-width:0;gap:4px" id="mknobs"></div>
+			</div>
+			<div class="pane col" id="m-info" style="gap:8px;padding:2px 4px">
+				<div style="display:flex;align-items:center;gap:10px"><span style="width:80px;color:var(--mut)">Chromatic</span><div class="seg" style="flex:1"><button class="on">Synth</button><button class="on">Sample</button></div></div>
+				<div style="display:flex;align-items:center;gap:10px"><span style="width:80px;color:var(--mut)">Velocity</span><div class="seg" style="flex:1"><button>Linear</button><button class="on">Soft</button><button>Hard</button><button>Fixed</button></div></div>
+			</div>
+		</div>
+	</div>
+	<div class="box" id="b-drive" style="--acc:var(--a);--acc-w:var(--a-w);--acc-s:var(--a-s);--acc-t:var(--a-t)">
+		<div class="hd"><h2>Drive</h2></div>
+		<div class="bd dslots"><div class="dsl" id="b-drvA" data-box="b-drvA"></div><div class="dsl" id="b-drvB" data-box="b-drvB"></div></div>
+	</div>
+	<div class="box" id="b-band" style="grid-column:10/span 3;grid-row:1;--acc:var(--b);--acc-w:var(--b-w);--acc-s:var(--b-s);--acc-t:var(--b-t)">
+		<div class="hd"><h2>Band</h2><div class="tabs" id="bandpos"><button class="on" data-bp="pre" title="Before the filter (default)">Pre</button><button data-bp="post" title="After the filter">Post</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:8px">
+			<svg class="g scr" id="g-band"><title>Band response</title></svg>
+			<div class="seg bseg" id="bandsw" style="--acc:var(--b);--acc-w:var(--b-w);--acc-s:var(--b-s);--acc-t:var(--b-t)"><button data-band="bw">Base/width</button><button data-band="md">MD EQ</button><button data-band="3b">3-band <span class="plus" style="width:12px;height:12px;font-size:11px">+</span></button><button data-band="dt" title="Digitakt II base-width">DT2 B-W</button></div>
+			<div class="pane kr" id="bn-bw" style="height:auto">
+				<i class="k pri" data-l="Base" data-v="0" data-c="b" data-sz="64" style="--kw:96px" data-id="bb"></i>
+				<i class="k pri" data-l="Width" data-v="127" data-c="b" data-sz="64" style="--kw:96px" data-id="bw"></i>
+			</div>
+			<div class="pane kr" id="bn-md" style="height:auto">
+				<i class="k pri" data-l="EQ Freq" title="EQF" data-v="64" data-c="b" data-sz="64" style="--kw:96px" data-id="eqf"></i>
+				<i class="k pri" data-l="EQ Gain" title="EQG" data-v="0" data-min="-64" data-max="63" data-c="b" data-sz="64" style="--kw:96px" data-id="eqg"></i>
+			</div>
+			<div class="pane eq3" id="bn-3b" style="height:auto">
+				<i class="k" data-l="Low Freq" data-dl="Low freq" data-v="30" data-c="b" data-sz="52" style="--kw:72px" data-id="lf" data-f="hz"></i>
+				<i class="k" data-l="Mid Freq" data-dl="Mid freq" data-v="70" data-c="b" data-sz="52" style="--kw:72px" data-id="mf" data-f="hz"></i>
+				<i class="k" data-l="High Freq" data-dl="High freq" data-v="105" data-c="b" data-sz="52" style="--kw:72px" data-id="hf" data-f="hz"></i>
+				<i class="k" data-l="Low Gain" data-dl="Low gain" data-v="14" data-min="-64" data-max="63" data-c="b" data-sz="52" style="--kw:72px" data-id="lg" data-f="db"></i>
+				<i class="k" data-l="Mid Gain" data-dl="Mid gain" data-v="-18" data-min="-64" data-max="63" data-c="b" data-sz="52" style="--kw:72px" data-id="mg" data-f="db"></i>
+				<i class="k" data-l="High Gain" data-dl="High gain" data-v="22" data-min="-64" data-max="63" data-c="b" data-sz="52" style="--kw:72px" data-id="hg" data-f="db"></i>
+			</div>
+		</div>
+	</div>
+	<div class="box" id="b-filter" style="grid-column:1/span 4;grid-row:2;--acc:var(--s);--acc-w:var(--s-w);--acc-s:var(--s-s);--acc-t:var(--s-t)">
+		<div class="hd"><h2>Filter</h2></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:8px">
+			<div class="scrrow"><svg class="g scr" id="g-filter"><title>Filter response</title></svg><svg class="g scr" id="g-fenv"><title>Filter envelope</title></svg></div>
+			<div class="ftypes" id="ftypes" style="margin:0"></div>
+			<div class="kr fknobs">
+				<i class="k" data-l="Frequency" data-v="78" data-c="s" data-id="fq" data-sz="52" style="--kw:96px"></i>
+				<i class="k" data-l="Width" data-v="60" data-c="s" data-id="fw" data-sz="52" style="--kw:96px;display:none"></i>
+				<i class="k" data-l="Resonance" data-v="42" data-c="s" data-id="rs" data-sz="52" style="--kw:96px"></i>
+				<i class="k" data-l="Env. Depth" data-v="12" data-min="-64" data-max="63" data-c="s" data-id="fe" data-sz="52" style="--kw:96px"></i>
+				<i class="k" data-l="Key Track" data-v="0" data-c="s" data-id="kt" data-sz="52" style="--kw:96px"></i>
+				<i class="k" data-l="Env. Delay" data-dl="Delay" data-v="0" data-c="s" data-id="fd" data-sz="52" style="--kw:54px" title="Envelope delay"></i>
+				<i class="k" data-l="Env. Attack" data-dl="Attack" data-v="0" data-c="s" data-id="fa" data-sz="52" style="--kw:54px" title="Envelope attack"></i>
+				<i class="k" data-l="Env. Decay" data-dl="Decay" data-v="30" data-c="s" data-id="fdc" data-sz="52" style="--kw:54px" title="Envelope decay"></i>
+				<i class="k" data-l="Env. Sustain" data-dl="Sustain" data-v="0" data-c="s" data-id="fs" data-sz="52" style="--kw:54px" title="Envelope sustain"></i>
+				<i class="k" data-l="Env. Release" data-dl="Release" data-v="20" data-c="s" data-id="fr" data-sz="52" style="--kw:54px" title="Envelope release"></i>
+			</div>
+		</div>
+	</div>
+</div>
+<div class="trow" id="row2">
+	<div class="box" id="b-sample" style="--acc:var(--g);--acc-w:var(--g-w);--acc-s:var(--g-s);--acc-t:var(--g-t)">
+		<div class="hd"><h2>Sample layer <span class="mil" title="Arrives with the Digitakt II sample player">DT2</span></h2><div class="tabs"><button class="on" data-p="s-main">Layer</button><button data-p="s-opt">Options</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:6px">
+			<svg class="g scr" id="g-wave"><title>Sample</title></svg>
+			<div style="display:flex;gap:6px"><select style="flex:1" title="Sample"><option>034 Hate sound</option><option>084 mdloop</option><option>None</option></select><button class="btn" style="height:24px;padding:0 8px" title="Load a sample file">Load</button></div>
+			<div class="pane on kr" id="s-main" style="height:auto">
+				<i class="k" data-l="Start" data-v="6" data-c="g" data-id="ss" data-sz="52" style="--kw:76px"></i>
+				<i class="k" data-l="End" data-v="90" data-c="g" data-id="se" data-sz="52" style="--kw:76px"></i>
+				<i class="k" data-l="Loop" data-v="60" data-c="g" data-id="sl" data-sz="52" style="--kw:76px" data-f="loop"></i>
+				<i class="k" data-l="Tune" data-v="-3" data-min="-24" data-max="24" data-c="g" data-sz="52" style="--kw:76px"></i>
+				<i class="k" data-l="Level" data-v="100" data-c="g" data-sz="52" style="--kw:76px"></i>
+				<i class="k" data-l="Mix M&#8596;S" data-v="40" data-c="g" data-sz="52" style="--kw:76px" data-f="mix"></i>
+			</div>
+			<div class="pane col" id="s-opt" style="height:auto;gap:4px">
+				<div class="seg" style="--acc:var(--g);--acc-w:var(--g-w);--acc-s:var(--g-s);--acc-t:var(--g-t)"><button class="on">Forward</button><button>Reverse</button><button>Loop</button><button>Ping-pong</button></div>
+				<div class="seg" style="--acc:var(--g);--acc-w:var(--g-w);--acc-s:var(--g-s);--acc-t:var(--g-t)"><button class="on">With machine</button><button>Own note</button></div>
+			</div>
+		</div>
+	</div>
+	<div class="box" id="b-amp" style="grid-column:5/span 3;grid-row:2;--acc:var(--p);--acc-w:var(--p-w);--acc-s:var(--p-s);--acc-t:var(--p-t)">
+		<div class="hd"><h2 title="Machinedrum machines keep their envelope in the voice: Amp then shows Level, Pan, Accent">Amp</h2><div class="tabs ampenv" id="envmode" title="Amp envelope mode (MODE)"><button data-m="ahd">AHD</button><button class="on" data-m="adsr">ADSR</button></div><button class="htog on ampenv" id="envreset" title="Amp Env Reset (AENR): the envelope restarts on every hit">Reset</button></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:8px">
+			<svg class="g scr ampenv" id="g-env" style="cursor:crosshair"><title>Amp envelope</title></svg>
+			<div class="kr" id="envknobs">
+				<span class="ampenv kgrp">
+				<i class="k" data-l="Attack Time" data-dl="Attack" data-v="3" data-c="p" data-id="ea" data-sz="52" style="--kw:72px"></i>
+				<i class="k" data-l="Hold Time" data-dl="Hold" data-v="0" data-c="p" data-id="ex" data-sz="52" style="--kw:72px"></i>
+				<i class="k" data-l="Decay Time" data-dl="Decay" data-v="40" data-c="p" data-id="ed" data-sz="52" style="--kw:72px"></i>
+				<i class="k" data-l="Sustain Level" data-dl="Sustain" data-v="70" data-c="p" data-id="es" data-sz="52" style="--kw:72px"></i>
+				<i class="k" data-l="Release Time" data-dl="Release" data-v="34" data-c="p" data-id="er" data-sz="52" style="--kw:72px"></i>
+				</span>
+				<i class="k pri" data-l="Level" data-v="110" data-c="p" data-sz="64" style="--kw:100px" data-id="lvl"></i>
+				<i class="k" data-l="Pan" data-v="0" data-min="-64" data-max="63" data-c="p" data-sz="52" style="--kw:100px" data-f="pan"></i>
+				<i class="k" data-l="Accent" data-v="64" data-c="p" data-sz="52" style="--kw:100px"></i>
+			</div>
+		</div>
+	</div>
+	<div class="box" id="b-mod" style="grid-column:8/span 3;grid-row:2;--acc:var(--y);--acc-w:var(--y-w);--acc-s:var(--y-s);--acc-t:var(--y-t)">
+		<div class="hd"><h2>LFO</h2><div class="tabs" id="lfotabs"><button class="on" data-lfo="0">LFO 1</button><button data-lfo="1" style="--acc:var(--m);--acc-w:var(--m-w);--acc-s:var(--m-s);--acc-t:var(--m-t)">LFO 2</button></div></div>
+		<div class="bd" id="lfobd" data-box="b-lfo1" style="display:flex;flex-direction:column;gap:8px">
+			<svg class="g scr" id="g-lfo"><title>LFO</title></svg>
+			<div style="display:flex;gap:8px;align-items:center">
+				<div class="shapes" id="lshapes"></div>
+				<div class="seg trigseg" id="ltrig" title="Trig mode (MODE)"></div>
+			</div>
+			<div style="display:flex;gap:8px;align-items:center">
+				<div class="seg" id="lsync" style="--acc:var(--y);--acc-w:var(--y-w);--acc-s:var(--y-s);--acc-t:var(--y-t);flex:none" title="Speed: synced to the host tempo, or in Hz"><button class="on" data-s="1" style="width:52px">Sync</button><button data-s="0" style="width:44px">Hz</button></div>
+				<select id="ldest" style="flex:1;min-width:0" title="Destination"></select>
+				<button class="assign">Assign</button>
+			</div>
+			<div class="kr">
+				<i class="k pri" data-l="Speed" data-v="13" data-min="0" data-max="26" data-f="div" data-c="y" data-sz="64" style="--kw:72px" data-id="lsp"></i>
+				<i class="k" data-l="Multiplier" data-v="1" data-min="0" data-max="11" data-c="y" data-sz="52" style="--kw:72px" data-f="mult"></i>
+				<i class="k" data-l="Fade In/Out" data-v="0" data-min="-64" data-max="63" data-c="y" data-sz="52" style="--kw:72px"></i>
+				<i class="k" data-l="Start Phase" data-v="0" data-c="y" data-sz="52" style="--kw:72px" data-id="lph"></i>
+				<i class="k pri" data-l="Depth" data-v="44" data-min="-64" data-max="63" data-c="y" data-sz="64" style="--kw:72px" data-id="ldp"></i>
+			</div>
+		</div>
+	</div>
+	<div class="box" id="b-mixer" style="grid-column:11/span 2;grid-row:2;--acc:var(--w);--acc-w:var(--w-w);--acc-s:var(--w-s);--acc-t:var(--w-t)">
+		<div class="hd"><h2>Sends</h2></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:6px">
+			<div style="display:flex;justify-content:space-between;flex:1;min-height:0">
+				<div class="f" data-l="Delay" data-v="11" style="width:48px;--fc:var(--k)"><span class="l">Delay</span><div class="tr"></div><span class="v"></span></div>
+				<div class="f" data-l="Reverb" data-v="49" style="width:48px;--fc:var(--b)"><span class="l">Reverb</span><div class="tr"></div><span class="v"></span></div>
+				<div class="f" data-l="Chorus" data-v="0" style="width:48px;--fc:var(--g)"><span class="l">Chorus</span><div class="tr"></div><span class="v"></span></div>
+				<div class="f" data-l="Ph/Fl" data-v="20" style="width:48px;--fc:var(--p)"><span class="l">Ph/Fl</span><div class="tr"></div><span class="v"></span></div>
+			</div>
+			<div style="display:flex;gap:6px;align-items:center"><span class="lbl" style="margin:0">Out</span><select id="outsel" style="flex:1"></select></div>
+		</div>
+	</div>
+</div>
+</section>
+
+<div class="toast" id="famtoast">
+	<h3 id="ft-h">Load the MD chain?</h3>
+	<p id="ft-p"></p>
+	<div class="tb"><button class="btn" id="ft-keep">Keep current</button><button class="btn pri" id="ft-load">Load</button></div>
+</div>
+
+<!-- SEQUENCER: stays under every track sub-page, so a step and a knob are on the same view -->
+<div class="box" id="b-seq" style="--acc:var(--t);--acc-w:var(--t-w);--acc-s:var(--t-s);--acc-t:var(--t-t)">
+	<div class="hd"><h2>Steps</h2><div class="tabs stmode" title="What a click or a vertical drag on a step edits (Alt-click: accent, Shift-click: slide)"><button class="on" data-sm="trig" title="Trigs on or off; drag a selected trig: its last locked parameter">Trig</button><button data-sm="vel" title="Height is velocity; drag a trig to set it">Vel</button><button data-sm="acc">Accent</button><button data-sm="sld">Slide</button></div><div class="tabs pgtabs"><button class="on">1-16</button><button>17-32</button><button class="dis" title="Beyond the pattern length">33-48</button><button class="dis" title="Beyond the pattern length">49-64</button></div><button class="lockrec" title="Live recording: a played track records a trig, a turned knob a lock">Live</button></div>
+	<div class="bd" style="display:flex;gap:14px">
+		<div style="width:178px;display:flex;flex-direction:column;gap:4px">
+			<div style="display:flex;gap:6px;align-items:center"><span class="lbl" style="margin:0">Pattern</span><select style="flex:1"><option>A01</option><option>A02</option><option>&hellip; A16</option></select></div>
+			<div style="display:flex;justify-content:space-between;color:var(--mut)"><span>Len <b style="color:var(--tx)">32</b></span><span>Scale <b style="color:var(--tx)">1x</b></span><span>Swing <b style="color:var(--tx)">58</b></span></div>
+			<button class="btn" data-go="seq" style="margin-top:auto;height:24px" title="The sequencer page">All tracks and lanes</button>
+		</div>
+		<div style="flex:1;display:flex;flex-direction:column;min-width:0">
+			<div class="steps tsteps"></div>
+		</div>
+		<div style="width:250px;display:flex;flex-direction:column;gap:3px" class="lockpanel"></div>
+	</div>
+</div>
+
+<!-- =================== FX PAGE =================== -->
+<section class="page" id="p-fx">
+	<div class="box" id="fx-delay" style="grid-column:span 6;--acc:var(--k);--acc-w:var(--k-w);--acc-s:var(--k-s);--acc-t:var(--k-t)">
+		<div class="hd"><h2>Delay</h2><div class="tabs"><button class="on" data-src="Syntakt OS 1.41 delay">Syntakt</button><button title="Machinedrum master echo: comes with the MD port">MD echo</button><button class="dis" data-src="Digitakt II delay" title="At the Digitakt II milestone">DT2</button></div></div>
+		<div class="bd" style="display:flex;gap:12px">
+			<div style="width:300px;flex:none;display:flex;flex-direction:column;gap:8px">
+				<svg class="g fit" id="g-delay"></svg>
+				<div class="fxrow"><span class="lbl">Ping-pong</span><div class="seg" style="flex:1"><button class="on">Off</button><button>On</button></div></div>
+			</div>
+			<div class="kgrid"><i class="k pri" data-l="Delay Time" title="TIME" data-v="24" data-c="k" data-sz="64" style="--kw:84px" data-f="dtime" data-id="dtm"></i><i class="k pri" data-l="Feedback Gain" title="FDBK" data-v="32" data-c="k" data-sz="64" style="--kw:84px" data-id="dfb"></i><i class="k" data-l="Stereo Width" title="WID" data-v="0" data-c="k" data-sz="52" style="--kw:84px" data-min="-64" data-max="63"></i><i class="k" data-l="Mix Volume" title="VOL" data-v="110" data-c="k" data-sz="52" style="--kw:84px"></i><i class="k" data-l="Feedback HPF" title="HPF" data-v="32" data-c="k" data-sz="52" style="--kw:84px"></i><i class="k" data-l="Feedback LPF" title="LPF" data-v="96" data-c="k" data-sz="52" style="--kw:84px"></i><i class="k" data-l="Reverb Send" title="REV" data-v="0" data-c="k" data-sz="52" style="--kw:84px"></i><span></span></div>
+		</div>
+	</div>
+	<div class="box" id="fx-rev" style="grid-column:span 6;--acc:var(--b);--acc-w:var(--b-w);--acc-s:var(--b-s);--acc-t:var(--b-t)">
+		<div class="hd"><h2>Reverb</h2><div class="tabs"><button class="on">Syntakt</button><button title="Machinedrum Gate Box: comes with the MD port">MD gate box</button><button class="dis" title="At the Digitakt II milestone">DT2</button></div></div>
+		<div class="bd" style="display:flex;gap:12px">
+			<div style="width:300px;flex:none;display:flex;flex-direction:column;gap:8px">
+				<svg class="g fit" id="g-rev"></svg>
+				
+			</div>
+			<div class="kgrid"><i class="k" data-l="Pre-delay" title="PRE" data-v="16" data-c="b" data-sz="52" style="--kw:84px"></i><i class="k pri" data-l="Decay Time" title="DEC" data-v="31" data-c="b" data-sz="64" style="--kw:84px"></i><i class="k" data-l="Mix Volume" title="VOL" data-v="110" data-c="b" data-sz="52" style="--kw:84px"></i><span></span><i class="k" data-l="FB Shelving Freq" title="FREQ" data-v="64" data-c="b" data-sz="52" style="--kw:84px"></i><i class="k" data-l="FB Shelving Gain" title="GAIN" data-v="50" data-c="b" data-sz="52" style="--kw:84px"></i><i class="k" data-l="Input HPF" title="HPF" data-v="32" data-c="b" data-sz="52" style="--kw:84px"></i><i class="k" data-l="Input LPF" title="LPF" data-v="96" data-c="b" data-sz="52" style="--kw:84px"></i></div>
+		</div>
+	</div>
+	<div class="box" id="fx-cho" style="grid-column:span 6;--acc:var(--g);--acc-w:var(--g-w);--acc-s:var(--g-s);--acc-t:var(--g-t)">
+		<div class="hd"><h2>Chorus</h2><div class="tabs"><button class="on">Own <span class="plus" style="width:12px;height:12px;font-size:11px">+</span></button><button class="dis" title="At the Digitakt II milestone">DT2</button></div></div>
+		<div class="bd" style="display:flex;gap:12px">
+			<div style="width:300px;flex:none;display:flex;flex-direction:column;gap:8px">
+				<svg class="g fit" id="g-cho"></svg>
+				
+			</div>
+			<div class="kgrid"><i class="k pri" data-l="Depth" title="DPTH" data-v="50" data-c="g" data-sz="64" style="--kw:84px"></i><i class="k pri" data-l="Speed" title="SPD" data-v="30" data-c="g" data-sz="64" style="--kw:84px"></i><i class="k" data-l="Width" title="WDTH" data-v="127" data-c="g" data-sz="52" style="--kw:84px"></i><i class="k" data-l="Volume" title="VOL" data-v="100" data-c="g" data-sz="52" style="--kw:84px"></i><i class="k" data-l="High-pass filter" title="HPF" data-v="0" data-c="g" data-sz="52" style="--kw:84px"></i><i class="k" data-l="Delay Send" title="DEL" data-v="0" data-c="g" data-sz="52" style="--kw:84px"></i><i class="k" data-l="Reverb Send" title="REV" data-v="20" data-c="g" data-sz="52" style="--kw:84px"></i><span></span></div>
+		</div>
+	</div>
+	<div class="box" id="fx-ph" style="grid-column:span 6;--acc:var(--p);--acc-w:var(--p-w);--acc-s:var(--p-s);--acc-t:var(--p-t)">
+		<div class="hd"><h2>Phaser / flanger</h2><div class="tabs"><button class="on">Own <span class="plus" style="width:12px;height:12px;font-size:11px">+</span></button></div></div>
+		<div class="bd" style="display:flex;gap:12px">
+			<div style="width:300px;flex:none;display:flex;flex-direction:column;gap:8px">
+				<svg class="g fit" id="g-ph"></svg>
+				<div class="seg" id="phmode" style="--acc:var(--p);--acc-w:var(--p-w);--acc-s:var(--p-s);--acc-t:var(--p-t)"><button class="on" data-m="ph">Phaser</button><button data-m="fl">Flanger</button></div>
+			</div>
+			<div class="kgrid"><i class="k pri" data-l="Center" title="CNTR" data-v="60" data-c="p" data-sz="64" style="--kw:84px"></i><i class="k pri" data-l="Depth" title="DEP" data-v="80" data-c="p" data-sz="64" style="--kw:84px"></i><i class="k" data-l="Speed" title="SPD" data-v="22" data-c="p" data-sz="52" style="--kw:84px"></i><i class="k" data-l="Feedback" title="FB" data-v="70" data-c="p" data-sz="52" style="--kw:84px"></i><i class="k" data-l="Width" title="WID" data-v="64" data-c="p" data-sz="52" style="--kw:84px"></i><i class="k" data-l="Mix" title="MIX" data-v="64" data-c="p" data-sz="52" style="--kw:84px"></i><i class="k" data-l="Stages" title="NUM" data-v="6" data-c="p" data-sz="52" style="--kw:84px" data-min="2" data-max="10"></i><span></span></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 8">
+		<div class="hd"><h2>Sends</h2></div>
+		<div class="bd"><div class="matrix" id="matrix"></div></div>
+	</div>
+	<div class="box" style="grid-column:span 4;--acc:var(--w);--acc-w:var(--w-w);--acc-s:var(--w-s);--acc-t:var(--w-t)">
+		<div class="hd"><h2>FX returns</h2></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:6px">
+			<div style="display:flex;justify-content:space-around;flex:1;min-height:0">
+				<div class="f" data-v="110" style="--fc:var(--k)"><span class="l">Delay</span><div class="tr"></div><span class="v"></span></div>
+				<div class="f" data-v="110" style="--fc:var(--b)"><span class="l">Reverb</span><div class="tr"></div><span class="v"></span></div>
+				<div class="f" data-v="100" style="--fc:var(--g)"><span class="l">Chorus</span><div class="tr"></div><span class="v"></span></div>
+				<div class="f" data-v="80" style="--fc:var(--p)"><span class="l">Ph/Fl</span><div class="tr"></div><span class="v"></span></div>
+			</div>
+			<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px" title="Each return goes to Main or to one of the 15 outputs"><select><option>Main</option><option>Out 15</option></select><select><option>Main</option><option>Out 14</option></select><select><option>Main</option></select><select><option>Out 13</option><option>Main</option></select></div>
+		</div>
+	</div>
+</section>
+
+<!-- =================== MASTER PAGE =================== -->
+<section class="page" id="p-master">
+	<div class="box" style="grid-column:span 6;--acc:var(--k);--acc-w:var(--k-w);--acc-s:var(--k-s);--acc-t:var(--k-t)">
+		<div class="hd"><h2 title="Digitakt II master, fixed order: compressor, overdrive, clip. Main only.">Compressor</h2><div class="tabs"><button class="on">On</button><button>Bypass</button></div></div>
+		<div class="bd" style="display:flex;gap:12px">
+			<div style="width:64px;flex:none;display:flex;flex-direction:column;align-items:center;gap:4px">
+				<span class="lbl" style="margin:0">GR</span>
+				<div style="flex:1;display:flex;gap:4px;min-height:0"><div class="scale"><span>0</span><span>-3</span><span>-6</span><span>-9</span><span>-12</span></div><div style="width:16px;background:#15171a;position:relative"><b id="gr" style="position:absolute;left:0;right:0;top:0;background:var(--s)"></b></div></div>
+				<span id="grv" class="num" style="font-size:12px" title="Gain reduction, dB">-3.1</span>
+			</div>
+			<div style="flex:1;display:flex;flex-direction:column;gap:8px;min-width:0">
+				<div class="kgrid"><i class="k pri" data-l="Threshold" title="THR" data-v="80" data-c="k" data-sz="64" style="--kw:84px"></i><i class="k" data-l="Attack" title="ATK" data-v="20" data-c="k" data-sz="52" style="--kw:84px"></i><i class="k" data-l="Release" title="REL" data-v="60" data-c="k" data-sz="52" style="--kw:84px"></i><i class="k pri" data-l="Makeup Gain" title="MUP" data-v="30" data-c="k" data-sz="64" style="--kw:84px"></i><i class="k" data-l="Sidechain Filter" title="SCF" data-v="-20" data-c="k" data-sz="52" style="--kw:84px" data-min="-64" data-max="63" data-f="scf"></i><i class="k" data-l="Dry/Wet Mix" title="MIX" data-v="127" data-c="k" data-sz="52" style="--kw:84px"></i><i class="k" data-l="Volume" title="VOL" data-v="100" data-c="k" data-sz="52" style="--kw:84px"></i><span></span></div>
+				<div class="fxrow"><span class="lbl">Ratio</span><div class="seg" style="flex:1"><button class="">1.50</button><button class="">2.00</button><button class="">3.00</button><button class="on">4.00</button><button class="">6.00</button><button class="">8.00</button><button class="">16.00</button><button class="">20.00</button></div></div>
+				<div class="fxrow"><span class="lbl">Sidechain</span><select style="flex:1"><option>Comp mix</option><option>Not comp</option><option>Main</option><option selected>TRK1</option><option>TRK2</option><option>TRK3</option><option>TRK4</option><option>TRK5</option><option>TRK6</option><option>TRK7</option><option>TRK8</option><option>TRK9</option><option>TRK10</option><option>TRK11</option><option>TRK12</option><option>TRK13</option><option>TRK14</option><option>TRK15</option><option>TRK16</option><option>In L+R</option><option>In L</option><option>In R</option></select></div>
+			</div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 3;--acc:var(--s);--acc-w:var(--s-w);--acc-s:var(--s-s);--acc-t:var(--s-t)">
+		<div class="hd"><h2 title="Digitakt II master saturator, then clip. Main only.">Overdrive</h2><div class="tabs" id="odsrc"><button class="on" data-n="dt">DT2</button><button class="dis" title="Syntakt analog overdrive, approximate model: comes with the analog machines' milestone">Syntakt</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:8px">
+			<div class="seg" style="--acc:var(--s);--acc-w:var(--s-w);--acc-s:var(--s-s);--acc-t:var(--s-t)"><button class="on">On</button><button>Bypass</button></div>
+			<svg class="g fit" id="g-od"></svg>
+			<div style="display:flex;align-items:center;gap:12px"><i class="k pri" data-l="Master Overdrive" title="MOVD" data-v="34" data-c="s" data-sz="64" style="--kw:110px" data-id="od"></i></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 3;--acc:var(--w);--acc-w:var(--w-w);--acc-s:var(--w-s);--acc-t:var(--w-t)">
+		<div class="hd"><h2>Main out</h2></div>
+		<div class="bd" style="display:flex;gap:16px;align-items:stretch">
+			<div class="mm"><div class="scale" style="padding-bottom:0"><span>0</span><span>-6</span><span>-12</span><span>-24</span><span>-48</span></div><div class="vm"><b id="ml" style="height:60%"></b></div><div class="vm"><b id="mr" style="height:55%"></b></div></div>
+			<div class="f" data-v="100" style="--fc:var(--w)"><span class="l">Main</span><div class="tr"></div><span class="v"></span></div>
+			<div style="display:flex;flex-direction:column;justify-content:center;gap:8px;font-size:12px;color:var(--mut)"><div title="dBFS">Peak <b class="num" style="color:var(--tx)">-4.2</b></div><div title="Samples, note to sound">Latency <b class="num" style="color:var(--tx)">83</b></div><div title="Host sample rate">Rate <b class="num" style="color:var(--tx)">48k</b></div></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 12">
+		<div class="hd"><h2>Mixer</h2></div>
+		<div class="bd"><div class="chs" id="chs"></div></div>
+	</div>
+</section>
+
+<!-- =================== SEQ PAGE: bulk editing, lock lanes =================== -->
+<section class="page" id="p-seq">
+	<div class="box" style="grid-column:span 5">
+		<div class="hd"><h2>Pattern</h2></div>
+		<div class="bd"><div class="pat" id="pat"></div>
+			<div style="display:flex;align-items:center;gap:8px;margin-top:8px"><span class="lbl" style="margin:0">Chain</span><div class="seg" style="flex:1"><button class="on">A01</button><button class="on">A01</button><button class="on">A02</button><button class="on">A05</button><button>+</button></div></div></div>
+	</div>
+	<div class="box" style="grid-column:span 4">
+		<div class="hd"><h2>Settings</h2></div>
+		<div class="bd" style="display:flex;gap:8px;align-items:flex-start">
+			<i class="k" data-l="Length" data-v="32" data-min="1" data-max="64" data-c="w" data-sz="52" style="--kw:64px" data-id="len"></i>
+			<i class="k" data-l="Swing" data-v="58" data-min="50" data-max="80" data-c="w" data-sz="52" style="--kw:64px" data-f="pct"></i>
+			<div style="flex:1"><div class="lbl">Scale</div><div class="seg" id="scale"><button>1/8</button><button>1/4</button><button>1/2</button><button>3/4</button><button class="on">1x</button><button>3/2</button><button>2x</button></div>
+			<div class="lbl" style="margin-top:8px">Page</div><div class="pgs" id="pgs"><i class="on"></i><i></i><i class="dis"></i><i class="dis"></i></div></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 3">
+		<div class="hd"><h2>Transport</h2></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:8px">
+			<div style="display:flex;gap:8px;align-items:center;font-size:12px"><span class="led"></span><b>Synced to Live</b></div>
+			<div style="display:flex;gap:16px;font-size:18px;font-weight:600;line-height:24px"><span class="num" title="Tempo">120.00</span><span id="pos" title="Bar, beat, sixteenth">2.3.1</span></div>
+			<div style="display:flex;gap:4px"><div class="seg" style="--acc:var(--y);--acc-w:var(--y-w);--acc-s:var(--y-s);--acc-t:var(--y-t);flex:1"><button id="fill">Fill</button><button>Mute mode</button></div><button class="lockrec" style="height:24px" title="Live recording: a played track records a trig, a turned knob a lock">Live</button></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 9;--acc:var(--t);--acc-w:var(--t-w);--acc-s:var(--t-s);--acc-t:var(--t-t)">
+		<div class="hd"><h2>Steps</h2><div class="tabs stmode" title="What a click or a vertical drag on a step edits (Alt-click: accent, Shift-click: slide)"><button class="on" data-sm="trig" title="Trigs on or off; drag a selected trig: its last locked parameter">Trig</button><button data-sm="vel" title="Height is velocity; drag a trig to set it">Vel</button><button data-sm="acc">Accent</button><button data-sm="sld">Slide</button></div><div class="tabs" id="pgtabs"><button class="on">1-16</button><button>17-32</button><button>33-48</button><button>49-64</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:8px">
+			<div class="seg trksel" id="trksel"></div>
+			<div class="steps" style="flex:1;min-height:0"></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 3;--acc:var(--y);--acc-w:var(--y-w);--acc-s:var(--y-s);--acc-t:var(--y-t)">
+		<div class="hd"><h2>Step <small id="sd-title">5</small></h2></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:4px">
+			<div class="lbl" style="margin:0">Trig condition</div>
+			<select style="width:100%" id="cond"><option>None</option><option>FILL</option><option>!FILL</option><option>PRE</option><option>!PRE</option><option>NEI</option><option>1ST</option><option selected>1:2</option><option>2:2</option><option>1:4</option><option>3:4</option><option>50 %</option><option>25 %</option><option>&hellip; 65 in all</option></select>
+			<div class="lbl" style="margin:4px 0 0">Ratchet</div>
+			<div class="seg" id="ratchet"><button class="on">1</button><button>2</button><button>3</button><button>4</button><button>5</button><button>6</button><button>7</button><button>8</button></div>
+			<div class="lbl" style="margin:4px 0 0">Micro-timing <span id="mtv" class="num" style="color:var(--tx)">+5/384</span></div>
+			<div style="height:28px;background:var(--well);position:relative" id="mtbar">
+				<div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:#ffffff40"></div>
+				<div id="mtcap" style="position:absolute;top:4px;bottom:4px;width:6px;background:var(--t);left:60%"></div>
+			</div>
+		</div>
+	</div>
+	<div class="box" id="b-params" style="grid-column:span 5;--acc:var(--y);--acc-w:var(--y-w);--acc-s:var(--y-s);--acc-t:var(--y-t)">
+		<div class="hd"><h2 title="Lockable parameters of the track: a click adds or removes its lane (8 at most)">Parameters</h2></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:6px">
+			<div class="plist" id="plist"></div>
+		</div>
+	</div>
+	<div class="box" id="b-lanes" style="grid-column:span 7;--acc:var(--y);--acc-w:var(--y-w);--acc-s:var(--y-s);--acc-t:var(--y-t)">
+		<div class="hd"><h2>Lock lanes</h2><div class="tabs"><button class="on">Draw</button><button>Erase</button></div></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:8px">
+			<div id="lanes" style="display:flex;flex-direction:column;gap:8px;flex:1;min-height:0"></div>
+		</div>
+	</div>
+</section>
+
+<!-- =================== KIT PAGE =================== -->
+<section class="page" id="p-kit">
+	<div class="box" style="grid-column:span 5;grid-row:span 2">
+		<div class="hd"><h2>Kits</h2><div class="tabs"><button class="on">1-64</button><button>Search</button></div></div>
+		<div class="bd scroll" style="overflow:auto"><div class="slots" id="slots64"></div></div>
+	</div>
+	<div class="box" style="grid-column:span 7">
+		<div class="hd"><h2>Kit</h2></div>
+		<div class="bd" style="display:flex;flex-direction:column;gap:8px">
+			<div style="display:flex;gap:8px;align-items:center"><div class="field" style="flex:1" id="kitname">Rainy day</div><button class="btn">Rename</button></div>
+			<div style="display:flex;gap:4px"><button class="btn pri" title="Ctrl+S">Save</button><button class="btn">Save as</button><button class="btn">Reload</button><button class="btn">Clear</button><span style="flex:1"></span><button class="btn">Import</button><button class="btn">Export</button></div>
+			<div style="display:flex;gap:8px;align-items:center"><span class="lbl" style="margin:0">Tempo and scale follow</span><div class="seg" style="width:200px"><button class="on">Pattern</button><button>Kit</button></div></div>
+		</div>
+	</div>
+	<div class="box" style="grid-column:span 7">
+		<div class="hd"><h2>Tracks in this kit</h2></div>
+		<div class="bd scroll" style="overflow:auto;padding-top:4px"><table class="ktab" id="ktab"></table></div>
+	</div>
+</section>
+
+<!-- =================== SOUND BROWSER =================== -->
+<section class="page" id="p-browser">
+	<div class="box" style="grid-column:span 12;--acc:var(--g);--acc-w:var(--g-w);--acc-s:var(--g-s);--acc-t:var(--g-t)">
+		<div class="hd"><h2>Elektron content</h2></div>
+		<div class="imp">
+			<div class="drop" id="edrop" title="Drop Elektron files here, or into this folder: firmwares, flash images, factory packs, Transfer exports">
+				<b>Elektron folder</b><span>Documents / Drums / Elektron</span>
+			</div>
+			<div style="display:flex;flex-direction:column;gap:6px;justify-content:center">
+				<button class="btn pri" id="eimport">Import Elektron content</button>
+				<button class="btn" title="Open the Elektron folder">Open folder</button>
+			</div>
+			<div class="found" id="efound"></div>
+		</div>
+	</div>
+	<div class="bcols" style="grid-column:span 12">
+		<div class="box tree" style="--acc:var(--t);--acc-w:var(--t-w);--acc-s:var(--t-s);--acc-t:var(--t-t)">
+			<div class="hd"><h2>Library</h2><div class="tabs" id="bview"><button class="on" data-v="src">By source</button><button data-v="type">By type</button></div></div>
+			<div class="bd" style="display:flex;flex-direction:column;min-height:0"><div class="tl2 scroll" id="btree"></div></div>
+		</div>
+		<div class="box blist" style="--acc:var(--t);--acc-w:var(--t-w);--acc-s:var(--t-s);--acc-t:var(--t-t)">
+			<div class="bd" style="display:flex;flex-direction:column;gap:6px;min-height:0">
+				<div class="bsearch"><input id="bq" type="search" placeholder="Search" aria-label="Search"></div>
+				<div class="chips" id="bchips"></div>
+				<div class="bulk" id="bulk"><b id="bcount"></b><span style="flex:1"></span><select id="bretype" title="Set the type of every selected item"><option value="">Retype</option></select><button class="btn" title="Add a tag to every selected item">Tag</button></div>
+				<div class="btab scroll"><table><thead><tr><th>Name</th><th>Type</th><th>Tags</th><th>Length</th><th>Origin</th></tr></thead><tbody id="brows"></tbody></table></div>
+			</div>
+		</div>
+		<div class="box prev" style="--acc:var(--g);--acc-w:var(--g-w);--acc-s:var(--g-s);--acc-t:var(--g-t)">
+			<div class="hd"><h2>Preview</h2></div>
+			<div class="bd" style="display:flex;flex-direction:column;gap:8px;min-height:0">
+				<svg class="g" id="g-pwave" style="height:150px"></svg>
+				<div class="prow">
+					<button class="ibtn" id="pplay" title="Play (a click on a row auditions it)"><svg viewBox="0 0 14 14"><path d="M4 2.5l8 4.5-8 4.5z"/></svg></button>
+					<button class="ibtn" title="Loop"><svg viewBox="0 0 14 14"><path d="M3 5h7l-2-2M11 9H4l2 2" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
+					<button class="ibtn on" title="Audition on click"><svg viewBox="0 0 14 14"><path d="M2 5h3l3-3v10L5 9H2z"/></svg></button>
+					<span style="flex:1"></span>
+					<i class="k" data-l="Level" data-v="100" data-c="g" data-sz="52" style="--kw:56px"></i>
+					<i class="k" data-l="Tune" data-v="0" data-min="-24" data-max="24" data-c="g" data-sz="52" style="--kw:56px"></i>
+				</div>
+				<div class="pinfo" id="pinfo"></div>
+				<button class="btn pri" id="pload" style="margin-top:auto" title="Or double-click the row, or drag it onto a track tab, the Sample box or a kit slot">Load on track</button>
+			</div>
+		</div>
+	</div>
+</section>
+
+</div>
+
+<!-- ======== FOOTER ======== -->
+<div class="foot">
+	<span class="sp"></span>
+	<span>Drive oversampling</span><div class="seg" id="osamp" style="--acc:var(--a);--acc-w:var(--a-w);--acc-s:var(--a-s);--acc-t:var(--a-t)" title="Global: every drive slot, every track"><button>Off</button><button class="on">2x</button><button>4x</button></div>
+	<select id="zoomsel" title="Zoom"><option>75</option><option selected>100</option><option>125</option><option>150</option></select>
+	<span title="Mockup: layout only, no sound">Version 0.11.0</span>
+</div>
+</div>
+
+<script src="v12.js"></script>
+</body>
+</html>
