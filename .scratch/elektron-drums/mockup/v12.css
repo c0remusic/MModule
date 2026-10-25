@@ -873,12 +873,13 @@ svg.g,.scr{background:var(--well);border-radius:0;box-shadow:inset 0 2px 3px rgb
 .tt.on,.tt.sys.on,.mtab.on{color:var(--t-t)}
 .k.lk text{fill:var(--t-t)}
 /* steps: a trigless lock is an outlined step. Trig mode draws trigs as full blocks (--vh 100 %), Vel mode at their
-   velocity's height. A step that drags in the mode (.dg) shows the resize cursor and lights its fill's top edge */
+   velocity's height. A step that drags in the mode (.dg) shows the resize cursor; a selected step holding a lock
+   (.lkv, Trig mode) fills to that lock's value and lights its top edge, so a knob turned shows on the step */
 .st.tl,html[data-acc] .st.tl{background:var(--ctl);box-shadow:inset 0 0 0 2px var(--t)}
 .st.dg{cursor:ns-resize}
-html[data-acc] .st.trig.dg:hover{background:linear-gradient(to top,var(--trig) calc(var(--lh,var(--vh)) - 2px),var(--t) calc(var(--lh,var(--vh)) - 2px),var(--t) var(--lh,var(--vh)),var(--ctl) var(--lh,var(--vh)))}
+html[data-acc] .st.trig.dg:hover,html[data-acc] .st.trig.lkv{background:linear-gradient(to top,var(--trig) calc(var(--lh,var(--vh)) - 2px),var(--t) calc(var(--lh,var(--vh)) - 2px),var(--t) var(--lh,var(--vh)),var(--ctl) var(--lh,var(--vh)))}
 html[data-acc] .st.trig.dg.drag{background:linear-gradient(to top,var(--trig) calc(var(--vh) - 2px),var(--t) calc(var(--vh) - 2px),var(--t) var(--vh),var(--ctl) var(--vh))}
-html[data-acc] .st.tl.dg:hover{background:linear-gradient(to top,var(--ctl) calc(var(--lh,var(--vh)) - 2px),var(--t) calc(var(--lh,var(--vh)) - 2px),var(--t) var(--lh,var(--vh)),var(--ctl) var(--lh,var(--vh)))}
+html[data-acc] .st.tl.dg:hover,html[data-acc] .st.tl.lkv{background:linear-gradient(to top,var(--ctl) calc(var(--lh,var(--vh)) - 2px),var(--t) calc(var(--lh,var(--vh)) - 2px),var(--t) var(--lh,var(--vh)),var(--ctl) var(--lh,var(--vh)))}
 html[data-acc] .st.tl.dg.drag{background:linear-gradient(to top,var(--ctl) calc(var(--vh) - 2px),var(--t) calc(var(--vh) - 2px),var(--t) var(--vh),var(--ctl) var(--vh))}
 .st .dv{display:none;position:absolute;left:0;right:0;top:calc(50% - 10px);height:20px;line-height:20px;text-align:center;font-family:var(--fn);font-size:14px;font-weight:600;color:var(--tx);pointer-events:none}
 .st.drag .dv{display:block}
