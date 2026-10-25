@@ -1,7 +1,7 @@
 # Garde-fou : un test sauté de sa liste le rend rouge
 
 Type: AFK
-Status: ready-for-agent
+Status: resolved
 Assignee: 
 Blocked by: 
 
@@ -21,3 +21,15 @@ trouve, sans jamais copier de firmware dans le dépôt.
 ## Références
 
 Spécification §12 critère 12, §14. `scripts/windows/gate.ps1`.
+
+## Answer
+
+Fait le 2026-10-25. `scripts/windows/gate.ps1` relève dans la sortie de ctest chaque test `***Skipped`, le nomme
+(« skipped, which the gate takes as failed ») et rend le garde-fou rouge. Il pose chaque variable `SYNTAKT_*` laissée
+vide depuis `-SyntaktData` (`C:\dev\elektron-work` par défaut) et `-SyntaktOs` (le `.syx` du téléchargement
+d'Elektron dans `Downloads`), si les fichiers existent, et écrit en tête du journal celles qu'il n'a pas pu poser. Rien
+n'est copié dans le dépôt. `CLAUDE.md`, section « Gate », le dit.
+
+- Sans données (`-SyntaktData C:\nowhere -SyntaktOs C:\nowhere\none.syx`) : `GATE RED`. Le journal nomme les 9 tests
+  sautés et les 9 variables manquantes.
+- Avec : 34 tests sur 34 passés, aucun sauté, les 9 du Syntakt compris, `GATE GREEN` en 664 s.

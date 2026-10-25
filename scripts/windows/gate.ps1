@@ -10,9 +10,13 @@
 #   another session's build or survey). Such a test that fails is run once more: green on the second run, the gate says
 #   so and names the load ("timing test failed under load, passed on its second run"); red twice, the gate is red.
 # - Every other test's failure is red at once.
+# - A test that skips (exit 77: its firmware, OS or vectors not found) is red too: ctest counts it as passed, and a
+#   skipped test proves nothing. The log names each one, and the Syntakt variables the gate could not set.
 param(
     [string]$Log = (Join-Path ([System.IO.Path]::GetTempPath()) "module-gate.log"),
-    [string]$Build = "temp\cmake_vs22"
+    [string]$Build = "temp\cmake_vs22",
+    [string]$SyntaktData = "C:\dev\elektron-work",
+    [string]$SyntaktOs = "$env:USERPROFILE\Downloads\Syntakt OS 1.40A\Syntakt OS\Syntakt_OS1.41.syx"
 )
 $ErrorActionPreference = 'Continue'
 $root = Resolve-Path "$PSScriptRoot\..\.."
@@ -36,6 +40,30 @@ $env:GEARMULATOR_MD_FIRMWARE_BIN = "$rom\elektron_sps1-1uw_os1.63.bin"
 $env:GEARMULATOR_MM_FIRMWARE_BIN = "$rom\elektron_sfx6-60_os1.32b.bin"
 $env:MD_X20_OS = "$rom\Machinedrum_SPS1-UW_OS_X.20_B.syx"
 $env:MD_AUTOMATION_REQUIRE_FIRMWARE = "1"
+
+# The Syntakt's tests read the user's OS 1.41 and the original routines' vectors and references, firmware-derived data
+# kept outside the repository (CLAUDE.md, "Gate"): each variable left unset is set from $SyntaktData (the .syx from
+# $SyntaktOs) where its files are
+$joinFiles = { param($_pattern) (Get-ChildItem $_pattern -ErrorAction SilentlyContinue | ForEach-Object FullName) -join ";" }
+$syntakt = [ordered]@{
+    SYNTAKT_OS_SYX       = $SyntaktOs
+    SYNTAKT_SECTION3     = "$SyntaktData\syntakt-1.41\section_3_MAIN_OS.bin"
+    SYNTAKT_SECTION7     = "$SyntaktData\syntakt-1.41\section_7_BLOB.bin"
+    SYNTAKT_VECTORS      = & $joinFiles "$SyntaktData\vectors\*.stv"
+    SYNTAKT_MAIN_VECTORS = & $joinFiles "$SyntaktData\vectors-main\*.stv"
+    SYNTAKT_MAIN_OUTPUTS = "$SyntaktData\vectors-main\block_sequence.sto;$SyntaktData\vectors-main\mix_sequence.sto"
+    SYNTAKT_SCENARIO     = "$SyntaktData\vectors-main\syntakt_scenario.sto"
+    SYNTAKT_REFERENCES   = "$SyntaktData\references"
+    SYNTAKT_SAMPLES      = "$SyntaktData\references\twinshot_samples.bin"
+}
+$syntaktMissing = @()
+foreach($name in $syntakt.Keys)
+{
+    if([Environment]::GetEnvironmentVariable($name)) { continue }
+    $value = $syntakt[$name]
+    if($value -and -not ($value -split ";" | Where-Object { -not (Test-Path $_) })) { Set-Item "env:$name" $value }
+    else { $syntaktMissing += $name }
+}
 
 function Say([string]$_text) { $_text | Tee-Object -FilePath $Log -Append }
 
@@ -74,6 +102,7 @@ $green = $false
 try
 {
     Set-Content -Path $Log -Value ("MoDule gate {0}, {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), (git rev-parse --short HEAD))
+    if($syntaktMissing.Count -gt 0) { Say "Syntakt data not found (-SyntaktData, -SyntaktOs): $($syntaktMissing -join ', ')" }
     $start = Get-Date
     $built = cmake --build $Build --config Release -j 6 --target $targets 2>&1
     $buildExit = $LASTEXITCODE
@@ -95,7 +124,7 @@ try
     $ctestExit = $LASTEXITCODE
     $out | Out-File -FilePath "$Log.ctest.txt" -Encoding utf8
     $out | Select-String -Pattern "Test +#|tests passed|tests failed|Total Test time" | ForEach-Object { Say $_.Line }
-    $failed = @($out | Select-String -Pattern "^\s*\d+ - (\S+) \(" | ForEach-Object { $_.Matches[0].Groups[1].Value })
+    $failed = @($out | Select-String -Pattern "^\s*\d+ - (\S+) \((?!Skipped)" | ForEach-Object { $_.Matches[0].Groups[1].Value })
     # The failing tests' own lines, the ones a reader needs (the whole output is in <log>.ctest.txt)
     if($failed.Count -gt 0)
     {
@@ -105,10 +134,12 @@ try
             Select-Object -First 20 | ForEach-Object { Say ("  " + $_.Line.Trim()) }
     }
     Say "ctest exit $ctestExit"
+    $skipped = @($out | Select-String -Pattern "Test +#\d+: (\S+) .*\*\*\*Skipped" | ForEach-Object { $_.Matches[0].Groups[1].Value })
+    if($skipped.Count -gt 0) { Say "---- skipped, which the gate takes as failed: $($skipped -join ', ')" }
 
-    $red = @($failed | Where-Object { $timingTests -notcontains $_ })
+    $red = @($failed | Where-Object { $timingTests -notcontains $_ }) + $skipped
     $retry = @($failed | Where-Object { $timingTests -contains $_ })
-    if($ctestExit -eq 0)
+    if($ctestExit -eq 0 -and $skipped.Count -eq 0)
     {
         $green = $true
     }
