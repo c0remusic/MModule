@@ -216,6 +216,9 @@ Ticket « Interface façon Overbridge ». Référence : mockup v12 (`mockup/v12.
 - Fil audio sans allocation ni verrou, tout préparé avant le rendu ; SIMD sur les voix et les étages communs ;
   FTZ/DAZ dès qu'un étage passe en flottant.
 - Toute décision de construction dit son coût mesuré.
+- 15 % est un plafond, pas une cible (règle de l'utilisateur, 2026-10-25 : « si on peut faire mieux on fait
+  mieux »). Chaque étage vise le coût le plus bas qu'on sache atteindre à qualité égale, et un gain mesuré se garde
+  même quand le budget tient déjà.
 
 ### 11.2 Fréquence et latence
 
@@ -291,7 +294,7 @@ Moteurs d'abord : ils décident si le budget tient. L'interface avance en parall
 8. Interface JUCE d'après v12.
 9. Mesures de fin : CPU, latence, « sonne pareil », Q1-Q16.
 
-Le découpage en tickets d'implémentation suit cette spécification.
+Le découpage en tickets d'implémentation : [elektron-drums-v1/map.md](../elektron-drums-v1/map.md), 25 tickets.
 
 ## 14. Points ouverts
 
