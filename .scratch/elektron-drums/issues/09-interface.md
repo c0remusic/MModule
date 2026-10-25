@@ -54,6 +54,9 @@ Derniers points tranchés le 2026-10-25 :
 - Liste des locks de la box de pas : tous les locks de la sélection (défilement au-delà de quatre) ; la valeur se
   règle en glissant verticalement ou à la molette, une croix retire le lock des pas sélectionnés (un lock sans note
   qui n'a plus de lock disparaît).
+- Menu d'un knob (Vélocité, Lock) : plus de pastille « + », difficile à cliquer sur les petits knobs et collée à
+  l'anneau ; un clic sur le nom du knob l'ouvre (cible de 24 px de haut sur toute la largeur du nom), le clic droit
+  sur le knob aussi.
 - Box FILTER : tous ses knobs à 52 px ; le grand format (64 px) reste aux boxes qui ont peu de paramètres.
 - Filtre MD : le knob de suivi de clavier est caché, sa place reste vide, rien ne bouge.
 - Valeur des knobs de 64 px en 16 px, hors de l'échelle 11/12/14/18 : dérivée du diamètre par la règle des

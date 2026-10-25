@@ -72,8 +72,6 @@ svg.fit{flex:1 1 0;min-height:0;height:auto}
 .lane.new .ln{box-shadow:inset 0 0 0 1px var(--y)}
 #learn.on{background:var(--y);color:#2a2410}
 .k{position:relative}
-.k .pb{display:none;position:absolute;top:15px;right:calc(50% - var(--ks)/2 - 9px);width:15px;height:15px;border-radius:50%;background:#f2f4f6;color:#1a1c1f;font-size:12px;font-weight:600;line-height:15px;text-align:center;font-style:normal;cursor:pointer;box-shadow:0 1px 4px #000a}
-.tp .k:hover .pb,.k.popk .pb{display:block}
 .kpop{position:absolute;z-index:30;width:220px;background:#3a3e43;border:1px solid #555b62;box-shadow:0 10px 30px #000c;padding:4px}
 .kpop .kph{font-size:12px;font-weight:600;color:var(--mut);padding:4px 6px;letter-spacing:0;text-transform:uppercase}
 .kpop button{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 8px;font-size:12px;font-weight:600;color:#e6e8ea;text-align:left}
@@ -453,7 +451,6 @@ select{background:var(--well);border-color:var(--line);color:var(--tx)}
 .k.lk .l{color:var(--tx)}
 .f .v{color:var(--tx)}
 .k.flashk{outline:1px solid var(--tx);outline-offset:2px}
-.k .pb{box-shadow:none}
 /* labels: firmware page names stay upper case (Elektron's screens), untracked, grey */
 .lbl,.rowl,.mgrid .gh,.eq3 .bh,.kpop .kph,.pgp .ph{letter-spacing:0;color:var(--mut)}
 .pgp .ph{color:var(--gc,var(--mut));border-bottom:0;background:var(--well)}
@@ -576,9 +573,6 @@ select,.seg button,.btn,.ftypes button,.shapes button,.mb,.pat button,.slots but
 .foot select,.foot .seg button,.foot .demo{height:24px}
 .pr{height:24px}
 .tt .tpl{width:24px;height:24px;padding-left:2px}	/* play triangle: 2 px right, optical centre */
-.k .pb{width:24px;height:24px;background:none;top:11px;right:calc(50% - var(--ks)/2 - 13px);display:none;align-items:center;justify-content:center;line-height:1}
-.k .pb:after{content:"+";width:16px;height:16px;border-radius:50%;background:#f2f4f6;color:#1a1c1f;font-size:12px;font-weight:600;line-height:16px;text-align:center}
-.tp .k:hover .pb,.k.popk .pb{display:flex}
 .kpop{width:200px}
 .kpop button{height:32px}
 
@@ -676,7 +670,6 @@ select,.seg button,.btn,.ftypes button,.shapes button,.mb,.pat button,.slots but
 .box,.hd,.kpop,.mpop,.cpop,.toast,.mpop .mgrid,.chip,.tag,.mil,.pad,.ibtn,.tn2,.drop,.fd,.bulk,.lockrow,.mmenu{border-radius:2px}
 .hd{border-radius:2px 2px 0 0}
 .kpop button,.mpop .mb,.mpop .fl button,.cpop button{border-radius:2px}
-.k .pb:after{border-radius:2px}
 .st .sld{border-radius:0}
 .mil{height:18px;padding:0 6px}
 /* fixed layout: row 1 = Machine, Drive, Band, Filter; row 2 = Sample layer, Amp, LFO, Sends */
@@ -900,3 +893,6 @@ html[data-acc] .st.tl.dg.drag{background:linear-gradient(to top,var(--ctl) calc(
 .lockrow b{cursor:ns-resize;touch-action:none;padding:0 4px;line-height:24px}
 .lockrow .lx{width:24px;height:24px;border:0;padding:0;background:none;color:var(--mut);font-size:14px;cursor:pointer}
 .lockrow .lx:hover{color:var(--tx);background:var(--ctlh)}
+/* a track knob's name opens its menu (Velocity, Lock): the whole name is the target, 24 px tall, clear of the ring */
+.tp .k .l{cursor:pointer;padding:4px 6px;margin:-4px -6px;box-sizing:content-box}
+.tp .k .l:hover,.tp .k.popk .l{color:var(--tx);background:var(--ctlh)}

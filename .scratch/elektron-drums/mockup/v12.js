@@ -137,7 +137,8 @@ function harmonize(){ $$('.k').forEach(k=>k.paintVal&&k.paintVal()); }
 function makeKnob(el){
 	const sz = (+(el.dataset.sz||52))>=60?KP:KS, min=+(el.dataset.min??0), max=+(el.dataset.max??127), c=col(el.dataset.c||"t"), cd=col((el.dataset.c||"t")+"-d");
 	const D=sz, r=KR.ring*D, cx=D/2, cy=D/2, fs=+(KR.text*D).toFixed(2), rm=KR.modR*D;
-	el.innerHTML = `<span class="l">${sc(el.dataset.dl||el.dataset.l)}${el.dataset.plus?'<span class="plus">+</span>':''}</span><svg width="${D}" height="${D}"><circle cx="${cx}" cy="${cy}" r="${KR.disc*D}" fill="#1b1c1e"/><path class="tk" d="${arc(cx,cy,r,-135,135)}" stroke="${cd}" stroke-width="${KR.ringW*D}" fill="none" stroke-linecap="round"/><path class="vl" stroke="${c}" stroke-width="${KR.ringW*D}" fill="none" stroke-linecap="round"/><circle class="dt" r="${KR.dot*D}" fill="#f2f4f6"/><path class="md" stroke-width="${KR.modW*D}" fill="none" stroke-linecap="butt" style="cursor:ew-resize"/><line class="pd" stroke="#f2f4f6" stroke-width="${KR.tickW*D}" style="display:none"/><text x="${cx}" y="${cy}" text-anchor="middle" font-size="${fs}"></text></svg><b class="pb" title="Modulate or lock" aria-label="Modulate or lock"></b>`;
+	el.innerHTML = `<span class="l">${sc(el.dataset.dl||el.dataset.l)}${el.dataset.plus?'<span class="plus">+</span>':''}</span><svg width="${D}" height="${D}"><circle cx="${cx}" cy="${cy}" r="${KR.disc*D}" fill="#1b1c1e"/><path class="tk" d="${arc(cx,cy,r,-135,135)}" stroke="${cd}" stroke-width="${KR.ringW*D}" fill="none" stroke-linecap="round"/><path class="vl" stroke="${c}" stroke-width="${KR.ringW*D}" fill="none" stroke-linecap="round"/><circle class="dt" r="${KR.dot*D}" fill="#f2f4f6"/><path class="md" stroke-width="${KR.modW*D}" fill="none" stroke-linecap="butt" style="cursor:ew-resize"/><line class="pd" stroke="#f2f4f6" stroke-width="${KR.tickW*D}" style="display:none"/><text x="${cx}" y="${cy}" text-anchor="middle" font-size="${fs}"></text></svg>`;
+	if(el.closest('.tp')) el.querySelector('.l').title='Velocity or lock';
 	el.style.setProperty('--ks',D+'px'); el.style.setProperty('--kl',(KR.label*D).toFixed(2)+'px'); el.style.minWidth=(D+8)+'px'; el.tabIndex=0;
 	const vl=el.querySelector('.vl'), dt=el.querySelector('.dt'), tx=el.querySelector('text');
 	el.paintVal=()=>{ const ff=getComputedStyle(document.documentElement).getPropertyValue('--fn').trim()||'sans-serif', s=String(fmt(el,el.v));
@@ -164,7 +165,7 @@ function makeKnob(el){
 		md.onpointermove=ev=>{ el.mod.depth=Math.max(-64,Math.min(63,Math.round(d0+(ev.clientX-x0)/2))); el.drawMod(); }; md.onpointerup=()=>md.onpointermove=null; });
 	el.set(+el.dataset.v);
 	el.addEventListener('pointerdown',e=>{
-		if(e.target.closest('.pb')){ e.stopPropagation(); openPop(el); return; }
+		if(e.target.closest('.tp .k .l')){ e.stopPropagation(); openPop(el); return; }
 		el.setPointerCapture(e.pointerId); const y0=e.clientY, v0=el.v;
 		const lockable = el.closest('.tp') && SEL.size>0;
 		if(lockable && el.baseV==null) el.baseV=v0;
@@ -701,7 +702,7 @@ function openPop(el){
 		closePop(); };
 	$('.win').appendChild(p); el.classList.add('popk');
 }
-document.addEventListener('pointerdown',e=>{ if(!e.target.closest('.kpop')&&!e.target.closest('.pb')) closePop(); });
+document.addEventListener('pointerdown',e=>{ if(!e.target.closest('.kpop')&&!e.target.closest('.tp .k .l')) closePop(); });
 document.addEventListener('contextmenu',e=>{ const k=e.target.closest('.tp .k'); if(!k) return; e.preventDefault(); openPop(k); });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closePop(); collapse(); $('#famtoast').classList.remove('on'); } });
 
