@@ -1,8 +1,8 @@
 # Interface façon Overbridge
 
 Type: prototype
-Status: open
-Assignee:
+Status: resolved
+Assignee: c0remusic
 Blocked by: 
 
 ## Question
@@ -37,3 +37,20 @@ Exigences de l'utilisateur (2026-10-24), du mockup v2 :
 - Pile de l'interface (décidé avec l'utilisateur le 2026-10-25) : JUCE seul, en C++. Composants JUCE dessinés dans
   paint, grille fixe mise à l'échelle, repeinte limitée aux zones qui changent. Pas de RmlUi, pas de WebView, pas de
   JavaScript : le HTML ne sert qu'aux mockups. Le dessin des knobs et de la vue Hit de MoDule se reprend dans paint.
+
+## Answer
+
+Approuvé par l'utilisateur le 2026-10-25 : le mockup v12 (`mockup/v12.html`, `v12.css`, `v12.js`, notes dans
+`mockup/v12-notes.md`), avec les exigences ci-dessus, est la référence de l'interface v1. Interface en JUCE seul.
+
+Derniers points tranchés le 2026-10-25 :
+- Souris sur les pas : un clic pose ou retire un trig (poser un trig est le geste de base) ; un trig posé est
+  sélectionné seul, si bien qu'un knob tourné ensuite le verrouille ; retirer un trig retire ses locks. Ctrl+clic
+  ajoute un pas à la sélection ou l'en retire (un pas vide sélectionné reçoit un trig quand on tourne un knob, ou un
+  lock sans note avec Alt) ; Maj+clic sélectionne la plage depuis le dernier pas sélectionné. Accent et slide se
+  basculent au clic dans les modes Accent et Slide seulement. Glisser verticalement sur un trig sélectionné règle sa
+  valeur sans le retirer.
+- Box FILTER : tous ses knobs à 52 px ; le grand format (64 px) reste aux boxes qui ont peu de paramètres.
+- Filtre MD : le knob de suivi de clavier est caché, sa place reste vide, rien ne bouge.
+- Valeur des knobs de 64 px en 16 px, hors de l'échelle 11/12/14/18 : dérivée du diamètre par la règle des
+  proportions fixes.

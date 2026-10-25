@@ -571,12 +571,15 @@ function buildSteps(){
 				else { s.vel=Math.max(1,Math.round(f*127)); s.acc=false; }
 				const nv=stepVal(i); el.style.setProperty('--vh',Math.round(nv.f*100)+'%'); el.querySelector('.dv').textContent=stepShown(i,nv); paintLockPanel(); };
 			el.onpointerup=()=>{ el.onpointermove=null; el.onpointerup=null; if(moved){ stepDragged=true; setTimeout(()=>{ buildSteps(); },0); } }; };
-		el.onclick=ev=>{ if(stepDragged){ stepDragged=false; return; } const i=+el.dataset.i, mode=ev.altKey?'acc':(ev.shiftKey?'sld':stepMode);
-			if(mode==='acc'||mode==='sld'){ STEPS[i][mode]=!STEPS[i][mode]; buildSteps(); return; }
+		// a click places or removes a trig (a new trig is selected alone, so a knob turned next locks it); Ctrl-click
+		// adds a step to the selection or takes it out, Shift-click selects the range from the last selected step
+		el.onclick=ev=>{ if(stepDragged){ stepDragged=false; return; } const i=+el.dataset.i, s=STEPS[i];
 			if(ev.ctrlKey||ev.metaKey){ SEL.has(i)?SEL.delete(i):SEL.add(i); }
-			else { if(SEL.has(i)&&SEL.size===1) SEL.clear(); else { SEL.clear(); SEL.add(i); } }
-			if(SEL.size) selStep=[...SEL][0]; buildSteps(); };
-		el.ondblclick=ev=>{ if(stepMode!=='trig'||ev.altKey||ev.shiftKey) return; const i=+el.dataset.i; STEPS[i].trig=!STEPS[i].trig; buildSteps(); };
+			else if(ev.shiftKey){ const a=SEL.size?selStep:i; SEL.clear(); for(let j=Math.min(a,i);j<=Math.max(a,i);j++) SEL.add(j); buildSteps(); return; }
+			else if(stepMode==='acc'||stepMode==='sld'){ s[stepMode]=!s[stepMode]; buildSteps(); return; }
+			else if(s.trig){ s.trig=false; s.tl=false; delete LOCKS[i]; SEL.delete(i); }
+			else { s.trig=true; s.tl=false; SEL.clear(); SEL.add(i); }
+			if(SEL.size) selStep=SEL.has(i)?i:[...SEL][0]; buildSteps(); };
 	});
 	// knobs holding a lock on the selection get the lock ring
 	const held={}; SEL.forEach(i=>Object.entries(LOCKS[i]||{}).forEach(([k,v])=>held[k]=v));

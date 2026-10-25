@@ -50,6 +50,8 @@ des machines Elektron » ; mockups v3a à v5).
   (sa hauteur suit) ou en continuant de tourner le knob. Modes d'édition de la box de pas : Trig, Vel, Accent, Slide.
   En Vel, la hauteur d'un trig est sa vélocité et se règle en glissant ; en Trig, les trigs sont des blocs pleins et
   glisser sur un trig sélectionné règle la valeur du dernier paramètre verrouillé pour lui.
+- Souris (amendé le 2026-10-25, ticket « Interface façon Overbridge ») : un clic pose ou retire un trig et
+  sélectionne le trig posé ; Ctrl+clic et Maj+clic sélectionnent des pas, vides compris.
 - Push : en deuxième temps (compagnon Max for Live, `grab_control` à vérifier) ; les 64 relais couvrent les knobs en v1.
 - Édition en v1 : copier/coller de pas, de pistes et de patterns, effacer, décaler une piste ; euclidien et aléatoire
   plus tard. Export d'un pattern en fichier MIDI par glisser-déposer (trigs en notes 36-51 avec vélocité, sans les
