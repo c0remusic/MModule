@@ -68,6 +68,9 @@ Overbridge, 16 pistes, avec les machines des boîtes Elektron, un séquenceur in
 - [Ordre des jalons après la v1](issues/22-ordre-des-jalons.md): v1 = Syntakt rapide, MD porté, chaîne, envois, master DT2, séquenceur, kits, interface, sans firmware chez l'utilisateur ; puis J2 Digitakt II, J3 Model:Cycles, J4 analogiques, J5 couche Rytm ; même critère de fin pour tous (oracle/tolérance, 44,1 = 48, ≤ 15 %, gate vert, sans firmware) ; ensuite spécification v1 puis tickets.
 - [Interface façon Overbridge](issues/09-interface.md): mockup v12 approuvé, référence de l'interface v1 ; une box par section, disposition fixe, couleur saturée par section ; clic pose un trig, Ctrl/Maj+clic sélectionnent ; JUCE seul.
 
+Spécification v1 rédigée le 2026-10-25 à partir de ces décisions : [spec-v1.md](spec-v1.md). Suite : la découper en
+tickets d'implémentation.
+
 ## Not yet specified
 
 - Couche échantillon du Rytm.
