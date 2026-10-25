@@ -67,7 +67,8 @@ et signalée.
 
 ### 3.2 Machinedrum
 
-Port C++ des renders du DSP2 de l'OS 1.63 (39 machines, sans INP ni RAM-R), des 55 fonctions de coefficients 68k
+Port C++ des renders du DSP2 de l'OS 1.63 (39 renders à porter sur 44, qui couvrent toutes les machines hors
+INP et RAM-R), des 55 fonctions de coefficients 68k
 et du lissage, vérifié contre `mdEngine` (ticket « Port du Machinedrum en C++ »). Ordre : harnais, ROM ou TRX, EFM,
 E12, P-I, GND. Voix en entiers bit-exacts, `TrackFx` et la part du master reprise en flottant SIMD. Voix brute avant
 le mixeur : la vélocité, LEV et VOL s'appliquent dans l'étage AMP. L'AMD n'est pas reprise. Les machines ROM jouent
@@ -79,7 +80,10 @@ Ticket « Chaîne de piste : emplacements, ordre, routage », amendé par « Eff
 
 Squelette fixe, mono jusqu'au pan :
 
-    machine → drives pré → BAND (avant ou après le filtre) → FILTER → drives post → AMP → envois
+    machine → drives pré → BAND (avant) → FILTER → BAND (après) → drives post → AMP → envois
+
+BAND après le filtre se place juste après lui, avant les drives post (décidé le 2026-10-25, ticket « Chaîne de
+piste »).
 
 - **Drives** : deux emplacements, chacun pré ou post filtre. Types : Off, Syntakt drive, MD DIST, MD SRR, DT2
   Overdrive (en v1 avec le master), DT2 SRR (J2). Chaque type garde ses réglages d'origine, plus un MIX sec/traité
@@ -94,7 +98,8 @@ Squelette fixe, mono jusqu'au pan :
   niveau, pan, accent.
 - **Vélocité** : sur le niveau par défaut, plus une destination assignable par le menu d'un knob, avec profondeur.
 - **LFO** : deux par piste, SYNC (division musicale de 1/64 à 16 mesures, pointée, triolet ; phase sur la position
-  du transport) ou HZ ; SYNC par défaut.
+  du transport, sauf en mode de trig TRIG où elle redémarre au trig) ou HZ ; SYNC par défaut. La vitesse et le
+  multiplicateur des LFO Elektron se traduisent en division musicale.
 - **Chaîne par défaut** de la famille au premier choix d'une machine (Syntakt : drive pré, BASE/WIDTH, filtre
   Syntakt ; MD : EQ MD, filtre MD, SRR puis DIST post). Changer de machine dans la famille ne touche pas la chaîne ;
   changer de famille la recharge, en demandant si elle a été modifiée.
@@ -126,7 +131,9 @@ Ticket « Séquenceur interne », sur « Fonctions de MoDule Seq » et « Séque
 - 128 patterns (8 banques de 16), 64 pas au plus par piste, longueur et échelle par piste ; une longueur commune
   fixe le changement de pattern.
 - Un pas porte : trig, note, vélocité, durée, condition (65), micro-timing ±23/24 de pas, ratchet (1-8, vitesse,
-  courbe de vélocité), accent, slide, locks sur n'importe quel paramètre de la piste, sans plafond.
+  courbe de vélocité), accent, slide, locks sur n'importe quel paramètre de la piste, sans plafond. Un pas peut
+  aussi porter des locks sans trig (lock sans note). Retirer un trig retire ses locks ; un lock sans note qui n'a
+  plus de lock disparaît.
 - Par pattern : swing 50-80 %, accent, slide ; mutes, fill tenu, chaînes de patterns. Le slide fait glisser les
   paramètres verrouillés vers les valeurs du pas suivant.
 - Conditions aléatoires tirées d'une graine par passage : un rendu rejoue ce qu'on a entendu.
@@ -158,8 +165,9 @@ Ticket « Format des kits et de l'état ».
   ou un dossier glissé, reconnu par empreinte ; l'import dit ce qu'il a trouvé et ce qui manque. Un kit référence
   ses samples par empreinte et nom.
 - Explorateur (Sound Browser) en trois colonnes : arbre (Kits, Sons de piste, Samples par source ou par type), liste
-  avec recherche et filtres, aperçu. Clic écoute, double-clic charge, glisser sur une piste, la box SAMPLE ou un
-  emplacement de kit. Types de samples devinés par le nom puis par une analyse simple, corrigeables.
+  avec recherche et filtres, aperçu. Clic écoute, double-clic charge, glisser sur un onglet de piste ou un
+  emplacement de kit. En v1, un sample se joue sur une machine ROM du MD ; la box SAMPLE (layering) reste grisée
+  jusqu'à J2. Types de samples devinés par le nom puis par une analyse simple, corrigeables.
 
 ## 9. Paramètres hôte et sorties
 
@@ -184,7 +192,8 @@ Ticket « Interface façon Overbridge ». Référence : mockup v12 (`mockup/v12.
 - Une page par piste sans sous-pages, une box par section, disposition fixe ; l'ordre des boxes dit l'ordre du
   signal. Couleur saturée par section (table des teintes de `v12-notes.md`) ; menthe réservée à l'état global.
 - Box de pas en bas de chaque page de piste, modes Trig, Vel, Accent, Slide, liste des locks de la sélection ; gestes
-  de souris du ticket (clic pose ou retire un trig, Ctrl et Maj sélectionnent, glisser peint).
+  de souris du ticket (clic pose ou retire un trig, Ctrl et Maj sélectionnent, glisser peint ; knob tourné sur un pas
+  vide sélectionné : trig portant ce lock, avec Alt : lock sans note).
 - Pages du mockup : piste (toutes les boxes à la fois), FX, Master, SEQ (lignes de locks choisies dans la liste des
   paramètres verrouillables), Kit ; onglets Kit editor et Sound browser en tête.
 - Menu d'un knob (Vélocité, Lock) ouvert par un clic sur son nom ou un clic droit ; LFO assignés par le bouton
@@ -199,9 +208,11 @@ Ticket « Interface façon Overbridge ». Référence : mockup v12 (`mockup/v12.
 
 ### 11.1 Performance
 
-- Pire cas sous 15 % d'un cœur à 16 pistes sonnant ensemble, mesuré sur machine calme, à 44,1 et 48 kHz.
-- Budget par poste (ticket « Budget CPU ») : moteurs ≤ 10 %, chaîne ≤ 2, envois ≤ 1 (le layer, ≤ 1,
-  arrive à J2).
+- Pire cas sous 15 % d'un cœur à 16 pistes sonnant ensemble, mesuré sur machine calme, à 44,1, 48, 88,2 et 96 kHz
+  (88,2 et 96 en mode mi-fréquence). 192 kHz et le mode « 96 kHz natif » marchent sans être budgétés.
+- Budget par poste : proposition du ticket « Budget CPU », non adoptée comme règle, guide de mesure seulement :
+  moteurs ≤ 10 %, chaîne ≤ 2, envois ≤ 1 (le layer, ≤ 1, arrive à J2). Le master DT2 (~16 500 instructions
+  pondérées par bloc, ticket « Effets master ») n'y a pas de ligne : son coût se mesure au port.
 - Fil audio sans allocation ni verrou, tout préparé avant le rendu ; SIMD sur les voix et les étages communs ;
   FTZ/DAZ dès qu'un étage passe en flottant.
 - Toute décision de construction dit son coût mesuré.
@@ -210,11 +221,15 @@ Ticket « Interface façon Overbridge ». Référence : mockup v12 (`mockup/v12.
 
 - Tous les moteurs à la fréquence de l'hôte, sans rééchantillonneur ; blocs de 32 échantillons ; constantes de bloc
   recalculées depuis la fréquence.
-- Exacts à leur fréquence d'origine (Syntakt 48 kHz, MD 44,1 kHz), adaptés ailleurs.
+- Les étages restés en entiers (voix du MD, port exact du Syntakt gardé comme référence) sont exacts à leur
+  fréquence d'origine (Syntakt 48 kHz, MD 44,1 kHz) et adaptés ailleurs. Le Syntakt livré et les étages réécrits en
+  flottant (`TrackFx`, master) sont vérifiés à tolérance, même à leur fréquence d'origine.
 - 88,2 et 96 kHz : rendu à mi-fréquence et suréchantillonneur 2x HIIR ; option « 96 kHz natif ».
 - SY TONE à 2x l'hôte ; SY BITS, SY SWARM et les SRR gardent leur fréquence absolue.
+- Trigs à l'échantillon près, sans gigue (ticket « Séquenceur interne »).
 - Latence mesurée, de la note de l'hôte au son en sortie, et sa gigue : rapportées avant et après chaque changement
-  du chemin des trigs ou du rendu.
+  du chemin des trigs ou du rendu. Règle reprise du `CLAUDE.md` du dépôt (exigence de latence de MoDule), pas d'un
+  ticket de la carte.
 
 ### 11.3 Qualité audio
 
@@ -224,23 +239,43 @@ Ticket « Qualité audio » : ne corriger que les ajouts, jamais un étage port�
 
 ### 11.4 Sans firmware
 
-Le plug-in livré n'a pas de dossier `roms`. Les firmwares servent aux tests seulement ; toutes les tables viennent de
-formules testées contre le firmware.
+Aucun firmware n'est nécessaire chez l'utilisateur, et le plug-in livré n'a pas de dossier `roms`. Les firmwares
+servent aux tests ; toutes les tables viennent de formules testées contre le firmware. Une flash image du MD importée
+par son propriétaire sert seulement à extraire la banque UW, jamais son code ni ses tables.
 
 ## 12. Critères d'acceptation
 
 La v1 est livrée quand tout ce qui suit passe :
 
-1. Chaque étage porté passe contre son oracle : exact à sa fréquence d'origine (Q1), dans la tolérance Q2-Q4
-   ailleurs.
+Son :
+
+1. Chaque étage resté en entiers est exact contre son oracle à sa fréquence d'origine (Q1). Le Syntakt livré et les
+   étages réécrits en flottant passent la tolérance Q2-Q4 contre l'oracle, à toutes les fréquences.
 2. Chaque machine passe le test « sonne pareil » à 44,1 et à 48 kHz (spectre sous 20 kHz, enveloppe, niveau).
-3. Les tests de qualité Q5-Q16 qui concernent la v1 passent.
-4. Pire cas 16 pistes sous 15 % d'un cœur, mesuré sur machine calme.
-5. Latence et gigue rapportées ; trigs à l'échantillon près.
-6. Le plug-in se charge par l'hébergement VST3 de JUCE, comme Live : paramètres, identifiants, sorties, état
-   restitué à l'identique, mêmes échantillons quelle que soit la taille de bloc et hors ligne.
-7. Aucun fichier de firmware n'est lu par le plug-in livré.
-8. Le garde-fou du dépôt est vert.
+3. Les tests de qualité Q5-Q7, Q9 et Q12-Q16 passent (Q8 attend J4, Q10 J2 ; Q11 visait un rééchantillonneur
+   abandonné).
+4. Pire cas 16 pistes sous 15 % d'un cœur, mesuré sur machine calme, à 44,1, 48, 88,2 et 96 kHz.
+5. Gigue des trigs : 0 échantillon. Latence de la note au son mesurée et publiée.
+
+Fonctions :
+
+6. Séquenceur : un pattern de test qui exerce longueur et échelle par piste, conditions à graine, micro-timing,
+   ratchets, slide, locks et locks sans note se rend deux fois à l'identique, et chaque trig tombe à l'échantillon
+   attendu ; changement de pattern à la fin du pattern en cours ; export MIDI relu.
+7. Kits et état : un kit sauvé puis rechargé, et un état restitué par l'hôte, rendent les mêmes échantillons ; deux
+   instances partagent la banque sans perdre l'écriture de l'autre ; un kit ancien à paramètre inconnu se charge
+   avec son défaut ; l'import Elektron rapporte ce qu'il a trouvé et ce qui manque.
+8. Paramètres et sorties : chaque paramètre hôte se règle et se relit ; identifiants inchangés d'une version à
+   l'autre ; les relais suivent la piste affichée ; chaque piste et chaque retour sort sur la sortie choisie.
+9. Interface : chaque box du mockup v12 a son composant, chaque paramètre son contrôle ; les gestes de la box de
+   pas du ticket « Interface façon Overbridge » marchent comme décrit.
+10. Hébergement (ajout repris de MoDule, `mdDrumsVst3HostTest`, pas d'un ticket) : le VST3 se charge par
+    l'hébergement VST3 de JUCE, comme Live ; mêmes échantillons quelle que soit la taille de bloc et hors ligne.
+
+Livraison :
+
+11. Aucun firmware n'est nécessaire chez l'utilisateur ; une flash image importée ne sert qu'à la banque UW.
+12. Le garde-fou du dépôt est vert, sans test de sa liste sauté.
 
 ## 13. Ordre de construction
 
@@ -260,9 +295,19 @@ Le découpage en tickets d'implémentation suit cette spécification.
 
 ## 14. Points ouverts
 
-Aucun ne bloque la construction :
+Bloquent la livraison, à lever pendant la construction :
+
+- Seuils Q3-Q4 de `research/19-qualite-audio.md` §11, à valider à l'écoute : ce sont eux qui jugent le Syntakt
+  livré et les étages réécrits en flottant.
+- Harnais d'oracle du DT2 : sharcvm et digikit ne tournent pas encore (compilateur C et chaîne Rust à installer) ;
+  sans lui, ni compresseur ni overdrive du master ne se vérifient.
+- Tables du MD (DSP1, DSP2, OS) pas encore inventoriées : une table sans formule bloque sa machine ou la rend
+  approximative et signalée.
+- Garde-fou : il compte un test sauté comme passé (9 tests du Syntakt sautés le 2026-10-25, variables `SYNTAKT_*`
+  absentes) ; à corriger avant le premier ticket qui touche au Syntakt.
+
+Ne bloquent pas :
 
 - Nom du produit (fog de la carte).
-- Deux seuils de qualité de `research/19-qualite-audio.md` §11, à valider à l'écoute.
 - Sidechain du compresseur du DT2 : à reprendre seulement s'il existe dans le firmware, lu au port.
 - Réglage à l'oreille du chorus et du phaser/flanger contre le Virus TI.

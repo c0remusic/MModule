@@ -52,3 +52,5 @@ SRR, DIST (`mdEngine/engine/TrackFx.h`).
   la position du transport de l'hôte (en mode de trig TRIG, elle redémarre au trig). En HZ, vitesse en Hz.
 - Une piste dont la chaîne reste celle de sa famille reste fidèle à son firmware ; tout ajout (MIX, EQ 3 bandes,
   étage d'une autre famille) est marqué « + ».
+- Amendé le 2026-10-25 (revue de la spécification v1) : la BAND placée après le filtre vient juste après lui, avant
+  les drives post.

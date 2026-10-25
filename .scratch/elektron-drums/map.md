@@ -21,7 +21,7 @@ Overbridge, 16 pistes, avec les machines des boîtes Elektron, un séquenceur in
   code comme dans l'interface.
 - Performance : 15 % d'un cœur au grand maximum à 16 pistes, pour l'instrument final. Toute décision dit son coût.
   Règles du code audio : aucune allocation ni verrou sur le fil audio (tout préparé avant le rendu) ; SIMD sur les
-  voix et les étages communs ; suréchantillonnage des drives commutable (off / 2x / 4x, HIIR), off par défaut ;
+  voix et les étages communs ; suréchantillonnage des drives commutable (off / 2x / 4x, HIIR), 2x par défaut (ticket « Chaîne de piste ») ;
   dénormaux coupés (FTZ/DAZ) dès qu'un étage passe en flottant. Références : `research/references-dsp.md`.
 - Skills à consulter : grilling et domain-modeling pour les tickets de conversation, research pour les recherches,
   prototype pour l'interface, karpathy-guidelines pour tout code. Mémoire : elektron-drum-sampler-goal.
