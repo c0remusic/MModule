@@ -26,6 +26,8 @@ Overbridge, 16 pistes, avec les machines des boîtes Elektron, un séquenceur in
 - Skills à consulter : grilling et domain-modeling pour les tickets de conversation, research pour les recherches,
   prototype pour l'interface, karpathy-guidelines pour tout code. Mémoire : elektron-drum-sampler-goal.
 - Les tickets sont en français.
+- Interface en JUCE seul (C++, composants dessinés, repeinte des zones qui changent) : pas de RmlUi, de WebView ni
+  de JavaScript ; le HTML ne sert qu'aux mockups (décidé le 2026-10-25, ticket « Interface façon Overbridge »).
 - MoDule reste un plug-in à part (le Machinedrum exact, émulé) ; l'instrument part de ST Drums, et le Machinedrum y
   entre comme une famille de voix portée en C++ (le mdEngine de MoDule sert d'oracle).
 

@@ -34,3 +34,6 @@ Exigences de l'utilisateur (2026-10-24), du mockup v2 :
 - Plus d'anneaux en pointillés ou en tirets autour des knobs : modulation = fin arc plein à la couleur du modulateur, de la valeur à valeur + profondeur ; lock = valeur à la couleur d'accent ; valeur jouée = petit repère sur l'anneau.
 - Couleurs (retour sur le v11) : comme Overbridge, une couleur saturée par section qui hiérarchise : anneaux des knobs, écran teinté et contrôles sélectionnés de la box dans sa couleur ; en-têtes neutres ; teal global réservé à l'état global. La passe taste avait trop désaturé.
 - CPU : en haut, à gauche de « Kit editor », en pourcentage (seule exception au « pas de % ») avec une petite barre (0-100 % d'un cœur, repère à 15 %, ambre au-dessus de 15 %, rouge au-dessus de 25 %).
+- Pile de l'interface (décidé avec l'utilisateur le 2026-10-25) : JUCE seul, en C++. Composants JUCE dessinés dans
+  paint, grille fixe mise à l'échelle, repeinte limitée aux zones qui changent. Pas de RmlUi, pas de WebView, pas de
+  JavaScript : le HTML ne sert qu'aux mockups. Le dessin des knobs et de la vue Hit de MoDule se reprend dans paint.
