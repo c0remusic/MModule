@@ -893,3 +893,10 @@ html[data-acc] .st.tl.dg.drag{background:linear-gradient(to top,var(--ctl) calc(
 .cpubar u{position:absolute;left:calc(15% - 0.5px);top:-2px;width:1px;height:10px;background:var(--tx)}
 .cpu[data-lvl=warn] .cpubar b{background:#e8a33c}
 .cpu[data-lvl=over] .cpubar b{background:#e5534b}
+/* lock list: every lock of the selection, scrolling past four; the value drags, the cross removes the lock */
+.lockpanel{max-height:108px;overflow-y:auto}
+.lockrow{flex:none;gap:8px;padding:0 0 0 8px}
+.lockrow span{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.lockrow b{cursor:ns-resize;touch-action:none;padding:0 4px;line-height:24px}
+.lockrow .lx{width:24px;height:24px;border:0;padding:0;background:none;color:var(--mut);font-size:14px;cursor:pointer}
+.lockrow .lx:hover{color:var(--tx);background:var(--ctlh)}

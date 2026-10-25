@@ -49,7 +49,11 @@ Derniers points tranchés le 2026-10-25 :
   ajoute un pas à la sélection ou l'en retire (un pas vide sélectionné reçoit un trig quand on tourne un knob, ou un
   lock sans note avec Alt) ; Maj+clic sélectionne la plage depuis le dernier pas sélectionné. Accent et slide se
   basculent au clic dans les modes Accent et Slide seulement. Glisser verticalement sur un trig sélectionné règle sa
-  valeur sans le retirer.
+  valeur sans le retirer. Glisser horizontalement sur les pas peint : des trigs (ou les retire, si le glisser part
+  d'un trig), l'accent ou le slide dans leur mode ; les trigs peints sont sélectionnés.
+- Liste des locks de la box de pas : tous les locks de la sélection (défilement au-delà de quatre) ; la valeur se
+  règle en glissant verticalement ou à la molette, une croix retire le lock des pas sélectionnés (un lock sans note
+  qui n'a plus de lock disparaît).
 - Box FILTER : tous ses knobs à 52 px ; le grand format (64 px) reste aux boxes qui ont peu de paramètres.
 - Filtre MD : le knob de suivi de clavier est caché, sa place reste vide, rien ne bouge.
 - Valeur des knobs de 64 px en 16 px, hors de l'échelle 11/12/14/18 : dérivée du diamètre par la règle des

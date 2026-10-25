@@ -551,8 +551,20 @@ function stepVal(i){ const s=STEPS[i];
 function stepShown(i,sv){ if(!sv.lock) return sv.v; const k=$$('.tp .k').find(k=>lkey(k)===sv.k); return k?fmt(k,sv.v):sv.v; }
 function paintLockPanel(){ const held={}; SEL.forEach(i=>Object.entries(LOCKS[i]||{}).forEach(([k,v])=>held[k]=v));
 	const hi=SEL.has(selStep)?STEPS[selStep].lk:null;
-	const rows=Object.entries(held).sort(([a],[b])=>(b===hi)-(a===hi)).slice(0,4);
-	$$('.lockpanel').forEach(lp=>lp.innerHTML = rows.map(([k,v])=>`<div class="lockrow${k===hi?' act':''}"><span>${lname(k)}</span><b>${v}</b></div>`).join('')); }
+	const rows=Object.entries(held).sort(([a],[b])=>(b===hi)-(a===hi));
+	$$('.lockpanel').forEach(lp=>{ lp.innerHTML = rows.map(([k,v])=>`<div class="lockrow${k===hi?' act':''}" data-k="${k}"><span>${lname(k)}</span><b title="Drag up or down, or scroll">${stepShown(0,{lock:true,k,v})}</b><button class="lx" title="Remove this lock from the selected steps" aria-label="Remove this lock">×</button></div>`).join('');
+		lp.querySelectorAll('.lockrow').forEach(r=>hookLockRow(r, r.dataset.k, held[r.dataset.k])); }); }
+// a lock row edits the lock on every selected step holding it: its value by a vertical drag or the wheel, × removes it
+function setLock(k,v){ const [mn,mx]=LRANGE[k]||[0,127]; v=Math.round(Math.max(mn,Math.min(mx,v)));
+	SEL.forEach(i=>{ if(LOCKS[i]&&k in LOCKS[i]) LOCKS[i][k]=v; }); return v; }
+function hookLockRow(r,k,v0){ const b=r.querySelector('b'), [mn,mx]=LRANGE[k]||[0,127];
+	b.onpointerdown=e=>{ b.setPointerCapture(e.pointerId); const y0=e.clientY, kn=$$('.tp .k').find(x=>lkey(x)===k);
+		b.onpointermove=ev=>{ const v=setLock(k, v0+(y0-ev.clientY)*(mx-mn)/160); b.textContent=stepShown(0,{lock:true,k,v}); if(kn) kn.set(v);
+			SEL.forEach(i=>{ const st=$$('.steps')[0].children[i]; if(st&&STEPS[i].lk===k) st.style.setProperty('--lh',Math.round((v-mn)/(mx-mn)*100)+'%'); }); };
+		b.onpointerup=()=>{ b.onpointermove=b.onpointerup=null; buildSteps(); }; };
+	b.onwheel=e=>{ e.preventDefault(); setLock(k, v0+(e.deltaY<0?1:-1)); buildSteps(); };
+	r.querySelector('.lx').onclick=()=>{ SEL.forEach(i=>{ const L=LOCKS[i]; if(!L||!(k in L)) return; delete L[k]; const ks=Object.keys(L);
+		if(!ks.length){ delete LOCKS[i]; STEPS[i].tl=false; } if(STEPS[i].lk===k) STEPS[i].lk=ks[ks.length-1]; }); buildSteps(); }; }
 let selStep=4, newLane=null;
 // step cells carry everything on the 16 columns: number, condition, ratchet, micro-timing, lock dot, accent bar (top), slide link (to the next step)
 let stepMode='trig';
@@ -562,15 +574,26 @@ function buildSteps(){
 		return `<div class="st${s.trig?' trig':''}${!s.trig&&s.tl?' tl':''}${s.trig&&s.acc?' acc':''}${n?' lk':''}${SEL.has(i)?' sel':''}${stepVal(i)?' dg':''}${(sv=>sv&&sv.lock?' lkv':'')(stepVal(i))}" data-i="${i}" title="${tip}" style="--vh:${stepMode==='vel'?Math.round(velF(s)*100):100}%${(sv=>sv&&sv.lock?';--lh:'+Math.round(sv.f*100)+'%':'')(stepVal(i))}"><b class="dv"></b>${s.sld?'<i class="sld"></i>':''}<span class="no">${i+1}</span>${n?'<i class="lkdot"></i>':''}<span class="cd">${s.cond}</span><div class="rt">${s.rt>1?[...Array(s.rt)].map(()=>'<i></i>').join(''):''}</div>${s.mt?`<i class="mt" style="left:50%;width:${Math.abs(s.mt)*2}px;${s.mt<0?'transform:translateX(-100%)':''}"></i>`:''}</div>`; }).join('');
 	$$('.steps').forEach(c=>c.innerHTML=html);
 	$$('.st').forEach(el=>{
-		el.onpointerdown=ev=>{ const i=+el.dataset.i, s=STEPS[i], sv=stepVal(i); stepDragged=false; if(ev.button||!sv) return;
-			const y0=ev.clientY, h=el.getBoundingClientRect().height; let moved=false; el.setPointerCapture(ev.pointerId);
-			el.onpointermove=e=>{ if(!moved&&Math.abs(e.clientY-y0)<4) return;
-				if(!moved){ moved=true; el.classList.add('drag'); if(sv.lock){ selStep=i; paintLockPanel(); } }
+		// a drag across the steps paints: trigs on (or off, from a trig) in Trig and Vel modes, accent or slide in theirs;
+		// the trigs painted are selected, so a knob turned next locks them all. A vertical drag on a step that drags edits it
+		el.onpointerdown=ev=>{ const i=+el.dataset.i, s=STEPS[i], sv=stepVal(i); stepDragged=false; if(ev.button||ev.ctrlKey||ev.metaKey||ev.shiftKey) return;
+			const x0=ev.clientX, y0=ev.clientY, h=el.getBoundingClientRect().height; let moved=null; el.setPointerCapture(ev.pointerId);
+			const fld=stepMode==='acc'||stepMode==='sld'?stepMode:'trig', on=!s[fld], painted=new Set(), row=el.parentElement;
+			const paint=j=>{ if(painted.has(j)) return; painted.add(j); const S=STEPS[j];
+				if(fld!=='trig') S[fld]=on; else if(on){ S.trig=true; S.tl=false; } else if(S.trig){ S.trig=false; delete LOCKS[j]; }
+				row.children[j].classList.toggle('trig',S.trig); row.children[j].classList.toggle('acc',S.trig&&S.acc); };
+			el.onpointermove=e=>{
+				if(!moved){ const dx=Math.abs(e.clientX-x0), dy=Math.abs(e.clientY-y0); if(dx<4&&dy<4) return;
+					moved=sv&&dy>dx?'value':'paint';
+					if(moved==='paint') paint(i); else { el.classList.add('drag'); if(sv.lock){ selStep=i; paintLockPanel(); } } }
+				if(moved==='paint'){ const t=document.elementFromPoint(e.clientX,e.clientY), st=t&&t.closest('.st'); if(st&&st.parentElement===row){ const j=+st.dataset.i; for(let n=Math.min(i,j);n<=Math.max(i,j);n++) paint(n); } return; }
 				const f=Math.max(0,Math.min(1,sv.f+(y0-e.clientY)/h));
 				if(sv.lock){ const [mn,mx]=LRANGE[sv.k]||[0,127]; LOCKS[i][sv.k]=Math.round(mn+f*(mx-mn)); }
 				else { s.vel=Math.max(1,Math.round(f*127)); s.acc=false; }
 				const nv=stepVal(i); el.style.setProperty('--vh',Math.round(nv.f*100)+'%'); el.querySelector('.dv').textContent=stepShown(i,nv); paintLockPanel(); };
-			el.onpointerup=()=>{ el.onpointermove=null; el.onpointerup=null; if(moved){ stepDragged=true; setTimeout(()=>{ buildSteps(); },0); } }; };
+			el.onpointerup=()=>{ el.onpointermove=null; el.onpointerup=null; if(!moved) return; stepDragged=true;
+				if(moved==='paint'&&fld==='trig'){ if(on){ SEL=new Set(painted); selStep=i; } else painted.forEach(j=>SEL.delete(j)); }
+				setTimeout(()=>{ buildSteps(); },0); }; };
 		// a click places or removes a trig (a new trig is selected alone, so a knob turned next locks it); Ctrl-click
 		// adds a step to the selection or takes it out, Shift-click selects the range from the last selected step
 		el.onclick=ev=>{ if(stepDragged){ stepDragged=false; return; } const i=+el.dataset.i, s=STEPS[i];
