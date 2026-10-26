@@ -13,6 +13,9 @@
 //   -exp(-1/tau)
 // - the levels (ModTarget, LevelU0, LevelU2, Feedback, ClickLevel): a value with six decimals, as printed by the tool
 //   that made them, then scaled to Q31 (Feedback by 1/4, ClickLevel by its own gain)
+// SD BASIC's add two units: an attack's blocks to full (its step -1 / blocks), and a decay's 60 dB fall in seconds,
+// the law of its units 0-2, its amp and its modulator. Its levels with six decimals are 4 times the feedback, 1.1
+// times unit 0's target, unit 1's target itself
 namespace syntakt::fast::tables
 {
 	namespace
@@ -23,7 +26,9 @@ namespace syntakt::fast::tables
 		{
 			Linear,		// p0 + p1 t
 			Exp,		// p0 + p1 exp(p2 t)
-			Poly		// p0 + p1 t + p2 t^2 + p3 t^3
+			Poly,		// p0 + p1 t + p2 t^2 + p3 t^3
+			Power,		// p0 ((t + p1) / p2)^p3
+			Poly5		// p0 + p1 x + ... + p5 x^5, x = t / 127
 		};
 
 		// Entries _from to _to, t = i - _origin (a corner's stretch starts before its origin)
@@ -31,16 +36,19 @@ namespace syntakt::fast::tables
 		{
 			int from, to, origin;
 			Kind kind;
-			double p[4];
+			double p[6];
 
 			double at(const int _i) const
 			{
 				const double t = _i - origin;
+				const double x = t / 127;
 				switch(kind)
 				{
 				case Kind::Linear:	return p[0] + p[1] * t;
 				case Kind::Exp:		return p[0] + p[1] * std::exp(p[2] * t);
 				case Kind::Poly:	return p[0] + t * (p[1] + t * (p[2] + t * p[3]));
+				case Kind::Power:	return p[0] * std::pow((t + p[1]) / p[2], p[3]);
+				case Kind::Poly5:	return p[0] + x * (p[1] + x * (p[2] + x * (p[3] + x * (p[4] + x * p[5]))));
 				}
 				return 0;
 			}
@@ -50,7 +58,9 @@ namespace syntakt::fast::tables
 		{
 			Word,	// the Q31 word
 			Tau,	// -exp(-1 / tau), tau = y times a scale
-			Micro	// round(y) millionths, times a scale in words per millionth
+			Micro,	// round(y) millionths, times a scale in words per millionth
+			Rate,	// -1 / (scale y): an attack's step per block, y the blocks it takes to full
+			T60		// the decay per block that falls 60 dB in scale y seconds (a 48 kHz block: 1/1500 s)
 		};
 
 		int32_t clamp(const double _v)
@@ -65,6 +75,16 @@ namespace syntakt::fast::tables
 			case Unit::Word:	return clamp(_y);
 			case Unit::Tau:		return clamp(-std::exp(-1 / (_scale * _y)) * Q31);
 			case Unit::Micro:	return clamp(std::round(_y) * _scale);
+			case Unit::Rate:	return clamp(-Q31 / (_scale * _y));
+			case Unit::T60:
+				{
+					// The exponent e of the coefficient -exp(e), with the generator's own rounding: e^2 10^-6 /
+					// (2 ln 10) more (fitted: off it, words differ by up to 250 LSB where e is large). A coefficient
+					// rounds to 1 LSB at least
+					const double e = -std::log(1000.0) / (1500 * _scale * _y);
+					const double c = std::exp(e + e * e * 1e-6 / (2 * std::log(10.0)));
+					return -std::max(clamp(c * Q31), 1);
+				}
 			}
 			return 0;
 		}
@@ -157,17 +177,134 @@ namespace syntakt::fast::tables
 			{125, 127, 125, Kind::Linear, {-440000, 0}},
 		};
 
-		// Approximate: 88-115 steps in threes that no smooth curve follows, a cubic there (0.12 % of full scale)
+		// Approximate: 88-127 steps in twos and threes that no smooth curve follows, five fitted stretches and a line
+		// there (6.9e-5 of full scale)
 		const Segment LevelU0[] = {
 			{0, 79, 0, Kind::Exp, {46025.872943924325, -46025.91824317912, 0.018756423691816008}},
 			{80, 87, 80, Kind::Exp, {-187462.60220990109, 27131.002167140174, -0.13567758998665569}},
-			{88, 115, 88, Kind::Poly,
-				{-175976.24741500936, -473.56077033803632, 89.16357662648079, 1.0283439231022806}},
-			{116, 127, 116, Kind::Linear, {-98966.625, 6110.7500000000018}},
+			{88, 92, 88, Kind::Poly, {-177186.12495809793, 11.666600281950952, -174.2499880492444, 55.83333161969603}},
+			{93, 101, 93, Kind::Exp, {-185716.4706773822, 10293.22778829032, 0.0861222995695807}},
+			{102, 106, 102, Kind::Poly, {-162784.56235886554, 1786.4160472529068, 466.12537698804,
+				-40.416722185881994}},
+			{107, 113, 107, Kind::Poly, {-146301.6664816273, 4580.799924830345, 197.43336468119008,
+				-17.90000436207952}},
+			{114, 122, 114, Kind::Poly, {-110185.12479495262, 5352.833191864261, 167.18753613529367,
+				-11.145835742352658}},
+			{123, 127, 123, Kind::Linear, {-56191.37518806383, 6110.750022344291}},
 		};
 
 		const Segment LevelU2[] = {
 			{0, 127, 0, Kind::Exp, {-162679.45091294113, 162679.45369267819, 0.011741606585722399}},
+		};
+
+		// ---- SD BASIC ----
+
+		// The DECAY law of units 0-2, the amp and the modulator: a 60 dB fall in T ((i + 1) / 128)^2.5 seconds, T 1.5 s
+		// for the units, 3 s for the amp, 0.75 s for the modulator (whose entry 0, 0 in the firmware, is 1 LSB off)
+		const Segment DecayLaw[] = {
+			{0, 127, 0, Kind::Power, {1.5, 1, 128, 2.5}},
+		};
+
+		// Approximate, in 48 kHz blocks: plateaus at 3.68455 and twice it, exponentials between, joined without a
+		// corner (the time constant within 8e-7, 157 LSB)
+		const Segment DecayU1[] = {
+			{0, 21, 0, Kind::Linear, {3.6845545986687305, 0}},
+			{22, 31, 22, Kind::Exp, {3.162506173873827, 0.604465457731184, 0.14658432677049277}},
+			{32, 42, 32, Kind::Exp, {7.917420309591082, -2.173534197211097, -0.1377266550306203}},
+			{43, 84, 43, Kind::Linear, {7.369108986368907, 0}},
+			{85, 103, 85, Kind::Exp, {6.366671504846276, 1.1378347343886577, 0.1266934627449704}},
+			{104, 127, 104, Kind::Exp, {-32.10468164180708, 51.31771184841358, 0.0342057264161997}},
+		};
+
+		// Approximate: an exponential up to a plateau it meets at 41-42, entry 41 following neither (0.12 % of its
+		// time constant)
+		const Segment DecayU2[] = {
+			{0, 41, 0, Kind::Exp, {5.675688555782603, -3.72195338526299, -0.020440528313344627}},
+			{42, 127, 42, Kind::Linear, {4.070281385311234, 0}},
+		};
+
+		// Approximate: a parabola up to 63, then held (6 words 1 LSB off)
+		const Segment DecayU3[] = {
+			{0, 63, 0, Kind::Poly, {3.271125129353023, 0.027832593673985124, 0.01391629654248624, 0}},
+			{64, 127, 64, Kind::Linear, {60.25835950794198, 0}},
+		};
+
+		// Approximate, in blocks to full: an exponential to 42, then a line (4.6e-5 of the time)
+		const Segment AmpAttack[] = {
+			{0, 42, 0, Kind::Exp, {10.410086234216932, -7.2889435538375835, -0.04911591528027044}},
+			{43, 127, 43, Kind::Linear, {9.496476471190064, 0.012476474298819564}},
+		};
+
+		// Approximate, the depth's word: a line to 32, an exponential up to 62, a parabola over the peak at 63-65 and
+		// an exponential down from 66 (within 100 LSB); 33 follows neither and takes the nearer (19 LSB)
+		const Segment SdSweepDepth[] = {
+			{0, 32, 0, Kind::Linear, {67108863.70967741, 3133277.290322581}},
+			{33, 62, 34, Kind::Exp, {286321607.7121187, -112778773.84748396, -0.026645516821513636}},
+			{63, 65, 63, Kind::Poly, {234174888, 998652.5, -648705.5, 0}},
+			{66, 127, 66, Kind::Exp, {57458734.40355775, 174152441.59644225, -0.013430499291459473}},
+		};
+
+		// Approximate, in 48 kHz blocks: one quintic in i / 127 (20 LSB, the time constant within 2.8e-8)
+		const Segment SdSweepDecay[] = {
+			{0, 127, 0, Kind::Poly5, {1.730392344544399, 12.927049888636935, 0.0005195940202201575, 0.07005854916400979,
+				4.438726749664264, 112.75020205324653}},
+		};
+
+		// Four times the feedback, in millionths: two lines (0.525 at 0, 2.8 at 127) and an exponential between
+		const Segment SdFeedback[] = {
+			{0, 54, 0, Kind::Linear, {525000, 2657.333333333335}},
+			{55, 70, 55, Kind::Exp, {649928.7612091185, 21480.030500077548, 0.14618869054890787}},
+			{71, 127, 71, Kind::Linear, {873791.375, 34396.583333333336}},
+		};
+
+		// 1.1 times the target, in millionths: one exponential, 1 at 0 and 0.001 at 127
+		const Segment TargetU0[] = {
+			{0, 127, 0, Kind::Exp, {-3351.7568456804847, 1003351.662617761, -0.04283873626261854}},
+		};
+
+		const Segment TargetU1[] = {
+			{0, 127, 0, Kind::Exp, {3828.444684990208, 421280.8061081604, -0.013855634498097201}},
+		};
+
+		// The units' frequency factors, halved: lines through 1 at 0, a designer's value at 64, and 2 (U0, U3) or 0.5
+		// (U1) at 127
+		constexpr double Half = 1073741824.0;
+		const Segment ScaleU0[] = {
+			{0, 64, 0, Kind::Linear, {Half, Half * 0.0590625 / 64}},
+			{65, 127, 64, Kind::Linear, {Half * 1.0590625, Half * (2 - 1.0590625) / 63}},
+		};
+		const Segment ScaleU1[] = {
+			{0, 64, 0, Kind::Linear, {Half, -Half * 0.01125 / 64}},
+			{65, 127, 64, Kind::Linear, {Half * 0.98875, Half * (0.5 - 0.98875) / 63}},
+		};
+		const Segment ScaleU3[] = {
+			{0, 64, 0, Kind::Linear, {Half, Half * 0.054140625 / 64}},
+			{65, 127, 64, Kind::Linear, {Half * 1.054140625, Half * (2 - 1.054140625) / 63}},
+		};
+
+		// Approximate: exponentials, a line and a cubic (1.8e-5 of the depth, 97-101 following neither: 2.4e-4)
+		const Segment DepthU3[] = {
+			{0, 27, 0, Kind::Exp, {-6794936.7628639275, 10338266.527947212, 0.05499870833220801}},
+			{28, 41, 28, Kind::Exp, {-4242724.559999245, 46257991.971329756, 0.07256108023506411}},
+			{42, 64, 42, Kind::Linear, {122689635.30285254, 7893928.817137486}},
+			{65, 76, 65, Kind::Exp, {754343433.565255, -450566265.02938336, -0.01632177079851463}},
+			{77, 83, 77, Kind::Poly, {383869783.27168435, 6108850.358999205, -70082.41912140552, 2244.8124068173306}},
+			{84, 101, 84, Kind::Exp, {756110943.6090055, -332191939.1690128, -0.016225468320366043}},
+			{102, 127, 102, Kind::Exp, {754232143.8644904, -246202136.82973847, -0.01633082982816438}},
+		};
+
+		// Approximate, the low-pass's -pole: cubic stretches (1e-5 of full scale). SD BASIC reads entries 126 and 127
+		// alone
+		const Segment LowPass[] = {
+			{0, 17, 0, Kind::Poly, {-2091970420.5784323, 42663207.61655937, -418525.2913947403, 3147.8861655979736}},
+			{18, 39, 18, Kind::Poly, {-1441321190.5181725, 30569356.433178082, -253337.23400501022,
+				1594.8830687174063}},
+			{40, 67, 40, Kind::Poly, {-874460535.1521995, 21670067.244387884, -150602.95124851944,
+				781.5710441316819}},
+			{68, 102, 68, Kind::Poly, {-368643257.23615694, 15020487.401046297, -86685.46791235797,
+				369.65731913011416}},
+			{103, 127, 103, Kind::Poly, {66692977.96318385, 10283192.633724125, -50134.03434800043,
+				200.57339229371073}},
 		};
 
 		struct Curve
@@ -182,6 +319,15 @@ namespace syntakt::fast::tables
 		{
 			return {_s, _s + N, _unit, _scale};
 		}
+
+		std::array<int32_t, 128> build(const Curve& _c)
+		{
+			std::array<int32_t, 128> t{};
+			for(const Segment* s = _c.begin; s != _c.end; ++s)
+				for(int i = s->from; i <= s->to; ++i)
+					t[i] = toWord(_c.unit, _c.scale, s->at(i));
+			return t;
+		}
 	}
 
 	std::array<int32_t, 128> parameter(const Parameter _p)
@@ -195,13 +341,22 @@ namespace syntakt::fast::tables
 			curve(LevelU2, Unit::Micro, Micro),
 		};
 		static_assert(std::size(curves) == static_cast<size_t>(Parameter::Count));
+		return build(curves[static_cast<int>(_p)]);
+	}
 
-		const Curve& c = curves[static_cast<int>(_p)];
-		std::array<int32_t, 128> t{};
-		for(const Segment* s = c.begin; s != c.end; ++s)
-			for(int i = s->from; i <= s->to; ++i)
-				t[i] = toWord(c.unit, c.scale, s->at(i));
-		return t;
+	std::array<int32_t, 128> sdBasic(const SdBasic _t)
+	{
+		constexpr double Micro = Q31 / 1e6;
+		const Curve curves[] = {
+			curve(DecayLaw, Unit::T60, 1), curve(DecayU1, Unit::Tau, 1), curve(DecayU2, Unit::Tau, 1),
+			curve(DecayU3, Unit::Tau, 1), curve(DecayLaw, Unit::T60, 2), curve(DecayLaw, Unit::T60, 0.5),
+			curve(AmpAttack, Unit::Rate, 1), curve(SdSweepDepth, Unit::Word), curve(SdSweepDecay, Unit::Tau, 1),
+			curve(SdFeedback, Unit::Micro, Micro / 4), curve(TargetU0, Unit::Micro, Micro / 1.1),
+			curve(TargetU1, Unit::Micro, Micro), curve(ScaleU0, Unit::Word), curve(ScaleU1, Unit::Word),
+			curve(ScaleU3, Unit::Word), curve(DepthU3, Unit::Word), curve(LowPass, Unit::Word),
+		};
+		static_assert(std::size(curves) == static_cast<size_t>(SdBasic::Count));
+		return build(curves[static_cast<int>(_t)]);
 	}
 
 	std::array<int32_t, 257> wave()

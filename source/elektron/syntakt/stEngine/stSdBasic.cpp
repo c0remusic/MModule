@@ -31,23 +31,21 @@ namespace syntakt::sdBasic
 		constexpr uint32_t ScaleU3 = 0x40027038;
 		constexpr uint32_t DepthU3 = 0x40027438;
 		constexpr uint32_t LowPass = 0x40026238;
+	}
 
-		// 0x40004e14: a first-order IIR in place, y = c0 x + c1 x1 - c2 y1, its coefficients at _c[0..2] and its state
-		// at _c[6] (x1) and _c[7] (y1), each product truncated alone and the terms added wrapping
-		void firstOrder(int32_t* _buf, int32_t* _c)
+	void firstOrder(int32_t* _buf, int32_t* _c)
+	{
+		for(int n = 0; n < BlockSize; ++n)
 		{
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				const int32_t x = _buf[n];
-				const int32_t t1 = frac(_c[1], _c[6]);
-				int32_t y = addWrap(frac(_c[0], x), t1);
-				_c[6] = x;
-				Emac e;
-				e.msac(_c[2], _c[7]);
-				y = addWrap(y, e.storeClear());
-				_buf[n] = y;
-				_c[7] = y;
-			}
+			const int32_t x = _buf[n];
+			const int32_t t1 = frac(_c[1], _c[6]);
+			int32_t y = addWrap(frac(_c[0], x), t1);
+			_c[6] = x;
+			Emac e;
+			e.msac(_c[2], _c[7]);
+			y = addWrap(y, e.storeClear());
+			_buf[n] = y;
+			_c[7] = y;
 		}
 	}
 

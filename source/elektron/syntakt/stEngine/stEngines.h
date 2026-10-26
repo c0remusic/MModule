@@ -27,6 +27,10 @@ namespace syntakt
 	{
 		void update(int32_t _pitch, Voice& _v, uint32_t _params, const Rom& _rom);
 		void render(int32_t* _out, Voice& _v, const Rom& _rom);
+
+		// 0x40004e14: a first-order IIR in place, y = c0 x + c1 x1 - c2 y1, its coefficients at _c[0..2] and its state
+		// at _c[6] (x1) and _c[7] (y1), each product truncated alone and the terms added wrapping
+		void firstOrder(int32_t* _buf, int32_t* _c);
 	}
 
 	namespace cyAlloy
