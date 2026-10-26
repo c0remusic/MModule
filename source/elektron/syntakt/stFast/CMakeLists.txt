@@ -10,9 +10,17 @@ set_property(TARGET stFast PROPERTY FOLDER "Elektron/syntakt")
 if(BUILD_TESTING)
 	# BD MODERN against the exact port at 48 kHz, 44.1 against 48 kHz, and its cost for 16 Tracks
 	# (SYNTAKT_SECTION7: exit 77 without it)
-	add_executable(stFastBdModernTest stFastBdModernTest.cpp)
+	add_executable(stFastBdModernTest stFastBdModernTest.cpp stFastBench.h)
 	target_link_libraries(stFastBdModernTest PRIVATE stFast stEngine)
 	set_property(TARGET stFastBdModernTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stFastBdModernTest COMMAND stFastBdModernTest)
 	set_tests_properties(stFastBdModernTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# The listening test's WAVs and ABX page (ticket 05), by hand, into a folder outside the repository:
+	# stFastAbRender OUTDIR (SYNTAKT_SECTION7)
+	add_executable(stFastAbRender stFastAbRender.cpp stFastBench.h stFastAbPage.html)
+	target_link_libraries(stFastAbRender PRIVATE stFast stEngine)
+	target_compile_definitions(stFastAbRender PRIVATE ST_FAST_AB_PAGE="${CMAKE_CURRENT_SOURCE_DIR}/stFastAbPage.html"
+		ST_FAST_REPO="${CMAKE_SOURCE_DIR}")
+	set_property(TARGET stFastAbRender PROPERTY FOLDER "Elektron/test")
 endif()

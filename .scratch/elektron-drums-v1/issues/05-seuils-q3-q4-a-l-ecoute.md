@@ -1,7 +1,7 @@
 # Seuils Q3-Q4 validés à l'écoute
 
 Type: HITL
-Status: ready-for-human
+Status: resolved
 Assignee: 
 Blocked by: 04
 
@@ -20,6 +20,23 @@ Ajuster les seuils à ce qu'il entend.
 ## Références
 
 Spécification §11.3, §14. `../elektron-drums/research/19-qualite-audio.md` §11.
+
+## Answer
+
+Écouté et tranché par l'utilisateur le 2026-10-26, deux écoutes ABX en aveugle (52 paires, puis 20 dont 4 témoins),
+pages et rendus faits par `stFastAbRender` hors du dépôt (`C:\dev\elektron-work\ab-05`, `ab-05-r2`).
+
+- **Q3 : SNR global ≥ 70 dB et pire fenêtre de 10 ms ≥ 60 dB.** Un bruit constant s'entend à 60 dB global partout et
+  jusqu'à 80 dB global sur le kick grave (pire fenêtre 49,5 dB) ; les vrais résidus de la réécriture (pire fenêtre
+  64,5 à 81,5 dB) ne s'entendent pas.
+- **Q4 gardé :** enveloppe 0,1 dB, hauteur 1 cent, prudents ; aucun seuil net à l'écoute.
+- **Validés à l'oreille :** le jugement statistique de la zone chaotique et les cas Q15 excusés (44,1/48 « bizarres
+  pareil » des deux côtés : le son de la machine à ces réglages).
+- Conséquence dans le test : la classification « chaotique » suit le critère de null en vigueur (l'exact contre
+  lui-même sous 70 dB global ou 60 dB local) ; TRANSIENT 95 y passe. Q3 est fatal ; le null Q4 reste non fatal, les
+  Hits 4, 8, 10 (69,7 à 66,6 dB global, au-dessus de 60 local), 13 et 14 y étant sous les seuils.
+
+Détail et chiffres : `../elektron-drums/research/19-qualite-audio.md` §11, « Seuils Q3-Q4 validés à l'écoute ».
 
 ## Comments
 

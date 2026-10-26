@@ -308,6 +308,27 @@ valeur, pas seulement passe/échoue.
 | Q15 | Indépendance à la fréquence | un Hit rendu à 44,1, 48, 96 kHz : enveloppe et spectre < 18 kHz | enveloppe ±0,2 dB, spectre ±0,5 dB par tiers d'octave |
 | Q16 | Gain staging | crête des 16 pistes et du master, scénario « 16 BD en phase » | aucune valeur non finie ; crête rapportée, pas de clip interne caché |
 
+### Seuils Q3-Q4 validés à l'écoute (2026-10-26, ticket 05 de `elektron-drums-v1`)
+
+Deux écoutes ABX en aveugle de l'utilisateur sur BD MODERN (Syntakt, ticket 04), quatre Hits (kick grave propre,
+drive, chaotique, FM), une écoute par paire ; la seconde avec 50 ms de silence avant chaque Hit et quatre paires témoins
+(A = B, réponses au hasard quand l'utilisateur répond).
+
+- **Q3 devient : SNR global ≥ 70 dB et pire fenêtre de 10 ms ≥ 60 dB** (fenêtres rectangulaires sans recouvrement,
+  celles où la référence dépasse −60 dB de sa fenêtre la plus forte). Un bruit blanc constant s'entend à 60 dB de SNR
+  global sur les quatre Hits (16 sur 16), et sur le kick grave jusqu'à 80 dB global (8 sur 8 sur les deux écoutes) :
+  sa pire fenêtre y est à 49,5 dB, le bruit restant constant dans une longue queue. Les vrais résidus de la réécriture,
+  liés au signal, ne s'entendent pas : pire fenêtre 64,5 à 81,5 dB. Le SNR global seul ne prédit donc pas l'audible ;
+  le seuil local de 60 dB se place entre 49,5 (entendu) et 64,5 (pas entendu).
+- **Q4 gardé : enveloppe ≤ 0,1 dB, hauteur ≤ 1 cent.** Ni l'enveloppe (3 dB passe souvent inaperçu, 6 justes sur 7
+  réponses mais surtout « je ne sais pas ») ni la hauteur (7 justes sur 10, nettement seulement à 10 cents) ne montrent
+  de seuil net ; ceux proposés restent prudents.
+- **Validés à l'oreille :** le jugement statistique de la zone chaotique (l'exact contre la réécriture, SNR 31 dB sur le
+  Hit chaotique, n'a pas été distingué) et les cas Q15 excusés à 44,1 contre 48 kHz (quatre « je ne sais pas » ;
+  l'utilisateur les décrit « bizarres pareil » des deux côtés, le son de réglages extrêmes de la machine).
+- Limites : une écoute par paire, quatre essais par niveau, un seul auditeur, un seul moteur. Le clic à l'attaque de
+  BD MODERN est celui de la machine (premiers échantillons identiques à l'exact).
+
 Outils : la FFT et les métriques ASR/THD+N/HF de `qbench.cpp` sont réutilisables telles quelles dans un test
 (dépendance zéro) ; balayage sinusoïdal et spectrogramme pour l'œil, pas pour le seuil.
 
