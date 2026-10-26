@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 3.15)
+
+# The voice DSP's machines ported to C++, without an emulator (ticket 02 of .scratch/elektron-drums-v1)
+add_library(mdVoice STATIC mdVoice.h mdVoice.cpp)
+target_include_directories(mdVoice PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+set_property(TARGET mdVoice PROPERTY FOLDER "Elektron")
+
+if(BUILD_TESTING)
+	# The port against mdEngine's VoiceEngine, sample for sample (GEARMULATOR_MD_FIRMWARE_BIN: exit 77 without it)
+	add_executable(mdVoicePortTest mdVoicePortTest.cpp)
+	target_link_libraries(mdVoicePortTest PRIVATE mdVoice mdEngine)
+	set_property(TARGET mdVoicePortTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME mdVoicePortTest COMMAND mdVoicePortTest)
+	set_tests_properties(mdVoicePortTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
+endif()

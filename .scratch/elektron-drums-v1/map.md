@@ -16,6 +16,10 @@ sans test sauté.
   calme, et garde tout gain mesuré. Un ticket qui touche au chemin des trigs ou au rendu rapporte latence et gigue
   avant et après.
 - Chaque ticket nomme son critère de fin ; un test nouveau entre dans la liste du garde-fou.
+- Avant le garde-fou et le commit de chaque ticket : `/code-review` sur son diff, puis une revue d'architecture
+  (`mattpocock-skills:codebase-design`, à la place de `improve-codebase-architecture`, absent de cette installation).
+  Les constats retenus sont corrigés avant le garde-fou ; ceux qu'on écarte sont nommés dans le commit (règle de
+  l'utilisateur, 2026-10-26).
 - Ordre : moteurs d'abord (ils décident si le budget tient) ; l'interface avance en parallèle dès que le moteur de
   l'instrument existe.
 

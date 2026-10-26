@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.15)
 add_subdirectory(mdProtocol)
 add_subdirectory(mdLib)
 add_subdirectory(mdEngine)
+add_subdirectory(mdVoice)
 add_subdirectory(mdDrums)
 
 if(BUILD_TESTING)
