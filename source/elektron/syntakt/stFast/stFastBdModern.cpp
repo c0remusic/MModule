@@ -5,7 +5,7 @@
 
 #include <emmintrin.h>
 
-#include "stVoice.h"
+#include "stFastTables.h"
 
 namespace syntakt::fast
 {
@@ -17,19 +17,6 @@ namespace syntakt::fast
 		constexpr float MachineRate = 48000.0f;
 
 		float q31(const int32_t _v) { return static_cast<float>(static_cast<double>(_v) / 2147483648.0); }
-
-		// Section 7's tables (OS 1.41) that BD MODERN reads
-		constexpr uint32_t Wave = 0x4001e7fc;			// unit 2's wave, 257 entries
-		constexpr uint32_t SweepDepth = 0x4001ec00;
-		constexpr uint32_t SweepDecay = 0x4001ee00;
-		constexpr uint32_t ClickLevel = 0x4001f400;
-		constexpr uint32_t ModDecay = 0x4001f600;
-		constexpr uint32_t AmpDecay = 0x4001f800;
-		constexpr uint32_t ModTarget = 0x4001fa00;
-		constexpr uint32_t Feedback = 0x4001fc00;
-		constexpr uint32_t LevelU0 = 0x4001fe00;
-		constexpr uint32_t LevelU2 = 0x40020000;
-		constexpr uint32_t Exp2 = 0x40059ef8;			// 2048 entries, which the boot copies to RAM 0x8000a888
 
 		// The pitch map's scale (0x40002596): at 48 kHz, a unit's increment in cycles is its frequency factor times
 		// PitchScale exp2[index] 2^octave, the products of 0x6e000000 and 0x57619f10 and the shifts the routine makes
@@ -277,25 +264,25 @@ namespace syntakt::fast
 		}
 	}
 
-	BdModern::BdModern(const std::vector<int32_t>& _section7, const float _sampleRate)
+	BdModern::BdModern(const float _sampleRate)
 	{
-		const Rom rom{_section7.data()};
-		const auto read = [&rom](float* _dst, const uint32_t _table, const int _n)
+		const auto read = [](float* _dst, const auto& _words)
 		{
-			for(int i = 0; i < _n; ++i)
-				_dst[i] = q31(rom.entry(_table, i));
+			for(size_t i = 0; i < _words.size(); ++i)
+				_dst[i] = q31(_words[i]);
 		};
-		read(m_tables.sweepDepth, SweepDepth, 128);
-		read(m_tables.sweepDecay, SweepDecay, 128);
-		read(m_tables.clickLevel, ClickLevel, 128);
-		read(m_tables.modDecay, ModDecay, 128);
-		read(m_tables.ampDecay, AmpDecay, 128);
-		read(m_tables.modTarget, ModTarget, 128);
-		read(m_tables.feedback, Feedback, 128);
-		read(m_tables.levelU0, LevelU0, 128);
-		read(m_tables.levelU2, LevelU2, 128);
-		read(m_tables.wave, Wave, 257);
-		read(m_tables.exp2, Exp2, 2048);
+		using tables::Parameter;
+		read(m_tables.sweepDepth, tables::parameter(Parameter::SweepDepth));
+		read(m_tables.sweepDecay, tables::parameter(Parameter::SweepDecay));
+		read(m_tables.clickLevel, tables::parameter(Parameter::ClickLevel));
+		read(m_tables.modDecay, tables::parameter(Parameter::ModDecay));
+		read(m_tables.ampDecay, tables::parameter(Parameter::AmpDecay));
+		read(m_tables.modTarget, tables::parameter(Parameter::ModTarget));
+		read(m_tables.feedback, tables::parameter(Parameter::Feedback));
+		read(m_tables.levelU0, tables::parameter(Parameter::LevelU0));
+		read(m_tables.levelU2, tables::parameter(Parameter::LevelU2));
+		read(m_tables.wave, tables::wave());
+		read(m_tables.exp2, tables::exp2());
 		m_tables.wave[257] = m_tables.wave[256];
 		for(int i = 0; i < 258; ++i)
 			m_tables.sine[i] = static_cast<float>(std::sin(2 * 3.14159265358979323846 * i / 256));

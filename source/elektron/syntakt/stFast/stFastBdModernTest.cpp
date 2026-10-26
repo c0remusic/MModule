@@ -182,10 +182,10 @@ namespace
 	};
 
 	// _seconds of the 16 Hits from the fast engine at _fs, from the onset (the block after the trig's)
-	std::vector<std::vector<double>> renderFast(const std::vector<int32_t>& _s7, const double _fs,
-		const double _seconds, const bool _noTransient = false, std::array<Carson, Lanes>* _carson = nullptr)
+	std::vector<std::vector<double>> renderFast(const double _fs, const double _seconds,
+		const bool _noTransient = false, std::array<Carson, Lanes>* _carson = nullptr)
 	{
-		fast::BdModern e(_s7, static_cast<float>(_fs));
+		fast::BdModern e(static_cast<float>(_fs));
 		const int samples = static_cast<int>(_seconds * _fs);
 		const int blocks = samples / fast::BlockSize + 2;
 		std::vector<std::vector<double>> out(Lanes);
@@ -706,10 +706,10 @@ namespace
 
 	constexpr double Seconds = 2;
 
-	void q4(const std::vector<int32_t>& _s7, const Exacts& _exact)
+	void q4(const Exacts& _exact)
 	{
 		const auto& ref = _exact.ref;
-		const auto test = renderFast(_s7, 48000, Seconds);
+		const auto test = renderFast(48000, Seconds);
 		double snr = 1e9, local = 1e9, band = -1e9, env = 0, cents = 0;
 		bool chaoticOk = true;
 		std::string below;
@@ -755,20 +755,20 @@ namespace
 
 	// ---- Q15: 44.1 against 48 kHz ----
 
-	void q15(const std::vector<int32_t>& _s7, const Exacts& _exact)
+	void q15(const Exacts& _exact)
 	{
-		const auto a = renderFast(_s7, 48000, Seconds);
+		const auto a = renderFast(48000, Seconds);
 		std::array<Carson, Lanes> carson{};
-		const auto b = renderFast(_s7, 44100, Seconds, false, &carson);
+		const auto b = renderFast(44100, Seconds, false, &carson);
 
 		// The unfolded reference: the fast engine at 96 kHz. A band where the exact port at 48 kHz differs from it by
 		// more than 0.5 dB holds content that depends on the rate by nature (what folds at Nyquist, unit 0's
 		// one-sample feedback): it is printed, tagged folded, and not judged
-		const auto c = renderFast(_s7, 96000, Seconds);
+		const auto c = renderFast(96000, Seconds);
 
 		// The same Hits without unit 0 in the mix (TRANSIENT 0), to attribute an envelope deviation to its feedback
-		const auto a0 = renderFast(_s7, 48000, Seconds, true);
-		const auto b0 = renderFast(_s7, 44100, Seconds, true);
+		const auto a0 = renderFast(48000, Seconds, true);
+		const auto b0 = renderFast(44100, Seconds, true);
 
 		double spec = 0, folded = 0, above = 0;
 		bool envOk = true, specOk = true, chaoticOk = true, evidence = true, envProvisional = true;
@@ -971,7 +971,7 @@ namespace
 	void cost(const std::vector<int32_t>& _s7)
 	{
 		constexpr double BlockUs = 32 / 48000.0 * 1e6;
-		fast::BdModern f(_s7, 48000);
+		fast::BdModern f(48000);
 		std::array<std::array<float, fast::BlockSize>, Lanes> buf{};
 		std::array<float*, Lanes> ptr{};
 		for(int t = 0; t < Lanes; ++t)
@@ -1004,8 +1004,8 @@ int main()
 	q2(s7);
 	q3(s7);
 	const Exacts exact(s7, Seconds);
-	q4(s7, exact);
-	q15(s7, exact);
+	q4(exact);
+	q15(exact);
 	cost(s7);
 
 	std::printf("Checks excused at 44.1 kHz (unit 0 alone, FM fold-over), to judge by ear (ticket 05): %zu\n",

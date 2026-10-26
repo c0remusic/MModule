@@ -5,9 +5,9 @@
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7; everything written is derived from it, so OUTDIR must be
 // outside the repository. Writes into OUTDIR, for a few Hits of stFastBdModernTest (stFastBench.h):
 //	the exact port and the fast engine at 48 kHz;
-//	the fast render degraded around Q3 and Q4's thresholds as first proposed: white noise at an SNR of 60, 50, 40, 30 dB;
-//		a gain growing in dB from 0 at the onset to 0.1, 0.3, 1, 3 dB at the end; TUNE's fine raised for about 1, 3,
-//		10 cents;
+//	the fast render degraded around Q3 and Q4's thresholds as first proposed: white noise at an SNR of 60, 50, 40,
+//		30 dB; a gain growing in dB from 0 at the onset to 0.1, 0.3, 1, 3 dB at the end; TUNE's fine raised for
+//		about 1, 3, 10 cents;
 //	the cases stFastBdModernTest excuses, the fast engine at 44.1 and at 48 kHz;
 // mono 24-bit WAVs of 2 s from the onset, each Hit's files under one gain (its loudest at -3 dBFS) and a 20 ms
 // fade at the end; pairs.json, every pair with what the test measures of B against A; index.html, the ABX page
@@ -36,9 +36,9 @@ namespace
 	using Hit16 = std::vector<std::vector<double>>;
 
 	// The 16 Hits from their onsets on the fast engine at _fs, TUNE's fine raised by _fine on every Track
-	Hit16 renderFast(const std::vector<int32_t>& _s7, const double _fs, const int _fine = 0)
+	Hit16 renderFast(const double _fs, const int _fine = 0)
 	{
-		fast::BdModern e(_s7, static_cast<float>(_fs));
+		fast::BdModern e(static_cast<float>(_fs));
 		const int samples = static_cast<int>(Seconds * _fs);
 		Hit16 out(Lanes);
 		std::array<std::array<float, fast::BlockSize>, Lanes> buf{};
@@ -189,12 +189,12 @@ int main(const int _argc, char** _argv)
 
 	// The second round plays the fast engine at 48 kHz alone
 	const auto exact = round2 ? Hit16() : renderExact(s7);
-	const auto fast48 = renderFast(s7, 48000), fast44 = round2 ? Hit16() : renderFast(s7, 44100);
+	const auto fast48 = renderFast(48000), fast44 = round2 ? Hit16() : renderFast(44100);
 	const int fines[] = {3, 8, 26};	// 1/256 semitone each: about 1, 3 and 10 cents
 	std::map<int, Hit16> tuned;
 	for(const int f : fines)
 		if(!round2)
-			tuned[f] = renderFast(s7, 48000, f);
+			tuned[f] = renderFast(48000, f);
 
 	std::vector<File> files;
 	std::vector<Pair> exactPairs, noise, envelopes, pitch, rate, controls;

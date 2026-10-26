@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <vector>
 
 // The Syntakt's machines rewritten for speed: 32-bit float, the 16 Tracks side by side (each field an array of 16
 // lanes, a vector op on 4 of them), blocks of 32 samples at the host's rate, every rate-dependent constant derived from
@@ -74,8 +73,8 @@ namespace syntakt::fast
 	public:
 		static constexpr int Parameters = 8;
 
-		// _section7: the words loadSection7 returned, read here only
-		BdModern(const std::vector<int32_t>& _section7, float _sampleRate);
+		// Its tables come from stFastTables' formulas: nothing of the firmware
+		explicit BdModern(float _sampleRate);
 
 		void setSampleRate(float _sampleRate);
 
@@ -100,8 +99,8 @@ namespace syntakt::fast
 		void convert(int _track);
 		void control();
 
-		// Section 7's tables BD MODERN reads, as floats: the 128-entry parameter tables, unit 2's wave and the pitch
-		// map's exp2; the 256-entry sine unit 0 reads is computed. Ticket 07 of elektron-drums-v1 makes them by formula
+		// The tables BD MODERN reads, as floats: the 128-entry parameter tables, unit 2's wave and the pitch map's exp2
+		// (stFastTables, section 7's words by formula); the 256-entry sine unit 0 reads is computed
 		struct Tables
 		{
 			float sweepDepth[128], sweepDecay[128], clickLevel[128], modDecay[128], ampDecay[128];

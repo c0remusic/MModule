@@ -1,13 +1,20 @@
 cmake_minimum_required(VERSION 3.15)
 
 # The Syntakt's machines rewritten in float, SIMD across 16 Tracks, at the host's rate: syntakt::fast. The exact
-# integer port (stEngine) is their reference, and their tables come from the user's section 7 through it.
-add_library(stFast STATIC stFastBdModern.h stFastBdModern.cpp)
+# integer port (stEngine) is their reference, in the tests only: their tables are made by formula (stFastTables), and
+# nothing of the firmware is read.
+add_library(stFast STATIC stFastBdModern.h stFastBdModern.cpp stFastTables.h stFastTables.cpp)
 target_include_directories(stFast PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(stFast PRIVATE stEngine)
 set_property(TARGET stFast PROPERTY FOLDER "Elektron/syntakt")
 
 if(BUILD_TESTING)
+	# The tables by formula against section 7, word for word (SYNTAKT_SECTION7: exit 77 without it)
+	add_executable(stFastTablesTest stFastTablesTest.cpp)
+	target_link_libraries(stFastTablesTest PRIVATE stFast stEngine)
+	set_property(TARGET stFastTablesTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME stFastTablesTest COMMAND stFastTablesTest)
+	set_tests_properties(stFastTablesTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 60)
+
 	# BD MODERN against the exact port at 48 kHz, 44.1 against 48 kHz, and its cost for 16 Tracks
 	# (SYNTAKT_SECTION7: exit 77 without it)
 	add_executable(stFastBdModernTest stFastBdModernTest.cpp stFastBench.h)
