@@ -46,7 +46,7 @@ namespace syntakt::fast
 		int64_t m_out = 0;		// the next output sample
 	};
 
-	// A machine (BdModern, SdBasic, CyAlloy), which renders the Syntakt's own 48 kHz blocks (renderBlock), on a host's
+	// A machine of syntakt::fast, which renders the Syntakt's own 48 kHz blocks (renderBlock), on a host's
 	// blocks of 32 samples. At 48 kHz block for block. At 44.1 kHz through Resample48To44: before each host block the
 	// FIFO takes the 48 kHz blocks it needs, 1 or 2 (34.8 samples on average), and what was queued before the host
 	// block (a trig, a parameter, a note) lands on the first of them, so a trig falls on the machine's own 48 kHz block

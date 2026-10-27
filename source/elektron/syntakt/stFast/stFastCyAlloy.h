@@ -33,7 +33,7 @@ namespace syntakt::fast
 
 		// For tests: the depth table at 0, as the exact port with that table at 0 plays: no feedback, and units 1 and 3
 		// unmodulated
-		void testWithoutDepth();
+		void testWithoutChaos();
 
 		// One 48 kHz block of the 16 Tracks
 		const Block& renderBlock();
@@ -101,11 +101,6 @@ namespace syntakt::fast
 	};
 
 	// The stages CY ALLOY alone uses
-
-	// A wave of 256 entries (258 values) phase-modulated by _src (nullptr: none) at a depth ramped from _from to _to,
-	// read as the machine reads its waves
-	void pmWave(Block& _out, const Block* _src, const float* _from, const float* _to, uint32_t* _phase,
-		const Increments& _inc, const float* _wave);
 
 	// A biquad in place, y = b0 x + b1 x1 + b2 x2 - a1 y1 - a2 y2 (_c), the same coefficients on every lane, each
 	// output clipped to [-1, 1] as the machine's store saturates; _s: x1, x2, y1, y2 per lane

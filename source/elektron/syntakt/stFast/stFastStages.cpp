@@ -100,6 +100,27 @@ namespace syntakt::fast
 		}
 	}
 
+	void pmWave(Block& _out, const Block* _src, const float* _from, const float* _to, uint32_t* _phase,
+		const Increments& _inc, const float* _wave)
+	{
+		for(int g = 0; g < Lanes; g += 4)
+		{
+			__m128i p = _mm_load_si128(reinterpret_cast<const __m128i*>(_phase + g));
+			V depth = _mm_load_ps(_from + g);
+			const V step = stepOf(_from, _to, g);
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				V u = phaseOf(p);
+				if(_src)
+					u = _mm_add_ps(u, _mm_mul_ps(depth, _mm_load_ps(_src->s[n] + g)));
+				_mm_store_ps(_out.s[n] + g, lookup(u, _wave));
+				p = _mm_add_epi32(p, _mm_load_si128(reinterpret_cast<const __m128i*>(_inc.s[n] + g)));
+				depth = _mm_add_ps(depth, step);
+			}
+			_mm_store_si128(reinterpret_cast<__m128i*>(_phase + g), p);
+		}
+	}
+
 	void driveClip(Block& _buf, const float* _from, const float* _to, const float* _drive, const float* _post)
 	{
 		for(int g = 0; g < Lanes; g += 4)

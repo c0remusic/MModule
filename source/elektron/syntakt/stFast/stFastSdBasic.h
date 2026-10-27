@@ -32,7 +32,7 @@ namespace syntakt::fast
 		void gateOff(int _track);
 
 		// For tests: unit 0's feedback table at 0, the voice without its chaos
-		void testWithoutFeedback();
+		void testWithoutChaos();
 
 		// One 48 kHz block of the 16 Tracks
 		const Block& renderBlock();

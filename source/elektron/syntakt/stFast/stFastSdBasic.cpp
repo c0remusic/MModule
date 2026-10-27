@@ -144,7 +144,7 @@ namespace syntakt::fast
 		m_gateQueued[_track] = true;
 	}
 
-	void SdBasic::testWithoutFeedback()
+	void SdBasic::testWithoutChaos()
 	{
 		std::fill_n(m_tables.feedback, 128, 0.0f);
 		for(int l = 0; l < Lanes; ++l)

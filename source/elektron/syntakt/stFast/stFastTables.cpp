@@ -16,6 +16,10 @@
 // SD BASIC's add two units: an attack's blocks to full (its step -1 / blocks), and a decay's 60 dB fall in seconds,
 // the law of its units 0-2, its amp and its modulator. Its levels with six decimals are 4 times the feedback, 1.1
 // times unit 0's target, unit 1's target itself
+// The rule: laws, round knots carried by a stretch, fitted stretches; no segment of one entry, no word written for an
+// entry of its own. One exception, the user's: a three-constant parabola over three entries where a turn follows no
+// stretch, in four places only: SD BASIC's SweepDepth 63-65, PC CARBON's SweepDepth 63-65 and its FactorU2 29-31 and
+// 47-49
 namespace syntakt::fast::tables
 {
 	namespace
@@ -107,42 +111,52 @@ namespace syntakt::fast::tables
 
 		// The decays' time constants are KnotTau times a designer's value: SweepDecay's knots every 10 entries (and
 		// 127) are round, 12 12 18 25 30 46 52 64 48 40 25.4 19.2 15, and so are ModDecay's plateaus, 400 and 3.
-		// Between the knots, SweepDecay is the knots' chord up to 30 and from 110; between 30 and 110 each interval's
-		// inside is a line of its own (fitted, through a knot or a round value: 39.6 at 46, 60.94 at 67), joined to
-		// the knots by 1 or 2 entries that follow neither (approximate, up to 1.24 % of the time constant). Knot
-		// entries are within 1 LSB: the knots disagree with a single KnotTau by about 1e-8
+		// Between the knots, the firmware's SweepDecay is the knots' chord up to 30 and from 110; between 30 and 110
+		// each interval's inside is a line of its own, joined to the knots by 1 or 2 entries that follow neither. Here
+		// the chords up to 29, the line through 40 at 90, and from 30 lines, parabolas and cubics fitted to the words,
+		// each over more entries than it has constants. Every entry of the firmware's lines stays within 2 LSB of its
+		// word: the exact port itself is ill-conditioned in this decay at some settings (TRANSIENT 87 and the high
+		// notes move past Q4 with SWEEP 64's word 100 LSB off), and so does every knot, carried by its stretch. The
+		// entries joining the knots, k - 2 to k + 2 but k for k = 30, 40 ... 110, are approximate, within 0.066 % of
+		// the time constant (0.5 % off is heard as Q4 measures it: SWEEP 41, 79, 99, 109). The knots disagree with a
+		// single KnotTau by about 1e-8
 		constexpr double KnotTau = 1.15142326;
 
 		const Segment SweepDecay[] = {
-			{0, 10, 0, Kind::Linear, {12, 0}},
-			{11, 20, 10, Kind::Linear, {12, 0.6}},
-			{21, 30, 20, Kind::Linear, {18, 0.7}},
-			{31, 39, 31, Kind::Linear, {25.503657758779177, 0.50365800466212574}},
-			{40, 40, 40, Kind::Linear, {30, 0}},
-			{41, 49, 43, Kind::Linear, {34.48268120115155, 1.7057955911802209}},
-			{50, 50, 50, Kind::Linear, {46, 0}},
-			{51, 59, 53, Kind::Linear, {48.203418275248055, 0.54236865371648402}},
-			{60, 60, 60, Kind::Linear, {52, 0}},
-			{61, 69, 63, Kind::Linear, {55.736370301242687, 1.3008683796632627}},
-			{70, 70, 70, Kind::Linear, {64, 0}},
-			{71, 79, 73, Kind::Linear, {59.795329522859888, -1.8428967132182239}},
-			{80, 80, 80, Kind::Linear, {48, 0}},
-			{81, 89, 81, Kind::Linear, {47.177832167936423, -0.82216709870214644}},
-			{90, 90, 90, Kind::Linear, {40, 0}},
-			{91, 99, 91, Kind::Linear, {38.447056885650355, -1.5529428352809205}},
-			{100, 100, 100, Kind::Linear, {25.4, 0}},
-			{101, 109, 101, Kind::Linear, {24.715673941122869, -0.68432592593524122}},
-			{110, 127, 110, Kind::Linear, {19.2, -4.2 / 17}},
+			{0, 9, 0, Kind::Linear, {12, 0}},
+			{10, 19, 10, Kind::Linear, {12, 0.6}},
+			{20, 29, 20, Kind::Linear, {18, 0.7}},
+			{30, 39, 30, Kind::Linear, {25.000000514208757, 0.5036577748755049}},
+			{40, 44, 40, Kind::Poly, {30.000001013459503, 1.0377496010319303, 0.2266082980822913,
+				-0.024816470386505467}},
+			{45, 49, 45, Kind::Poly, {37.894274121867085, 1.6962275808130065, 0.014208712725533701,
+				-0.004712361636760476}},
+			{50, 53, 50, Kind::Poly, {45.999996765478066, 0.98740958330972, -0.08431163004719539, 0}},
+			{54, 59, 54, Kind::Linear, {48.74578466481748, 0.5423691799612993}},
+			{60, 65, 60, Kind::Poly, {51.999996910059146, 1.1706300604826978, 0.033258318823198206,
+				-0.002772009307977564}},
+			{66, 70, 66, Kind::Poly, {59.638978404485115, 1.2023641647229217, 0.14088047337681311,
+				-0.04222687233553449}},
+			{71, 75, 71, Kind::Poly, {63.38012483612002, -1.7334579489965851, -0.037890890172473435,
+				0.00421095410996641}},
+			{76, 80, 76, Kind::Poly, {54.26664295655734, -1.7729558401120107, -0.11045494603725217,
+				0.04050721096274426}},
+			{81, 84, 81, Kind::Linear, {47.17783271986022, -0.8221667194923796}},
+			{85, 89, 85, Kind::Poly, {43.88916178251867, -0.817089211438868, -0.0076078889664652006,
+				0.002534482520377087}},
+			{90, 96, 90, Kind::Linear, {40, -1.552942674901896}},
+			{97, 100, 97, Kind::Poly, {29.129398803621047, -1.695468679932368, 0.15077863912743272, 0}},
+			{101, 108, 101, Kind::Linear, {24.715674191790104, -0.6843259810898425}},
+			{109, 127, 109, Kind::Linear, {19.447059155790853, -0.2470588536080669}},
 		};
 
-		// Approximate: knots 0.4, 0.8, 1.0 at 32, 64, 96 and 1.0 at 127, built as SweepDecay is: each interval's
-		// inside a line of its own, 31 and 33 following neither (0.03 % of full scale)
+		// Approximate: knots 0.4, 0.8, 1.0 at 32, 64, 96 and 1.0 at 127, built as the firmware's SweepDecay: each
+		// interval's inside a line of its own, 31 and 33 following neither (0.03 % of full scale). The knots at 32 and
+		// 96 are carried by the line after and before them, 0.11 and 0.05 % of full scale off
 		const Segment ClickLevel[] = {
 			{0, 31, 0, Kind::Linear, {150000, 7723}},
-			{32, 32, 32, Kind::Linear, {400000, 0}},
-			{33, 63, 34, Kind::Linear, {427478.48076923063, 12490.423076923129}},
-			{64, 95, 64, Kind::Linear, {800000.02777777787, 6287.0555555555484}},
-			{96, 96, 96, Kind::Linear, {1000000, 0}},
+			{32, 63, 34, Kind::Linear, {427478.48076923063, 12490.423076923129}},
+			{64, 96, 64, Kind::Linear, {800000.02777777787, 6287.0555555555484}},
 			{97, 127, 99, Kind::Linear, {1002401.6153846163, -85.769230769252985}},
 		};
 		constexpr double ClickGain = 921.0481118557876;	// words per millionth, fitted
@@ -312,7 +326,8 @@ namespace syntakt::fast::tables
 		// Units 1 and 3's frequency factors (Ratio) and unit 2's (Spread), in millionths of the note's factor
 		// (0x04000000): round knots joined by exponentials (Ratio 1.01, 1.28, 1.5, 1.74, 2.01 at 0, 36, 72, 96, 127;
 		// Spread 1.002 at 0, 2.52 at 116, 2.84 at 127) and lines. Ratio's 62-71 is approximate, one exponential where
-		// the firmware's turns at 70 (306 millionths)
+		// the firmware's turns at 70 (306 millionths); Spread's knot at 116 is carried by the line before it, 178
+		// millionths off
 		const Segment Ratio[] = {
 			{0, 36, 0, Kind::Exp, {1336127.0496637938, -326126.9487278214, -0.048879617778127916}},
 			{37, 49, 37, Kind::Exp, {1260592.967504099, 22015.296168065724, 0.12611091122006515}},
@@ -329,8 +344,7 @@ namespace syntakt::fast::tables
 			{35, 58, 35, Kind::Exp, {1834018.3477036958, -358957.53748103627, -0.05220188997621075}},
 			{59, 82, 59, Kind::Exp, {1391190.370870563, 340385.2022860991, 0.01660501468079772}},
 			{83, 107, 83, Kind::Exp, {1746067.0612524853, 151936.48995884313, 0.05068404536237697}},
-			{108, 115, 108, Kind::Linear, {2286966, 29107}},
-			{116, 116, 116, Kind::Linear, {2520000, 0}},
+			{108, 116, 108, Kind::Linear, {2286966, 29107}},
 			{117, 127, 117, Kind::Linear, {2548928.9999999995, 29107.142857143004}},
 		};
 
@@ -344,6 +358,84 @@ namespace syntakt::fast::tables
 			{0, 127, 0, Kind::Exp, {188181.39302621534, 311818.6185595071, 0.013855627651058508}},
 		};
 
+		// ---- PC CARBON ----
+
+		// Units 0 and 2's decays at a trig, in KnotTau: one exponential law (BD MODERN's AmpDecay's growth, 0.022184
+		// an entry) for unit 0 up to 100, and unit 2 at half its time constant up to 10 (entries 0-13), the plateaus
+		// round. Approximate: the law within 2.5e-5 of the time constant, unit 2's plateau 1 LSB off
+		const Segment PcDecayU0[] = {
+			{0, 48, 0, Kind::Exp, {-48.123126043146925, 50.68312951287204, 0.02218395685883282}},
+			{49, 127, 49, Kind::Linear, {100, 0}},
+		};
+		const Segment PcDecayU2[] = {
+			{0, 13, 0, Kind::Exp, {-48.123126043146925 / 2, 50.68312951287204 / 2, 0.02218395685883282}},
+			{14, 127, 14, Kind::Linear, {10, 0}},
+		};
+
+		// The modulation depths of units 1 and 3 in millionths of 2^-5 of full scale: one exponential each from 0 to 24
+		// and 30, the targets' rate (0.016244 an entry); the firmware's words waver about it by up to 8 millionths
+		// (approximate)
+		const Segment PcDepthU1[] = {
+			{0, 127, 0, Kind::Exp, {-3493796.6787805893, 3493796.338264171, 0.016243869655114294}},
+		};
+		const Segment PcDepthU3[] = {
+			{0, 127, 0, Kind::Exp, {-4367242.572061408, 4367242.870473522, 0.01624387379776335}},
+		};
+
+		// Units 0 and 2's levels at rest, in millionths: one exponential each, 1 and 0.35 at 0, 0 at 127
+		const Segment PcTargetU0[] = {
+			{0, 127, 0, Kind::Exp, {-145574.77583287912, 1145574.778454971, -0.016243873236079853}},
+		};
+		const Segment PcTargetU2[] = {
+			{0, 127, 0, Kind::Exp, {-50951.21000233317, 400951.178339839, -0.016243868842999432}},
+		};
+
+		// The sweep's decay in KnotTau, 150 at 0: an exponential to 91, another to 100, a line to 109, an
+		// exponential knee to 114 and a line to 3.21 at 127. Approximate: the stretches fitted within 1200 LSB
+		const Segment PcSweepDecay[] = {
+			{0, 91, 0, Kind::Exp, {176.82135293459015, -26.821347489012137, 0.016234508539896143}},
+			{92, 100, 92, Kind::Exp, {81.51496987862153, -24.095579352776138, 0.0714199651307089}},
+			{101, 109, 101, Kind::Linear, {35.88514270714785, -2.833439025477561}},
+			{110, 114, 110, Kind::Exp, {3.6024150300814717, 6.777285292420838, -0.3861912355573998}},
+			{115, 127, 115, Kind::Linear, {4.607411945303479, -0.116570633502287}},
+		};
+
+		// The sweep's depth, the word: from 1 (0x04000000, which the first line passes through: a word below it would
+		// leave the pitch 1 LSB of its sweep's factor low forever) up a line to 63, down a line to 93, held at 17/12
+		// from 98 to 110, then up a line, the turns three-constant parabolas. Approximate: the lines within 32 LSB of
+		// words that waver about them, the parabolas over 94-97 and 111-114 within 1.7e-4 of the word
+		const Segment PcSweepDepth[] = {
+			{0, 62, 0, Kind::Linear, {67108864, 872635.1694}},
+			{63, 65, 63, Kind::Poly, {122011553.0, 527984.5, -247778.5, 0}},
+			{66, 93, 66, Kind::Linear, {121353235.86363636, -876540.181818181}},
+			{94, 97, 94, Kind::Poly, {96767528.375, -865475.5000000024, 121203.75000000249, 0}},
+			{98, 110, 98, Kind::Linear, {95070891.0, 0}},
+			{111, 114, 111, Kind::Poly, {95349530.75, 144748.0, 423747.5, 0}},
+			{115, 127, 115, Kind::Linear, {101844020.45, 2229846.699999999}},
+		};
+
+		// The units' frequency factors in millionths of the note's (0x04000000): lines and exponentials, the turns
+		// three-constant parabolas (FactorU2 29-31 and 47-49): unit 1 from 1.05 to 7, unit 2 from 0.1 to 9. The
+		// firmware sets round values on some entries the stretches run past, which they do not follow: unit 1's 2.16,
+		// 2.7, 4.32, 4.99, 5.66, 6.33 at 43, 53, 87, 97, 107, 117 (48 to 184 millionths off), unit 2's 3.65 and 4.29
+		// at 60 and 71 (167 and 32). Approximate there, exact elsewhere
+		const Segment PcFactorU1[] = {
+			{0, 28, 0, Kind::Linear, {1049999.9999999995, 13819.38461538475}},
+			{29, 36, 29, Kind::Exp, {1330490.640919751, 124065.28126797167, 0.1538340135192645}},
+			{37, 47, 37, Kind::Linear, {1759844.3333333333, 66700.66666666669}},
+			{48, 61, 48, Kind::Exp, {3305051.9738351637, -813472.927041842, -0.059168091621480304}},
+			{62, 74, 62, Kind::Exp, {2740785.9611342796, 208915.92853004183, 0.10168290543463089}},
+			{75, 127, 75, Kind::Linear, {3515761.109375, 67004.59375000015}},
+		};
+		const Segment PcFactorU2[] = {
+			{0, 28, 0, Kind::Linear, {100000.00000000004, 28177.142857142844}},
+			{29, 31, 29, Kind::Poly, {912918.0, 22072.999999999884, 5004.000000000058, 0}},
+			{32, 40, 32, Kind::Exp, {427142.50471163285, 601357.2447214461, 0.09840333386218712}},
+			{41, 46, 41, Kind::Linear, {1912384.125, 164219.25}},
+			{47, 49, 47, Kind::Poly, {2886366.0, 120277.99999999953, -13533.999999999767, 0}},
+			{50, 127, 50, Kind::Exp, {-1538661.752462084, 4667769.422744132, 0.010576223993095673}},
+		};
+
 		struct Curve
 		{
 			const Segment* begin;
@@ -351,6 +443,16 @@ namespace syntakt::fast::tables
 			Unit unit;
 			double scale;
 		};
+
+		// The curve's value at entry _i, before its unit: the last segment that holds it
+		double value(const Curve& _c, const int _i)
+		{
+			double y = 0;
+			for(const Segment* s = _c.begin; s != _c.end; ++s)
+				if(_i >= s->from && _i <= s->to)
+					y = s->at(_i);
+			return y;
+		}
 
 		template<size_t N> Curve curve(const Segment (&_s)[N], const Unit _unit, const double _scale = 0)
 		{
@@ -424,6 +526,63 @@ namespace syntakt::fast::tables
 			for(int k = 0; k < 5; ++k)
 				v += Amplitude[k] / 174 * std::sin(Harmonic[k] * x);
 			t[i] = clamp(v * Q31);
+		}
+		return t;
+	}
+
+	std::array<int32_t, 128> pcCarbon(const PcCarbon _t)
+	{
+		constexpr double Micro = Q31 / 1e6, Micro26 = 67108864 / 1e6;
+		std::array<int32_t, 128> t{};
+		switch(_t)
+		{
+		case PcCarbon::DecayPosition:
+			// Where units 1 and 3 read their decay curve: ((i / 127)^2.5) (1 - 2^-10)
+			for(int i = 0; i < 128; ++i)
+				t[i] = clamp(std::pow(i / 127.0, 2.5) * (1 - 1 / 1024.0) * Q31);
+			return t;
+		case PcCarbon::FactorU0:
+			{
+				// Unit 0 at half unit 2's stretches, at least 0.12. Approximate: the firmware's round 2.47 and 2.61 at
+				// 81 and 85 are 98 and 82 millionths off, and two words 1 millionth, where half of unit 2's falls on a
+				// half millionth
+				const Curve u2 = curve(PcFactorU2, Unit::Micro, Micro26);
+				for(int i = 0; i < 128; ++i)
+					t[i] = toWord(Unit::Micro, Micro26, std::max(120000.0, value(u2, i) / 2));
+				return t;
+			}
+		default:
+			break;
+		}
+		const Curve curves[] = {
+			{}, curve(PcSweepDecay, Unit::Tau, KnotTau), curve(PcDepthU1, Unit::Micro, Micro26),
+			curve(PcFactorU1, Unit::Micro, Micro26), curve(PcTargetU2, Unit::Micro, Micro),
+			curve(PcSweepDepth, Unit::Word), curve(PcTargetU0, Unit::Micro, Micro),
+			curve(PcFactorU2, Unit::Micro, Micro26), curve(PcDecayU2, Unit::Tau, KnotTau), {},
+			curve(PcDecayU0, Unit::Tau, KnotTau), curve(PcDepthU3, Unit::Micro, Micro26),
+		};
+		static_assert(std::size(curves) == static_cast<size_t>(PcCarbon::Count));
+		return build(curves[static_cast<int>(_t)]);
+	}
+
+	std::array<int32_t, 1024> pcCarbonDecayCurve()
+	{
+		// A time constant growing by a line, 10.4230676 blocks at 0 and 3.17378841 more an entry
+		std::array<int32_t, 1024> t{};
+		for(int i = 0; i < 1024; ++i)
+			t[i] = toWord(Unit::Tau, 1, 10.423067558301803 + 3.1737884136095484 * i);
+		return t;
+	}
+
+	std::array<int32_t, 257> pcCarbonWave()
+	{
+		// Harmonics 1, 5 and 9: sines of 0.75, 0.19 and 0.06, 1 at the peak. The firmware's words differ from them by
+		// up to 1.6e-6 of full scale, smoothly
+		std::array<int32_t, 257> t{};
+		for(int i = 0; i < 257; ++i)
+		{
+			const double x = 2 * 3.14159265358979323846 * i / 256;
+			t[i] = clamp((0.75 * std::sin(x) + 0.19 * std::sin(5 * x) + 0.06 * std::sin(9 * x)) * Q31);
 		}
 		return t;
 	}

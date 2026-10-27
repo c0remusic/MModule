@@ -26,27 +26,6 @@ namespace syntakt::fast
 		constexpr int PitchOffset = 40;
 	}
 
-	void pmWave(Block& _out, const Block* _src, const float* _from, const float* _to, uint32_t* _phase,
-		const Increments& _inc, const float* _wave)
-	{
-		for(int g = 0; g < Lanes; g += 4)
-		{
-			__m128i p = _mm_load_si128(reinterpret_cast<const __m128i*>(_phase + g));
-			V depth = _mm_load_ps(_from + g);
-			const V step = stepOf(_from, _to, g);
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				V u = phaseOf(p);
-				if(_src)
-					u = _mm_add_ps(u, _mm_mul_ps(depth, _mm_load_ps(_src->s[n] + g)));
-				_mm_store_ps(_out.s[n] + g, lookup(u, _wave));
-				p = _mm_add_epi32(p, _mm_load_si128(reinterpret_cast<const __m128i*>(_inc.s[n] + g)));
-				depth = _mm_add_ps(depth, step);
-			}
-			_mm_store_si128(reinterpret_cast<__m128i*>(_phase + g), p);
-		}
-	}
-
 	void biquad(Block& _buf, const float* _c, float (*_s)[Lanes])
 	{
 		const V b0 = _mm_set1_ps(_c[0]), b1 = _mm_set1_ps(_c[1]), b2 = _mm_set1_ps(_c[2]);
@@ -141,7 +120,7 @@ namespace syntakt::fast
 		m_gateQueued[_track] = true;
 	}
 
-	void CyAlloy::testWithoutDepth()
+	void CyAlloy::testWithoutChaos()
 	{
 		std::fill_n(m_tables.depth, 128, 0.0f);
 		for(int l = 0; l < Lanes; ++l)

@@ -5,8 +5,8 @@ cmake_minimum_required(VERSION 3.15)
 # integer port (stEngine) is their reference, in the tests only: their tables are made by formula (stFastTables), and
 # nothing of the firmware is read.
 add_library(stFast STATIC stFastStages.h stFastStages.cpp stFastBdModern.h stFastBdModern.cpp stFastSdBasic.h
-	stFastSdBasic.cpp stFastCyAlloy.h stFastCyAlloy.cpp stFastResample.h stFastResample.cpp stFastTables.h
-	stFastTables.cpp)
+	stFastSdBasic.cpp stFastCyAlloy.h stFastCyAlloy.cpp stFastPcCarbon.h stFastPcCarbon.cpp stFastResample.h
+	stFastResample.cpp stFastTables.h stFastTables.cpp)
 target_include_directories(stFast PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(TARGET stFast PROPERTY FOLDER "Elektron/syntakt")
 
@@ -40,6 +40,13 @@ if(BUILD_TESTING)
 	add_test(NAME stFastCyAlloyTest COMMAND stFastCyAlloyTest)
 	set_tests_properties(stFastCyAlloyTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
+	# PC CARBON the same (SYNTAKT_SECTION7: exit 77 without it)
+	add_executable(stFastPcCarbonTest stFastPcCarbonTest.cpp stFastBench.h)
+	target_link_libraries(stFastPcCarbonTest PRIVATE stFast stEngine)
+	set_property(TARGET stFastPcCarbonTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME stFastPcCarbonTest COMMAND stFastPcCarbonTest)
+	set_tests_properties(stFastPcCarbonTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
 	# The resampler that brings the fast Syntakt's 48 kHz to a 44.1 kHz host (Q11): no firmware
 	add_executable(stFastResampleTest stFastResampleTest.cpp stFastBench.h)
 	target_link_libraries(stFastResampleTest PRIVATE stFast stEngine)
@@ -54,4 +61,12 @@ if(BUILD_TESTING)
 	target_compile_definitions(stFastAbRender PRIVATE ST_FAST_AB_PAGE="${CMAKE_CURRENT_SOURCE_DIR}/stFastAbPage.html"
 		ST_FAST_REPO="${CMAKE_SOURCE_DIR}")
 	set_property(TARGET stFastAbRender PROPERTY FOLDER "Elektron/test")
+
+	# Every value of every sound parameter, fast against exact, and A/B WAVs of chosen ones, by hand, outside the
+	# repository: stFastSweep sweep MACHINE OUT.csv | ab OUTDIR CASES.txt (SYNTAKT_SECTION7)
+	add_executable(stFastSweep stFastSweep.cpp stFastBench.h)
+	target_link_libraries(stFastSweep PRIVATE stFast stEngine)
+	target_compile_definitions(stFastSweep PRIVATE ST_FAST_AB_PAGE="${CMAKE_CURRENT_SOURCE_DIR}/stFastAbPage.html"
+		ST_FAST_REPO="${CMAKE_SOURCE_DIR}")
+	set_property(TARGET stFastSweep PROPERTY FOLDER "Elektron/test")
 endif()

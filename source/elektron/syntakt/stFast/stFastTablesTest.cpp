@@ -1,7 +1,7 @@
-// syntakt::fast::tables, the tables BD MODERN, SD BASIC and CY ALLOY read made by formula, against OS 1.41's section 7
-// word for word: per table, exact or the number of words that differ and the largest error (in LSB of Q31, and of the
-// table's own unit: the time constant of a decay, the share of full scale of a level). A table its header calls exact
-// that differs fails.
+// syntakt::fast::tables, the tables BD MODERN, SD BASIC, CY ALLOY and PC CARBON read made by formula, against OS
+// 1.41's section 7 word for word: per table, exact or the number of words that differ and the largest error (in LSB of
+// Q31, and of the table's own unit: the time constant of a decay, the share of full scale of a level). A table its
+// header calls exact that differs fails.
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7. Exit 77 without it.
 
@@ -25,11 +25,42 @@ namespace
 
 	int g_failures = 0;
 
+	// The largest error entries _from to _to may have, where a table's stretches differ much (a bound per stretch)
+	struct Bound
+	{
+		size_t from, to;
+		int64_t maxLsb;
+	};
+
 	template<typename Table>
 	void compare(const std::vector<int32_t>& _s7, const char* _name, const uint32_t _address, const Table& _made,
-		const bool _exact, const bool _decay, const int64_t _maxLsb)
+		const bool _exact, const bool _decay, const int64_t _maxLsb, const std::vector<Bound>& _ranges = {})
 	{
+		// Each range's worst against its own bound, the rest against _maxLsb
 		const int32_t* fw = &_s7[(_address - Base) >> 2];
+		for(const Bound& b : _ranges)
+		{
+			int64_t worst = 0;
+			for(size_t i = b.from; i <= b.to; ++i)
+				worst = std::max(worst, std::abs(static_cast<int64_t>(_made[i]) - fw[i]));
+			std::printf("  %-11s %4zu-%-4zu max %lld LSB (bound %lld)\n", _name, b.from, b.to,
+				static_cast<long long>(worst), static_cast<long long>(b.maxLsb));
+			if(worst > b.maxLsb)
+			{
+				std::printf("FAIL: %s %zu-%zu beyond its largest error\n", _name, b.from, b.to);
+				++g_failures;
+			}
+		}
+		const auto ranged = [&](const size_t _i)
+		{
+			return std::any_of(_ranges.begin(), _ranges.end(),
+				[&](const Bound& _b) { return _i >= _b.from && _i <= _b.to; });
+		};
+		int64_t worstOutside = 0;
+		for(size_t i = 0; i < _made.size(); ++i)
+			if(!ranged(i))
+				worstOutside = std::max(worstOutside, std::abs(static_cast<int64_t>(_made[i]) - fw[i]));
+
 		int differ = 0;
 		int64_t worst = 0;
 		double worstUnit = 0;
@@ -60,7 +91,7 @@ namespace
 			std::printf("FAIL: %s is said exact\n", _name);
 			++g_failures;
 		}
-		if(worst > _maxLsb)
+		if(worstOutside > _maxLsb)
 		{
 			std::printf("FAIL: %s beyond its largest error, %lld LSB\n", _name, static_cast<long long>(_maxLsb));
 			++g_failures;
@@ -91,11 +122,14 @@ int main()
 		Parameter parameter;
 		bool decay;
 		int64_t maxLsb;	// the largest error its formula's comment states, in LSB, with a margin
+		std::vector<Bound> ranges;	// stretches bound apart
 	};
 	const Entry parameters[] = {
 		{"SweepDepth", 0x4001ec00, Parameter::SweepDepth, false, 2},
-		{"SweepDecay", 0x4001ee00, Parameter::SweepDecay, true, 1100000},
-		{"ClickLevel", 0x4001f400, Parameter::ClickLevel, false, 700000},
+		{"SweepDecay", 0x4001ee00, Parameter::SweepDecay, true, 2, {{28, 32, 8}, {38, 42, 27000}, {48, 52, 30500},
+			{58, 62, 17500}, {68, 72, 15000}, {78, 82, 18000}, {88, 92, 18200}, {98, 102, 22500},
+			{108, 112, 31500}}},	// the knots' joins apart, every other entry within 2 LSB
+		{"ClickLevel", 0x4001f400, Parameter::ClickLevel, false, 700000, {{32, 32, 2400000}, {96, 96, 1200000}}},
 		{"ModDecay", 0x4001f600, Parameter::ModDecay, true, 26000},
 		{"AmpDecay", 0x4001f800, Parameter::AmpDecay, true, 6},
 		{"ModTarget", 0x4001fa00, Parameter::ModTarget, false, 0},
@@ -106,7 +140,7 @@ int main()
 	std::printf("BD MODERN's tables by formula against section 7:\n");
 	for(const auto& p : parameters)
 		compare(s7, p.name, p.address, syntakt::fast::tables::parameter(p.parameter),
-			syntakt::fast::tables::exact(p.parameter), p.decay, p.maxLsb);
+			syntakt::fast::tables::exact(p.parameter), p.decay, p.maxLsb, p.ranges);
 	compare(s7, "Wave", 0x4001e7fc, syntakt::fast::tables::wave(), true, false, 0);
 	compare(s7, "Exp2", 0x40059ef8, syntakt::fast::tables::exp2(), true, false, 0);
 
@@ -118,6 +152,7 @@ int main()
 		SdBasic table;
 		bool decay;
 		int64_t maxLsb;
+		std::vector<Bound> ranges;
 	};
 	const SdEntry sdBasic[] = {
 		{"DecayU0", 0x40027a38, SdBasic::DecayU0, true, 0},
@@ -141,7 +176,7 @@ int main()
 	std::printf("SD BASIC's tables by formula against section 7:\n");
 	for(const auto& t : sdBasic)
 		compare(s7, t.name, t.address, syntakt::fast::tables::sdBasic(t.table), syntakt::fast::tables::exact(t.table),
-			t.decay, t.maxLsb);
+			t.decay, t.maxLsb, t.ranges);
 
 	using syntakt::fast::tables::CyAlloy;
 	struct CyEntry
@@ -151,21 +186,55 @@ int main()
 		CyAlloy table;
 		bool decay;
 		int64_t maxLsb;
+		std::vector<Bound> ranges;
 	};
 	const CyEntry cyAlloy[] = {
 		{"DecayOdd", 0x40020200, CyAlloy::DecayOdd, true, 4200},
 		{"Target", 0x40020400, CyAlloy::Target, false, 0},
 		{"DecayEven", 0x40020600, CyAlloy::DecayEven, true, 7700},
 		{"Ratio", 0x40020800, CyAlloy::Ratio, false, 21000},
-		{"Spread", 0x40020a00, CyAlloy::Spread, false, 0},
+		{"Spread", 0x40020a00, CyAlloy::Spread, false, 0, {{116, 116, 12500}}},
 		{"Depth", 0x40020c00, CyAlloy::Depth, false, 0},
 		{"AmpDecay", 0x40020e00, CyAlloy::AmpDecay, true, 0},
 	};
 	std::printf("CY ALLOY's tables by formula against section 7:\n");
 	for(const auto& t : cyAlloy)
 		compare(s7, t.name, t.address, syntakt::fast::tables::cyAlloy(t.table), syntakt::fast::tables::exact(t.table),
-			t.decay, t.maxLsb);
+			t.decay, t.maxLsb, t.ranges);
 	compare(s7, "Wave", 0x40021000, syntakt::fast::tables::cyAlloyWave(), false, false, 7000);
+
+	using syntakt::fast::tables::PcCarbon;
+	struct PcEntry
+	{
+		const char* name;
+		uint32_t address;
+		PcCarbon table;
+		bool decay;
+		int64_t maxLsb;
+		std::vector<Bound> ranges;
+	};
+	const PcEntry pcCarbon[] = {
+		{"DecayPos", 0x40023004, PcCarbon::DecayPosition, false, 0},
+		{"SweepDecay", 0x40023204, PcCarbon::SweepDecay, true, 1300},
+		{"DepthU1", 0x40023404, PcCarbon::DepthU1, false, 600},
+		{"FactorU1", 0x40023604, PcCarbon::FactorU1, false, 0, {{43, 43, 3500}, {53, 53, 7000}, {87, 87, 13000},
+			{97, 97, 10000}, {107, 107, 6500}, {117, 117, 3500}}},
+		{"TargetU2", 0x40023804, PcCarbon::TargetU2, false, 0},
+		{"SweepDepth", 0x40023a04, PcCarbon::SweepDepth, false, 40, {{63, 65, 0}, {94, 97, 17000}, {111, 114, 17000}}},
+		{"TargetU0", 0x40023c04, PcCarbon::TargetU0, false, 0},
+		{"FactorU2", 0x40023e04, PcCarbon::FactorU2, false, 0, {{29, 31, 0}, {47, 49, 0}, {60, 60, 12000},
+			{71, 71, 2500}}},
+		{"DecayU2", 0x40024004, PcCarbon::DecayU2, true, 1400},
+		{"FactorU0", 0x40024204, PcCarbon::FactorU0, false, 70, {{81, 81, 7000}, {85, 85, 6000}}},
+		{"DecayU0", 0x40024404, PcCarbon::DecayU0, true, 750},
+		{"DepthU3", 0x40024604, PcCarbon::DepthU3, false, 600},
+	};
+	std::printf("PC CARBON's tables by formula against section 7:\n");
+	for(const auto& t : pcCarbon)
+		compare(s7, t.name, t.address, syntakt::fast::tables::pcCarbon(t.table), syntakt::fast::tables::exact(t.table),
+			t.decay, t.maxLsb, t.ranges);
+	compare(s7, "DecayCurve", 0x40022004, syntakt::fast::tables::pcCarbonDecayCurve(), true, true, 0);
+	compare(s7, "Wave", 0x40024804, syntakt::fast::tables::pcCarbonWave(), false, false, 3500);
 
 	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
 	return g_failures ? 1 : 0;

@@ -38,6 +38,49 @@ pages et rendus faits par `stFastAbRender` hors du dépôt (`C:\dev\elektron-wor
 
 Détail et chiffres : `../elektron-drums/research/19-qualite-audio.md` §11, « Seuils Q3-Q4 validés à l'écoute ».
 
+### Révision de Q4, le 2026-10-27
+
+Pendant le ticket 06 (PC CARBON), le balayage de chaque paramètre sur toutes ses valeurs (`stFastSweep`, résultats
+hors du dépôt dans `C:\dev\elektron-work\scratch-arch\research\06-sweep`) a montré que le null et l'enveloppe RMS de
+1 ms échouent sur des réglages de BD MODERN dont la décroissance du sweep s'écarte un peu du firmware : la phase
+dérive au fil du Hit, le null s'effondre (de 30 à 6,7 dB sur les 50 premières ms), mais le son reste le même.
+L'utilisateur a écouté en aveugle les 11 paires les plus mauvaises (les 8 pires valeurs du balayage, plus les Hits 10
+et 12 de BD MODERN et le Hit 10 de PC CARBON) et n'a reconnu B que 5 fois sur les 9 paires auxquelles il a répondu,
+soit le hasard.
+
+Il a donc décidé que Q4, sur les Hits non chaotiques de toutes les machines, se juge sur deux mesures insensibles à la
+phase, prises dès l'attaque du port exact, en plus de la hauteur à 1 cent qui ne change pas :
+
+- l'enveloppe de Hilbert (module du signal analytique, lissé sur 5 ms) : le plus grand écart entre les deux,
+  rapporté au pic du port exact, doit rester sous -39 dB ;
+- le spectre à court terme : trames de Hann de 1024 échantillons, pas de 256, tiers d'octave ; là où le port exact
+  est à moins de 30 dB de sa case la plus forte, aucune case ne doit s'écarter de plus de 1 dB.
+
+Le null (global, pire fenêtre de 10 ms, pire tiers d'octave) et l'ancienne enveloppe de 1 ms sont désormais
+affichés sans être fatals, dans Q4 comme dans la vérification déterministe à rétroaction nulle. La classification
+« chaotique » ne change pas.
+
+Les 11 paires écoutées, avec la réponse de l'utilisateur et les deux nouvelles mesures :
+
+| Paire | Écoute | Enveloppe de Hilbert (dB sous le pic) | Cases de tiers d'octave (dB) | Null des 50 premières ms (dB) |
+|---|---|---|---|---|
+| bd-sweep-70 | juste | -40,4 | 1,94 | 14,1 |
+| bd-sweep-99 | juste | -35,6 | 13,29 | 9,1 |
+| bd-sweep-109 | faux | -34,0 | 14,59 | 6,7 |
+| bd-sweep-79 | faux | -41,5 | 1,02 | 18,2 |
+| bd-sweep-50 | pas de réponse | -40,8 | 1,00 | 17,7 |
+| bd-sweep-51 | faux | -44,8 | 0,60 | 22,2 |
+| bd-sweep-41 | juste | -43,6 | 2,18 | 20,0 |
+| bd-sweep-69 | juste | -50,7 | 0,39 | 29,7 |
+| bd-hit10 | faux | -46,4 | 0,77 | 16,7 |
+| bd-hit12 | juste | -51,0 | 1,22 | 6,7 |
+| pc-hit10 | pas de réponse | -76,6 | 0,06 | 85,2 |
+
+Les mesures sont celles de la version C++ (`bench::envelopeAbs`, `bench::cellMax`), identiques à l'analyse en Python
+du coordinateur sauf pour bd-hit10 : le Python trouvait -41,2 dB à 1996 ms, effet de bord de sa transformée de
+Hilbert non complétée de zéros sur le fondu de fin du fichier. Plusieurs paires dépassent les nouveaux seuils sans
+avoir été reconnues ; les seuils restent prudents.
+
 ## Comments
 
 2026-10-26, depuis le ticket 04 (BD MODERN). Décisions de l'utilisateur à faire juger aussi à l'écoute, et cas que

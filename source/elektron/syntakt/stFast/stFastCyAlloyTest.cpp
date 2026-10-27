@@ -5,11 +5,11 @@
 //	Q3	the non-linear stages (unit 2's feedback sine, units 1 and 3's phase-modulated wave, the high-pass driven into
 //		its clip, the drive's clip) against the integer stages fed the same input, over 1 s: SNR >= 70 dB and >= 60 dB
 //		in every 10 ms window above -60 dB, no residual third octave above -60 dB
-//	Q4	the whole voice, 16 Hits over CY ALLOY's parameters (2 s each), against syntakt::cyAlloy at 48 kHz: envelope
-//		(1 ms RMS) within 0.1 dB where the exact port's is above its peak - 40 dB, pitch (spectral peak) within 1 cent;
-//		the null (70 dB, 60 dB in 10 ms) printed, not fatal. The same Hits with the depth table at 0 in both engines,
-//		which takes out unit 2's feedback and units 1 and 3's modulation, the one table holding both: envelope 0.1 dB
-//		and pitch 1 cent, fatal; the null printed, not fatal
+//	Q4	the whole voice, 16 Hits over CY ALLOY's parameters (2 s each), against syntakt::cyAlloy at 48 kHz, by
+//		bench::q4's measures where not chaotic: Hilbert envelope within -39 dB of the peak, short-time third octaves
+//		within 1 dB, pitch within 1 cent, fatal; the null and the 1 ms envelope printed. The same Hits with the depth
+//		table at 0 in both engines, which takes out unit 2's feedback and units 1 and 3's modulation, the one table
+//		holding both: the same measures, fatal; the null printed
 //	Q15	the same Hits at 44.1 kHz, rendered at 48 and resampled (Host), against 48 kHz (bench::q15): envelope below
 //		18 kHz within 0.2 dB, every third octave below 10 kHz within 0.5 dB, nothing excused
 //	cost: microseconds per 32-sample block of 16 voices playing, fast against exact, and at 44.1 kHz
@@ -94,7 +94,7 @@ namespace
 		return fastHits<fast::CyAlloy>(_fs, _seconds, Hits, [&](fast::CyAlloy& _e)
 		{
 			if(_noDepth)
-				_e.testWithoutDepth();
+				_e.testWithoutChaos();
 		}, _fromTrig);
 	}
 

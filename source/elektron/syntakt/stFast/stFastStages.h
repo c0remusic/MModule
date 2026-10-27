@@ -57,6 +57,11 @@ namespace syntakt::fast
 	// A sine phase-modulated by _src (nullptr: none)
 	void pmSine(Block& _out, const Block* _src, uint32_t* _phase, const Increments& _inc, float _depth);
 
+	// A wave of 256 entries (258 values) phase-modulated by _src (nullptr: none) at a depth ramped from _from to _to,
+	// read as the machine reads its waves
+	void pmWave(Block& _out, const Block* _src, const float* _from, const float* _to, uint32_t* _phase,
+		const Increments& _inc, const float* _wave);
+
 	// Drive into a hard clip under a ramped gain: _buf = g post clip(drive x)
 	void driveClip(Block& _buf, const float* _from, const float* _to, const float* _drive, const float* _post);
 

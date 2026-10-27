@@ -3,7 +3,8 @@
 #include <array>
 #include <cstdint>
 
-// The tables syntakt::fast::BdModern, SdBasic and CyAlloy read, made by formula rather than read from the firmware
+// The tables syntakt::fast::BdModern, SdBasic, CyAlloy and PcCarbon read, made by formula rather than read from the
+// firmware
 // (ticket 07 of elektron-drums-v1), as the firmware's Q31 words. stFastTablesTest compares each with OS 1.41's
 // section 7; the exact ones were checked with MSVC's runtime, and another libm may round a word 1 LSB apart.
 namespace syntakt::fast::tables
@@ -51,13 +52,34 @@ namespace syntakt::fast::tables
 
 	constexpr bool exact(const CyAlloy _t)
 	{
-		return _t == CyAlloy::Target || _t == CyAlloy::Spread || _t == CyAlloy::Depth || _t == CyAlloy::AmpDecay;
+		return _t == CyAlloy::Target || _t == CyAlloy::Depth || _t == CyAlloy::AmpDecay;
 	}
 
 	std::array<int32_t, 128> cyAlloy(CyAlloy _t);
 
 	// Units 1 and 3's wave (0x40021000): 257 full words. Approximate
 	std::array<int32_t, 257> cyAlloyWave();
+
+	// PC CARBON's 128-entry tables (section 7 at 0x40023004 to 0x40024604)
+	enum class PcCarbon
+	{
+		DecayPosition, SweepDecay, DepthU1, FactorU1, TargetU2, SweepDepth, TargetU0, FactorU2, DecayU2, FactorU0,
+		DecayU0, DepthU3, Count
+	};
+
+	constexpr bool exact(const PcCarbon _t)
+	{
+		return _t == PcCarbon::DecayPosition || _t == PcCarbon::TargetU2 || _t == PcCarbon::TargetU0;
+	}
+
+	std::array<int32_t, 128> pcCarbon(PcCarbon _t);
+
+	// PC CARBON's decay curve for units 1 and 3 (0x40022004), which it reads at a Q31 value's top 10 bits: 1024
+	// words. Exact
+	std::array<int32_t, 1024> pcCarbonDecayCurve();
+
+	// PC CARBON's unit 0 wave (0x40024804): 257 full words. Approximate
+	std::array<int32_t, 257> pcCarbonWave();
 
 	// Unit 2's wave (0x4001e7fc): 257 words, 16-bit samples in the top half. Exact
 	std::array<int32_t, 257> wave();

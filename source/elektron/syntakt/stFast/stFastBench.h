@@ -200,6 +200,185 @@ namespace syntakt::fast::bench
 		return (static_cast<double>(k) + 0.5 * (a - c) / (a - 2 * b + c)) * _fs / n;
 	}
 
+	// ---- Q4's phase-blind measures (set by the ABX of ticket 05 on 06-sweep's pairs) ----
+
+	// Both renders from the exact port's onset, its first sample above its peak - 60 dB: a fast render whose sweep or
+	// pitch drifts its phase a little nulls badly yet sounds the same, so Q4 compares what the ear follows
+	inline size_t onsetOf(const std::vector<double>& _ref)
+	{
+		double peak = 0;
+		for(const double v : _ref)
+			peak = std::max(peak, std::abs(v));
+		size_t i = 0;
+		while(i < _ref.size() && std::abs(_ref[i]) <= peak * 1e-3)
+			++i;
+		return i < _ref.size() ? i : 0;
+	}
+
+	// The magnitude of _x's analytic signal (zero-padded to a power of two), smoothed by a 5 ms boxcar at 48 kHz
+	inline std::vector<double> hilbertEnvelope(const std::vector<double>& _x)
+	{
+		size_t n = 1;
+		while(n < _x.size())
+			n <<= 1;
+		std::vector<std::complex<double>> a(n);
+		for(size_t i = 0; i < _x.size(); ++i)
+			a[i] = _x[i];
+		fft(a);
+		for(size_t k = 1; k < n / 2; ++k)
+			a[k] *= 2;
+		for(size_t k = n / 2 + 1; k < n; ++k)
+			a[k] = 0;
+		for(auto& v : a)	// the inverse transform, by conjugation
+			v = std::conj(v);
+		fft(a);
+		std::vector<double> e(_x.size());
+		for(size_t i = 0; i < e.size(); ++i)
+			e[i] = std::abs(a[i]) / static_cast<double>(n);
+		constexpr int Box = 240, Before = Box / 2;	// samples i - 120 to i + 119
+		std::vector<double> sum(e.size() + 1, 0.0), y(e.size());
+		for(size_t i = 0; i < e.size(); ++i)
+			sum[i + 1] = sum[i] + e[i];
+		const auto n0 = static_cast<int64_t>(e.size());
+		for(int64_t i = 0; i < n0; ++i)
+		{
+			const int64_t lo = std::max<int64_t>(0, i - Before), hi = std::min<int64_t>(n0, i - Before + Box);
+			y[static_cast<size_t>(i)] = (sum[static_cast<size_t>(hi)] - sum[static_cast<size_t>(lo)]) / Box;
+		}
+		return y;
+	}
+
+	// Whether two renders can be compared sample for sample: _test at least as long as _ref, both finite. Q4's
+	// measures fail (+inf) otherwise
+	inline bool comparable(const std::vector<double>& _ref, const std::vector<double>& _test)
+	{
+		const auto finite = [](const std::vector<double>& _x)
+		{
+			return std::all_of(_x.begin(), _x.end(), [](const double _v) { return std::isfinite(_v); });
+		};
+		return _test.size() >= _ref.size() && finite(_ref) && finite(_test);
+	}
+
+	// The larger of two measures, a NaN in either kept: std::max would drop it
+	inline double worseOf(const double _a, const double _b)
+	{
+		return std::isnan(_a) || std::isnan(_b) ? std::nan("") : std::max(_a, _b);
+	}
+
+	// The envelopes' largest difference relative to the exact port's peak, in dB: max |B - A| / max A; +inf where the
+	// renders cannot be compared or the exact port is silent
+	inline double envelopeAbs(const std::vector<double>& _ref, const std::vector<double>& _test)
+	{
+		if(!comparable(_ref, _test))
+			return HUGE_VAL;
+		const auto on = static_cast<std::ptrdiff_t>(onsetOf(_ref));
+		const auto end = static_cast<std::ptrdiff_t>(_ref.size());
+		const auto a = hilbertEnvelope({_ref.begin() + on, _ref.end()});
+		const auto b = hilbertEnvelope({_test.begin() + on, _test.begin() + end});
+		double peak = 0, worst = 0;
+		for(size_t i = 0; i < a.size(); ++i)
+		{
+			peak = std::max(peak, a[i]);
+			worst = worseOf(worst, std::abs(b[i] - a[i]));
+		}
+		if(!(peak > 0))
+			return HUGE_VAL;
+		return 20 * std::log10(std::max(worst, 1e-300) / peak);
+	}
+
+	// Power per third octave (centres 1000 2^(k/3), k -14 to 13, edges at +-1/6 octave, bands without a bin left out)
+	// in 1024-sample Hann frames, hop 256, at 48 kHz: [frame][band]
+	inline std::vector<std::vector<double>> shortTimeBands(const std::vector<double>& _x)
+	{
+		constexpr int N = 1024, Hop = 256;
+		std::vector<std::pair<int, int>> bins;	// each band's bins, [first, last)
+		for(int k = -14; k <= 13; ++k)
+		{
+			const double c = 1000 * std::exp2(k / 3.0);
+			int first = N / 2 + 1, last = 0;
+			for(int b = 0; b <= N / 2; ++b)
+			{
+				const double f = b * 48000.0 / N;
+				if(f >= c * std::exp2(-1 / 6.0) && f < c * std::exp2(1 / 6.0))
+				{
+					first = std::min(first, b);
+					last = b + 1;
+				}
+			}
+			if(last > first)
+				bins.emplace_back(first, last);
+		}
+		std::vector<std::vector<double>> s;
+		std::vector<std::complex<double>> a(N);
+		for(size_t at = 0; at + N <= _x.size(); at += Hop)
+		{
+			for(int i = 0; i < N; ++i)	// numpy's hanning: symmetric
+				a[i] = _x[at + i] * (0.5 - 0.5 * std::cos(2 * Pi * i / (N - 1)));
+			fft(a);
+			std::vector<double> row;
+			for(const auto& [first, last] : bins)
+			{
+				double p = 0;
+				for(int b = first; b < last; ++b)
+					p += std::norm(a[b]);
+				row.push_back(p);
+			}
+			s.push_back(row);
+		}
+		return s;
+	}
+
+	// The short-time third octaves' largest difference in dB, over the cells where the exact port's is within _range
+	// dB of its loudest cell; +inf where the renders cannot be compared or the exact port is silent
+	inline double cellMax(const std::vector<double>& _ref, const std::vector<double>& _test, const double _range = 30)
+	{
+		if(!comparable(_ref, _test))
+			return HUGE_VAL;
+		const auto on = static_cast<std::ptrdiff_t>(onsetOf(_ref));
+		const auto end = static_cast<std::ptrdiff_t>(_ref.size());
+		const auto a = shortTimeBands({_ref.begin() + on, _ref.end()});
+		const auto b = shortTimeBands({_test.begin() + on, _test.begin() + end});
+		double top = 0, worst = 0;
+		for(const auto& row : a)
+			for(const double v : row)
+				top = std::max(top, v);
+		if(!(top > 0))
+			return HUGE_VAL;
+		for(size_t t = 0; t < a.size(); ++t)
+			for(size_t k = 0; k < a[t].size(); ++k)
+				if(a[t][k] > top * std::pow(10.0, -_range / 10))
+					worst = worseOf(worst, std::abs(db(std::max(b[t][k], 1e-30) / a[t][k])));
+		return worst;
+	}
+
+	// Q4's fatal thresholds on those measures, and the null's (printed in Q4; the chaos classification's)
+	constexpr double EnvelopeAbsDb = -39, CellMaxDb = 1;
+	constexpr double NullSnrDb = 70, NullLocalDb = 60, NullBandDb = -60;
+
+	// What Q4, the deterministic check and stFastSweep measure of a fast render (_test) against the exact port's
+	struct HitMeasures
+	{
+		double snr, local, band;	// the null: global, worst 10 ms, worst residual third octave
+		double env;					// the 1 ms envelope's largest difference above -40 dB
+		double refHz, cents;		// the exact port's spectral peak, the fast render's against it
+		double envAbs, cells;		// the Hilbert envelope (dB re peak), the short-time third octaves
+	};
+
+	inline HitMeasures measureHit(const std::vector<double>& _ref, const std::vector<double>& _test)
+	{
+		HitMeasures m{};
+		const auto n = null(_ref, _test, 48000);
+		m.snr = n.snr;
+		m.band = n.worstBand;
+		m.local = localSnr(_ref, _test, 48000);
+		m.env = envelopeDiff(envelope(_ref, 48000), envelope(_test, 48000));
+		m.refHz = peakHz(_ref, 48000);
+		m.cents = 1200 * std::log2(peakHz(_test, 48000) / m.refHz);
+		m.envAbs = envelopeAbs(_ref, _test);
+		m.cells = cellMax(_ref, _test);
+		return m;
+	}
+
 	// ---- the exact port ----
 
 	// Eight tracks of syntakt::bdModern as the voice CPU renders them, before the track stages: CPU #1's block in,
@@ -354,7 +533,7 @@ namespace syntakt::fast::bench
 
 	// Chaotic: the exact port against itself, its phases 1 LSB on, misses the null in force, SNR >= 70 dB and >= 60 dB
 	// in every 10 ms window above -60 dB (localSnr). No rewrite can null where the exact port cannot
-	inline bool chaoticNull(const double _snr, const double _local) { return _snr < 70 || _local < 60; }
+	inline bool chaoticNull(const double _snr, const double _local) { return _snr < NullSnrDb || _local < NullLocalDb; }
 
 	// A threshold set by the listening tests of ticket 05 (elektron-drums-v1)
 	inline void checkValidated(const bool _ok, const char* _what)
@@ -774,21 +953,19 @@ namespace syntakt::fast::bench
 	{
 		const auto& ref = _exact.ref;
 		const auto& test = _test;
-		double snr = 1e9, local = 1e9, band = -1e9, env = 0, cents = 0;
+		// The worst over the Hits not chaotic; the smaller the worse for the null's SNRs, as negated maxima
+		double snr = -1e9, local = -1e9, band = -1e9, env = 0, cents = 0, envAbs = -1e9, cells = 0;
+		int judged = 0;
 		bool chaoticOk = true;
 		std::string below;
-		std::printf("  Q4 Hit  SNR dB  10 ms dB  worst 1/3 oct dB  envelope dB  pitch Hz (exact)  cents  | the exact "
-			"port against itself 1 LSB off: SNR dB, 10 ms dB, envelope dB\n");
+		std::printf("  Q4 Hit  SNR dB  10 ms dB  worst 1/3 oct dB  envelope dB  pitch Hz (exact)  cents  envelope re "
+			"peak dB  1/3 oct cells dB  | the exact port against itself 1 LSB off: SNR dB, 10 ms dB, envelope dB\n");
 		for(int l = 0; l < Lanes; ++l)
 		{
-			const auto n = null(ref[l], test[l], 48000);
-			const double w = localSnr(ref[l], test[l], 48000);
-			const double e = envelopeDiff(envelope(ref[l], 48000), envelope(test[l], 48000));
-			const double f0 = peakHz(ref[l], 48000), f1 = peakHz(test[l], 48000);
-			const double c = 1200 * std::log2(f1 / f0);
-			std::printf("     %2d  %6.1f  %8.1f  %16.1f  %11.3f  %16.2f  %+5.2f  | %6.1f  %6.1f  %6.3f%s\n", l, n.snr,
-				w, n.worstBand, e, f0, c, _exact.selfSnr[l], _exact.selfLocal[l], _exact.selfEnv[l],
-				_exact.chaotic[l] ? "  chaotic" : "");
+			const auto m = measureHit(ref[l], test[l]);
+			std::printf("     %2d  %6.1f  %8.1f  %16.1f  %11.3f  %16.2f  %+5.2f  %17.1f  %16.2f  | %6.1f  %6.1f  "
+				"%6.3f%s\n", l, m.snr, m.local, m.band, m.env, m.refHz, m.cents, m.envAbs, m.cells, _exact.selfSnr[l],
+				_exact.selfLocal[l], _exact.selfEnv[l], _exact.chaotic[l] ? "  chaotic" : "");
 			if(_exact.chaotic[l])
 			{
 				const auto j = judge(deviation(distribution(ref[l], 48000), distribution(test[l], 48000)),
@@ -797,21 +974,35 @@ namespace syntakt::fast::bench
 				chaoticOk &= j.ok;
 				continue;
 			}
-			cents = std::max(cents, std::abs(c));	// a chaotic Hit's pitch is judged by its spectrum
-			snr = std::min(snr, n.snr);
-			local = std::min(local, w);
-			band = std::max(band, n.worstBand);
-			env = std::max(env, e);
-			if(n.snr < 70 || w < 60)
+			++judged;
+			cents = worseOf(cents, std::abs(m.cents));	// a chaotic Hit's pitch is judged by its spectrum
+			snr = worseOf(snr, -m.snr);
+			local = worseOf(local, -m.local);
+			band = worseOf(band, m.band);
+			env = worseOf(env, m.env);
+			envAbs = worseOf(envAbs, m.envAbs);
+			cells = worseOf(cells, m.cells);
+			if(!(m.snr >= NullSnrDb && m.local >= NullLocalDb))
 				below += (below.empty() ? "" : ", ") + std::to_string(l);
 		}
-		std::printf("  Q4 worst where not chaotic: SNR %.1f dB, worst 10 ms %.1f dB, residual third octave %.1f dB, "
-			"envelope %.3f dB; pitch %.2f cents\n", snr, local, band, env, cents);
+		snr = -snr;
+		local = -local;
+		if(judged)
+			std::printf("  Q4 worst where not chaotic: SNR %.1f dB, worst 10 ms %.1f dB, residual third octave %.1f "
+				"dB, envelope %.3f dB; envelope %.1f dB re its peak, third octave cells %.2f dB; pitch %.2f cents\n",
+				snr, local, band, env, envAbs, cells, cents);
+		else
+			std::printf("  Q4: every Hit chaotic, none judged on the null, the envelopes, the third octave cells or "
+				"the pitch\n");
 		std::printf("  Q4 Hits not chaotic below 70 dB of SNR or 60 dB in a 10 ms window: %s\n",
 			below.empty() ? "none" : below.c_str());
-		report(snr >= 70 && local >= 60 && band <= -60, "Q4: the voice where not chaotic, SNR >= 70 dB, >= 60 dB in "
-			"every 10 ms window above -60 dB, no residual third octave above -60 dB");
-		checkValidated(env <= 0.1, "Q4: the voice where not chaotic, envelope within 0.1 dB above -40 dB");
+		report(snr >= NullSnrDb && local >= NullLocalDb && band <= NullBandDb, "Q4: the voice where not chaotic, SNR "
+			">= 70 dB, >= 60 dB in every 10 ms window above -60 dB, no residual third octave above -60 dB");
+		report(env <= 0.1, "Q4: the voice where not chaotic, 1 ms envelope within 0.1 dB above -40 dB");
+		checkValidated(envAbs <= EnvelopeAbsDb, "Q4: the voice where not chaotic, Hilbert envelope (5 ms) within "
+			"-39 dB of the exact port's peak");
+		checkValidated(cells <= CellMaxDb, "Q4: the voice where not chaotic, third octaves in 1024-sample frames "
+			"within 1 dB where the exact port's are within 30 dB of its loudest");
 		checkValidated(cents <= 1, "Q4: the voice's pitch within 1 cent");
 		checkValidated(chaoticOk, "Q4: the chaotic Hits' distributions within the calibrated factor x the exact port's "
 			"dispersion + 0.5 dB");
@@ -1002,27 +1193,29 @@ namespace syntakt::fast::bench
 	}
 
 	// The 16 Hits with unit 0's feedback table at 0 in both engines (_ref the exact port's, _test the fast engine's
-	// after testWithoutFeedback): nothing chaotic is left. On every Hit, fatal: envelope within 0.1 dB above -40 dB,
-	// pitch within 1 cent; printed, as Q4's: the null, SNR >= 70 dB, >= 60 dB in every 10 ms window above -60 dB
+	// after testWithoutChaos): nothing chaotic is left. On every Hit, fatal, Q4's measures: the Hilbert envelope within
+	// -39 dB of the peak, the short-time third octaves within 1 dB, pitch within 1 cent; printed, not fatal: the null
+	// (SNR >= 70 dB, >= 60 dB in every 10 ms window above -60 dB) and the 1 ms envelope within 0.1 dB above -40 dB
 	inline void deterministic(const std::vector<std::vector<double>>& _ref,
 		const std::vector<std::vector<double>>& _test)
 	{
-		bool ok = true, nulls = true;
-		std::printf("  feedback 0 Hit  SNR dB  10 ms dB  envelope dB  cents\n");
+		bool ok = true, nulls = true, envs = true;
+		std::printf("  feedback 0 Hit  SNR dB  10 ms dB  envelope dB  cents  envelope re peak dB  1/3 oct cells dB\n");
 		for(int l = 0; l < Lanes; ++l)
 		{
-			const auto n = null(_ref[l], _test[l], 48000);
-			const double w = localSnr(_ref[l], _test[l], 48000);
-			const double e = envelopeDiff(envelope(_ref[l], 48000), envelope(_test[l], 48000));
-			const double c = 1200 * std::log2(peakHz(_test[l], 48000) / peakHz(_ref[l], 48000));
-			const bool hit = e <= 0.1 && std::abs(c) <= 1, nulled = n.snr >= 70 && w >= 60;
-			std::printf("             %2d  %6.1f  %8.1f  %11.3f  %+5.2f%s%s\n", l, n.snr, w, e, c, hit ? "" : "  FAIL",
-				nulled ? "" : "  below the null");
+			const auto m = measureHit(_ref[l], _test[l]);
+			const bool hit = m.envAbs <= EnvelopeAbsDb && m.cells <= CellMaxDb && std::abs(m.cents) <= 1;
+			const bool nulled = m.snr >= NullSnrDb && m.local >= NullLocalDb;
+			std::printf("             %2d  %6.1f  %8.1f  %11.3f  %+5.2f  %19.1f  %16.2f%s%s\n", l, m.snr, m.local,
+				m.env, m.cents, m.envAbs, m.cells, hit ? "" : "  FAIL", nulled ? "" : "  below the null");
 			ok &= hit;
 			nulls &= nulled;
+			envs &= m.env <= 0.1;
 		}
 		report(nulls, "feedback 0: every Hit nulls, SNR >= 70 dB, >= 60 dB in every 10 ms window above -60 dB");
-		check(ok, "feedback 0: every Hit's envelope within 0.1 dB above -40 dB, pitch within 1 cent");
+		report(envs, "feedback 0: every Hit's 1 ms envelope within 0.1 dB above -40 dB");
+		check(ok, "feedback 0: every Hit's Hilbert envelope within -39 dB of the peak, third octave cells within 1 dB, "
+			"pitch within 1 cent");
 	}
 
 	// ---- cost ----

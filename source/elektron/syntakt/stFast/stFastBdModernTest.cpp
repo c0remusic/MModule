@@ -5,9 +5,10 @@
 //	Q3	the non-linear stages (the feedback and phase-modulated oscillators, the drive's clip) against the integer
 //		stages fed the same input, over 1 s: SNR >= 60 dB, no third octave of the residual (20 Hz to Nyquist) above
 //		-60 dB relative to the reference's whole energy
-//	Q4	the whole voice, 16 Hits over BD MODERN's parameters (2 s each), against syntakt::bdModern at 48 kHz: SNR >=
-//		60 dB, no third octave of the residual above -60 dB, envelope (1 ms RMS) within 0.1 dB where the exact port's is
-//		above its peak - 40 dB, pitch (spectral peak) within 1 cent
+//	Q4	the whole voice, 16 Hits over BD MODERN's parameters (2 s each), against syntakt::bdModern at 48 kHz, from
+//		the exact port's onset: the Hilbert envelope (5 ms) within -39 dB of the exact port's peak, the third octaves
+//		of 1024-sample frames within 1 dB where the exact port's are within 30 dB of its loudest, pitch (spectral
+//		peak) within 1 cent; the null and the 1 ms envelope printed, not fatal (bench::q4)
 //	Q15	the same Hits at 44.1 kHz, rendered at 48 and resampled (Host), against 48 kHz (bench::q15): envelope below
 //		18 kHz within 0.2 dB above -40 dB, spectrum below 10 kHz within 0.5 dB per third octave, nothing excused
 //	cost: microseconds per 32-sample block of 16 voices playing, fast against exact
@@ -17,10 +18,11 @@
 // exact port's own dispersion over 16 perturbations of its phases (1 to 8 LSB either way) plus 0.5 dB, the factor
 // calibrated so that the exact port's held-out perturbations pass 95 % of the time (bench::calibrate); at 44.1
 // against 48 kHz, below 10 kHz, against the same dispersion. The voice with unit 0's feedback table at 0 in both
-// engines is not chaotic: there every Hit nulls, fatal.
+// engines is not chaotic: there every Hit is judged by Q4's measures, fatal, its null printed.
 // Q3 and Q4's thresholds were set by listening (ticket 05 of elektron-drums-v1): Q3 also asks 60 dB in every 10 ms
-// window above -60 dB, and with Q2 and Q15 fails the test; Q4's null is printed and does not (Hit 13's period-2 lock
-// to Nyquist), its envelope, pitch and the chaotic Hits' distributions do.
+// window above -60 dB, and with Q2 and Q15 fails the test; so do Q4's envelope, short-time spectrum and pitch where
+// not chaotic and the chaotic Hits' distributions. Q4's null does not: a sweep a little off drifts the phase, nulls
+// badly and sounds the same (the ABX of 06-sweep's pairs).
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7. Exit 77 without it.
 
@@ -59,7 +61,7 @@ namespace
 		return fastHits<fast::BdModern>(_fs, _seconds, Hits, [&](fast::BdModern& _e)
 		{
 			if(_noFeedback)
-				_e.testWithoutFeedback();
+				_e.testWithoutChaos();
 		}, _fromTrig);
 	}
 
