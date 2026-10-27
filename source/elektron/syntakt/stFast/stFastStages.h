@@ -7,13 +7,12 @@
 #include <emmintrin.h>
 
 // What the Syntakt's machines rewritten for speed share: 32-bit float, the 16 Tracks side by side (each field an array
-// of 16 lanes, a vector op on 4 of them), blocks of 32 samples at the host's rate, every rate-dependent constant
-// derived from the rate so that times in seconds stay the 48 kHz machine's. The exact integer port (stEngine) is the
-// reference.
+// of 16 lanes, a vector op on 4 of them), the machine's own blocks of 32 samples at its own 48 kHz (a 44.1 kHz host
+// gets them through Host, stFastResample.h). The exact integer port (stEngine) is the reference.
 namespace syntakt::fast
 {
 	constexpr int Lanes = 16;		// one per Track
-	constexpr int BlockSize = 32;	// samples per block, at the host's rate
+	constexpr int BlockSize = 32;	// samples per block
 	constexpr float MachineRate = 48000.0f;
 
 	// The 16 Tracks' samples of a block, sample-major: s[n] holds sample n of every Track
@@ -32,6 +31,9 @@ namespace syntakt::fast
 	// _buf *= g, g ramped (the modulator's and the amp's VCA)
 	void rampedGain(Block& _buf, const float* _from, const float* _to);
 
+	// _buf *= _g, sample by sample (an envelope read on the machine's block clock)
+	void gain(Block& _buf, const Block& _g);
+
 	// First-order IIR in place, y = b0 x + b1 x1 + a1 y1, the same coefficients on every lane; _x1, _y1 per lane
 	struct OnePole
 	{
@@ -40,8 +42,8 @@ namespace syntakt::fast
 	void onePole(Block& _buf, const OnePole& _c, float* _x1, float* _y1);
 
 	// The oscillators. Phases are 32-bit fractions of a cycle (an integer accumulator, so that a 2 s Hit does not drift
-	// from float rounding), increments the same, one per sample: a pitch the machine changes at its 48 kHz blocks'
-	// boundaries changes where they fall within a host block. Phase-modulation depths are in cycles per unit of input
+	// from float rounding), increments the same, one per sample. Phase-modulation depths are in cycles per unit of
+	// input
 	struct alignas(16) Increments
 	{
 		uint32_t s[BlockSize][Lanes];
@@ -70,13 +72,14 @@ namespace syntakt::fast
 		return (1 - f) * _table[i] + f * _table[std::min(i + 1, 127)];
 	}
 
-	// A first-order bilinear filter's pole at 48 kHz moved to _rate at the same cutoff, its warped angle held below
-	// pi/2 (a cutoff past the rate's Nyquist), where the pole would leave the unit circle
-	inline float bilinearPole(const float _pole48, const float _rate)
+	// 0x40004dc6 as the machine computes it, for the words of the pitch: both products truncated to Q39, their sum to
+	// Q31
+	inline int32_t interpolateWord(const int32_t* _table, const int32_t _word)
 	{
-		const double k48 = (1.0 - _pole48) / (1.0 + _pole48);
-		const double k = std::tan(std::min(std::atan(k48) * MachineRate / _rate, 0.49 * 3.14159265358979323846));
-		return static_cast<float>((1 - k) / (1 + k));
+		const int32_t i = std::max(_word >> 8, 0);
+		const int64_t f = static_cast<int64_t>(static_cast<uint32_t>(_word - (i << 8)) << 23);
+		const int64_t sum = ((INT32_MAX - f) * _table[i] >> 23) + (f * _table[std::min(i + 1, 127)] >> 23);
+		return static_cast<int32_t>(std::clamp<int64_t>(sum >> 8, INT32_MIN, INT32_MAX));
 	}
 
 	// ---- the pitch, as the machine computes it (0x40002596): in integers, so that a long Hit keeps its phase ----
@@ -131,79 +134,25 @@ namespace syntakt::fast
 		}
 	};
 
-	// 0x400047ea's gain envelope, one 48 kHz block: a first-order filter on a step, falling from 1 toward 0 until 0.5
-	// (_stage 1, pole _fall), then recovering toward 1 (_stage 5, pole _rise); 1 where the drive is off. _x: its input
-	// at the previous block, _level its output
+	// 0x400047ea's gain envelope, one 48 kHz block: a first-order filter on a step, falling from 1 toward 0 until
+	// _floor (_stage 1, pole _fall), then recovering toward 1 (_stage 5, pole _rise); 1 where the drive is off. _x: its
+	// input at the previous block, _level its output
 	inline float driveGain(int& _stage, float& _x, const float _level, const bool _on, const float _fall,
-		const float _rise)
+		const float _rise, const float _floor = 0.5f)
 	{
 		const bool falling = _stage == 1;
 		const float pole = falling ? _fall : _rise;
 		const float x = falling ? 0.0f : 1.0f;
 		float y = (1 - pole) / 2 * (x + _x) + pole * _level;
-		if(y <= 0.5f)
+		if(y <= _floor)
 		{
 			_stage = 5;
-			y = 0.5f;
+			y = _floor;
 		}
 		if(!_on)
 			y = 1;
 		_x = x;
 		return y;
-	}
-
-	// The units' increments over a host block, on the machine's 48 kHz block clock. The host block covers _at to _at
-	// + _r in 48 kHz blocks since the trig; the machine steps its sweep (_sweep *= _decay) at each 48 kHz block's edge
-	// (_sweepBlock, the block it is in) and _machine(_sweep, double* _inc48) then gives the _Units' increments there,
-	// in 2^-24 cycles per 48 kHz sample. Each host sample adds the phase the machine adds over the same time: its
-	// block's increment, or two blocks' weighted where the sample straddles their boundary. At 48 kHz, the machine's
-	template<int Units, typename Machine>
-	void splitIncrements(const int _l, const double _at, const double _r, int64_t& _sweepBlock, double& _sweep,
-		const double _decay, Machine&& _machine, Increments* const* _out)
-	{
-		const double end = _at + _r, step = _r / BlockSize;
-		const auto host = [_r](const double _inc48)
-		{
-			return static_cast<uint32_t>(std::llround(_inc48 * 256 * _r));
-		};
-		double inc[Units];
-		uint32_t whole[Units];
-		_machine(_sweep, inc);
-		for(int u = 0; u < Units; ++u)
-			whole[u] = host(inc[u]);	// a sample within one machine block
-		double edge = static_cast<double>(_sweepBlock + 1);
-		for(int n = 0; n < BlockSize; ++n)
-		{
-			// The samples wholly inside this machine block, those that end before its edge, take its increment; the
-			// one that straddles the edge, and the block's last (which ends exactly at end), are weighted
-			const int before = static_cast<int>(std::ceil((edge - _at) / step)) - 1;
-			const int last = std::clamp(before, n, BlockSize - 1);
-			for(; n < last; ++n)
-				for(int u = 0; u < Units; ++u)
-					_out[u]->s[n][_l] = whole[u];
-			const double from = _at + n * step, to = n == BlockSize - 1 ? end : _at + (n + 1) * step;
-			double p[Units]{};	// in 2^-24 cycles
-			for(double at = from;;)
-			{
-				const double until = std::min(to, edge);
-				for(int u = 0; u < Units; ++u)
-					p[u] += inc[u] * (until - at) * BlockSize;
-				if(to < edge)
-					break;
-				++_sweepBlock;
-				_sweep *= _decay;
-				_machine(_sweep, inc);
-				at = edge;
-				edge += 1;
-				if(to == at)
-					break;
-			}
-			for(int u = 0; u < Units; ++u)
-			{
-				whole[u] = host(inc[u]);
-				_out[u]->s[n][_l] = static_cast<uint32_t>(std::llround(p[u] * 256.0));
-			}
-		}
 	}
 
 	// RAII: denormals flushed to zero, in and out, while a block renders

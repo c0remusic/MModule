@@ -1,10 +1,12 @@
 cmake_minimum_required(VERSION 3.15)
 
-# The Syntakt's machines rewritten in float, SIMD across 16 Tracks, at the host's rate: syntakt::fast. The exact
+# The Syntakt's machines rewritten in float, SIMD across 16 Tracks, at their own 48 kHz (a 44.1 kHz host through a
+# resampler): syntakt::fast. The exact
 # integer port (stEngine) is their reference, in the tests only: their tables are made by formula (stFastTables), and
 # nothing of the firmware is read.
 add_library(stFast STATIC stFastStages.h stFastStages.cpp stFastBdModern.h stFastBdModern.cpp stFastSdBasic.h
-	stFastSdBasic.cpp stFastTables.h stFastTables.cpp)
+	stFastSdBasic.cpp stFastCyAlloy.h stFastCyAlloy.cpp stFastResample.h stFastResample.cpp stFastTables.h
+	stFastTables.cpp)
 target_include_directories(stFast PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(TARGET stFast PROPERTY FOLDER "Elektron/syntakt")
 
@@ -30,6 +32,20 @@ if(BUILD_TESTING)
 	set_property(TARGET stFastSdBasicTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stFastSdBasicTest COMMAND stFastSdBasicTest)
 	set_tests_properties(stFastSdBasicTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# CY ALLOY the same (SYNTAKT_SECTION7: exit 77 without it)
+	add_executable(stFastCyAlloyTest stFastCyAlloyTest.cpp stFastBench.h)
+	target_link_libraries(stFastCyAlloyTest PRIVATE stFast stEngine)
+	set_property(TARGET stFastCyAlloyTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME stFastCyAlloyTest COMMAND stFastCyAlloyTest)
+	set_tests_properties(stFastCyAlloyTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# The resampler that brings the fast Syntakt's 48 kHz to a 44.1 kHz host (Q11): no firmware
+	add_executable(stFastResampleTest stFastResampleTest.cpp stFastBench.h)
+	target_link_libraries(stFastResampleTest PRIVATE stFast stEngine)
+	set_property(TARGET stFastResampleTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME stFastResampleTest COMMAND stFastResampleTest)
+	set_tests_properties(stFastResampleTest PROPERTIES TIMEOUT 60)
 
 	# The listening test's WAVs and ABX page (ticket 05), by hand, into a folder outside the repository:
 	# stFastAbRender OUTDIR (SYNTAKT_SECTION7)

@@ -37,3 +37,13 @@ travaillent à 44,1 ou 48 kHz, et l'instrument doit sonner pareil aux deux.
   (`research/19-qualite-audio.md` §11), deux seuils à valider à l'écoute.
 - Le Syntakt livré devient une réécriture rapide (flottant, SIMD) paramétrée par la fréquence et vérifiée à tolérance ;
   le port exact en entiers reste dans le dépôt comme référence de test.
+
+Amendé le 2026-10-27 avec l'utilisateur (ticket 06 de `elektron-drums-v1`, CY ALLOY) : une machine dont le son est son
+propre repliement à sa fréquence d'origine rend toujours à cette fréquence, puis un rééchantillonneur vers l'hôte la
+ramène (Q11, latence rapportée). CY ALLOY tire son métal du repliement à 48 kHz : même 96 contre 192 kHz diffère de
+0,2 à 3,6 dB, et 44,1 contre 48 de 1,4 à 7 dB d'enveloppe. Les autres machines restent à la fréquence de l'hôte.
+
+Amendé encore le 2026-10-27 : **tout le Syntakt** rend à 48 kHz, rééchantillonné vers 44,1 kHz. Mesuré sur les
+rendus ramenés à une grille commune : BD MODERN Hit 13 se verrouille à Nyquist (période 2) à 44,1 kHz et diffère de
+16 dB d'enveloppe ; chaque exemption du Syntakt (unité 0, Carson, bandes repliées) venait de cette dépendance à la
+fréquence. Le MD et le DT2 se décident à leur tour.

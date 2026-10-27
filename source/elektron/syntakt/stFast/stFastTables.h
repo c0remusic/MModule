@@ -3,9 +3,9 @@
 #include <array>
 #include <cstdint>
 
-// The tables syntakt::fast::BdModern and SdBasic read, made by formula rather than read from the firmware (ticket 07 of
-// elektron-drums-v1), as the firmware's Q31 words. stFastTablesTest compares each with OS 1.41's section 7; the exact
-// ones were checked with MSVC's runtime, and another libm may round a word 1 LSB apart.
+// The tables syntakt::fast::BdModern, SdBasic and CyAlloy read, made by formula rather than read from the firmware
+// (ticket 07 of elektron-drums-v1), as the firmware's Q31 words. stFastTablesTest compares each with OS 1.41's
+// section 7; the exact ones were checked with MSVC's runtime, and another libm may round a word 1 LSB apart.
 namespace syntakt::fast::tables
 {
 	// BD MODERN's 128-entry parameter tables (section 7 at 0x4001ec00 to 0x40020000)
@@ -42,6 +42,22 @@ namespace syntakt::fast::tables
 	}
 
 	std::array<int32_t, 128> sdBasic(SdBasic _t);
+
+	// CY ALLOY's 128-entry tables (section 7 at 0x40020200 to 0x40020e00)
+	enum class CyAlloy
+	{
+		DecayOdd, Target, DecayEven, Ratio, Spread, Depth, AmpDecay, Count
+	};
+
+	constexpr bool exact(const CyAlloy _t)
+	{
+		return _t == CyAlloy::Target || _t == CyAlloy::Spread || _t == CyAlloy::Depth || _t == CyAlloy::AmpDecay;
+	}
+
+	std::array<int32_t, 128> cyAlloy(CyAlloy _t);
+
+	// Units 1 and 3's wave (0x40021000): 257 full words. Approximate
+	std::array<int32_t, 257> cyAlloyWave();
 
 	// Unit 2's wave (0x4001e7fc): 257 words, 16-bit samples in the top half. Exact
 	std::array<int32_t, 257> wave();

@@ -307,6 +307,43 @@ namespace syntakt::fast::tables
 				200.57339229371073}},
 		};
 
+		// ---- CY ALLOY ----
+
+		// Units 1 and 3's frequency factors (Ratio) and unit 2's (Spread), in millionths of the note's factor
+		// (0x04000000): round knots joined by exponentials (Ratio 1.01, 1.28, 1.5, 1.74, 2.01 at 0, 36, 72, 96, 127;
+		// Spread 1.002 at 0, 2.52 at 116, 2.84 at 127) and lines. Ratio's 62-71 is approximate, one exponential where
+		// the firmware's turns at 70 (306 millionths)
+		const Segment Ratio[] = {
+			{0, 36, 0, Kind::Exp, {1336127.0496637938, -326126.9487278214, -0.048879617778127916}},
+			{37, 49, 37, Kind::Exp, {1260592.967504099, 22015.296168065724, 0.12611091122006515}},
+			{50, 56, 50, Kind::Exp, {1537452.4241489484, -163311.5521777052, -0.0877498583726489}},
+			{57, 61, 57, Kind::Exp, {1463838.0759055342, -14904.225071798306, -0.4556158647320812}},
+			{62, 71, 62, Kind::Exp, {1461425.5437443, 910.2555155056419, 0.3709511259992971}},
+			{72, 96, 72, Kind::Exp, {1873668.2655520998, -373668.1796835267, -0.04283367057814161}},
+			{97, 127, 97, Kind::Exp, {1589623.91772229, 155446.3269054666, 0.0331616406987084}},
+		};
+
+		const Segment Spread[] = {
+			{0, 16, 0, Kind::Exp, {927883.0106512791, 74116.73710053888, 0.06215820182629141}},
+			{17, 34, 17, Kind::Exp, {747620.3091895094, 393643.2953448051, 0.0343394896380079}},
+			{35, 58, 35, Kind::Exp, {1834018.3477036958, -358957.53748103627, -0.05220188997621075}},
+			{59, 82, 59, Kind::Exp, {1391190.370870563, 340385.2022860991, 0.01660501468079772}},
+			{83, 107, 83, Kind::Exp, {1746067.0612524853, 151936.48995884313, 0.05068404536237697}},
+			{108, 115, 108, Kind::Linear, {2286966, 29107}},
+			{116, 116, 116, Kind::Linear, {2520000, 0}},
+			{117, 127, 117, Kind::Linear, {2548928.9999999995, 29107.142857143004}},
+		};
+
+		// Units 0 and 2's levels at rest, in millionths: one exponential, 1 at 0 and 0.1 at 127
+		const Segment Target[] = {
+			{0, 127, 0, Kind::Exp, {-31017.29352962434, 1031017.2511614558, -0.016243872765782194}},
+		};
+
+		// The modulation depths, in half-millionths: one exponential, 0.25 at 0 and 1 at 127
+		const Segment Depth[] = {
+			{0, 127, 0, Kind::Exp, {188181.39302621534, 311818.6185595071, 0.013855627651058508}},
+		};
+
 		struct Curve
 		{
 			const Segment* begin;
@@ -357,6 +394,38 @@ namespace syntakt::fast::tables
 		};
 		static_assert(std::size(curves) == static_cast<size_t>(SdBasic::Count));
 		return build(curves[static_cast<int>(_t)]);
+	}
+
+	std::array<int32_t, 128> cyAlloy(const CyAlloy _t)
+	{
+		// The decays: BD MODERN's amp decay law (AmpDecay), its time constant halved for units 1 and 3 and quartered
+		// for units 0 and 2 (entry 3 off the law, 2.6e-5 of the time constant); the amp's, SD BASIC's DECAY law at 15 s
+		constexpr double Micro = Q31 / 1e6;
+		const Curve curves[] = {
+			curve(AmpDecay, Unit::Tau, 0.5), curve(Target, Unit::Micro, Micro), curve(AmpDecay, Unit::Tau, 0.25),
+			curve(Ratio, Unit::Micro, 67108864 / 1e6), curve(Spread, Unit::Micro, 67108864 / 1e6),
+			curve(Depth, Unit::Micro, Micro / 2), curve(DecayLaw, Unit::T60, 10),
+		};
+		static_assert(std::size(curves) == static_cast<size_t>(CyAlloy::Count));
+		return build(curves[static_cast<int>(_t)]);
+	}
+
+	std::array<int32_t, 257> cyAlloyWave()
+	{
+		// Harmonics 1, 4, 7, 10 and 13: sines of 50, 67, 41, 14 and 2 / 174 of full scale. The firmware's words
+		// differ from them by up to 3.1e-6 of full scale, smoothly: not a rounding of these
+		constexpr int Harmonic[5] = {1, 4, 7, 10, 13};
+		constexpr double Amplitude[5] = {50, 67, 41, 14, 2};
+		std::array<int32_t, 257> t{};
+		for(int i = 0; i < 257; ++i)
+		{
+			const double x = 2 * 3.14159265358979323846 * i / 256;
+			double v = 0;
+			for(int k = 0; k < 5; ++k)
+				v += Amplitude[k] / 174 * std::sin(Harmonic[k] * x);
+			t[i] = clamp(v * Q31);
+		}
+		return t;
 	}
 
 	std::array<int32_t, 257> wave()

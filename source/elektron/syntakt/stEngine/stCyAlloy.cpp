@@ -21,38 +21,36 @@ namespace syntakt::cyAlloy
 		constexpr uint32_t Spread = 0x40020a00;		// unit 2's frequency factor and unit 0's over unit 1's, by word 4
 		constexpr uint32_t Depth = 0x40020c00;		// feedback and modulation depths, by word 6
 		constexpr uint32_t AmpDecay = 0x40020e00;
-		constexpr uint32_t Wave = 0x40021000;		// units 2 and 3's ROM wave
+		constexpr uint32_t Wave = 0x40021000;		// units 1 and 3's ROM wave
+	}
 
-		// 0x4000512c: a biquad in place, y = b0 x + b1 x1 + b2 x2 - 2 a1 y1 - a2 y2, every sample's terms summed before one
-		// truncation. _b holds b0-b2 and at +0x18 x1, x2; _a holds a1, a2 and at +0x18 y1, y2
-		void biquad(int32_t* _buf, int32_t* _b, int32_t* _a)
+	void biquad(int32_t* _buf, int32_t* _b, int32_t* _a)
+	{
+		const int32_t b0 = _b[0], b1 = _b[1], b2 = _b[2];
+		const int32_t a1 = _a[0], a2 = _a[1];
+		int32_t x1 = _b[6], x2 = _b[7];
+		int32_t y1 = _a[6], y2 = _a[7];
+
+		Emac acc;
+		for(int n = 0; n < BlockSize; ++n)
 		{
-			const int32_t b0 = _b[0], b1 = _b[1], b2 = _b[2];
-			const int32_t a1 = _a[0], a2 = _a[1];
-			int32_t x1 = _b[6], x2 = _b[7];
-			int32_t y1 = _a[6], y2 = _a[7];
-
-			Emac acc;
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				const int32_t x = _buf[n];
-				acc.mac(b2, x2);
-				acc.mac(b1, x1);
-				acc.mac(b0, x);
-				acc.msac(a1, y1);
-				acc.msac(a1, y1);
-				acc.msac(a2, y2);
-				x2 = x1;
-				x1 = x;
-				y2 = y1;
-				y1 = acc.storeClear();
-				_buf[n] = y1;
-			}
-			_b[6] = x1;
-			_b[7] = x2;
-			_a[6] = y1;
-			_a[7] = y2;
+			const int32_t x = _buf[n];
+			acc.mac(b2, x2);
+			acc.mac(b1, x1);
+			acc.mac(b0, x);
+			acc.msac(a1, y1);
+			acc.msac(a1, y1);
+			acc.msac(a2, y2);
+			x2 = x1;
+			x1 = x;
+			y2 = y1;
+			y1 = acc.storeClear();
+			_buf[n] = y1;
 		}
+		_b[6] = x1;
+		_b[7] = x2;
+		_a[6] = y1;
+		_a[7] = y2;
 	}
 
 	void update(const int32_t _pitch, Voice& _v, const uint32_t _params, const Rom& _rom)

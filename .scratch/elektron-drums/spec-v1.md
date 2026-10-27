@@ -224,6 +224,13 @@ Ticket « Interface façon Overbridge ». Référence : mockup v12 (`mockup/v12.
 
 - Tous les moteurs à la fréquence de l'hôte, sans rééchantillonneur ; blocs de 32 échantillons ; constantes de bloc
   recalculées depuis la fréquence.
+- Exception (décidée le 2026-10-27, ticket 06) : **le Syntakt rend toujours à 48 kHz**, sa fréquence, et un
+  rééchantillonneur 48 → 44,1 kHz le ramène à l'hôte (aux autres fréquences, voir le ticket « Fréquences hautes »). Le
+  Syntakt dépend de sa fréquence de part en part : repliement de CY ALLOY (bord de Carson jusqu'à 1,28 MHz), retard
+  d'un échantillon des rétroactions, verrou de période 2 à Nyquist (BD MODERN Hit 13, 16 dB d'enveloppe entre 44,1 et
+  48 kHz). Rendu à 48 kHz, il sonne comme la machine à toute fréquence. Le rééchantillonneur passe Q11, plat à
+  0,1 dB jusqu'à 18 kHz (polyphasé, 53 coefficients par phase, 0,49 % d'un cœur pour 16 pistes) ; sa latence
+  (24 échantillons à 44,1 kHz, 0,54 ms) entre dans le délai commun des Hits. Le MD et le DT2 se décident à leur tour.
 - Les étages restés en entiers (voix du MD, port exact du Syntakt gardé comme référence) sont exacts à leur
   fréquence d'origine (Syntakt 48 kHz, MD 44,1 kHz) et adaptés ailleurs. Le Syntakt livré et les étages réécrits en
   flottant (`TrackFx`, master) sont vérifiés à tolérance, même à leur fréquence d'origine.
@@ -255,8 +262,8 @@ Son :
 1. Chaque étage resté en entiers est exact contre son oracle à sa fréquence d'origine (Q1). Le Syntakt livré et les
    étages réécrits en flottant passent la tolérance Q2-Q4 contre l'oracle, à toutes les fréquences.
 2. Chaque machine passe le test « sonne pareil » à 44,1 et à 48 kHz (spectre sous 20 kHz, enveloppe, niveau).
-3. Les tests de qualité Q5-Q7, Q9 et Q12-Q16 passent (Q8 attend J4, Q10 J2 ; Q11 visait un rééchantillonneur
-   abandonné).
+3. Les tests de qualité Q5-Q7, Q9, Q11 et Q12-Q16 passent (Q8 attend J4, Q10 J2 ; Q11 juge le rééchantillonneur
+   des machines qui rendent à leur fréquence d'origine, §11.2).
 4. Pire cas 16 pistes sous 15 % d'un cœur, mesuré sur machine calme, à 44,1, 48, 88,2 et 96 kHz.
 5. Gigue des trigs : 0 échantillon. Latence de la note au son mesurée et publiée.
 

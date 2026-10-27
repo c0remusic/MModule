@@ -1,7 +1,7 @@
-// syntakt::fast::tables, the tables BD MODERN and SD BASIC read made by formula, against OS 1.41's section 7 word for
-// word: per table, exact or the number of words that differ and the largest error (in LSB of Q31, and of the table's
-// own unit: the time constant of a decay, the share of full scale of a level). A table its header calls exact that
-// differs fails.
+// syntakt::fast::tables, the tables BD MODERN, SD BASIC and CY ALLOY read made by formula, against OS 1.41's section 7
+// word for word: per table, exact or the number of words that differ and the largest error (in LSB of Q31, and of the
+// table's own unit: the time constant of a decay, the share of full scale of a level). A table its header calls exact
+// that differs fails.
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7. Exit 77 without it.
 
@@ -142,6 +142,30 @@ int main()
 	for(const auto& t : sdBasic)
 		compare(s7, t.name, t.address, syntakt::fast::tables::sdBasic(t.table), syntakt::fast::tables::exact(t.table),
 			t.decay, t.maxLsb);
+
+	using syntakt::fast::tables::CyAlloy;
+	struct CyEntry
+	{
+		const char* name;
+		uint32_t address;
+		CyAlloy table;
+		bool decay;
+		int64_t maxLsb;
+	};
+	const CyEntry cyAlloy[] = {
+		{"DecayOdd", 0x40020200, CyAlloy::DecayOdd, true, 4200},
+		{"Target", 0x40020400, CyAlloy::Target, false, 0},
+		{"DecayEven", 0x40020600, CyAlloy::DecayEven, true, 7700},
+		{"Ratio", 0x40020800, CyAlloy::Ratio, false, 21000},
+		{"Spread", 0x40020a00, CyAlloy::Spread, false, 0},
+		{"Depth", 0x40020c00, CyAlloy::Depth, false, 0},
+		{"AmpDecay", 0x40020e00, CyAlloy::AmpDecay, true, 0},
+	};
+	std::printf("CY ALLOY's tables by formula against section 7:\n");
+	for(const auto& t : cyAlloy)
+		compare(s7, t.name, t.address, syntakt::fast::tables::cyAlloy(t.table), syntakt::fast::tables::exact(t.table),
+			t.decay, t.maxLsb);
+	compare(s7, "Wave", 0x40021000, syntakt::fast::tables::cyAlloyWave(), false, false, 7000);
 
 	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
 	return g_failures ? 1 : 0;

@@ -18,6 +18,7 @@
 #include "stBoot.h"
 #include "stEngine.h"
 #include "stFastBdModern.h"
+#include "stFastResample.h"
 #include "stStages.h"
 
 namespace syntakt::fast::bench
@@ -305,12 +306,11 @@ namespace syntakt::fast::bench
 		{{88, 64, 100, 0, 64, 0, 0, 100}, {}, 36, true, false},
 	};
 
-	// The Hits' events before block _b at _fs (48 kHz, 44.1 or 96: the retrigger and the gate-off land on a block
-	// there), on any engine with BdModern's interface. _noTransient: TRANSIENT at 0, unit 0 out of the mix. _hits:
-	// another machine's, whose parameters 3 and 5 the retrigger sets as well
+	// The Hits' events before block _b at _fs (48 or 44.1 kHz: the retrigger and the gate-off land on a block there),
+	// on any engine with BdModern's interface. _hits: another machine's, whose parameters 3 and 5 the retrigger sets
+	// as well
 	template<typename Engine>
-	void events(Engine& _e, const int _b, const double _fs, const bool _noTransient = false,
-		const Hit (&_hits)[Lanes] = Hits)
+	void events(Engine& _e, const int _b, const double _fs, const Hit (&_hits)[Lanes] = Hits)
 	{
 		const int retrig = static_cast<int>(std::lround(160 * _fs / 48000));
 		const int gate = 2 * retrig;
@@ -320,10 +320,7 @@ namespace syntakt::fast::bench
 			if(_b == 0)
 			{
 				for(int i = 0; i < 8; ++i)
-				{
-					const bool off = _noTransient && i == 2;
-					_e.setParameter(t, i, off ? 0 : h.value[i], off ? 0 : h.fine[i]);
-				}
+					_e.setParameter(t, i, h.value[i], h.fine[i]);
 				_e.setNote(t, h.note);
 				_e.trig(t);
 			}
@@ -488,35 +485,35 @@ namespace syntakt::fast::bench
 		return factor;
 	}
 
-	// The third octaves below 10 kHz where a phase-modulated unit's band by Carson's rule (carrier -+ (index + 1)
-	// modulator, its index the peak phase deviation in radians) passes 22.05 kHz: the part above lands there, folded
-	// at 44.1 kHz (at 22.05 kHz and its multiples)
-	struct FoldOver
+	// _seconds of a fast machine's 16 Hits (_hits) at _fs, 48 or 44.1 kHz (Host), past the resampler's latency: from
+	// the onset (the block after the trig's), or from the trig (_fromTrig), the instant both rates share, the onset
+	// coming 32 samples later at 48 kHz and 29.4 at 44.1. _setup(machine) before the first block (a test hook)
+	template<typename Machine, typename Setup>
+	std::vector<std::vector<double>> fastHits(const double _fs, const double _seconds, const Hit (&_hits)[Lanes],
+		Setup&& _setup, const bool _fromTrig = false)
 	{
-		bool folded[Band10k + 1]{};
-
-		void add(const double _carrier, const double _index, const double _modulator)
+		Host<Machine> e(static_cast<float>(_fs));
+		_setup(e);
+		const int samples = static_cast<int>(_seconds * _fs);
+		// The onset at 44.1 kHz is 29.4 samples after the trig: from the 29th, 0.4 sample before it
+		const int skip = e.latency() + (_fromTrig ? 0 : static_cast<int>(std::lround(BlockSize * _fs / 48000)));
+		const int blocks = (samples + skip) / BlockSize + 1;
+		std::vector<std::vector<double>> out(Lanes);
+		std::array<std::array<float, BlockSize>, Lanes> buf{};
+		std::array<float*, Lanes> ptr{};
+		for(int t = 0; t < Lanes; ++t)
+			ptr[t] = buf[t].data();
+		for(int b = 0; b < blocks; ++b)
 		{
-			edge(_carrier + (_index + 1) * _modulator);
+			events(e, b, _fs, _hits);
+			e.render(ptr.data());
+			for(int t = 0; t < Lanes; ++t)
+				out[static_cast<size_t>(t)].insert(out[static_cast<size_t>(t)].end(), buf[t].begin(), buf[t].end());
 		}
-
-		// The band's highest edge _hi
-		void edge(const double _hi)
-		{
-			constexpr double Nyquist = 22050;
-			const double hi = _hi;
-			if(hi <= Nyquist)
-				return;
-			// (Nyquist, hi] folds down onto [2 Nyquist - hi, Nyquist), or onto all of [0, Nyquist) once past 2 Nyquist
-			const double lo = hi >= 2 * Nyquist ? 0 : 2 * Nyquist - hi;
-			for(int k = 0; k <= Band10k; ++k)
-			{
-				const double centre = 1000 * std::exp2((k - 17) / 3.0);
-				if(centre * std::exp2(1 / 6.0) > lo && centre * std::exp2(-1 / 6.0) < Nyquist)
-					folded[k] = true;
-			}
-		}
-	};
+		for(auto& o : out)
+			o = std::vector<double>(o.begin() + skip, o.begin() + skip + samples);
+		return out;
+	}
 
 	// _seconds of the exact port's 16 Hits at 48 kHz, _events(e, block) before each block, from the onset (the block
 	// after the trig's). _nudge: every unit's phase _nudge LSB (2^-24 cycle) on after each trig's onset block (the
@@ -625,10 +622,11 @@ namespace syntakt::fast::bench
 	}
 
 	// Q3 of unit 0's sine with self-feedback (0x400035de) over 1 s, feedback from a machine's table at _table across
-	// its range (lane l at entry 8 l + 7 of its _parameter), read from a 256-entry sine as the engines read it. Lanes
-	// where the feedback makes the oscillator chaotic are judged by their distributions; _ok and _chaoticOk take the
-	// verdicts
-	inline void q3FeedbackSine(Stage& _st, const uint32_t _table, const char* _parameter, bool& _ok, bool& _chaoticOk)
+	// its range (lane l at entry 8 l + 7 of its _parameter, shifted right by _shift as the machine's update does), read
+	// from a 256-entry sine as the engines read it. Lanes where the feedback makes the oscillator chaotic are judged by
+	// their distributions; _ok and _chaoticOk take the verdicts
+	inline void q3FeedbackSine(Stage& _st, const uint32_t _table, const char* _parameter, bool& _ok, bool& _chaoticOk,
+		const int _shift = 0)
 	{
 		constexpr int Blocks = 1500;
 		const Rom& rom = _st.rom;
@@ -646,7 +644,7 @@ namespace syntakt::fast::bench
 			for(int l = 0; l < Lanes; ++l)
 			{
 				Voice v = _st.voice(l);
-				const int32_t f = rom.entry(_table, 8 * l + 7);
+				const int32_t f = rom.entry(_table, 8 * l + 7) >> _shift;
 				if(b == 0)
 				{
 					v.at(0x28) = 0;
@@ -679,7 +677,7 @@ namespace syntakt::fast::bench
 			v.unit(0, Voice::Phase) = _phase & 0xffffff;
 			for(int b = 0; b < Blocks; ++b)
 			{
-				v.at(0x2c) = rom.entry(_table, 8 * _l + 7);
+				v.at(0x2c) = rom.entry(_table, 8 * _l + 7) >> _shift;
 				v.unit(0, 0x78) = inc24(_l, b, 2);
 				feedbackOscillator(0, v, rom);
 				for(int n = 0; n < BlockSize; ++n)
@@ -697,7 +695,7 @@ namespace syntakt::fast::bench
 			const bool isChaotic = chaoticNull(selfSnr, selfLocal);
 			std::printf("  Q3 feedback sine, %s %3d (feedback %.4f): SNR %6.1f dB, worst 10 ms %6.1f dB; "
 				"the exact port against itself 1 LSB off: %6.1f, %6.1f dB%s\n", _parameter, 8 * l + 7,
-				q31(rom.entry(_table, 8 * l + 7)), null(r.ref[l], r.test[l], 48000).snr,
+				q31(rom.entry(_table, 8 * l + 7) >> _shift), null(r.ref[l], r.test[l], 48000).snr,
 				localSnr(r.ref[l], r.test[l], 48000), selfSnr, selfLocal, isChaotic ? ", chaotic" : "");
 			if(!isChaotic)
 			{
@@ -733,14 +731,14 @@ namespace syntakt::fast::bench
 	// The exact port's 16 Hits at 48 kHz, and the same with every unit's phase nudged as Nudges says after the
 	// onsets (_render(nudge)). A Hit is chaotic where the first of those misses the null against the unperturbed one;
 	// there, 16 of them give the dispersion its distributions are judged against, with the limit's factor calibrated on
-	// all 17, below 18 kHz (Q4) and below 10 kHz (Q15)
+	// all 17, below 18 kHz (Q4)
 	struct Exacts
 	{
 		std::vector<std::vector<double>> ref;
 		bool chaotic[Lanes];
 		double selfSnr[Lanes], selfLocal[Lanes], selfEnv[Lanes];
 		std::vector<Deviation> spread[Lanes];	// the nudges' deviations, on a chaotic Hit
-		double factor = 2, factor10k = 2;
+		double factor = 2;
 
 		template<typename Render>
 		explicit Exacts(Render&& _render) : ref(_render(0))
@@ -765,7 +763,6 @@ namespace syntakt::fast::bench
 			if(sets.empty())
 				return;
 			factor = calibrate(sets, Band18k, "Q4 chaotic Hits, below 18 kHz");
-			factor10k = calibrate(sets, Band10k, "Q15 chaotic Hits, below 10 kHz");
 		}
 
 		// The exact port's dispersion on Hit _l: its perturbed renders' deviations from its own
@@ -820,207 +817,179 @@ namespace syntakt::fast::bench
 			"dispersion + 0.5 dB");
 	}
 
-	// ---- Q15: 44.1 against 48 kHz ----
+	// ---- Q15: 44.1 against 48 kHz, its envelopes read on one sample grid ----
 
-	// The checks excused at 44.1 kHz (a one-sample self-feedback oscillator alone, FM fold-over), for listening
-	inline std::vector<std::string> g_excused;
-
-	// Units 2 and 3's Carson bands over a Hit (their highest edges), and the third octaves they fold into
-	struct Carson : FoldOver
+	// A Kaiser window (_beta) at _r in [-1, 1]
+	inline double kaiser(const double _beta, const double _r)
 	{
-		float unit2 = 0, unit3 = 0;
-	};
+		const auto i0 = [](const double _v)
+		{
+			double sum = 1, term = 1;
+			for(int k = 1; k < 60; ++k)
+			{
+				term *= (_v / (2 * k)) * (_v / (2 * k));
+				sum += term;
+			}
+			return sum;
+		};
+		return i0(_beta * std::sqrt(std::max(0.0, 1 - _r * _r))) / i0(_beta);
+	}
 
-	// Q15: the fast engine's Hits at 48 (_a) and 44.1 kHz (_b, its Carson bands _carson), and at 48 and 44.1 kHz
-	// without unit 0, the one-sample self-feedback oscillator (_a0, _b0: its feedback or level at 0). Folding is
-	// decided where nothing is chaotic, unit 0's feedback table at 0 in both engines: a band where the exact port at 48 kHz
-	// (_exact0) differs from the fast engine at 96 kHz (_fast96) by more than 0.5 dB holds content that depends on the
-	// rate by nature (what folds at Nyquist): it is printed, tagged folded, and not judged. A Hit with no band below
-	// 10 kHz left to judge fails, unless FM fold-over or folding took them all
-	inline void q15(const Exacts& _exact, const std::vector<std::vector<double>>& _a,
-		const std::vector<std::vector<double>>& _b, const std::vector<std::vector<double>>& _exact0,
-		const std::vector<std::vector<double>>& _fast96, const std::vector<std::vector<double>>& _a0,
-		const std::vector<std::vector<double>>& _b0, const std::array<Carson, Lanes>& _carson)
+	// _x at 44.1 kHz brought to 48 kHz for measuring, never for listening: band-limited interpolation by a sinc at
+	// 21.5 kHz under a Kaiser window (beta 10) of 1024 taps at 44.1 kHz (11.6 ms), in 160 exact phases, the input 0
+	// outside. An RMS envelope read on two sample grids is not one measure: on a narrow-band sound near 10-18 kHz,
+	// 1 ms windows of 44.1 and 48 samples differ by up to 0.28 dB where the sound is the same (stFastCyAlloyTest).
+	// Output sample n stands for 44.1 kHz time n 147 / 160, as the 48 kHz render's sample n does
+	inline std::vector<double> to48k(const std::vector<double>& _x)
 	{
-		const auto& a = _a;
-		const auto& b = _b;
-		const auto& a0 = _a0;
-		const auto& b0 = _b0;
-		const auto& carson = _carson;
-		double spec = 0, folded = 0, above = 0;
-		bool envOk = true, specOk = true, chaoticOk = true, envProvisional = true, evidence = true;
-		std::string nothing;
-		std::printf("  Q15 Hit  envelope dB  spectrum < 10 kHz dB, judged (worst band, Hz)  folded: bands, worst dB  "
-			"> 10 kHz dB, not judged\n");
+		constexpr int Half = 512, Phases = 160, Up = 147;
+		static const std::vector<double> h = []
+		{
+			constexpr double Cutoff = 21500 / 44100.0, Beta = 10;
+			std::vector<double> t(static_cast<size_t>(Phases * 2 * Half));
+			for(int p = 0; p < Phases; ++p)
+				for(int k = -Half + 1; k <= Half; ++k)
+				{
+					const double x = k - p / static_cast<double>(Phases);	// taps at the input's samples i0 + k
+					const double sinc = x == 0 ? 2 * Cutoff : std::sin(2 * Pi * Cutoff * x) / (Pi * x);
+					t[static_cast<size_t>(p * 2 * Half + k + Half - 1)] = sinc * kaiser(Beta, x / Half);
+				}
+			return t;
+		}();
+		const auto n = static_cast<int64_t>(_x.size());
+		std::vector<double> y(static_cast<size_t>(n * Phases / Up));
+		for(int64_t m = 0; m < static_cast<int64_t>(y.size()); ++m)
+		{
+			const int64_t at = m * Up / Phases;
+			const auto p = static_cast<int>(m * Up % Phases);
+			const double* c = &h[static_cast<size_t>(p * 2 * Half)];
+			double s = 0;
+			for(int k = -Half + 1; k <= Half; ++k)
+			{
+				const int64_t i = at + k;
+				if(i >= 0 && i < n)
+					s += c[k + Half - 1] * _x[static_cast<size_t>(i)];
+			}
+			y[static_cast<size_t>(m)] = s;
+		}
+		return y;
+	}
+
+	// to48k's own error, fatal: a known band-limited sound (six decaying partials, 100 Hz to 20.5 kHz, a 2 ms
+	// raised-cosine attack) sampled at 44.1 kHz and brought to 48, against the same sound sampled at 48 kHz: its 1 ms
+	// and 10 ms envelopes within 0.002 dB above -40 dB
+	inline void checkTo48k()
+	{
+		const auto sound = [](const double _fs)
+		{
+			constexpr double Hz[6] = {100, 1000, 5000, 12000, 18000, 20500};
+			constexpr double Tau[6] = {0.8, 0.5, 0.3, 0.2, 0.15, 0.1};
+			std::vector<double> x(static_cast<size_t>(_fs));	// 1 s
+			for(size_t i = 0; i < x.size(); ++i)
+			{
+				const double t = static_cast<double>(i) / _fs;
+				const double attack = t < 0.002 ? 0.5 - 0.5 * std::cos(Pi * t / 0.002) : 1;
+				double v = 0;
+				for(int k = 0; k < 6; ++k)
+					v += 0.15 * std::exp(-t / Tau[k]) * std::sin(2 * Pi * Hz[k] * t + k);
+				x[i] = attack * v;
+			}
+			return x;
+		};
+		// The first 0.9 s: the last ms of both feel the sound cut off at 1 s, each in its own way
+		const auto a = sound(48000), b = to48k(sound(44100));
+		const std::vector<double> a9(a.begin(), a.begin() + 43200), b9(b.begin(), b.begin() + 43200);
+		const double e1 = envelopeDiff(envelope(a9, 48000), envelope(b9, 48000));
+		const double e10 = envelopeDiff(envelope(a9, 48000, 10), envelope(b9, 48000, 10));
+		std::printf("  Q15's to48k on a known sound sampled at 44.1 kHz against it sampled at 48: 1 ms envelope "
+			"%.5f dB, 10 ms %.5f dB\n", e1, e10);
+		check(e1 <= 0.002 && e10 <= 0.002, "Q15's to48k: its own envelope error within 0.002 dB");
+	}
+
+	// _x low-passed at 18 kHz, the band a 44.1 kHz signal holds, the same at any rate _fs: a zero-phase FIR, a sinc
+	// at 18 kHz (-6 dB there) under a Kaiser window (beta 8) 2 ms long, flat within 0.01 dB to about 16.5 kHz and
+	// -80 dB from about 19.5 kHz; the signal taken as 0 outside
+	inline std::vector<double> lowPass18k(const std::vector<double>& _x, const double _fs)
+	{
+		constexpr double Cutoff = 18000, Beta = 8, Seconds = 0.002;
+		const int half = static_cast<int>(std::lround(Seconds * _fs / 2));
+		std::vector<double> h(static_cast<size_t>(2 * half + 1));
+		for(int j = -half; j <= half; ++j)
+		{
+			const double fc = Cutoff / _fs;
+			const double sinc = j == 0 ? 2 * fc : std::sin(2 * Pi * fc * j) / (Pi * j);
+			h[static_cast<size_t>(j + half)] = sinc * kaiser(Beta, static_cast<double>(j) / half);
+		}
+		std::vector<double> y(_x.size());
+		const auto n = static_cast<int>(_x.size());
+		for(int i = 0; i < n; ++i)
+		{
+			double s = 0;
+			for(int j = std::max(-half, i - n + 1); j <= std::min(half, i); ++j)
+				s += h[static_cast<size_t>(j + half)] * _x[static_cast<size_t>(i - j)];
+			y[static_cast<size_t>(i)] = s;
+		}
+		return y;
+	}
+
+	// Q15: a machine renders at its native 48 kHz and reaches 44.1 kHz through Host (Resample48To44). Its Hits at
+	// 44.1 kHz (_b, aligned for the resampler's latency) against its Hits at 48 kHz (_a), both from the trig and
+	// rendered 50 ms past _seconds, each low-passed at 18 kHz (lowPass18k), then cut to _seconds: what lies above
+	// 18 kHz, which 44.1 kHz cannot hold, is printed, not judged; the cut leaves out the filters' zero-padded ends.
+	// Both renders are the same 48 kHz engine output, the one resampled: nothing chaotic separates them, so every Hit
+	// is judged alike and nothing is excused: the envelope within 0.2 dB above -40 dB, read on the 48 kHz grid (to48k,
+	// its own error checked first), every third octave below 10 kHz within 0.5 dB
+	inline void q15(const std::vector<std::vector<double>>& _a, const std::vector<std::vector<double>>& _b,
+		const double _seconds)
+	{
+		checkTo48k();
+		const auto cut = [](std::vector<double> _x, const double _fs, const double _s)
+		{
+			_x.resize(static_cast<size_t>(_s * _fs));
+			return _x;
+		};
+		bool envOk = true, specOk = true;
+		double env = 0, spec = 0, above = 0, full = 0;
+		std::printf("  Q15 Hit  envelope dB, < 18 kHz  spectrum < 10 kHz dB (worst band, Hz)  > 10 kHz dB, not judged  "
+			"envelope dB, full band, not judged\n");
 		for(int l = 0; l < Lanes; ++l)
 		{
-			const double e = envelopeDiff(envelope(a[l], 48000), envelope(b[l], 44100));
-			auto d = deviation(distribution(a[l], 48000), distribution(b[l], 44100));
-			const auto unfolded = deviation(distribution(_exact0[l], 48000), distribution(_fast96[l], 96000));
-			double s = 0, at = 0, f = 0, s10 = 0;
-			int judged = 0, excluded = 0;
+			const auto a = cut(lowPass18k(_a[l], 48000), 48000, _seconds);
+			const auto b = lowPass18k(_b[l], 44100);
+			const double e = envelopeDiff(envelope(a, 48000), envelope(cut(to48k(b), 48000, _seconds), 48000));
+			const double ef = envelopeDiff(envelope(cut(_a[l], 48000, _seconds), 48000),
+				envelope(cut(to48k(_b[l]), 48000, _seconds), 48000));
+			full = std::max(full, ef);
+
+			// The third octaves where _a's is above its loudest - 60 dB
+			const auto ra = bands(a, 48000, -17, 12), rb = bands(cut(b, 44100, _seconds), 44100, -17, 12);
+			const double loud = *std::max_element(ra.begin(), ra.end());
+			double s = 0, at = 0, s10 = 0;
 			for(int k = 0; k <= Band18k; ++k)
 			{
-				auto& v = d.bands[static_cast<size_t>(k)];
-				if(v < 0)
+				const auto i = static_cast<size_t>(k);
+				if(ra[i] < loud * 1e-6)
 					continue;
+				const double v = std::abs(db(rb[i] / ra[i]));
 				if(k > Band10k)
-				{
 					s10 = std::max(s10, v);
-					continue;
-				}
-				if(unfolded.bands[static_cast<size_t>(k)] > 0.5)
-				{
-					++excluded;
-					f = std::max(f, v);
-					v = -1;	// nor judged in the chaotic Hits' distributions
-					continue;
-				}
-				++judged;
-				if(v > s)
+				else if(v > s)
 				{
 					s = v;
 					at = 1000 * std::exp2((k - 17) / 3.0);
 				}
 			}
-			std::printf("       %2d  %11.3f  %8.3f (%5.0f)  %27d, %6.3f  %22.3f%s\n", l, e, s, at, excluded, f, s10,
-				_exact.chaotic[l] ? "  chaotic" : "");
+			std::printf("       %2d  %21.3f  %8.3f (%5.0f)  %37.3f  %33.3f\n", l, e, s, at, s10, ef);
 			above = std::max(above, s10);
-			folded = std::max(folded, f);
-			// Where a unit's Carson band passes 22.05 kHz its sidebands fold at 44.1 kHz and not at 48: the bands they
-			// land in are reported, not judged; the others, and the envelope, still are
-			const int unit = carson[l].unit3 >= carson[l].unit2 ? 3 : 2;
-			const float edge = std::max(carson[l].unit2, carson[l].unit3);
-			std::printf("    Carson edges: unit 2 %.0f Hz, unit 3 %.0f Hz\n", carson[l].unit2, carson[l].unit3);
-			int fm = 0;
-			double fmWorst = 0;
-			s = 0;
-			for(int k = 0; k <= Band10k; ++k)
-			{
-				auto& v = d.bands[static_cast<size_t>(k)];
-				if(v >= 0 && carson[l].folded[k])
-				{
-					++fm;
-					fmWorst = std::max(fmWorst, v);
-					v = -1;
-				}
-				if(v > s)
-				{
-					s = v;
-					at = 1000 * std::exp2((k - 17) / 3.0);
-				}
-			}
-			if(fm)
-			{
-				char line[160];
-				std::snprintf(line, sizeof(line), "Hit %2d  Q15 spectrum, FM fold-over: unit %d, Carson edge %.0f Hz, "
-					"%d bands below 10 kHz, worst %.3f dB, not judged", l, unit, edge, fm, fmWorst);
-				if(s > 0)
-					std::printf("    %s; the judged bands' worst %.3f dB at %.0f Hz\n", line + 8, s, at);
-				else
-					std::printf("    %s; no band below 10 kHz left to judge\n", line + 8);
-				g_excused.emplace_back(line);
-			}
-			std::printf("    bands below 10 kHz excluded: %d folded, %d FM fold-over; %d judged\n", excluded, fm,
-				judged - fm);
-			if(judged == fm && (fm || excluded))
-				nothing += (nothing.empty() ? "" : ", ") + std::to_string(l);
-			else if(judged == fm)
-			{
-				std::printf("    no band below 10 kHz to judge, none excluded: fatal\n");
-				evidence = false;
-			}
-			// A check that fails at 44.1 kHz is unit 0's where the same Hit without unit 0 (TRANSIENT 0) passes it: its
-			// feedback is a sample late, 1/44100 s here against 1/48000 s on the machine, and near Nyquist it folds
-			// elsewhere. Those are excused, as the listening of ticket 05 confirmed; the others stay fatal
-			const auto d0 = deviation(distribution(a0[l], 48000), distribution(b0[l], 44100));
-			// A check excused by the isolation is at most Cap times its threshold: beyond, it stays fatal
-			constexpr double Cap = 3;
-			const auto excuse = [&](const char* _check, const double _hz, const double _v, const double _v0)
-			{
-				// A band below -60 dB from the loudest without unit 0 (_v0 < 0) is unit 0's alone: absent without it
-				char what[32], without[32], line[160];
-				std::snprintf(what, sizeof(what), _hz > 0 ? "the %.0f Hz band" : "the envelope", _hz);
-				std::snprintf(without, sizeof(without), _v0 < 0 ? "absent" : "%.3f dB", _v0);
-				std::printf("    %s %.3f dB, without unit 0 %s: unit 0's (cap %.0f x its limit), to judge by ear, "
-					"ticket 05\n", what, _v, without, Cap);
-				std::snprintf(line, sizeof(line), "Hit %2d  %-28s %-18s %6.3f dB, without unit 0 %s", l, _check, what,
-					_v, without);
-				g_excused.emplace_back(line);
-			};
-			const auto bandOf = [](const double _hz)
-			{
-				return static_cast<size_t>(std::lround(3 * std::log2(_hz / 1000)) + 17);
-			};
-			if(_exact.chaotic[l])
-			{
-				const auto& spread = _exact.dispersion(l);
-				auto j = judge(d, spread, Band10k, _exact.factor10k);
-				printJudgement("distributions, 44.1 against 48 kHz, below 10 kHz, folded bands excluded", j);
-				while(j.band > j.limit(j.bandDispersion) && j.band <= Cap * j.limit(j.bandDispersion) &&
-					d0.bands[bandOf(j.bandHz)] <= j.limit(j.bandDispersion))
-				{
-					excuse("Q15 chaotic distributions", j.bandHz, j.band, d0.bands[bandOf(j.bandHz)]);
-					d.bands[bandOf(j.bandHz)] = -1;
-					j = judge(d, spread, Band10k, _exact.factor10k);
-				}
-				bool ok = j.band <= j.limit(j.bandDispersion);
-				if(j.env > j.limit(j.envDispersion))
-				{
-					if(d0.env <= j.limit(j.envDispersion) && j.env <= Cap * j.limit(j.envDispersion))
-						excuse("Q15 chaotic distributions", 0, j.env, d0.env);
-					else
-						ok = false;
-				}
-				if(!ok)
-					printJudgement("still beyond its limit without unit 0", j);
-				chaoticOk &= ok;
-				continue;
-			}
+			env = std::max(env, e);
 			spec = std::max(spec, s);
-			for(int k = 0; k <= Band10k; ++k)
-			{
-				const double v = d.bands[static_cast<size_t>(k)], hz = 1000 * std::exp2((k - 17) / 3.0);
-				if(v <= 0.5)
-					continue;
-				if(d0.bands[static_cast<size_t>(k)] <= 0.5 && v <= Cap * 0.5)
-				{
-					excuse("Q15 spectrum", hz, v, d0.bands[static_cast<size_t>(k)]);
-					continue;
-				}
-				std::printf("    the %.0f Hz band %.3f dB, %.3f dB without unit 0 (excused up to %.1f dB): fatal\n", hz,
-					v, d0.bands[static_cast<size_t>(k)], Cap * 0.5);
-				specOk = false;
-			}
-			if(e <= 0.2)
-				continue;
-			const double without = envelopeDiff(envelope(a0[l], 48000), envelope(b0[l], 44100));
-			if(without <= 0.2 && e <= Cap * 0.2)
-			{
-				excuse("Q15 envelope", 0, e, without);
-				envProvisional = false;
-			}
-			else
-			{
-				std::printf("    envelope %.3f dB, %.3f dB without unit 0 (excused up to %.1f dB): fatal\n", e, without,
-					Cap * 0.2);
-				envOk = false;
-			}
+			envOk &= e <= 0.2;
+			specOk &= s <= 0.5;
 		}
-		std::printf("  Q15 worst where not chaotic: spectrum below 10 kHz %.3f dB judged; folded bands %.3f dB and "
-			"above 10 kHz %.3f dB, not judged\n", spec, folded, above);
-		check(envOk, "Q15: 44.1 against 48 kHz where not chaotic, envelope within 0.2 dB above -40 dB, but where unit "
-			"0 alone exceeds it");
-		report(envProvisional && g_excused.empty(), "Q15: the cases excused (unit 0 alone, FM fold-over), "
-			"listening-validated, ticket 05");
-		check(specOk, "Q15: 44.1 against 48 kHz where not chaotic, spectrum below 10 kHz within 0.5 dB per third "
-			"octave, folded bands excluded, but where unit 0 alone exceeds it");
-		std::printf("  Q15 Hits with no band below 10 kHz left to judge (folded or FM fold-over), reported: %s\n",
-			nothing.empty() ? "none" : nothing.c_str());
-		check(evidence, "Q15: every Hit has a band below 10 kHz left to judge, but where folding or FM fold-over took "
-			"them all");
-		checkValidated(chaoticOk, "Q15: the chaotic Hits' distributions at 44.1 against 48 kHz within the calibrated "
-			"factor x the exact port's dispersion + 0.5 dB, folded bands excluded, but where unit 0 alone exceeds it");
+		std::printf("  Q15 worst: envelope below 18 kHz %.3f dB, spectrum below 10 kHz %.3f dB; above 10 kHz %.3f dB "
+			"and the full band's envelope %.3f dB, not judged\n", env, spec, above, full);
+		check(envOk, "Q15: 44.1 against 48 kHz, every Hit's envelope below 18 kHz within 0.2 dB above -40 dB");
+		check(specOk, "Q15: 44.1 against 48 kHz, every Hit's third octaves below 10 kHz within 0.5 dB");
 	}
 
 	// ---- the voice without its chaos ----
@@ -1084,5 +1053,23 @@ namespace syntakt::fast::bench
 			best = std::min(best, std::chrono::duration<double, std::micro>(Clock::now() - t0).count() / Blocks);
 		}
 		return best;
+	}
+
+	// 16 Machine voices playing _hits (costPerBlock): per block at 48 kHz, and per host block at 44.1 kHz with the
+	// resampler, printed against _exactUs, the exact port's per 48 kHz block
+	template<typename Machine>
+	void printCost(const char* _name, const Hit (&_hits)[Lanes], const double _exactUs)
+	{
+		std::array<std::array<float, BlockSize>, Lanes> buf{};
+		std::array<float*, Lanes> ptr{};
+		for(int t = 0; t < Lanes; ++t)
+			ptr[t] = buf[t].data();
+		Host<Machine> f48(48000), f44(44100);
+		const double us48 = costPerBlock(f48, _hits, [&] { f48.render(ptr.data()); });
+		const double us44 = costPerBlock(f44, _hits, [&] { f44.render(ptr.data()); });
+		const double block48 = 32 / 48000.0 * 1e6, block44 = 32 / 44100.0 * 1e6;
+		std::printf("  cost, 16 %s voices per 32-sample block: fast %.2f us (%.2f %% of a core at 48 kHz), exact %.2f "
+			"us (%.2f %%), %.1fx; at 44.1 kHz with the resampler %.2f us a host block (%.2f %%)\n", _name, us48,
+			100 * us48 / block48, _exactUs, 100 * _exactUs / block48, _exactUs / us48, us44, 100 * us44 / block44);
 	}
 }

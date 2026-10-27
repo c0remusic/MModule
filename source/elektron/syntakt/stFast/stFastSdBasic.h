@@ -10,8 +10,8 @@ namespace syntakt::fast
 	// unit 1 (2x) modulates unit 2 (the note) and, with unit 0, unit 3 (3x); unit 2, high-passed, plays under the
 	// modulator's envelope and unit 3, low-passed, under the amp's, both into a drive stage. Ratios and sweep on the
 	// machine's parameters. The same voice as syntakt::sdBasic, block for block: a trig is seen in its block (the
-	// Track fades out) and sounds from the next; a parameter or note takes effect at the next block. Its block-rate
-	// control runs on the machine's own 48 kHz block clock, as BdModern's does
+	// Track fades out) and sounds from the next; a parameter or note takes effect at the next block. It renders the
+	// machine's own 48 kHz blocks, its block-rate control stepped once per block, as BdModern's (Host: on a host's)
 	class SdBasic
 	{
 	public:
@@ -19,9 +19,7 @@ namespace syntakt::fast
 		static constexpr int Units = 4;
 
 		// Its tables come from stFastTables' formulas: nothing of the firmware
-		explicit SdBasic(float _sampleRate);
-
-		void setSampleRate(float _sampleRate);
+		SdBasic();
 
 		// _track 0-15. The note in semitones; parameter _index 0-7 as VoiceCpu's Machine page: TUNE, the units'
 		// ratios, unit 0's feedback with unit 3's modulation by it, the sweep, the units' envelopes, the drive switch,
@@ -36,14 +34,8 @@ namespace syntakt::fast
 		// For tests: unit 0's feedback table at 0, the voice without its chaos
 		void testWithoutFeedback();
 
-		// One block: 32 samples into each of the 16 _outputs
-		void render(float* const* _outputs);
-
-		// Read-only, of the last block on Track _track: unit _unit's highest frequency in Hz, the peak of unit 0 or 1
-		// under its envelope, which modulates units 2 and 3, and unit 3's depth of modulation by unit 0 in cycles
-		float frequency(int _track, int _unit) const;
-		float peak(int _track, int _unit) const;
-		float depth2(const int _track) const { return m_depth2[_track]; }
+		// One 48 kHz block of the 16 Tracks
+		const Block& renderBlock();
 
 	private:
 		void convert(int _track);
@@ -64,8 +56,7 @@ namespace syntakt::fast
 		};
 		Tables m_tables;
 
-		// The rate's constants: unit 2's high-pass, unit 3's low-pass poles (MOD at 0 and above)
-		float m_rate = 48000;
+		// Unit 2's high-pass, unit 3's low-pass poles (MOD at 0 and above)
 		OnePole m_hp{};
 		float m_lpPole[2]{};
 
@@ -94,10 +85,8 @@ namespace syntakt::fast
 		alignas(16) uint32_t m_phase[Units][Lanes]{};
 		Increments m_inc[Units]{};
 		alignas(16) float m_fb[Lanes]{}, m_last[Lanes]{}, m_depth2[Lanes]{};
-		// The block-rate control on the machine's 48 kHz block clock: the time since the trig in 48 kHz blocks, the
-		// sweep's block and the envelopes' block
-		double m_at[Lanes]{};
-		int64_t m_sweepBlock[Lanes]{}, m_envBlock[Lanes]{};
+		// The 48 kHz block clock: the blocks since the trig and the envelopes' block
+		int64_t m_at[Lanes]{}, m_envBlock[Lanes]{};
 		double m_sweepDecay[Lanes]{}, m_sweep[Lanes]{};
 		int32_t m_sweepDepth[Lanes]{};
 		float m_decay[Units][Lanes]{}, m_ampAttack[Lanes]{};
@@ -106,8 +95,8 @@ namespace syntakt::fast
 		float m_driveX[Lanes]{};
 		bool m_drive[Lanes]{}, m_release[Lanes]{};
 
-		// The envelopes over this host block, sample by sample (the units', the modulator's, the amp's), the latter two
-		// at its end, and the drive's gain at the ends of the previous and this host block, which it ramps between
+		// The envelopes over the block, sample by sample (the units', the modulator's, the amp's), the latter two at
+		// its end, and the drive's gain at the ends of the previous and this block, which it ramps between
 		Block m_gEnv[Units], m_gMod, m_gAmp;
 		float m_modEnd[Lanes]{}, m_ampEnd[Lanes]{};
 		alignas(16) float m_driveFrom[Lanes]{}, m_driveTo[Lanes]{}, m_driveAmount[Lanes]{}, m_drivePost[Lanes]{};
@@ -126,7 +115,4 @@ namespace syntakt::fast
 
 	// First-order IIR in place, y = b x + b x1 + a y1, its coefficients per lane
 	void onePoleLanes(Block& _buf, const float* _b, const float* _a, float* _x1, float* _y1);
-
-	// _buf *= _g, sample by sample (an envelope read on the machine's block clock)
-	void gain(Block& _buf, const Block& _g);
 }

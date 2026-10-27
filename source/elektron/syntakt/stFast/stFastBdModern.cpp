@@ -61,7 +61,7 @@ namespace syntakt::fast
 		}
 	}
 
-	BdModern::BdModern(const float _sampleRate)
+	BdModern::BdModern()
 	{
 		const auto read = [](float* _dst, const auto& _words)
 		{
@@ -93,24 +93,13 @@ namespace syntakt::fast
 			m_driveGain.prev[l] = m_driveGain.level[l] = 1;
 			m_driveFrom[l] = m_driveTo[l] = 1;
 			m_modStage[l] = 1;
+			convert(l);
 		}
-		setSampleRate(_sampleRate);
-	}
 
-	void BdModern::setSampleRate(const float _sampleRate)
-	{
-		m_rate = _sampleRate;
-		// The click's step per sample scales with the sample's length; the block-rate envelopes keep the machine's
-		// coefficients, stepped on its 48 kHz block clock (control)
-		m_clickDec = q31(ClickStepWord) * MachineRate / _sampleRate;
-
-		const float hp = bilinearPole(-q31(HpPoleWord), _sampleRate);
-		const float lp = bilinearPole(-q31(LpPoleWord), _sampleRate);
+		m_clickDec = q31(ClickStepWord);
+		const float hp = -q31(HpPoleWord), lp = -q31(LpPoleWord);
 		m_hp = {(1 + hp) / 2, -(1 + hp) / 2, hp};
 		m_lp = {(1 - lp) / 2, (1 - lp) / 2, lp};
-
-		for(int l = 0; l < Lanes; ++l)
-			convert(l);
 	}
 
 	void BdModern::setNote(const int _track, const int _note)
@@ -177,7 +166,6 @@ namespace syntakt::fast
 	void BdModern::control()
 	{
 		const float u2Decay = -q31(U2DecayWord);
-		const double r = MachineRate / m_rate;	// a host block's length in 48 kHz blocks
 
 		for(int l = 0; l < Lanes; ++l)
 		{
@@ -197,8 +185,7 @@ namespace syntakt::fast
 				m_sweepDecay[l] = m_sweepDecayNext[l];
 				m_modDecay[l] = m_modDecayNext[l];
 				m_drive[l] = m_driveNext[l];
-				m_at[l] = 0;
-				m_sweepBlock[l] = m_envBlock[l] = 0;
+				m_at[l] = m_envBlock[l] = 0;
 				m_sweep[l] = 2147483647.0 / 2147483648.0;
 
 				// Each envelope starts from 1 without a ramp: unit 2's toward 0.75, the modulator's held a block more,
@@ -220,23 +207,24 @@ namespace syntakt::fast
 
 			// The units' increments at 48 kHz, as the machine computes them (increment48): unit 3 at the note, units
 			// 0-2 an octave up, all under the sweep, which the machine steps once per 48 kHz block (a^k over its block
-			// k)
-			const auto machine = [this, l](const double _sweep, double* _inc)
+			// k), at its end
+			const int64_t m = sweepWord(m_sweepDepth[l], m_sweep[l]);
+			const auto increment = [&](const int64_t _factor)
 			{
-				const int64_t m = sweepWord(m_sweepDepth[l], _sweep);
-				_inc[0] = increment48(m, 0x04000000, 0x40000000, m_pitch[l]);
-				_inc[1] = increment48(m, 0x08000000, 0x40000000, m_pitch[l]);
+				return static_cast<uint32_t>(std::llround(increment48(m, _factor, 0x40000000, m_pitch[l]) * 256));
 			};
-			const double end = m_at[l] + r;
-			Increments* const incs[2] = {&m_inc3, &m_inc012};
-			splitIncrements<2>(l, m_at[l], r, m_sweepBlock[l], m_sweep[l], m_sweepDecay[l], machine, incs);
-			m_at[l] = end;
+			const uint32_t inc3 = increment(0x04000000), inc012 = increment(0x08000000);
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				m_inc3.s[n][l] = inc3;
+				m_inc012.s[n][l] = inc012;
+			}
+			m_sweep[l] *= m_sweepDecay[l];
+			const int64_t end = ++m_at[l];
 
-			// The envelopes step once per 48 kHz block, as on the machine, up to the block this host block ends in; the
-			// host block ramps to where their ramps are at its end. At 48 kHz, the machine's blocks themselves; at
-			// another rate, every stage (the trig's block, the modulator's hold, the drive's switch at its floor) lands
-			// at the same time in seconds
-			while(end > static_cast<double>(m_envBlock[l] + 1))
+			// The envelopes step once per 48 kHz block, as on the machine, but in the trig's block; the block ramps to
+			// their levels
+			while(end > m_envBlock[l] + 1)
 			{
 				m_u2.step(l, u2Decay * m_u2.level[l] + (1 - u2Decay) * 0.75f);
 
@@ -270,7 +258,7 @@ namespace syntakt::fast
 			if(m_gateOff[l] && !pending)
 				m_release[l] = true;
 
-			const double t = end - static_cast<double>(m_envBlock[l]);
+			constexpr double t = 1;	// the ramps at the block's end
 			m_u2Level[l] = m_u2.at(l, t);
 			m_modLevel[l] = m_mod.at(l, t);
 			m_ampLevel[l] = m_amp.at(l, t);
@@ -288,24 +276,7 @@ namespace syntakt::fast
 		}
 	}
 
-	float BdModern::frequency(const int _track, const int _unit) const
-	{
-		const Increments& inc = _unit == 3 ? m_inc3 : m_inc012;
-		uint32_t top = 0;
-		for(const auto& s : inc.s)
-			top = std::max(top, s[_track]);
-		return static_cast<float>(top / 4294967296.0 * m_rate);
-	}
-
-	float BdModern::modulatorPeak(const int _track) const
-	{
-		float peak = 0;
-		for(const auto& s : m_mix.s)
-			peak = std::max(peak, std::abs(s[_track]));
-		return peak;
-	}
-
-	void BdModern::render(float* const* _outputs)
+	const Block& BdModern::renderBlock()
 	{
 		const FlushDenormals ftz;
 
@@ -343,11 +314,7 @@ namespace syntakt::fast
 		std::copy_n(m_clickTarget, Lanes, m_clickCur);
 
 		for(int l = 0; l < Lanes; ++l)
-		{
-			float* out = _outputs[l];
-			for(int n = 0; n < BlockSize; ++n)
-				out[n] = m_b3.s[n][l];
 			m_trigNow[l] = m_trigPending[l];
-		}
+		return m_b3;
 	}
 }

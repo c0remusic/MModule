@@ -21,18 +21,15 @@ namespace syntakt::fast
 	// BD MODERN on 16 Tracks: a sine at the note phase-modulated by an enveloped mix of two oscillators an octave up,
 	// under a pitch sweep, with a filtered click, a drive stage and the amp envelope (.scratch/elektron-engines/
 	// bdmodern.md). The same voice as syntakt::bdModern, block for block: a trig is seen in its block (the Track fades
-	// out) and sounds from the next; a parameter or note takes effect at the next block. Its block-rate control (the
-	// sweep, the envelopes) runs on the machine's own 48 kHz block clock, which the host's blocks and samples read: at
-	// any rate each stage lands at the same time in seconds as on the machine.
+	// out) and sounds from the next; a parameter or note takes effect at the next block. It renders the machine's own
+	// 48 kHz blocks, its block-rate control (the sweep, the envelopes) stepped once per block (Host: on a host's)
 	class BdModern
 	{
 	public:
 		static constexpr int Parameters = 8;
 
 		// Its tables come from stFastTables' formulas: nothing of the firmware
-		explicit BdModern(float _sampleRate);
-
-		void setSampleRate(float _sampleRate);
+		BdModern();
 
 		// _track 0-15. The note in semitones; parameter _index 0-7 as VoiceCpu's Machine page (TUNE, the U2 level,
 		// the transient, SWEEP, CONTOUR, the drive switch, HOLD, DECAY), _value 0-127
@@ -46,13 +43,8 @@ namespace syntakt::fast
 		// For tests: unit 0's feedback table at 0, the voice without its chaos
 		void testWithoutFeedback();
 
-		// One block: 32 samples into each of the 16 _outputs
-		void render(float* const* _outputs);
-
-		// Read-only, of the last block on Track _track: the highest frequency in Hz of units 0-2 (_unit 0) or unit 3
-		// (_unit 3), and the peak of unit 3's modulator, the enveloped mix, which shifts its phase by as many cycles
-		float frequency(int _track, int _unit) const;
-		float modulatorPeak(int _track) const;
+		// One 48 kHz block of the 16 Tracks
+		const Block& renderBlock();
 
 	private:
 		void convert(int _track);
@@ -74,10 +66,9 @@ namespace syntakt::fast
 
 		float driveStep(int _l);
 
-		// The rate's constants
-		float m_rate = 48000;
-		float m_clickDec = 0;		// per sample
-		OnePole m_hp{}, m_lp{};		// the click's filters
+		// The click's step per sample and its filters
+		float m_clickDec = 0;
+		OnePole m_hp{}, m_lp{};
 
 		// Each Track's parameters, as words (value << 8 | fine), and note
 		int32_t m_word[Parameters][Lanes]{};
@@ -100,10 +91,9 @@ namespace syntakt::fast
 		Increments m_inc3{}, m_inc012{};	// unit 3's, and units 0-2's
 		alignas(16) float m_fb[Lanes]{}, m_last[Lanes]{};
 		alignas(16) float m_g0Cur[Lanes]{}, m_g1Cur[Lanes]{};
-		// The block-rate control runs on the machine's 48 kHz block clock: the time since the trig in 48 kHz blocks,
-		// the sweep's block and the envelopes' block
-		double m_at[Lanes]{};
-		int64_t m_sweepBlock[Lanes]{}, m_envBlock[Lanes]{};
+		// The block-rate control runs on the machine's 48 kHz block clock: the blocks since the trig and the envelopes'
+		// block
+		int64_t m_at[Lanes]{}, m_envBlock[Lanes]{};
 		double m_sweepDecay[Lanes]{}, m_sweep[Lanes]{};	// the sweep at its block
 		Ramp48 m_u2, m_mod, m_amp, m_driveGain;
 		int m_modStage[Lanes]{}, m_ampStage[Lanes]{}, m_driveStage[Lanes]{};
@@ -111,7 +101,7 @@ namespace syntakt::fast
 		float m_driveX[Lanes]{};
 		bool m_drive[Lanes]{}, m_release[Lanes]{};
 
-		// The envelopes at the ends of the previous and this host block, which the stages ramp between
+		// The envelopes at the ends of the previous and this block, which the stages ramp between
 		alignas(16) float m_u2Level[Lanes]{}, m_u2Prev[Lanes]{};
 		alignas(16) float m_modLevel[Lanes]{}, m_modPrev[Lanes]{};
 		alignas(16) float m_ampLevel[Lanes]{}, m_ampPrev[Lanes]{};

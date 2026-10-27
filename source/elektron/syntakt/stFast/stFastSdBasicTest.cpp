@@ -1,5 +1,5 @@
 // syntakt::fast::SdBasic, SD BASIC in float on 16 Tracks, measured against the exact integer port (stEngine) and
-// against itself at another rate, by the criteria BD MODERN's test set (stFastBdModernTest, stFastBench.h):
+// against itself at 44.1 kHz, by the criteria BD MODERN's test set (stFastBdModernTest, stFastBench.h):
 //	Q2	the linear stages (the mix, the VCA, unit 2's high-pass, unit 3's low-pass) against the integer stages fed the
 //		same input: null residual RMS <= -100 dBFS and max <= -90 dBFS
 //	Q3	the non-linear stages (unit 0's feedback sine, unit 2's and unit 3's phase-modulated sines, the drive's clip)
@@ -9,11 +9,9 @@
 //		(1 ms RMS) within 0.1 dB where the exact port's is above its peak - 40 dB, pitch (spectral peak) within 1 cent;
 //		the null (70 dB, 60 dB in 10 ms) printed, not fatal. The same Hits with unit 0's feedback table at 0 in both
 //		engines, which leaves nothing chaotic: envelope 0.1 dB and pitch 1 cent, fatal; the null printed, not fatal
-//	Q15	the same Hits at 44.1 against 48 kHz (bench::q15, BD MODERN's rule): envelope within 0.2 dB, spectrum below
-//		10 kHz within 0.5 dB per third octave; folded bands (48 against 96 kHz, both without unit 0's feedback) and FM
-//		fold-over reported, not judged; a deviation gone without unit 0's feedback excused up to 3 times its limit,
-//		listed for listening
-//	cost: microseconds per 32-sample block of 16 voices playing, fast against exact
+//	Q15	the same Hits at 44.1 kHz, rendered at 48 and resampled (Host), against 48 kHz (bench::q15): envelope below
+//		18 kHz within 0.2 dB, spectrum below 10 kHz within 0.5 dB per third octave, nothing excused
+//	cost: microseconds per 32-sample block of 16 voices playing, fast against exact, and at 44.1 kHz
 // A Hit (or a lane of Q3's feedback sine) is chaotic where the exact port, its phases 1 LSB on, misses the null
 // against itself; with unit 0's feedback never below 0.525 cycle per unit, every SD BASIC Hit is. It is judged by its
 // distributions (the third-octave spectrum and the 10 ms envelope) within a factor times the exact port's own
@@ -81,48 +79,15 @@ namespace
 	// A phase-modulation depth word in cycles per unit of input
 	float cycles(const int32_t _depth) { return static_cast<float>(q31(_depth) * 128); }
 
-	// _seconds of the 16 Hits from the fast engine at _fs, from the onset (the block after the trig's), units 2 and 3's
-	// Carson bands into _carson: unit 2 modulated by unit 1, unit 3 by units 1 and 0 (a band of carrier + the sum of
-	// index x modulator + the highest modulator). _noFeedback: unit 0's feedback at 0 (testWithoutFeedback)
-	std::vector<std::vector<double>> renderFast(const double _fs, const double _seconds,
-		std::array<Carson, Lanes>* _carson = nullptr, const bool _noFeedback = false)
+	// _seconds of the 16 Hits from the fast engine at _fs (bench::fastHits), unit 0's feedback at 0 (_noFeedback)
+	std::vector<std::vector<double>> renderFast(const double _fs, const double _seconds, const bool _noFeedback = false,
+		const bool _fromTrig = false)
 	{
-		fast::SdBasic e(static_cast<float>(_fs));
-		if(_noFeedback)
-			e.testWithoutFeedback();
-		const int samples = static_cast<int>(_seconds * _fs);
-		const int blocks = samples / fast::BlockSize + 2;
-		std::vector<std::vector<double>> out(Lanes);
-		std::array<std::array<float, fast::BlockSize>, Lanes> buf{};
-		std::array<float*, Lanes> ptr{};
-		for(int t = 0; t < Lanes; ++t)
-			ptr[t] = buf[t].data();
-		for(int b = 0; b < blocks; ++b)
+		return fastHits<fast::SdBasic>(_fs, _seconds, Hits, [&](fast::SdBasic& _e)
 		{
-			events(e, b, _fs, false, Hits);
-			e.render(ptr.data());
-			for(int t = 0; t < Lanes; ++t)
-			{
-				out[t].insert(out[t].end(), buf[t].begin(), buf[t].end());
-				if(!_carson)
-					continue;
-				const double f0 = e.frequency(t, 0), f1 = e.frequency(t, 1), f2 = e.frequency(t, 2);
-				const double f3 = e.frequency(t, 3);
-				const double a0 = e.peak(t, 0), a1 = e.peak(t, 1);
-				auto& c = (*_carson)[t];
-				const double i2 = 2 * Pi * cycles(DepthU2Word) * a1;
-				const double edge2 = f2 + (i2 + 1) * f1;
-				const double i31 = 2 * Pi * cycles(DepthU3Word) * a1, i30 = 2 * Pi * e.depth2(t) * a0;
-				const double edge3 = f3 + i31 * f1 + i30 * f0 + std::max(f0, f1);
-				c.unit2 = std::max(c.unit2, static_cast<float>(edge2));
-				c.unit3 = std::max(c.unit3, static_cast<float>(edge3));
-				c.edge(edge2);
-				c.edge(edge3);
-			}
-		}
-		for(auto& o : out)
-			o = std::vector<double>(o.begin() + fast::BlockSize, o.begin() + fast::BlockSize + samples);
-		return out;
+			if(_noFeedback)
+				_e.testWithoutFeedback();
+		}, _fromTrig);
 	}
 
 	// The same from the exact port at 48 kHz, every Track on SD BASIC
@@ -134,7 +99,7 @@ namespace
 			if(_b == 0)
 				for(int t = 0; t < Lanes; ++t)
 					_e.setMachine(t, Machine);
-			events(_e, _b, 48000, false, Hits);
+			events(_e, _b, 48000, Hits);
 		});
 	}
 
@@ -440,35 +405,14 @@ namespace
 			"exact port's dispersion + 0.5 dB");
 	}
 
-	// ---- Q15: 44.1 against 48 kHz (bench::q15), unit 0 isolated by its feedback at 0 ----
-
-	// _exact0: the exact port's Hits with unit 0's feedback table at 0, which decide folding with the fast engine's
-	void q15(const Exacts& _exact, const std::vector<std::vector<double>>& _exact0)
-	{
-		std::array<Carson, Lanes> carson{};
-		const auto b = renderFast(44100, Seconds, &carson);
-		fast::bench::q15(_exact, renderFast(48000, Seconds), b, _exact0, renderFast(96000, Seconds, nullptr, true),
-			renderFast(48000, Seconds, nullptr, true), renderFast(44100, Seconds, nullptr, true), carson);
-	}
-
 	// ---- cost ----
 
 	void cost(const std::vector<int32_t>& _s7)
 	{
-		constexpr double BlockUs = 32 / 48000.0 * 1e6;
-		fast::SdBasic f(48000);
-		std::array<std::array<float, fast::BlockSize>, Lanes> buf{};
-		std::array<float*, Lanes> ptr{};
-		for(int t = 0; t < Lanes; ++t)
-			ptr[t] = buf[t].data();
-		const double fastUs = costPerBlock(f, Hits, [&] { f.render(ptr.data()); });
 		Exact16 e(_s7);
 		for(int t = 0; t < Lanes; ++t)
 			e.setMachine(t, Machine);
-		const double exactUs = costPerBlock(e, Hits, [&] { e.render(); });
-		std::printf("  cost, 16 SD BASIC voices per 32-sample block: fast %.2f us (%.2f %% of a core at 48 kHz), "
-			"exact %.2f us (%.2f %%), %.1fx\n", fastUs, 100 * fastUs / BlockUs, exactUs, 100 * exactUs / BlockUs,
-			exactUs / fastUs);
+		printCost<fast::SdBasic>("SD BASIC", Hits, costPerBlock(e, Hits, [&] { e.render(); }));
 	}
 }
 
@@ -492,14 +436,9 @@ int main()
 	q3(s7);
 	const Exacts exact([&](const int32_t _p) { return renderExact(s7, Seconds, _p); });
 	q4(exact, renderFast(48000, Seconds));
-	const auto exact0 = renderExact(withoutTable(s7, FeedbackTable), Seconds);
-	deterministic(exact0, renderFast(48000, Seconds, nullptr, true));
-	q15(exact, exact0);
+	deterministic(renderExact(withoutTable(s7, FeedbackTable), Seconds), renderFast(48000, Seconds, true));
+	q15(renderFast(48000, Seconds + 0.05, false, true), renderFast(44100, Seconds + 0.05, false, true), Seconds);
 	cost(s7);
-
-	std::printf("Checks excused at 44.1 kHz (unit 0 alone, FM fold-over), to judge by ear: %zu\n", g_excused.size());
-	for(const auto& e : g_excused)
-		std::printf("  %s\n", e.c_str());
 
 	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
 	return g_failures ? 1 : 0;

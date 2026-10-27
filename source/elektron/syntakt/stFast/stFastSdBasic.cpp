@@ -28,16 +28,6 @@ namespace syntakt::fast
 		// Unit 3's low-pass reads its table at (frac(0x7f000000, w) + 0x7f00 - w) >> 8 of the third parameter's word
 		// w: entry 127 at 0, 126 above
 		int lowPassEntry(const int32_t _word) { return _word == 0 ? 127 : 126; }
-
-		// 0x40004dc6 as the machine computes it, for the words of the pitch: both products truncated to Q39, their sum
-		// to Q31
-		int32_t interpolateWord(const int32_t* _table, const int32_t _word)
-		{
-			const int32_t i = std::max(_word >> 8, 0);
-			const int64_t f = static_cast<int64_t>(static_cast<uint32_t>(_word - (i << 8)) << 23);
-			const int64_t sum = ((INT32_MAX - f) * _table[i] >> 23) + (f * _table[std::min(i + 1, 127)] >> 23);
-			return static_cast<int32_t>(std::clamp<int64_t>(sum >> 8, INT32_MIN, INT32_MAX));
-		}
 	}
 
 	void pmSine2(Block& _out, const Block& _src1, const float _depth1, const Block& _src2, float* _depth2,
@@ -80,14 +70,7 @@ namespace syntakt::fast
 		}
 	}
 
-	void gain(Block& _buf, const Block& _g)
-	{
-		for(int n = 0; n < BlockSize; ++n)
-			for(int g = 0; g < Lanes; g += 4)
-				_mm_store_ps(_buf.s[n] + g, _mm_mul_ps(_mm_load_ps(_buf.s[n] + g), _mm_load_ps(_g.s[n] + g)));
-	}
-
-	SdBasic::SdBasic(const float _sampleRate)
+	SdBasic::SdBasic()
 	{
 		const auto read = [](float* _dst, const auto& _words)
 		{
@@ -127,21 +110,12 @@ namespace syntakt::fast
 			m_driveFrom[l] = m_driveTo[l] = 1;
 			m_modStage[l] = m_ampStage[l] = 1;
 		}
-		setSampleRate(_sampleRate);
-	}
 
-	void SdBasic::setSampleRate(const float _sampleRate)
-	{
-		m_rate = _sampleRate;
-		// The filters keep their cutoffs; the block-rate envelopes keep the machine's coefficients, stepped on its
-		// 48 kHz block clock (control)
-		const float hp48 = -q31(HpPoleWord);
-		const float hpGain = q31(HpGainWord) / ((1 + hp48) / 2);
-		const float hp = bilinearPole(hp48, _sampleRate);
+		const float hp = -q31(HpPoleWord);
+		const float hpGain = q31(HpGainWord) / ((1 + hp) / 2);
 		m_hp = {hpGain * (1 + hp) / 2, -hpGain * (1 + hp) / 2, hp};
 		for(int i = 0; i < 2; ++i)
-			m_lpPole[i] = bilinearPole(-m_tables.lowPass[126 + i], _sampleRate);
-
+			m_lpPole[i] = -m_tables.lowPass[126 + i];
 		for(int l = 0; l < Lanes; ++l)
 			convert(l);
 	}
@@ -230,7 +204,6 @@ namespace syntakt::fast
 
 	void SdBasic::control()
 	{
-		const double r = MachineRate / m_rate;	// a host block's length in 48 kHz blocks
 		const float modAttack = -q31(ModAttackWord);
 
 		for(int l = 0; l < Lanes; ++l)
@@ -260,8 +233,7 @@ namespace syntakt::fast
 				m_sweepDecay[l] = m_sweepDecayNext[l];
 				m_ampAttack[l] = m_ampAttackNext[l];
 				m_drive[l] = m_driveNext[l];
-				m_at[l] = 0;
-				m_sweepBlock[l] = m_envBlock[l] = 0;
+				m_at[l] = m_envBlock[l] = 0;
 				m_sweep[l] = 2147483647.0 / 2147483648.0;
 
 				// The units' envelopes start from 1 without a ramp; the modulator's from 1 too with the drive on, else
@@ -282,22 +254,20 @@ namespace syntakt::fast
 			}
 
 			// The units' increments at 48 kHz under the sweep (its level a fraction, from INT32_MAX at the trig), as
-			// the machine computes them: in integers, so that a long Hit keeps the machine's phase
-			const auto machine = [this, l](const double _sweep, double* _inc)
+			// the machine computes them: in integers, so that a long Hit keeps the machine's phase. The machine steps
+			// the sweep at the block's end
+			const int64_t m = sweepWord(m_sweepDepth[l], m_sweep[l]);
+			for(int k = 0; k < Units; ++k)
 			{
-				const int64_t m = sweepWord(m_sweepDepth[l], _sweep);
-				for(int k = 0; k < Units; ++k)
-					_inc[k] = increment48(m, Factor[k], m_scale[k][l], m_pitch[l]);
-			};
-			const double end = m_at[l] + r;
-			Increments* const incs[Units] = {&m_inc[0], &m_inc[1], &m_inc[2], &m_inc[3]};
-			splitIncrements<Units>(l, m_at[l], r, m_sweepBlock[l], m_sweep[l], m_sweepDecay[l], machine, incs);
-			m_at[l] = end;
+				const auto inc = static_cast<uint32_t>(std::llround(increment48(m, Factor[k], m_scale[k][l],
+					m_pitch[l]) * 256));
+				for(auto& s : m_inc[k].s)
+					s[l] = inc;
+			}
+			m_sweep[l] *= m_sweepDecay[l];
 
-			// The envelopes step once per 48 kHz block, as on the machine, and each host sample reads their ramps where
-			// it falls on the machine's block clock: at 48 kHz the machine's ramps themselves, at another rate the same
-			// shapes, which a ramp over the host block would cut at the machine blocks' edges (the modulator's and the
-			// amp's fall by half a block at short DECAYs)
+			// The envelopes step once per 48 kHz block, as on the machine, but in the trig's block; each sample reads
+			// their ramps
 			const auto stepEnvelopes = [&]
 			{
 				for(int k = 0; k < Units; ++k)
@@ -341,25 +311,22 @@ namespace syntakt::fast
 				m_driveGain.step(l, driveStep(l));
 				++m_envBlock[l];
 			};
-			const double start = end - r, step = r / BlockSize;
+			const int64_t start = m_at[l]++;	// the block's start, in 48 kHz blocks since the trig
+			while(start >= m_envBlock[l] + 1)
+				stepEnvelopes();
 			for(int n = 0; n < BlockSize; ++n)
 			{
-				const double at = start + n * step;
-				while(at >= static_cast<double>(m_envBlock[l] + 1))
-					stepEnvelopes();
-				const double f = at - static_cast<double>(m_envBlock[l]);
+				const double f = n / static_cast<double>(BlockSize);
 				for(int k = 0; k < Units; ++k)
 					m_gEnv[k].s[n][l] = m_env[k].at(l, f);
 				m_gMod.s[n][l] = m_mod.at(l, f);
 				m_gAmp.s[n][l] = m_amp.at(l, f);
 			}
-			while(end > static_cast<double>(m_envBlock[l] + 1))
-				stepEnvelopes();
 			if(m_gateOff[l] && !pending)
 				m_release[l] = true;
 
-			// The drive's gain ramps over the host block, slow enough
-			const double t = end - static_cast<double>(m_envBlock[l]);
+			// The drive's gain ramps over the block, slow enough
+			constexpr double t = 1;	// the ramps at the block's end
 			m_driveTo[l] = m_driveGain.at(l, t);
 
 			// A pending block fades the modulator and the amp out from where the last block left them, and leaves them
@@ -383,23 +350,7 @@ namespace syntakt::fast
 		}
 	}
 
-	float SdBasic::frequency(const int _track, const int _unit) const
-	{
-		uint32_t top = 0;
-		for(const auto& s : m_inc[_unit].s)
-			top = std::max(top, s[_track]);
-		return static_cast<float>(top / 4294967296.0 * m_rate);
-	}
-
-	float SdBasic::peak(const int _track, const int _unit) const
-	{
-		float p = 0;
-		for(const auto& s : m_b[_unit].s)
-			p = std::max(p, std::abs(s[_track]));
-		return p;
-	}
-
-	void SdBasic::render(float* const* _outputs)
+	const Block& SdBasic::renderBlock()
 	{
 		const FlushDenormals ftz;
 
@@ -438,11 +389,7 @@ namespace syntakt::fast
 		std::copy_n(m_driveTo, Lanes, m_driveFrom);
 
 		for(int l = 0; l < Lanes; ++l)
-		{
-			float* out = _outputs[l];
-			for(int n = 0; n < BlockSize; ++n)
-				out[n] = m_out.s[n][l];
 			m_trigNow[l] = m_trigPending[l];
-		}
+		return m_out;
 	}
 }

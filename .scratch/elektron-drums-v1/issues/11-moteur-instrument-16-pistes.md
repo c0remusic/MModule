@@ -13,6 +13,14 @@ Changer de machine : rampe de 64 échantillons, défauts de la nouvelle, locks d
 cible. Notes 36-51 jouent les pistes. Sorties Main et 15 stéréo, chaque piste sur l'une d'elles. Étage AMP minimal
 (niveau, pan, vélocité) en attendant la chaîne.
 
+Noté le 2026-10-27 depuis le ticket 06 : les machines de `syntakt::fast` voient un trig au début d'un bloc de 32
+échantillons et le font sonner au bloc suivant, comme la machine. Rien ne place encore un trig à l'échantillon près
+dans un bloc. CY ALLOY, rendue à 48 kHz puis rééchantillonnée, place son trig sur sa propre grille de blocs à
+48 kHz : à 44,1 kHz, jusqu'à 28 échantillons de l'hôte (0,66 ms) de son instant idéal, selon le bloc. Ce ticket
+règle les deux, et ajoute la latence du rééchantillonneur (24 échantillons à 44,1 kHz) au délai commun des Hits.
+Depuis, tout le Syntakt rend à 48 kHz par `fast::Host` ; `stFastResampleTest` mesure ce placement sur un cycle de
+147 blocs (de −0,75 à +28,4 échantillons, gigue 0,66 ms).
+
 ## Critère de fin
 
 - Un Hit tombe à l'échantillon de sa note, gigue 0, latence mesurée.

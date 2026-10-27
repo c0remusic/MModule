@@ -35,17 +35,20 @@ namespace
 	constexpr double Seconds = 2;
 	using Hit16 = std::vector<std::vector<double>>;
 
-	// The 16 Hits from their onsets on the fast engine at _fs, TUNE's fine raised by _fine on every Track
+	// The 16 Hits from their onsets on the fast engine at _fs (48 or 44.1 kHz, Host), TUNE's fine raised by _fine on
+	// every Track
 	Hit16 renderFast(const double _fs, const int _fine = 0)
 	{
-		fast::BdModern e(static_cast<float>(_fs));
+		fast::Host<fast::BdModern> e(static_cast<float>(_fs));
 		const int samples = static_cast<int>(Seconds * _fs);
+		// The onset, 32 samples after the trig at 48 kHz and 29.4 at 44.1: there from the 29th, 0.4 sample early
+		const int skip = e.latency() + static_cast<int>(fast::BlockSize * _fs / 48000);
 		Hit16 out(Lanes);
 		std::array<std::array<float, fast::BlockSize>, Lanes> buf{};
 		std::array<float*, Lanes> ptr{};
 		for(int t = 0; t < Lanes; ++t)
 			ptr[t] = buf[t].data();
-		for(int b = 0; b < samples / fast::BlockSize + 2; ++b)
+		for(int b = 0; b < (samples + skip) / fast::BlockSize + 1; ++b)
 		{
 			events(e, b, _fs);
 			if(b == 0 && _fine)
@@ -56,7 +59,7 @@ namespace
 				out[t].insert(out[t].end(), buf[t].begin(), buf[t].end());
 		}
 		for(auto& o : out)
-			o = std::vector<double>(o.begin() + fast::BlockSize, o.begin() + fast::BlockSize + samples);
+			o = std::vector<double>(o.begin() + skip, o.begin() + skip + samples);
 		return out;
 	}
 

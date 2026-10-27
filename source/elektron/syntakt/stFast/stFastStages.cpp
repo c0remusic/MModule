@@ -35,6 +35,13 @@ namespace syntakt::fast
 		}
 	}
 
+	void gain(Block& _buf, const Block& _g)
+	{
+		for(int n = 0; n < BlockSize; ++n)
+			for(int g = 0; g < Lanes; g += 4)
+				_mm_store_ps(_buf.s[n] + g, _mm_mul_ps(_mm_load_ps(_buf.s[n] + g), _mm_load_ps(_g.s[n] + g)));
+	}
+
 	void onePole(Block& _buf, const OnePole& _c, float* _x1, float* _y1)
 	{
 		const V b0 = _mm_set1_ps(_c.b0), b1 = _mm_set1_ps(_c.b1), a1 = _mm_set1_ps(_c.a1);

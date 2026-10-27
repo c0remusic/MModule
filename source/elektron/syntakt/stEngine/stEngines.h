@@ -37,6 +37,10 @@ namespace syntakt
 	{
 		void update(int32_t _pitch, Voice& _v, uint32_t _params, const Rom& _rom);
 		void render(int32_t* _out, Voice& _v, const Rom& _rom);
+
+		// 0x4000512c: a biquad in place, y = b0 x + b1 x1 + b2 x2 - 2 a1 y1 - a2 y2, every sample's terms summed before
+		// one truncation. _b holds b0-b2 and at +0x18 x1, x2; _a holds a1, a2 and at +0x18 y1, y2
+		void biquad(int32_t* _buf, int32_t* _b, int32_t* _a);
 	}
 
 	namespace pcCarbon
