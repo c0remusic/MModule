@@ -32,35 +32,6 @@ namespace syntakt::sdVintage
 		constexpr uint32_t Decay2 = 0x40039e38;
 		constexpr uint32_t Decay01 = 0x4003a038;
 		constexpr uint32_t Decay3 = 0x40028438;	// indexed by byte 16 << 7 | byte 10
-
-		// 0x40005016: a biquad in place, y = 2 (c0 x + c1 x1 + c2 x2 - c3 y1 - c4 y2) saturated, kept as the state, and
-		// written doubled again. Coefficients at _c[0..4], state x1, x2, y1, y2 at _c[5..8]
-		void biquad(int32_t* _buf, int32_t* _c)
-		{
-			const int32_t c0 = _c[0], c1 = _c[1], c2 = _c[2], c3 = _c[3], c4 = _c[4];
-			int32_t x1 = _c[5], x2 = _c[6], y1 = _c[7], y2 = _c[8];
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				Emac acc;
-				acc.mac(c2, x2);
-				acc.mac(c1, x1);
-				const int32_t x0 = _buf[n];
-				acc.mac(c0, x0);
-				acc.msac(c4, y2);
-				acc.msac(c3, y1);
-				x2 = x1;
-				x1 = x0;
-				y2 = y1;
-				const int32_t y = acc.storeClear();
-				y1 = addSat(y, y);
-				_buf[n] = addSat(y1, y1);
-			}
-			_c[5] = x1;
-			_c[6] = x2;
-			_c[7] = y1;
-			_c[8] = y2;
-		}
-
 	}
 
 	void update(const int32_t _pitch, Voice& _v, const uint32_t _params, const Rom& _rom)

@@ -43,6 +43,57 @@ namespace syntakt::fast
 	};
 	void onePole(Block& _buf, const OnePole& _c, float* _x1, float* _y1);
 
+	// First-order IIR in place, y = b x + b x1 + a y1, its coefficients per lane
+	void onePoleLanes(Block& _buf, const float* _b, const float* _a, float* _x1, float* _y1);
+
+	// A biquad in place, y = b0 x + b1 x1 + b2 x2 - a1 y1 - a2 y2 (_c), the same coefficients on every lane, each
+	// output clipped to [-1, 1] as the machine's store saturates; _s: x1, x2, y1, y2 per lane
+	void biquad(Block& _buf, const float* _c, float (*_s)[Lanes]);
+
+	// Four buffers mixed into _out, gain i ramped from _from[i] to _to[i] (0x40004cd6); _x[3] may be _out
+	void mix4(const Block* const (&_x)[4], Block& _out, const float (*_from)[Lanes], const float (*_to)[Lanes]);
+
+	// 0x400044e2: noise from a lagged additive generator per lane (_s: its four words, s[k][lane]), in the machine's
+	// integers; a sample is the generator's first sum where its second is above _gate (signed), else 0
+	void gatedNoise(Block& _out, uint32_t (*_s)[Lanes], int32_t _gate);
+
+	// The gated noise of the 16 Tracks (gatedNoise), each from its seed at the Track's first trig. The seeds are a
+	// law: word w of Track t is splitmix32's output 4 t + w + 1 from 0. The firmware draws them from its boot generator
+	// instead, so the noise is statistically the firmware's but not its sample sequence; a test gives the exact port's
+	// (seed, before the Track's first trig)
+	struct NoiseGenerator
+	{
+		alignas(16) uint32_t words[4][Lanes]{}, seeds[4][Lanes]{};
+
+		NoiseGenerator()
+		{
+			for(uint32_t l = 0; l < Lanes; ++l)
+				for(uint32_t w = 0; w < 4; ++w)
+				{
+					uint32_t z = (4 * l + w) * 0x9e3779b9u + 0x9e3779b9u;
+					z = (z ^ (z >> 16)) * 0x85ebca6bu;
+					z = (z ^ (z >> 13)) * 0xc2b2ae35u;
+					seeds[w][l] = z ^ (z >> 16);
+				}
+		}
+
+		// Track _l's four words from its next start (start)
+		void seed(const int _l, const int32_t* _words)
+		{
+			for(int w = 0; w < 4; ++w)
+				seeds[w][_l] = static_cast<uint32_t>(_words[w]);
+		}
+
+		// Track _l's first trig: its generator from its seed
+		void start(const int _l)
+		{
+			for(int w = 0; w < 4; ++w)
+				words[w][_l] = seeds[w][_l];
+		}
+
+		void render(Block& _out, const int32_t _gate) { gatedNoise(_out, words, _gate); }
+	};
+
 	// The oscillators. Phases are 32-bit fractions of a cycle (an integer accumulator, so that a 2 s Hit does not drift
 	// from float rounding), increments the same, one per sample. Phase-modulation depths are in cycles per unit of
 	// input
@@ -66,6 +117,12 @@ namespace syntakt::fast
 	// read as the machine reads its waves
 	void pmWave(Block& _out, const Block* _src, const float* _from, const float* _to, uint32_t* _phase,
 		const Increments& _inc, const float* _wave);
+
+	// A wave as pmWave reads it, phase-modulated by its own previous sample under its envelope _g (0x40003958): _out
+	// the wave, _scaled it times _g, _last the previous scaled sample; the feedback ramped from _fb to _fbTo (left
+	// there), in cycles per unit of input
+	void feedbackWave(Block& _out, Block& _scaled, const Block& _g, float* _last, float* _fb, const float* _fbTo,
+		uint32_t* _phase, const Increments& _inc, const float* _wave);
 
 	// Drive into a hard clip under a ramped gain: _buf = g post clip(drive x)
 	void driveClip(Block& _buf, const float* _from, const float* _to, const float* _drive, const float* _post);
@@ -185,6 +242,41 @@ namespace syntakt::fast
 		float at(const int _l, const double _t) const
 		{
 			return prev[_l] + static_cast<float>(_t) * (level[_l] - prev[_l]);
+		}
+	};
+
+	// The envelope of a unit with an attack (0x40003c0e) and of a modulator (0x40003df2): from a trig, up by its step a
+	// block to full, saturated, held full a block, then a first-order step toward a target. A step of 0 holds it where
+	// it starts
+	struct RiseEnvelope : Ramp48
+	{
+		bool rising[Lanes]{};
+
+		// A trig: the ramp from _from to _start over the trig's block, rising from there
+		void trig(const int _l, const float _from, const float _start)
+		{
+			rising[_l] = true;
+			prev[_l] = _from;
+			level[_l] = _start;
+		}
+
+		// One 48 kHz block
+		void stepRise(const int _l, const float _attack, const float _a, const float _target)
+		{
+			const float v = level[_l];
+			if(!rising[_l])
+			{
+				stepToward(_l, _a, _target);
+			}
+			else if(v == 1)
+			{
+				rising[_l] = false;
+				step(_l, v);
+			}
+			else
+			{
+				step(_l, std::min(v + _attack, 1.0f));
+			}
 		}
 	};
 

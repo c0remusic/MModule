@@ -95,10 +95,4 @@ namespace syntakt::fast
 
 		Block m_b[Units], m_out;
 	};
-
-	// The stages CY ALLOY alone uses
-
-	// A biquad in place, y = b0 x + b1 x1 + b2 x2 - a1 y1 - a2 y2 (_c), the same coefficients on every lane, each
-	// output clipped to [-1, 1] as the machine's store saturates; _s: x1, x2, y1, y2 per lane
-	void biquad(Block& _buf, const float* _c, float (*_s)[Lanes]);
 }

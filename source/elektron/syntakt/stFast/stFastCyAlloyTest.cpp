@@ -78,17 +78,6 @@ namespace
 	// A phase-modulation depth word in cycles per unit of input
 	float cycles(const int32_t _depth) { return static_cast<float>(q31(_depth) * 128); }
 
-	// The wave as the fast engine reads it, from stFastTables' formula
-	std::vector<float> fastWave()
-	{
-		const auto w = fast::tables::cyAlloyWave();
-		std::vector<float> f(258);
-		for(int i = 0; i < 257; ++i)
-			f[static_cast<size_t>(i)] = static_cast<float>(q31(w[static_cast<size_t>(i)]));
-		f[257] = f[256];
-		return f;
-	}
-
 	// _seconds of the 16 Hits from the fast engine at _fs (bench::fastHits), the depth table at 0 (_noDepth)
 	std::vector<std::vector<double>> renderFast(const double _fs, const double _seconds, const bool _noDepth = false,
 		const bool _fromTrig = false)
@@ -238,7 +227,7 @@ namespace
 		const Rom& rom = st.rom;
 		constexpr int Blocks = 1500;	// 1 s
 		bool ok = true, chaoticOk = true;
-		const auto wave = fastWave();
+		const auto wave = fastWave(fast::tables::cyAlloyWave());
 
 		// Unit 2's feedback is the depth table's word >> 3; the bench runs the routine (0x400035de) on unit 0
 		q3FeedbackSine(st, DepthTable, "parameter 3 at", ok, chaoticOk, 3);

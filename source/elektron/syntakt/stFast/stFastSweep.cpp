@@ -1,7 +1,7 @@
 // A diagnostic, by hand, not a test: every value of every sound parameter of a fast machine against the exact port
 // at 48 kHz, through the bench (stFastBench.h).
 //
-//	stFastSweep sweep MACHINE OUT.csv	MACHINE bd, sd, cy or pc
+//	stFastSweep sweep MACHINE OUT.csv	MACHINE bd, sd, cy, pc or sv
 //	stFastSweep ab OUTDIR CASES.txt		A/B WAVs and an ABX page for the cases, one a line: MACHINE PARAM VALUE, or
 //										MACHINE hitN (BD's bench Hits, PC CARBON's Hit 10)
 //
@@ -12,7 +12,7 @@
 // the level there below the peak; the pitch in cents (bench::peakHz); the null (SNR, worst 10 ms, worst residual third
 // octave). A value is chaotic where the exact port, its phases 1 LSB on, fails Q4's measures against itself
 // (bench::chaoticSelf); there both engines are measured again with the machine's feedback table at 0 (none in PC
-// CARBON), the row flagged.
+// CARBON), the row flagged. A machine with noise (SD VINTAGE) starts it from the exact port's seeds (fastHits).
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7; what is written is derived from it, so it must go outside the
 // repository.
@@ -30,6 +30,7 @@
 #include "stFastCyAlloy.h"
 #include "stFastPcCarbon.h"
 #include "stFastSdBasic.h"
+#include "stFastSdVintage.h"
 #include "stSection7.h"
 
 namespace
@@ -63,6 +64,8 @@ namespace
 			{"tune", "spread", "depth", "ratio", "levels", "drive", "hold", "decay", "note"}},
 		{"pc", 3, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::PcCarbon::Units, 0,
 			{"tune", "ratios", "depth", "sweep", "levels", "drive", "hold", "decay", "note"}},
+		{"sv", 6, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::SdVintage::Units, 0x40039a38,
+			{"tune", "ratios", "balance", "sweep", "u3decay", "drive", "hold", "decay", "note"}},
 	};
 
 	const Machine* machine(const std::string& _name)
@@ -319,7 +322,8 @@ namespace
 			case 0: renderCase<fast::BdModern>(_s7, c, _dir, json, first); break;
 			case 1: renderCase<fast::SdBasic>(_s7, c, _dir, json, first); break;
 			case 2: renderCase<fast::CyAlloy>(_s7, c, _dir, json, first); break;
-			default: renderCase<fast::PcCarbon>(_s7, c, _dir, json, first); break;
+			case 3: renderCase<fast::PcCarbon>(_s7, c, _dir, json, first); break;
+			default: renderCase<fast::SdVintage>(_s7, c, _dir, json, first); break;
 			}
 		json << "\n]\n";
 		std::ofstream(_dir + "pairs.json") << json.str();
@@ -389,6 +393,7 @@ int main(const int _argc, char** _argv)
 		std::printf("%s is not OS 1.41's section 7\n", path);
 		return 1;
 	}
+	g_section7 = s7;	// fastHits seeds a machine with noise from it
 	// Firmware-derived output never goes into the repository: OUT.csv (sweep), OUTDIR (ab), OUT.txt (sens)
 	const std::string mode = _argv[1], target = mode == "ab" ? _argv[2] : _argv[3];
 	std::error_code error;
@@ -423,7 +428,8 @@ int main(const int _argc, char** _argv)
 				case 0: test = renderFast<fast::BdModern>(hits, _noChaos); break;
 				case 1: test = renderFast<fast::SdBasic>(hits, _noChaos); break;
 				case 2: test = renderFast<fast::CyAlloy>(hits, _noChaos); break;
-				default: test = renderFast<fast::PcCarbon>(hits, _noChaos); break;
+				case 3: test = renderFast<fast::PcCarbon>(hits, _noChaos); break;
+				default: test = renderFast<fast::SdVintage>(hits, _noChaos); break;
 				}
 				const auto s = measureHit(ref[0], self[0]), t = measureHit(ref[0], test[0]);
 				std::fprintf(f, "%s %s %s, %s: exact 1 LSB on %.1f dB re peak, cells %.3f dB, SNR %.1f, 10 ms %.1f dB; "
@@ -466,6 +472,7 @@ int main(const int _argc, char** _argv)
 	case 0: return sweep<fast::BdModern>(s7, *m, _argv[3]);
 	case 1: return sweep<fast::SdBasic>(s7, *m, _argv[3]);
 	case 2: return sweep<fast::CyAlloy>(s7, *m, _argv[3]);
-	default: return sweep<fast::PcCarbon>(s7, *m, _argv[3]);
+	case 3: return sweep<fast::PcCarbon>(s7, *m, _argv[3]);
+	default: return sweep<fast::SdVintage>(s7, *m, _argv[3]);
 	}
 }

@@ -179,16 +179,21 @@ namespace syntakt::fast::bench
 		return worst;
 	}
 
-	// The spectral peak between 20 Hz and 8 kHz, interpolated on the log power around the largest bin
+	// The spectral peak between 20 Hz and 8 kHz, both bins included, interpolated on the log power around the largest
+	// local maximum: not the range's first bin where it lies on the falling skirt of a fundamental below 20 Hz, whose
+	// interpolation divides by nearly 0 (SD VINTAGE at notes 6-12). NaN where the range holds no maximum (a flat or
+	// silent spectrum), which fails a pitch check
 	inline double peakHz(const std::vector<double>& _x, const double _fs)
 	{
 		const auto p = powerSpectrum(_x, size_t(1) << 20);
 		const double n = 2.0 * static_cast<double>(p.size());
 		const auto lo = static_cast<size_t>(20 * n / _fs), hi = static_cast<size_t>(8000 * n / _fs);
-		size_t k = lo;
-		for(size_t i = lo; i < hi; ++i)
-			if(p[i] > p[k])
+		size_t k = 0;
+		for(size_t i = lo; i <= hi; ++i)
+			if(p[i] > p[i - 1] && p[i] >= p[i + 1] && (!k || p[i] > p[k]))
 				k = i;
+		if(!k)
+			return std::nan("");
 		const double a = std::log(p[k - 1]), b = std::log(p[k]), c = std::log(p[k + 1]);
 		return (static_cast<double>(k) + 0.5 * (a - c) / (a - 2 * b + c)) * _fs / n;
 	}

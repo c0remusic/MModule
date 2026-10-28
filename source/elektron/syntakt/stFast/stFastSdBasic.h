@@ -88,9 +88,9 @@ namespace syntakt::fast
 		double m_sweepDecay[Lanes]{}, m_sweep[Lanes]{};
 		int32_t m_sweepDepth[Lanes]{};
 		float m_decay[Units][Lanes]{}, m_ampAttack[Lanes]{};
-		Ramp48 m_env[Units], m_mod;
+		Ramp48 m_env[Units];
+		RiseEnvelope m_mod;
 		AmpEnvelope m_amp;
-		int m_modStage[Lanes]{};
 		Drive m_drive;
 
 		// The envelopes over the block, sample by sample (the units', the modulator's, the amp's), the latter two at
@@ -109,7 +109,4 @@ namespace syntakt::fast
 	// there)
 	void pmSine2(Block& _out, const Block& _src1, float _depth1, const Block& _src2, float* _depth2,
 		const float* _depth2Target, uint32_t* _phase, const Increments& _inc);
-
-	// First-order IIR in place, y = b x + b x1 + a y1, its coefficients per lane
-	void onePoleLanes(Block& _buf, const float* _b, const float* _a, float* _x1, float* _y1);
 }

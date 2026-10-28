@@ -82,6 +82,10 @@ namespace syntakt
 	// when the generator's second sum is above _s[4], signed
 	void gatedNoise(int32_t* _out, int32_t* _s);
 
+	// 0x40005016: a biquad in place, y = 2 (c0 x + c1 x1 + c2 x2 - c3 y1 - c4 y2) saturated, kept as the state, and
+	// written doubled again (SD VINTAGE's noise). Coefficients at _c[0..4], state x1, x2, y1, y2 at _c[5..8]
+	void biquad(int32_t* _buf, int32_t* _c);
+
 	// 0x40004cd6: four buffers mixed into _out with gains ramped over the block: targets at 0x08 + 4 i, current
 	// values at 0x18 + 4 i. _x[3] may be _out itself
 	void mix4(const int32_t* const* _x, int32_t* _out, Voice& _v);

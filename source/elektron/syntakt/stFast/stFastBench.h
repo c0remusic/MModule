@@ -15,6 +15,8 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "stBoot.h"
@@ -93,6 +95,9 @@ namespace syntakt::fast::bench
 			m_sram->at(Voice::addressOf(_t) + 0x80 * _k + 0x6c) += _lsb;
 		}
 
+		// The voice CPU's own globals: the generator voices draw their noise seeds from
+		const Globals& globals() const { return m_globals; }
+
 	private:
 		std::unique_ptr<Sram> m_sram;
 		Globals m_globals;
@@ -118,6 +123,33 @@ namespace syntakt::fast::bench
 		void render() { a.render(); b.render(); }
 		const int32_t* out(const int _t) { return cpu(_t).out(_t & 7); }
 	};
+
+	// The six words (0x570-0x584) each Track of the exact port draws when its first trig puts it on another machine,
+	// the 16 changing machine in one block: on each voice CPU, in the voices' order, a voice draws six from the CPU's
+	// generator as the boot leaves it (0x40003ee0). A machine's noise reads some of them (SD VINTAGE's the last four):
+	// what a fast machine with noise takes to play the exact port's, its testSeedNoise picking the words it reads
+	inline std::array<std::array<int32_t, 6>, Lanes> exactNoiseSeeds(const std::vector<int32_t>& _s7)
+	{
+		Globals g = Exact(_s7).globals();
+		std::array<std::array<int32_t, 6>, Lanes> seeds{};
+		for(size_t v = 0; v < 8; ++v)
+		{
+			drawRandom(seeds[v].data(), 6, g.rng.data());
+			seeds[v + 8] = seeds[v];
+		}
+		return seeds;
+	}
+
+	// The section 7 the test loaded (loadSection7OrSkip), from which fastHits seeds a machine with noise as the exact
+	// port's
+	inline std::vector<int32_t> g_section7;
+
+	// Whether a fast machine takes the exact port's noise seeds (its testSeedNoise)
+	template<typename Machine, typename = void>
+	struct SeedsNoise : std::false_type {};
+	template<typename Machine>
+	struct SeedsNoise<Machine, std::void_t<decltype(std::declval<Machine&>().testSeedNoise(0,
+		static_cast<const int32_t*>(nullptr)))>> : std::true_type {};
 
 	// ---- the Hits ----
 
@@ -427,6 +459,14 @@ namespace syntakt::fast::bench
 		Setup&& _setup, const bool _fromTrig = false)
 	{
 		Host<Machine> e(static_cast<float>(_fs));
+		if constexpr(SeedsNoise<Machine>::value)
+		{
+			if(g_section7.empty())
+				throw std::logic_error("a machine with noise needs the section 7 loaded (loadSection7OrSkip)");
+			static const auto seeds = exactNoiseSeeds(g_section7);
+			for(int t = 0; t < Lanes; ++t)
+				e.testSeedNoise(t, seeds[static_cast<size_t>(t)].data());
+		}
 		_setup(e);
 		const int samples = static_cast<int>(_seconds * _fs);
 		// The onset at 44.1 kHz is 29.4 samples after the trig: from the 29th, 0.4 sample before it
@@ -554,6 +594,17 @@ namespace syntakt::fast::bench
 	}
 
 	// ---- Q2 and Q3: a stage against its integer original ----
+
+	// A wave as a fast engine reads it: its table's 257 words (stFastTables) as floats, and a copy of the last
+	template<typename Words>
+	std::vector<float> fastWave(const Words& _w)
+	{
+		std::vector<float> f(258);
+		for(size_t i = 0; i < 257; ++i)
+			f[i] = static_cast<float>(q31(_w[i]));
+		f[257] = f[256];
+		return f;
+	}
 
 	// A booted voice CPU's SRAM for the integer stages, 16 voices' fields on two of them
 	struct Stage
@@ -1217,6 +1268,7 @@ namespace syntakt::fast::bench
 		auto s7 = loadSection7(path);
 		if(s7.empty())
 			std::printf("%s is not OS 1.41's section 7: skipped\n", path);
+		g_section7 = s7;
 		return s7;
 	}
 }

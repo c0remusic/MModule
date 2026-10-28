@@ -26,32 +26,6 @@ namespace syntakt::fast
 		constexpr int PitchOffset = 40;
 	}
 
-	void biquad(Block& _buf, const float* _c, float (*_s)[Lanes])
-	{
-		const V b0 = _mm_set1_ps(_c[0]), b1 = _mm_set1_ps(_c[1]), b2 = _mm_set1_ps(_c[2]);
-		const V a1 = _mm_set1_ps(_c[3]), a2 = _mm_set1_ps(_c[4]);
-		for(int g = 0; g < Lanes; g += 4)
-		{
-			V x1 = _mm_load_ps(_s[0] + g), x2 = _mm_load_ps(_s[1] + g);
-			V y1 = _mm_load_ps(_s[2] + g), y2 = _mm_load_ps(_s[3] + g);
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				const V x = _mm_load_ps(_buf.s[n] + g);
-				const V f = _mm_add_ps(_mm_add_ps(_mm_mul_ps(b0, x), _mm_mul_ps(b1, x1)), _mm_mul_ps(b2, x2));
-				const V y = clip(_mm_sub_ps(f, _mm_add_ps(_mm_mul_ps(a1, y1), _mm_mul_ps(a2, y2))));
-				x2 = x1;
-				x1 = x;
-				y2 = y1;
-				y1 = y;
-				_mm_store_ps(_buf.s[n] + g, y);
-			}
-			_mm_store_ps(_s[0] + g, x1);
-			_mm_store_ps(_s[1] + g, x2);
-			_mm_store_ps(_s[2] + g, y1);
-			_mm_store_ps(_s[3] + g, y2);
-		}
-	}
-
 	CyAlloy::CyAlloy()
 		: m_drive(-q31(FallPoleWord), -q31(RisePoleWord), q31(DriveOnWord), {4 * q31(DriveOnWord), q31(INT32_MAX)},
 			{1.0f, q31(PostOffWord)})

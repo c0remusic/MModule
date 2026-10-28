@@ -1,7 +1,7 @@
-// syntakt::fast::tables, the tables BD MODERN, SD BASIC, CY ALLOY and PC CARBON read made by formula, against OS
-// 1.41's section 7 word for word: per table, exact or the number of words that differ and the largest error (in LSB of
-// Q31, and of the table's own unit: the time constant of a decay, the share of full scale of a level). A table its
-// header calls exact that differs fails.
+// syntakt::fast::tables, the tables BD MODERN, SD BASIC, CY ALLOY, PC CARBON and SD VINTAGE read made by formula,
+// against OS 1.41's section 7 word for word: per table, exact or the number of words that differ and the largest
+// error (in LSB of Q31, and of the table's own unit: the time constant of a decay, the share of full scale of a
+// level). A table its header calls exact that differs fails.
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7. Exit 77 without it.
 
@@ -210,6 +210,30 @@ int main()
 	compareAll(s7, "PC CARBON", pcCarbon, syntakt::fast::tables::pcCarbon);
 	compare(s7, "DecayCurve", 0x40022004, syntakt::fast::tables::pcCarbonDecayCurve(), true, true, 0);
 	compare(s7, "Wave", 0x40024804, syntakt::fast::tables::pcCarbonWave(), false, false, 3500);
+
+	using syntakt::fast::tables::SdVintage;
+	const Entry<SdVintage> sdVintage[] = {
+		{"Ratio0", 0x40038438, SdVintage::Ratio0, false, 0},
+		{"Ratio1", 0x40038638, SdVintage::Ratio1, false, 0},
+		{"SweepDecay", 0x40038838, SdVintage::SweepDecay, true, 0},
+		{"SweepDepth", 0x40038a38, SdVintage::SweepDepth, false, 0},
+		{"Depth2", 0x40038c38, SdVintage::Depth2, false, 0},
+		{"Depth1", 0x40038e38, SdVintage::Depth1, false, 0},
+		{"Depth0", 0x40039038, SdVintage::Depth0, false, 0},
+		{"NoiseLp", 0x40039238, SdVintage::NoiseLp, false, 0},
+		{"Level3", 0x40039438, SdVintage::Level3, false, 0},
+		{"Level2", 0x40039638, SdVintage::Level2, false, 0},
+		{"Level1", 0x40039838, SdVintage::Level1, false, 0},
+		{"Feedback", 0x40039a38, SdVintage::Feedback, false, 0},
+		{"ModDecay", 0x40039c38, SdVintage::ModDecay, true, 0},
+		{"Decay2", 0x40039e38, SdVintage::Decay2, true, 0},
+		{"Decay01", 0x4003a038, SdVintage::Decay01, true, 0},
+	};
+	compareAll(s7, "SD VINTAGE", sdVintage, syntakt::fast::tables::sdVintage);
+	compare(s7, "Decay3", 0x40028438, syntakt::fast::tables::sdVintageDecay3(), true, true, 0);
+	// The waves' entry 128, the firmware's -1 where the law gives 0, bound apart; every other word exact
+	compare(s7, "WaveU2", 0x40059af4, syntakt::fast::tables::sdVintageWaveU2(), false, false, 0, {{128, 128, 1}});
+	compare(s7, "WaveU3", 0x400596f0, syntakt::fast::tables::sdVintageWaveU3(), false, false, 0, {{128, 128, 1}});
 
 	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
 	return g_failures ? 1 : 0;

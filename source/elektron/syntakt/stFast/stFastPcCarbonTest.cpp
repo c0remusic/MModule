@@ -71,17 +71,6 @@ namespace
 	// A phase-modulation depth word in cycles per unit of input
 	float cycles(const int32_t _depth) { return static_cast<float>(q31(_depth) * 128); }
 
-	// Unit 0's wave as the fast engine reads it, from stFastTables' formula
-	std::vector<float> fastWave()
-	{
-		const auto w = fast::tables::pcCarbonWave();
-		std::vector<float> f(258);
-		for(int i = 0; i < 257; ++i)
-			f[static_cast<size_t>(i)] = static_cast<float>(q31(w[static_cast<size_t>(i)]));
-		f[257] = f[256];
-		return f;
-	}
-
 	// The sine the fast engine reads (fast::sineTable)
 	std::vector<float> sine()
 	{
@@ -199,7 +188,7 @@ namespace
 		const Rom& rom = st.rom;
 		constexpr int Blocks = 1500;	// 1 s
 		bool ok = true;
-		const auto wave = fastWave();
+		const auto wave = fastWave(fast::tables::pcCarbonWave());
 		const auto sineTable = sine();
 		alignas(16) static constexpr float Zero[Lanes] = {};
 

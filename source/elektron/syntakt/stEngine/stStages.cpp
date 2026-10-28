@@ -658,6 +658,32 @@ void gatedNoise(int32_t* _out, int32_t* _s)
 		}
 	}
 
+	void biquad(int32_t* _buf, int32_t* _c)
+	{
+		const int32_t c0 = _c[0], c1 = _c[1], c2 = _c[2], c3 = _c[3], c4 = _c[4];
+		int32_t x1 = _c[5], x2 = _c[6], y1 = _c[7], y2 = _c[8];
+		for(int n = 0; n < BlockSize; ++n)
+		{
+			Emac acc;
+			acc.mac(c2, x2);
+			acc.mac(c1, x1);
+			const int32_t x0 = _buf[n];
+			acc.mac(c0, x0);
+			acc.msac(c4, y2);
+			acc.msac(c3, y1);
+			x2 = x1;
+			x1 = x0;
+			y2 = y1;
+			const int32_t y = acc.storeClear();
+			y1 = addSat(y, y);
+			_buf[n] = addSat(y1, y1);
+		}
+		_c[5] = x1;
+		_c[6] = x2;
+		_c[7] = y1;
+		_c[8] = y2;
+	}
+
 	// 0x40004cd6: four buffers mixed into _out with gains ramped over the block: targets at 0x08 + 4 i, current
 	// values at 0x18 + 4 i. _x[3] may be _out itself
 	void mix4(const int32_t* const* _x, int32_t* _out, Voice& _v)

@@ -5,8 +5,8 @@ cmake_minimum_required(VERSION 3.15)
 # integer port (stEngine) is their reference, in the tests only: their tables are made by formula (stFastTables), and
 # nothing of the firmware is read.
 add_library(stFast STATIC stFastStages.h stFastStages.cpp stFastBdModern.h stFastBdModern.cpp stFastSdBasic.h
-	stFastSdBasic.cpp stFastCyAlloy.h stFastCyAlloy.cpp stFastPcCarbon.h stFastPcCarbon.cpp stFastResample.h
-	stFastResample.cpp stFastTables.h stFastTables.cpp)
+	stFastSdBasic.cpp stFastCyAlloy.h stFastCyAlloy.cpp stFastPcCarbon.h stFastPcCarbon.cpp stFastSdVintage.h
+	stFastSdVintage.cpp stFastResample.h stFastResample.cpp stFastTables.h stFastTables.cpp)
 target_include_directories(stFast PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(TARGET stFast PROPERTY FOLDER "Elektron/syntakt")
 
@@ -46,6 +46,13 @@ if(BUILD_TESTING)
 	set_property(TARGET stFastPcCarbonTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stFastPcCarbonTest COMMAND stFastPcCarbonTest)
 	set_tests_properties(stFastPcCarbonTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# SD VINTAGE the same (SYNTAKT_SECTION7: exit 77 without it)
+	add_executable(stFastSdVintageTest stFastSdVintageTest.cpp stFastBench.h stFastMetrics.h)
+	target_link_libraries(stFastSdVintageTest PRIVATE stFast stEngine)
+	set_property(TARGET stFastSdVintageTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME stFastSdVintageTest COMMAND stFastSdVintageTest)
+	set_tests_properties(stFastSdVintageTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 	# The resampler that brings the fast Syntakt's 48 kHz to a 44.1 kHz host (Q11): no firmware
 	add_executable(stFastResampleTest stFastResampleTest.cpp stFastBdModernHits.h stFastBench.h stFastMetrics.h)

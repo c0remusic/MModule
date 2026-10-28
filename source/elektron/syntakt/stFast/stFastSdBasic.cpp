@@ -52,24 +52,6 @@ namespace syntakt::fast
 		std::copy_n(_depth2Target, Lanes, _depth2);
 	}
 
-	void onePoleLanes(Block& _buf, const float* _b, const float* _a, float* _x1, float* _y1)
-	{
-		for(int g = 0; g < Lanes; g += 4)
-		{
-			const V b = _mm_load_ps(_b + g), a = _mm_load_ps(_a + g);
-			V x1 = _mm_load_ps(_x1 + g), y1 = _mm_load_ps(_y1 + g);
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				const V x = _mm_load_ps(_buf.s[n] + g);
-				y1 = _mm_add_ps(_mm_mul_ps(b, _mm_add_ps(x, x1)), _mm_mul_ps(a, y1));
-				x1 = x;
-				_mm_store_ps(_buf.s[n] + g, y1);
-			}
-			_mm_store_ps(_x1 + g, x1);
-			_mm_store_ps(_y1 + g, y1);
-		}
-	}
-
 	SdBasic::SdBasic() : m_drive(-q31(FallPoleWord), -q31(RisePoleWord), 0.5f, {4.0f, 0.5f}, {1.0f, 1.0f})
 	{
 		using tables::SdBasic;
@@ -92,10 +74,6 @@ namespace syntakt::fast
 		readQ31(t.depthU3, tables::sdBasic(SdBasic::DepthU3));
 		readQ31(t.lowPass, tables::sdBasic(SdBasic::LowPass));
 		copyWords(t.exp2, tables::exp2());
-
-		// The voice before its first trig: silent, the drive's gain at 1 recovering (Drive)
-		for(int l = 0; l < Lanes; ++l)
-			m_modStage[l] = 1;
 
 		const float hp = -q31(HpPoleWord);
 		const float hpGain = q31(HpGainWord) / ((1 + hp) / 2);
@@ -209,9 +187,7 @@ namespace syntakt::fast
 				// The units' envelopes start from 1 without a ramp; the modulator's from 1 too with the drive on, else
 				// it rises from half its step, ramped from the silence of the trig's block; the amp's rises from one
 				// and a half of its step, ramped too; the drive's gain falls from 1
-				m_modStage[l] = 0;
-				m_mod.prev[l] = m_drive.on[l] ? 1.0f : 0.0f;
-				m_mod.level[l] = m_drive.on[l] ? 1.0f : modAttack / 2;
+				m_mod.trig(l, m_drive.on[l] ? 1.0f : 0.0f, m_drive.on[l] ? 1.0f : modAttack / 2);
 				m_amp.trigRise(l, m_ampAttack[l]);
 			}
 
@@ -229,17 +205,7 @@ namespace syntakt::fast
 				for(int k = 0; k < Units; ++k)
 					m_env[k].stepToward(l, m_decay[k][l], m_target[k][l]);
 
-				const float mod = m_mod.level[l];
-				if(m_modStage[l] != 0)
-					m_mod.step(l, m_modDecay[l] * mod);
-				else if(mod == 1)
-				{
-					m_modStage[l] = 1;
-					m_mod.step(l, mod);
-				}
-				else
-					m_mod.step(l, std::min(mod + modAttack, 1.0f));
-
+				m_mod.stepRise(l, modAttack, m_modDecay[l], 0);
 				m_amp.stepAmp(l, m_ampDecay[l], m_ampAttack[l], m_hold[l]);
 				m_drive.step(l);
 			}

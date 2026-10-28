@@ -3,8 +3,8 @@
 #include <array>
 #include <cstdint>
 
-// The tables syntakt::fast::BdModern, SdBasic, CyAlloy and PcCarbon read, made by formula rather than read from the
-// firmware
+// The tables syntakt::fast::BdModern, SdBasic, CyAlloy, PcCarbon and SdVintage read, made by formula rather than read
+// from the firmware
 // (ticket 07 of elektron-drums-v1), as the firmware's Q31 words. stFastTablesTest compares each with OS 1.41's
 // section 7; the exact ones were checked with MSVC's runtime, and another libm may round a word 1 LSB apart.
 namespace syntakt::fast::tables
@@ -80,6 +80,25 @@ namespace syntakt::fast::tables
 
 	// PC CARBON's unit 0 wave (0x40024804): 257 full words. Approximate
 	std::array<int32_t, 257> pcCarbonWave();
+
+	// SD VINTAGE's 128-entry tables (section 7 at 0x40038438 to 0x4003a238): every one exact
+	enum class SdVintage
+	{
+		Ratio0, Ratio1, SweepDecay, SweepDepth, Depth2, Depth1, Depth0, NoiseLp, Level3, Level2, Level1, Feedback,
+		ModDecay, Decay2, Decay01, Count
+	};
+
+	constexpr bool exact(SdVintage) { return true; }
+
+	std::array<int32_t, 128> sdVintage(SdVintage _t);
+
+	// SD VINTAGE's unit 3 decay (0x40028438), entry DECAY << 7 | the fifth parameter, both bytes: 16384 words. Exact
+	std::array<int32_t, 128 * 128> sdVintageDecay3();
+
+	// SD VINTAGE's units 2 and 3 waves (0x40059af4 and 0x400596f0, which the boot copies to RAM 0x8000a484 and
+	// 0x8000a080): 257 words each. Approximate: entry 128, about 2e-9 of full scale, is 1 LSB off
+	std::array<int32_t, 257> sdVintageWaveU2();
+	std::array<int32_t, 257> sdVintageWaveU3();
 
 	// Unit 2's wave (0x4001e7fc): 257 words, 16-bit samples in the top half. Exact
 	std::array<int32_t, 257> wave();

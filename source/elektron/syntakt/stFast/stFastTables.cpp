@@ -593,6 +593,149 @@ namespace syntakt::fast::tables
 		return t;
 	}
 
+	// ---- SD VINTAGE ----
+	//
+	// Its tables are laws of x = i / 127, the parameter's own place, each a round value held or joined to the next by a
+	// power of the place between them, u = (x - a) / (b - a), with knots at a multiple of 1/8 (SweepDecay: 0.67).
+	// Every word comes out as the firmware's: levels in dB, depths and feedback in cycles of phase per unit of input,
+	// the noise's low-pass by its cutoff, the decays by SD BASIC's 60 dB law (T60)
+
+	namespace
+	{
+		double place(const double _x, const double _a, const double _b)
+		{
+			return std::clamp((_x - _a) / (_b - _a), 0.0, 1.0);
+		}
+
+		double fromDb(const double _db) { return std::pow(10.0, _db / 20); }
+
+		// A curve through knots (x, value), each interval a power _p of its place (1: a line)
+		struct Knot
+		{
+			double x, v, p;	// p: the power of the interval that ends here
+		};
+
+		template<size_t N>
+		double knots(const Knot (&_k)[N], const double _x)
+		{
+			for(size_t j = 1; j < N; ++j)
+				if(_x <= _k[j].x)
+					return _k[j - 1].v + (_k[j].v - _k[j - 1].v) * std::pow(place(_x, _k[j - 1].x, _k[j].x), _k[j].p);
+			return _k[N - 1].v;
+		}
+
+		// The decays' 60 dB times in seconds: units 0 and 1 (and the amp with HOLD), unit 2, the noise's modulator
+		const Knot Decay01T[] = {{0, 0.0375, 1}, {0.25, 0.15, 0.5}, {0.5, 0.2625, 2}, {0.75, 0.2625, 1}, {1, 0.9, 2}};
+		const Knot Decay2T[] = {{0, 0.01125, 1}, {0.25, 0.045, 0.5}, {0.5, 0.07875, 2}, {0.75, 0.2625, 2},
+			{1, 0.4125, 2}};
+		const Knot ModDecayT[] = {{0, 0.0375, 1}, {0.25, 0.1875, 2}, {0.5, 0.1875, 1}, {0.75, 0.4875, 1.5},
+			{1, 0.4875, 1}};
+
+		// A wave of harmonics _h with amplitudes in dB _db, sines
+		template<size_t N>
+		std::array<int32_t, 257> harmonics(const int (&_h)[N], const double (&_db)[N])
+		{
+			std::array<int32_t, 257> t{};
+			for(int i = 0; i < 257; ++i)
+			{
+				const double x = 2 * 3.14159265358979323846 * i / 256;
+				double v = 0;
+				for(size_t k = 0; k < N; ++k)
+					v += fromDb(_db[k]) * std::sin(_h[k] * x);
+				t[i] = clamp(v * Q31);
+			}
+			return t;
+		}
+	}
+
+	std::array<int32_t, 128> sdVintage(const SdVintage _t)
+	{
+		constexpr double Note = 1 << 26;	// a unit's frequency factor at the note's, 2^26
+		std::array<int32_t, 128> t{};
+		for(int i = 0; i < 128; ++i)
+		{
+			const double x = i / 127.0;
+			switch(_t)
+			{
+			case SdVintage::Ratio0:		// unit 3's factor: 1.25 to 2.25 at 1/2, then to 8.25
+				t[i] = clamp((x <= 0.5 ? 1.25 + 2 * x : 12 * x - 3.75) * Note);
+				break;
+			case SdVintage::Ratio1:		// unit 1's: a triangle between 1 and 1.1, period 1/2
+				t[i] = clamp((1 + 0.4 * std::min(std::fmod(x, 0.5), 0.5 - std::fmod(x, 0.5))) * Note);
+				break;
+			case SdVintage::SweepDecay:	// 0.33 s to 0.09 at 0.67 (not 2/3: 126 words off), back to 0.33
+				t[i] = toWord(Unit::T60, 1, x <= 0.67 ? 0.33 - 0.24 * x / 0.67 : 0.09 + 0.24 * (x - 0.67) / 0.33);
+				break;
+			case SdVintage::SweepDepth:	// one octave, 2^x
+				t[i] = clamp(std::exp2(x) * Note);
+				break;
+			case SdVintage::Depth2:		// unit 2's modulation: 0.1 to 0.3 cycle from 1/8 to 1/2, u^1.5
+				t[i] = clamp((0.1 + 0.2 * std::pow(place(x, 0.125, 0.5), 1.5)) * Q31);
+				break;
+			case SdVintage::Depth1:		// units 0 and 1's: 0.05 to 0.2
+			case SdVintage::Depth0:
+				t[i] = clamp((0.05 + 0.15 * std::pow(place(x, 0.125, 0.5), 1.5)) * Q31);
+				break;
+			case SdVintage::NoiseLp:	// the noise's low-pass, 4 to 16 kHz from 3/4 by u^2: (K - 1) / (K + 1)
+				{
+					const double u = place(x, 0.75, 1);
+					const double k = std::tan(3.14159265358979323846 * (4000 + 12000 * (u * u)) / 48000);
+					t[i] = clamp((k - 1) / (k + 1) * Q31);
+				}
+				break;
+			case SdVintage::Level3:		// the noise: -6 dB, then up to 0 dB at 3/4
+				t[i] = clamp(fromDb(std::min(-6 + 6 * place(x, 0.5, 0.75), 0.0)) * Q31);
+				break;
+			case SdVintage::Level2:		// unit 2: -71 dB up to -43 at 1/8, held, then up to -38 from 3/4
+				t[i] = clamp(fromDb(x < 0.125 ? -71 + 28 * x * 8 : x < 0.75 ? -43 : -43 + 5 * place(x, 0.75, 1)) * Q31);
+				break;
+			case SdVintage::Level1:		// unit 1: -56 dB up to -20 at 1/8
+				t[i] = clamp(fromDb(x < 0.125 ? -56 + 36 * x * 8 : -20) * Q31);
+				break;
+			case SdVintage::Feedback:	// unit 3's: 0 to 0.0469 cycle from 1/8 to 3/4, u^1.5
+				t[i] = clamp(0.0469 * std::pow(place(x, 0.125, 0.75), 1.5) * Q31);
+				break;
+			case SdVintage::ModDecay:
+				t[i] = toWord(Unit::T60, 1, knots(ModDecayT, x));
+				break;
+			case SdVintage::Decay2:
+				t[i] = toWord(Unit::T60, 1, knots(Decay2T, x));
+				break;
+			case SdVintage::Decay01:
+				t[i] = toWord(Unit::T60, 1, knots(Decay01T, x));
+				break;
+			case SdVintage::Count:
+				break;
+			}
+		}
+		return t;
+	}
+
+	std::array<int32_t, 128 * 128> sdVintageDecay3()
+	{
+		// Units 0 and 1's 60 dB time at DECAY, times 1 - x^2 at the fifth parameter's place: no time at 127, the
+		// coefficient 0
+		std::array<int32_t, 128 * 128> t{};
+		for(int d = 0; d < 128; ++d)
+			for(int b = 0; b < 128; ++b)
+			{
+				// 1 - x^2 from the integers, 0 at 127 under any rounding of the division
+				const double time = knots(Decay01T, d / 127.0) * ((127 * 127 - b * b) / (127.0 * 127));
+				t[d << 7 | b] = time > 0 ? toWord(Unit::T60, 1, time) : 0;
+			}
+		return t;
+	}
+
+	std::array<int32_t, 257> sdVintageWaveU2()
+	{
+		return harmonics({1, 2, 4, 8}, {-0.1, -12.8, -19.2, -38.2});
+	}
+
+	std::array<int32_t, 257> sdVintageWaveU3()
+	{
+		return harmonics({1, 2, 3, 4}, {-3.92, -9.9, -13.5, -16.0});
+	}
+
 	std::array<int32_t, 257> wave()
 	{
 		// floor of five harmonics: sines 128 : 22 : 11 : 7 : 3 and cosines ~1e-6 of the fundamental, the generator's
