@@ -270,12 +270,13 @@
 			<div class="file">
 				<div>
 					<h3>MoDule Seq</h3>
-					<div class="what">Max for Live, Windows</div>
+					<div class="what">Max for Live, Windows and macOS</div>
 				</div>
 				<p class="about">A step sequencer for Live 12, written for MoDule: Locks, conditions, ratchets,
 					micro-timing, swing, the Machinedrum's Accent and Slide, and chains over 16 Patterns, with each Track
 					named after the machine your Kit puts on it. It plays from Push 2, prints a Pattern or captures what it
-					played into clips. <b>Windows only</b> for now; it needs Max for Live.</p>
+					played into clips. It needs Max for Live. <b>macOS</b>: built and tested by GitHub's runners, not yet tried on a
+					Mac; reports are welcome.</p>
 				<div class="links" id="seq">
 					<a class="button quiet" href="https://github.com/c0remusic/MModuleSeq#readme">How to use it</a>
 					<a class="button quiet" href="https://github.com/c0remusic/MModuleSeq/releases">All releases</a>
@@ -322,7 +323,10 @@ xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/MoDule.compon
 			Live's User Library, under <code>Presets/MIDI Effects/Max MIDI Effect/</code>, then restart Live. Put
 			<b>MoDule Seq</b> on a MIDI track in front of MoDule. Releases before 0.2.0 still say md-drums-seq: their
 			folder is <code>md-drums-seq</code> and the device <b>MD Drums Seq</b>; remove that folder when you install
-			0.2.0, as Max loads only one of the two.</p>
+			0.2.0 or later, as Max loads only one of the two. On macOS, the engine isn't notarized by Apple: once, in
+			Terminal, run
+			<code>xattr -dr com.apple.quarantine ~/Music/Ableton/User\ Library/Presets/MIDI\ Effects/Max\ MIDI\ Effect/MoDule\ Seq</code>,
+			or the device's window stays empty.</p>
 
 		<div class="rom" id="rom">
 			<b>Then give MoDule your Machinedrum UW firmware</b>: the 8 MB flash image with OS 1.63, the same one
@@ -414,7 +418,7 @@ xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/MoDule.compon
 			if (!response.ok)
 				return;
 			const release = (await response.json()).find(r => !r.draft && /^v\d+\.\d+\.\d+$/.test(r.tag_name));
-			const asset = release && release.assets.find(a => /win64\.zip$/i.test(a.name));
+			const asset = release && release.assets.find(a => /^MModuleSeq-.*\.zip$/i.test(a.name));
 			if (!asset)
 				return;
 			const link = document.createElement("a");
