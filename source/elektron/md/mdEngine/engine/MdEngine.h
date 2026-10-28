@@ -162,6 +162,21 @@ namespace md::engine
 				throw std::runtime_error("voice DSP fault while compiling X.20's built-in Machines");
 		}
 
+		// md-drums, not bit-exact: a voice that sounded and went quiet stops rendering until its next Hit or a change of its
+		// words (VoiceEngine::setQuietSkip), on every audio machine of the OS but those that retrigger themselves (RTRG:
+		// E12, ROM) and RAM-R and -P. Off, as the Machinedrum, until this is called.
+		void setQuietSkip(const bool _on)
+		{
+			std::bitset<256> types;
+			for(const auto& m : m_os->machines())
+			{
+				const bool retriggers = std::find(m.params.begin(), m.params.end(), "RTRG") != m.params.end();
+				if(_on && isAudioMachine(m.id) && m.name.rfind("RAM", 0) != 0 && !retriggers)
+					types.set(m.id + 1u);
+			}
+			m_voices->setQuietSkip(types);
+		}
+
 		// md-drums: each voice's 32 samples of the last block, before its Track's effects (for the tests)
 		const typename TVoices::Block& voiceBlock() const { return m_voiceOut; }
 

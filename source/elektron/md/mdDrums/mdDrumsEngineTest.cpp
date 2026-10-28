@@ -1537,6 +1537,107 @@ namespace
 	}
 }
 
+namespace
+{
+	// setQuietSkip: two patterns on two engines each, the Machinedrum's and one whose quiet voices stop, every Track on
+	// its default machine at a short DEC (30), as drum Kits have them: the busy one below (one Hit every 64th of a
+	// second) and a beat (BD on the quarters, SD on two and four, CH on the eighths at 120 BPM, the other Tracks never
+	// struck, whose voices never rendered). Each window on Main as loud as the Machinedrum's (play), a good share of the
+	// voice blocks not rendered, and a knob turned wakes its Track's voice.
+	void quietVoices(const md::fw::FlashOs& _os, const md::fw::RomBank& _bank)
+	{
+		const auto build = [&](const bool _quiet)
+		{
+			auto engine = std::make_unique<mdDrums::Engine>(_os, _bank, true);
+			engine->setQuietSkip(_quiet);
+			for(int track = 0; track < 16; ++track)
+			{
+				const auto id = mdDrums::Engine::defaultMachine(track);
+				engine->setMachine(track, id);
+				engine->setLevel(track, 100);
+				const auto& names = engine->machine(id)->params;
+				if(const auto dec = std::find(names.begin(), names.end(), "DEC"); dec != names.end())
+					engine->setParam(track, static_cast<int>(dec - names.begin()), 30);
+			}
+			return engine;
+		};
+		// A pattern of _period steps: each step's window on Main, on the engine whose quiet voices stop, within half a
+		// decibel of the range the Machinedrum's gives that step of the pattern over the run. Not the Machinedrum's
+		// own window: a machine whose oscillators run on through a Hit (TRX-CB) sounds from another phase there, as
+		// from one Hit to the next of the Machinedrum's (4 dB apart on TRX-CB)
+		const auto play = [&](const char* _name, const int _steps, const int _period, const size_t _window,
+			const auto& _hits)
+		{
+			const auto exact = build(false), quiet = build(true);
+			std::vector<float> left(_window), right(_window);
+			std::array<double, 2> seconds{};
+			std::vector<std::array<double, 2>> energies(static_cast<size_t>(_steps));
+			for(int step = 0; step < _steps; ++step)
+			{
+				for(size_t e = 0; e < 2; ++e)
+				{
+					auto& engine = e == 0 ? *exact : *quiet;
+					for(int track = 0; track < 16; ++track)
+						if((_hits(step) >> track) & 1)
+							engine.trigger(track, 100);
+					const auto start = std::chrono::steady_clock::now();
+					engine.render(left.data(), right.data(), _window);
+					seconds[e] += std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+					auto& energy = energies[static_cast<size_t>(step)][e];
+					for(size_t i = 0; i < _window; ++i)
+						energy += double(left[i]) * left[i] + double(right[i]) * right[i];
+				}
+			}
+			double worst = 0;
+			for(int step = 0; step < _steps; ++step)
+			{
+				double low = 1e30, high = 0;
+				for(int other = step % _period; other < _steps; other += _period)
+				{
+					low = std::min(low, energies[static_cast<size_t>(other)][0]);
+					high = std::max(high, energies[static_cast<size_t>(other)][0]);
+				}
+				const auto energy = energies[static_cast<size_t>(step)][1];
+				if(high > 1e-6)
+					worst = std::max({worst, 10.0 * std::log10(low / std::max(energy, 1e-12)),
+						10.0 * std::log10(energy / high)});
+			}
+			const double share = double(quiet->quietBlocks()) / (_steps * double(_window) / 32.0 * 16);
+			std::printf("quiet voices, %s: %.0f%% of the voice blocks not rendered, %.2f s against %.2f s (%.0f%%), each"
+				" window on Main %.2f dB at most out of the Machinedrum's range\n", _name, share * 100.0, seconds[1],
+				seconds[0], seconds[1] / seconds[0] * 100.0, worst);
+			require(worst < 0.5, "a Hit after a quiet voice stopped sounds other than the Machinedrum's");
+			return share;
+		};
+		const auto busy = play("busy", 512, 16, 689, [](const int _step) { return 1u << (_step % 16); });
+		play("beat", 64, 8, 5513, [](const int _step)
+		{
+			return (_step % 4 == 0 ? 1u : 0u) | (_step % 8 == 4 ? 2u : 0u) | (_step % 2 == 0 ? 0x40u : 0u);
+		});
+		require(busy > 0.1, "quiet voices keep rendering");
+
+		// Track 1 struck, then quiet: its voice stops; a knob turned on it makes the voice render again
+		auto engine = build(true);
+		auto& quiet = *engine;
+		quiet.trigger(0, 100);
+		std::vector<float> rest(44100 * 2), other(44100 * 2);
+		quiet.render(rest.data(), other.data(), rest.size());
+		const auto before = quiet.quietBlocks();
+		quiet.render(rest.data(), other.data(), 32 * 8);
+		const auto still = quiet.quietBlocks() - before;
+		// The knob reaches the voice at the OS's next tick, every 11 blocks; the voice then renders until it has been quiet
+		// for kQuietBlocks again
+		quiet.knob(0, 0, 20);
+		const auto turned = quiet.quietBlocks();
+		quiet.render(rest.data(), other.data(), 32 * 32);
+		const auto woken = quiet.quietBlocks() - turned;
+		std::printf("quiet voices: Track 1 struck then quiet, %llu of 8 blocks not rendered; a knob turned, %llu of 32\n",
+			static_cast<unsigned long long>(still), static_cast<unsigned long long>(woken));
+		require(still == 8, "a quiet voice still renders");
+		require(woken < 32, "a knob turned does not wake its Track's voice");
+	}
+}
+
 int main()
 {
 	return mdDrums::test::run("mdDrumsEngineTest", [](const std::vector<uint8_t>& _flash)
@@ -1595,6 +1696,7 @@ int main()
 		userNeighbours(os, bank);
 		sampleWrite(_flash, os, bank);
 		userSamples(_flash, os, bank);
+		quietVoices(os, bank);
 
 		// Track 1 on its own output: it leaves the main mix and sounds there alone.
 		{

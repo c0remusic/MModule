@@ -82,6 +82,13 @@ later versions can be compared file by file. Their documentation is in `.scratch
   the tick's 11 blocks now a constant (`kBlocksPerTick`). And what nothing reads: `TrackFx::scratchY`,
   `MachineRunner::lastInstructions` and `faultReason`, the timings `voiceLoopUs`, `osCallsUs`, `fxUs` and `mixUs`,
   and `EngineT::skipSettled`, the skip of a settled silent track's effects being always on.
+- `engine/VoiceEngine.*`, `engine/MdEngine.h`: `EngineT::setQuietSkip`, off unless called (MD Drums' Device calls
+  it), not bit-exact. A voice that gave 16 blocks in a row within ±8 of zero (a second if it has not sounded since its
+  Hit) stops rendering: a stub before the render fn lookup reads its flag at Y:$1200 + 4·t and sends it the idle
+  voice's way. Its Hit or a change of its slot's words makes it render again; the machines that retrigger themselves
+  (RTRG: E12, ROM), RAM-R and -P, X.20's built-ins and the User Machines never stop. What a stopped voice would have
+  computed (an oscillator's phase, its noise generator) stays where it was, so its next Hit starts from another phase
+  than the Machinedrum's, as one Hit does from the next on a machine that does not reset it.
 
 Machinemodule's own `dsp56300` fork is not used: its x64 JIT stops the voice DSP's init on Windows
 (`instruction budget exceeded at PC=$10008b`), and ours runs it.

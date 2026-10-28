@@ -62,6 +62,11 @@ namespace md::engine
 		// source's buffer; Y:$7F0, the pointer to the descriptor of the Track rendering
 		constexpr TWord kTrackBuffers = 0x1000, kDescriptors = 0x7a0, kFourBack = 0x7e0, kSourcesPointer = 0x7f0;
 		constexpr TWord kBufferWords = 32;
+		// md-drums: setQuietSkip's flags, Y:$1200 + 4·t, past the buffers, 1 for a voice that does not render; the stub
+		// reads Track t's from its descriptor, $A60 below it
+		constexpr TWord kQuietStub = 0x0ca0;
+		constexpr TWord kStopFlags = 0x1200, kStopFromDescriptor = kStopFlags - kDescriptors;
+		constexpr TWord kActiveTypes = 0x153;	// Y:$153 + t, the type a voice plays (machine id + 1)
 
 		constexpr uint64_t kMaxInstrInit = 200'000'000;
 		constexpr uint64_t kMaxInstrBlock = 20'000'000;
@@ -202,8 +207,19 @@ namespace md::engine
 		//     real GND-- function. r0 (current machine code) and r7 (buffer pointer, mod 32) are live here.
 		{
 			TWord pc = kRenderFn;
-			m_dsp->memWriteP(pc++, 0x0af080);	// jmp >kSkipStub
-			m_dsp->memWriteP(pc++, kSkipStub);
+			m_dsp->memWriteP(pc++, 0x0af080);	// jmp >kQuietStub
+			m_dsp->memWriteP(pc++, kQuietStub);
+		}
+		{
+			// md-drums: a voice setQuietSkip stopped goes the idle voice's way, whatever its type. R1 is free until the
+			// render fn lookup, B until the skip stub's compare
+			TWord pc = kQuietStub;
+			emit(pc, "move y:>" + hex(kSourcesPointer) + ",r1");
+			emit(pc, "nop");
+			emit(pc, "move y:(r1+" + hex(kStopFromDescriptor) + "),b");
+			emit(pc, "tst b");
+			emit(pc, "jne " + hex(kSkipSilent));
+			emit(pc, "jmp " + hex(kSkipStub));
 		}
 		{
 			// jeq/jmp, not beq/bra: Bcc_xxxx's operand is a raw PC-relative displacement, not an address
@@ -288,6 +304,8 @@ namespace md::engine
 			emit(pc, "move a,y:(r7)+");
 			emit(pc, "move y:>$140,r7");	// M7 is linear here: back to the buffer's start
 			emit(pc, "jmp " + hex(rejoin));
+			if(pc > kQuietStub)
+				throw std::runtime_error("voice harness: the sources' copy runs into the quiet stub");
 		}
 		writeSources();
 
@@ -306,7 +324,10 @@ namespace md::engine
 		for(TWord a = 0; a < kTracks * kBufferWords; ++a)
 			m_dsp->memWrite(MemArea_Y, kTrackBuffers + a, 0);
 		for(int t = 0; t < kTracks; ++t)
+		{
 			writeSources(t);
+			m_dsp->memWrite(MemArea_Y, kStopFlags + 4 * static_cast<TWord>(t), 0);
+		}
 		m_dsp->memWrite(MemArea_Y, kSourcesPointer, kDescriptors);
 	}
 
@@ -516,8 +537,12 @@ namespace md::engine
 			throw std::runtime_error("voice DSP init did not complete: " + m_fault);
 		while(hi.hasTX())
 			hi.readTX();
-		// The ring's words again, whatever the program's init did to that memory
+		// The ring's words again, whatever the program's init did to that memory, and every voice rendering
 		writeSources();
+		m_slots = {};
+		m_quietRun = {};
+		m_sounded.fill(true);
+		m_stopped = {};
 	}
 
 	void VoiceEngine::setSlot(const int _voice, const uint32_t* _words, const int _count)
@@ -525,6 +550,63 @@ namespace md::engine
 		const TWord base = kSlotBase + kSlotStride * static_cast<TWord>(_voice);
 		for(int k = 0; k < _count; ++k)
 			m_dsp->memWrite(MemArea_Y, base + static_cast<TWord>(k), _words[k] & 0xffffff);
+		if(m_quietTypes.none())
+			return;
+		// Word 0 is a Hit; the others change with a knob, a lock or an LFO
+		auto& slot = m_slots[static_cast<size_t>(_voice)];
+		const auto count = static_cast<size_t>(std::min(_count, kSlotWords));
+		const bool hit = _count > 0 && (_words[0] & 0xffffff) != 0;
+		const bool changed = count > 1 && !std::equal(_words + 1, _words + count, slot.begin() + 1);
+		std::copy(_words, _words + count, slot.begin());
+		if(hit)
+			m_sounded[static_cast<size_t>(_voice)] = false;
+		if(hit || changed)
+			wake(_voice);
+	}
+
+	void VoiceEngine::setQuietSkip(const std::bitset<256>& _types)
+	{
+		m_quietTypes = _types;
+		for(int v = 0; v < kVoices; ++v)
+			wake(v);
+	}
+
+	void VoiceEngine::wake(const int _voice)
+	{
+		const auto v = static_cast<size_t>(_voice);
+		m_quietRun[v] = 0;
+		if(!m_stopped[v])
+			return;
+		m_stopped[v] = false;
+		m_dsp->memWrite(MemArea_Y, kStopFlags + 4 * static_cast<TWord>(_voice), 0);
+	}
+
+	void VoiceEngine::stopQuietVoices(const Block& _out)
+	{
+		for(size_t v = 0; v < _out.size(); ++v)
+		{
+			if(m_stopped[v])
+			{
+				++m_skipped;
+				continue;
+			}
+			const bool quiet = std::all_of(_out[v].begin(), _out[v].end(),
+				[](const int32_t _s) { return _s >= -kQuiet && _s <= kQuiet; });
+			if(!quiet)
+			{
+				m_sounded[v] = true;
+				m_quietRun[v] = 0;
+				continue;
+			}
+			if(++m_quietRun[v] < (m_sounded[v] ? kQuietBlocks : kSilentBlocks))
+				continue;
+			const auto type = m_mem->get(MemArea_Y, kActiveTypes + static_cast<TWord>(v)) & 0xffffff;
+			const bool x20 = type >= 1 && type <= 32 && ((m_x20Builtins >> (type - 1)) & 1);
+			if(type >= m_quietTypes.size() || !m_quietTypes[type] || x20)
+				continue;
+			m_stopped[v] = true;
+			m_dsp->memWrite(MemArea_Y, kStopFlags + 4 * static_cast<TWord>(v), 1);
+		}
 	}
 
 	bool VoiceEngine::runUntilTx(const size_t _words, const uint64_t _maxInstructions)
@@ -586,6 +668,9 @@ namespace md::engine
 	{
 		std::vector<TWord> p, x, y;
 		DspRegs regs;
+		std::array<std::array<uint32_t, kSlotWords>, kVoices> slots;
+		std::array<int, kVoices> quietRun;
+		std::array<bool, kVoices> sounded, stopped;
 	};
 
 	std::shared_ptr<VoiceEngine::State> VoiceEngine::saveState() const
@@ -601,6 +686,10 @@ namespace md::engine
 		state->x.assign(x, x + sizeXY);
 		state->y.assign(y, y + sizeXY);
 		state->regs = m_dsp->regs();
+		state->slots = m_slots;
+		state->quietRun = m_quietRun;
+		state->sounded = m_sounded;
+		state->stopped = m_stopped;
 		return state;
 	}
 
@@ -610,6 +699,10 @@ namespace md::engine
 		std::copy(_state.x.begin(), _state.x.end(), m_mem->getMemAreaPtr(MemArea_X));
 		std::copy(_state.y.begin(), _state.y.end(), m_mem->getMemAreaPtr(MemArea_Y));
 		m_dsp->regs() = _state.regs;
+		m_slots = _state.slots;
+		m_quietRun = _state.quietRun;
+		m_sounded = _state.sounded;
+		m_stopped = _state.stopped;
 		m_fault.clear();
 	}
 
@@ -618,6 +711,10 @@ namespace md::engine
 		auto& hi = m_periphX->getHI08();
 		const TWord go = 1;
 		hi.writeRX(&go, 1);
-		return readBlock(_out, kMaxInstrBlock);
+		if(!readBlock(_out, kMaxInstrBlock))
+			return false;
+		if(m_quietTypes.any())
+			stopQuietVoices(_out);
+		return true;
 	}
 }

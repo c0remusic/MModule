@@ -357,6 +357,16 @@ namespace mdDrums
 		return m_state->samples.codes();
 	}
 
+	void Engine::setQuietSkip(const bool _on)
+	{
+		m_state->engine.setQuietSkip(_on);
+	}
+
+	uint64_t Engine::quietBlocks() const
+	{
+		return m_state->engine.voices().quietBlocks();
+	}
+
 	void Engine::writeSamples()
 	{
 		m_state->samples.write(m_state->engine.voices(), Samples::End - Samples::Base);

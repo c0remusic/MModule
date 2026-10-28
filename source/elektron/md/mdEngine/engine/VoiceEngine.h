@@ -6,6 +6,7 @@
 // between blocks. See docs/PROTOCOL.md.
 #pragma once
 #include <array>
+#include <bitset>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -85,6 +86,19 @@ namespace md::engine
 		std::shared_ptr<State> saveState() const;
 		void restoreState(const State& _state);
 
+		// md-drums, not bit-exact: a voice whose type is in _types (machine id + 1; an X.20 built-in and a User Machine
+		// never) that gave kQuietBlocks blocks in a row no louder than kQuiet, kSilentBlocks if it has not sounded since
+		// its Hit (a sample may start with silence), stops rendering: its render function is not called, its block and
+		// its buffer are zeros, as an empty machine's. Its next Hit, or a change of its slot's words (a knob, a lock, an
+		// LFO), makes it render again. What it would have computed meanwhile (an oscillator's phase, a noise
+		// generator's state) stays where it was. None, the default, renders every voice as the Machinedrum does.
+		// reset() keeps the types.
+		static constexpr int32_t kQuiet = 8;		// 24-bit samples, about -120 dBFS
+		static constexpr int kQuietBlocks = 16;		// 11.6 ms at 44.1 kHz
+		static constexpr int kSilentBlocks = 1378;	// 1 s
+		void setQuietSkip(const std::bitset<256>& _types);
+		uint64_t quietBlocks() const { return m_skipped; }	// voice blocks not rendered so far
+
 		const std::string& faultReason() const { return m_fault; }
 		dsp56k::DSP& dsp() { return *m_dsp; }
 
@@ -100,6 +114,8 @@ namespace md::engine
 		void forgetUserMachine(int _index);
 		bool runUntilTx(size_t _words, uint64_t _maxInstructions);
 		bool readBlock(Block& _out, uint64_t _maxInstructions);
+		void wake(int _voice);
+		void stopQuietVoices(const Block& _out);	// after a block, setQuietSkip's
 
 		const fw::Firmware& m_fw;
 		std::unique_ptr<dsp56k::DefaultMemoryValidator> m_validator;
@@ -112,6 +128,13 @@ namespace md::engine
 		std::array<std::shared_ptr<const md::mds::Package>, kUserMachines> m_userMachines{};
 		std::shared_ptr<const fw::DspImage> m_x20Voice;
 		uint32_t m_x20Builtins = 0;
+		// setQuietSkip's: the types it may stop, each voice's slot as last written, its quiet blocks in a row, whether it
+		// sounded since its Hit, whether it is stopped
+		std::bitset<256> m_quietTypes;
+		std::array<std::array<uint32_t, kSlotWords>, kVoices> m_slots{};
+		std::array<int, kVoices> m_quietRun{};
+		std::array<bool, kVoices> m_sounded{}, m_stopped{};
+		uint64_t m_skipped = 0;
 		std::array<Sources, kTracks> m_sources = []
 		{
 			std::array<Sources, kTracks> sources{};

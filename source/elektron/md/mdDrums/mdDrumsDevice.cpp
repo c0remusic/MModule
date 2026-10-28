@@ -39,6 +39,10 @@ namespace mdDrums
 			throw synthLib::DeviceException(synthLib::DeviceError::FirmwareMissing,
 				"The Machinedrum UW flash image holds no factory Kits.");
 		m_kit = *kit;
+		// A quiet voice costs the voice DSP nothing until its Track's next Hit: a fifth of an instance's time on a busy
+		// pattern of factory Kit 1 (mdDrumsInstancesTest, 4 instances: 24.1-25.8 % of a core each, 19.4-20.9 % with it),
+		// for tails below -120 dBFS cut and a phase that differs at the next Hit on a machine that does not reset it
+		m_engine->setQuietSkip(true);
 		// X.20's built-in Machines before the Kit, whose Tracks may play them
 		if(_x20Voice)
 			m_engine->installX20(std::move(_x20Voice));
