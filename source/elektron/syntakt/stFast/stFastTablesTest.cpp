@@ -97,6 +97,29 @@ namespace
 			++g_failures;
 		}
 	}
+
+	// A table of a machine's enum Table, where it is in section 7, and how far its formula may be
+	template<typename Table>
+	struct Entry
+	{
+		const char* name;
+		uint32_t address;
+		Table table;
+		bool decay;
+		int64_t maxLsb;	// the largest error its formula's comment states, in LSB, with a margin
+		std::vector<Bound> ranges;	// stretches bound apart
+	};
+
+	// A machine's tables, each made by _make(table), against section 7
+	template<typename Table, size_t N, typename Make>
+	void compareAll(const std::vector<int32_t>& _s7, const char* _machine, const Entry<Table> (&_entries)[N],
+		Make&& _make)
+	{
+		std::printf("%s's tables by formula against section 7:\n", _machine);
+		for(const auto& e : _entries)
+			compare(_s7, e.name, e.address, _make(e.table), syntakt::fast::tables::exact(e.table), e.decay, e.maxLsb,
+				e.ranges);
+	}
 }
 
 int main()
@@ -115,16 +138,7 @@ int main()
 		return 77;
 	}
 
-	struct Entry
-	{
-		const char* name;
-		uint32_t address;
-		Parameter parameter;
-		bool decay;
-		int64_t maxLsb;	// the largest error its formula's comment states, in LSB, with a margin
-		std::vector<Bound> ranges;	// stretches bound apart
-	};
-	const Entry parameters[] = {
+	const Entry<Parameter> parameters[] = {
 		{"SweepDepth", 0x4001ec00, Parameter::SweepDepth, false, 2},
 		{"SweepDecay", 0x4001ee00, Parameter::SweepDecay, true, 2, {{28, 32, 8}, {38, 42, 27000}, {48, 52, 30500},
 			{58, 62, 17500}, {68, 72, 15000}, {78, 82, 18000}, {88, 92, 18200}, {98, 102, 22500},
@@ -137,24 +151,12 @@ int main()
 		{"LevelU0", 0x4001fe00, Parameter::LevelU0, false, 160000},
 		{"LevelU2", 0x40020000, Parameter::LevelU2, false, 0},
 	};
-	std::printf("BD MODERN's tables by formula against section 7:\n");
-	for(const auto& p : parameters)
-		compare(s7, p.name, p.address, syntakt::fast::tables::parameter(p.parameter),
-			syntakt::fast::tables::exact(p.parameter), p.decay, p.maxLsb, p.ranges);
+	compareAll(s7, "BD MODERN", parameters, syntakt::fast::tables::parameter);
 	compare(s7, "Wave", 0x4001e7fc, syntakt::fast::tables::wave(), true, false, 0);
 	compare(s7, "Exp2", 0x40059ef8, syntakt::fast::tables::exp2(), true, false, 0);
 
 	using syntakt::fast::tables::SdBasic;
-	struct SdEntry
-	{
-		const char* name;
-		uint32_t address;
-		SdBasic table;
-		bool decay;
-		int64_t maxLsb;
-		std::vector<Bound> ranges;
-	};
-	const SdEntry sdBasic[] = {
+	const Entry<SdBasic> sdBasic[] = {
 		{"DecayU0", 0x40027a38, SdBasic::DecayU0, true, 0},
 		{"DecayU1", 0x40028038, SdBasic::DecayU1, true, 200},
 		{"DecayU2", 0x40026038, SdBasic::DecayU2, true, 600000},
@@ -173,22 +175,10 @@ int main()
 		{"DepthU3", 0x40027438, SdBasic::DepthU3, false, 130000},
 		{"LowPass", 0x40026238, SdBasic::LowPass, false, 25000},
 	};
-	std::printf("SD BASIC's tables by formula against section 7:\n");
-	for(const auto& t : sdBasic)
-		compare(s7, t.name, t.address, syntakt::fast::tables::sdBasic(t.table), syntakt::fast::tables::exact(t.table),
-			t.decay, t.maxLsb, t.ranges);
+	compareAll(s7, "SD BASIC", sdBasic, syntakt::fast::tables::sdBasic);
 
 	using syntakt::fast::tables::CyAlloy;
-	struct CyEntry
-	{
-		const char* name;
-		uint32_t address;
-		CyAlloy table;
-		bool decay;
-		int64_t maxLsb;
-		std::vector<Bound> ranges;
-	};
-	const CyEntry cyAlloy[] = {
+	const Entry<CyAlloy> cyAlloy[] = {
 		{"DecayOdd", 0x40020200, CyAlloy::DecayOdd, true, 4200},
 		{"Target", 0x40020400, CyAlloy::Target, false, 0},
 		{"DecayEven", 0x40020600, CyAlloy::DecayEven, true, 7700},
@@ -197,23 +187,11 @@ int main()
 		{"Depth", 0x40020c00, CyAlloy::Depth, false, 0},
 		{"AmpDecay", 0x40020e00, CyAlloy::AmpDecay, true, 0},
 	};
-	std::printf("CY ALLOY's tables by formula against section 7:\n");
-	for(const auto& t : cyAlloy)
-		compare(s7, t.name, t.address, syntakt::fast::tables::cyAlloy(t.table), syntakt::fast::tables::exact(t.table),
-			t.decay, t.maxLsb, t.ranges);
+	compareAll(s7, "CY ALLOY", cyAlloy, syntakt::fast::tables::cyAlloy);
 	compare(s7, "Wave", 0x40021000, syntakt::fast::tables::cyAlloyWave(), false, false, 7000);
 
 	using syntakt::fast::tables::PcCarbon;
-	struct PcEntry
-	{
-		const char* name;
-		uint32_t address;
-		PcCarbon table;
-		bool decay;
-		int64_t maxLsb;
-		std::vector<Bound> ranges;
-	};
-	const PcEntry pcCarbon[] = {
+	const Entry<PcCarbon> pcCarbon[] = {
 		{"DecayPos", 0x40023004, PcCarbon::DecayPosition, false, 0},
 		{"SweepDecay", 0x40023204, PcCarbon::SweepDecay, true, 1300},
 		{"DepthU1", 0x40023404, PcCarbon::DepthU1, false, 600},
@@ -229,10 +207,7 @@ int main()
 		{"DecayU0", 0x40024404, PcCarbon::DecayU0, true, 750},
 		{"DepthU3", 0x40024604, PcCarbon::DepthU3, false, 600},
 	};
-	std::printf("PC CARBON's tables by formula against section 7:\n");
-	for(const auto& t : pcCarbon)
-		compare(s7, t.name, t.address, syntakt::fast::tables::pcCarbon(t.table), syntakt::fast::tables::exact(t.table),
-			t.decay, t.maxLsb, t.ranges);
+	compareAll(s7, "PC CARBON", pcCarbon, syntakt::fast::tables::pcCarbon);
 	compare(s7, "DecayCurve", 0x40022004, syntakt::fast::tables::pcCarbonDecayCurve(), true, true, 0);
 	compare(s7, "Wave", 0x40024804, syntakt::fast::tables::pcCarbonWave(), false, false, 3500);
 

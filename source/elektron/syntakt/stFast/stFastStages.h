@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 #include <emmintrin.h>
 
@@ -72,6 +74,29 @@ namespace syntakt::fast
 
 	inline float q31(const int32_t _v) { return static_cast<float>(static_cast<double>(_v) / 2147483648.0); }
 
+	// A table's Q31 words (stFastTables) into _dst as floats
+	template<typename Words>
+	void readQ31(float* _dst, const Words& _words)
+	{
+		for(size_t i = 0; i < _words.size(); ++i)
+			_dst[i] = q31(_words[i]);
+	}
+
+	// A table's words into _dst as they are, for what the machine computes in integers
+	template<typename Words>
+	void copyWords(int32_t* _dst, const Words& _words)
+	{
+		static_assert(std::is_same<typename Words::value_type, int32_t>::value, "a table of Q31 words");
+		std::copy(_words.begin(), _words.end(), _dst);
+	}
+
+	// The 256-entry sine a wave oscillator reads (pmWave): sin(2 pi i / 256), 258 values
+	inline void sineTable(float* _dst)
+	{
+		for(int i = 0; i < 258; ++i)
+			_dst[i] = static_cast<float>(std::sin(2 * 3.14159265358979323846 * i / 256));
+	}
+
 	// 0x40004dc6: a 128-entry table read at a parameter word, linearly interpolated
 	inline float interpolate(const float* _table, const int32_t _word)
 	{
@@ -123,6 +148,21 @@ namespace syntakt::fast
 		return static_cast<double>(((t4 * _pitch >> 31) * 0x57619f10 >> 31) >> 2);
 	}
 
+	// That increment as a 32-bit phase step (Increments')
+	inline uint32_t unitIncrement(const int64_t _m, const int64_t _factor, const int64_t _scale, const int64_t _pitch)
+	{
+		return static_cast<uint32_t>(std::llround(increment48(_m, _factor, _scale, _pitch) * 256));
+	}
+
+	// The same on lane _l of every sample of _inc
+	inline void setIncrement(Increments& _inc, const int _l, const int64_t _m, const int64_t _factor,
+		const int64_t _scale, const int64_t _pitch)
+	{
+		const uint32_t inc = unitIncrement(_m, _factor, _scale, _pitch);
+		for(auto& s : _inc.s)
+			s[_l] = inc;
+	}
+
 	// A block-rate envelope as the machine steps it, once per 48 kHz block: its levels at the ends of 48 kHz blocks
 	// k - 1 and k, between which its ramp runs over block k
 	struct Ramp48
@@ -135,11 +175,159 @@ namespace syntakt::fast
 			level[_l] = _v;
 		}
 
+		// A first-order step toward _target, _a the pole: a unit's envelope
+		void stepToward(const int _l, const float _a, const float _target)
+		{
+			step(_l, _a * level[_l] + (1 - _a) * _target);
+		}
+
 		// The ramp _t of the way through block k
 		float at(const int _l, const double _t) const
 		{
 			return prev[_l] + static_cast<float>(_t) * (level[_l] - prev[_l]);
 		}
+	};
+
+	// The amp's envelope as the machines step it: rising from the trig (stage 0) where it has an attack, held while
+	// HOLD is on (2) until a gate-off, decaying (1, the state before the first trig)
+	struct AmpEnvelope : Ramp48
+	{
+		int stage[Lanes];
+		bool released[Lanes]{};	// a gate-off seen: the hold ends at the next step
+
+		AmpEnvelope() { std::fill_n(stage, Lanes, 1); }
+
+		// A trig that starts the amp full without a ramp, held with _hold, else decaying from the next block
+		void trigFull(const int _l, const bool _hold)
+		{
+			stage[_l] = _hold ? 2 : 1;
+			prev[_l] = level[_l] = 1;
+			released[_l] = false;
+		}
+
+		// A trig that ramps the amp from the trig's block's silence to one and a half of its step _attack, saturated
+		void trigRise(const int _l, const float _attack)
+		{
+			stage[_l] = 0;
+			prev[_l] = 0;
+			level[_l] = std::min(_attack / 2 + _attack, 1.0f);
+			released[_l] = false;
+		}
+
+		void release(const int _l) { released[_l] = true; }
+
+		// One 48 kHz block: rising by _attack to full, then held with _hold until a release, or decaying by _decay
+		void stepAmp(const int _l, const float _decay, const float _attack, const bool _hold)
+		{
+			const float amp = level[_l];
+			if(stage[_l] == 0)
+			{
+				if(amp == 1)
+					stage[_l] = !released[_l] && _hold ? 2 : 1;
+				step(_l, amp == 1 ? amp : std::min(amp + _attack, 1.0f));
+			}
+			else if(stage[_l] == 2)
+			{
+				if(released[_l])
+				{
+					stage[_l] = 1;
+					released[_l] = false;
+				}
+				step(_l, amp);
+			}
+			else
+			{
+				step(_l, amp * _decay);
+			}
+		}
+	};
+
+	// A trig's pending block fades lane _l of _g (an envelope read sample by sample) out from where the last block
+	// left it (_end), and leaves _env silent until the trig; _end then takes _env's level at this block's end
+	inline void fadePending(Block& _g, Ramp48& _env, float* _end, const int _l, const bool _pending)
+	{
+		if(_pending)
+		{
+			for(int n = 0; n < BlockSize; ++n)
+				_g.s[n][_l] = _end[_l] * (1 - static_cast<float>(n) / BlockSize);
+			_env.prev[_l] = _env.level[_l] = 0;
+		}
+		_end[_l] = _env.at(_l, 1);
+	}
+
+	// The 16 Tracks' trigs and gate-offs: queued for the next block, which sees them (pending: the Track fades out),
+	// a trig sounding from the block after (now)
+	struct Trigs
+	{
+		bool queued[Lanes]{}, gateQueued[Lanes]{};
+		bool pending[Lanes]{}, now[Lanes]{}, gateOff[Lanes]{};
+
+		// A block's start: what was queued is the block's
+		void start()
+		{
+			for(int l = 0; l < Lanes; ++l)
+			{
+				pending[l] = queued[l];
+				gateOff[l] = gateQueued[l];
+				queued[l] = gateQueued[l] = false;
+			}
+		}
+
+		// A block's end: its trigs sound from the next
+		void end() { std::copy_n(pending, Lanes, now); }
+
+		// Whether the block's gate-off releases the Track: not in a trig's block
+		bool releases(const int _l) const { return gateOff[_l] && !pending[_l]; }
+	};
+
+	// The 48 kHz block clock of the block-rate control: the blocks since the trig and the envelopes' block. The
+	// envelopes step once per 48 kHz block, as on the machine, but in the trig's block
+	struct Clock48
+	{
+		int64_t at[Lanes]{}, envBlock[Lanes]{};
+
+		void restart(const int _l) { at[_l] = envBlock[_l] = 0; }
+
+		// One block of lane _l: the 48 kHz blocks its envelopes step, one for each block since the trig, to the
+		// block's start, they have not stepped
+		int advance(const int _l)
+		{
+			const int64_t start = at[_l]++;
+			const int64_t steps = std::max<int64_t>(start - envBlock[_l], 0);
+			envBlock[_l] += steps;
+			return static_cast<int>(steps);
+		}
+	};
+
+	// What a machine of syntakt::fast is to the code that plays it (Host, bench::fastHits, bench::costPerBlock,
+	// bench::printCost, stFastSweep):
+	//	- a default constructor, its tables made by formula; static constexpr int Parameters, 8, and Units
+	//	- setNote(track, note) and setParameter(track, index 0-7, value 0-127, fine): from the next block
+	//	- trig(track), gateOff(track): for the next block rendered only, which sees the trig (the Track fades out)
+	//	  and sounds it from the block after
+	//	- testWithoutChaos(): for tests, the voice with its feedback (or depth) table at 0, nothing chaotic left
+	//	- const Block& renderBlock(): one 48 kHz block of the 16 Tracks, in this order: FlushDenormals,
+	//	  controls.trigs.start(), the block-rate control, the stages, controls.trigs.end()
+	// Controls holds what the front sets, which the machine converts (its convert(track)) and its control reads
+	struct Controls
+	{
+		static constexpr int Parameters = 8;
+
+		int32_t words[Parameters][Lanes]{};	// value << 8 | fine
+		int notes[Lanes]{};
+		Trigs trigs;
+
+		// Whether _index is a parameter, its word then set
+		bool setParameter(const int _track, const int _index, const uint8_t _value, const uint8_t _fine)
+		{
+			if(_index < 0 || _index >= Parameters)
+				return false;
+			words[_index][_track] = std::min<int32_t>(_value, 127) << 8 | _fine;
+			return true;
+		}
+
+		void trig(const int _track) { trigs.queued[_track] = true; }
+		void gateOff(const int _track) { trigs.gateQueued[_track] = true; }
 	};
 
 	// 0x400047ea's gain envelope, one 48 kHz block: a first-order filter on a step, falling from 1 toward 0 until
@@ -162,6 +350,63 @@ namespace syntakt::fast
 		_x = x;
 		return y;
 	}
+
+	// The drive stage of a machine: its gain envelope (driveGain at the machine's poles and floor) stepped on the
+	// block clock and ramped over the block (driveClip's _from, _to), its pre-gain and its gain after the clip, the
+	// machine's with the drive on or off
+	struct Drive
+	{
+		struct Gains
+		{
+			float amount, post;	// driveClip's _drive and _post
+		};
+
+		Ramp48 gain;
+		int stage[Lanes];
+		float x[Lanes];
+		bool on[Lanes]{};
+		alignas(16) float from[Lanes], to[Lanes], amount[Lanes], post[Lanes];
+		float fall, rise, bottom;
+		Gains gainsOn, gainsOff;
+
+		// Before the first trig: off, the gain at 1, recovering
+		Drive(const float _fall, const float _rise, const float _floor, const Gains _on, const Gains _off)
+			: fall(_fall), rise(_rise), bottom(_floor), gainsOn(_on), gainsOff(_off)
+		{
+			for(int l = 0; l < Lanes; ++l)
+			{
+				stage[l] = 5;
+				x[l] = 1;
+				gain.prev[l] = gain.level[l] = 1;
+				from[l] = to[l] = 1;
+				amount[l] = _off.amount;
+				post[l] = _off.post;
+			}
+		}
+
+		// A trig: _on latched with its gains, the gain falling from 1, its first 48 kHz block stepped
+		void trig(const int _l, const bool _on)
+		{
+			on[_l] = _on;
+			amount[_l] = _on ? gainsOn.amount : gainsOff.amount;
+			post[_l] = _on ? gainsOn.post : gainsOff.post;
+			stage[_l] = 1;
+			x[_l] = 1;
+			gain.prev[_l] = gain.level[_l] = 1;
+			gain.level[_l] = next(_l);
+			from[_l] = 1;
+		}
+
+		// One 48 kHz block of the envelope
+		void step(const int _l) { gain.step(_l, next(_l)); }
+
+		// The ramp's end at the block's end; at the next block's start, its start (advance)
+		void end(const int _l) { to[_l] = gain.at(_l, 1); }
+		void advance() { std::copy_n(to, Lanes, from); }
+
+	private:
+		float next(const int _l) { return driveGain(stage[_l], x[_l], gain.level[_l], on[_l], fall, rise, bottom); }
+	};
 
 	// RAII: denormals flushed to zero, in and out, while a block renders
 	struct FlushDenormals

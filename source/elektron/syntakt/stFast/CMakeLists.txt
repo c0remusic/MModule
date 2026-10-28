@@ -20,35 +20,35 @@ if(BUILD_TESTING)
 
 	# BD MODERN against the exact port at 48 kHz, 44.1 against 48 kHz, and its cost for 16 Tracks
 	# (SYNTAKT_SECTION7: exit 77 without it)
-	add_executable(stFastBdModernTest stFastBdModernTest.cpp stFastBench.h)
+	add_executable(stFastBdModernTest stFastBdModernTest.cpp stFastBdModernHits.h stFastBench.h stFastMetrics.h)
 	target_link_libraries(stFastBdModernTest PRIVATE stFast stEngine)
 	set_property(TARGET stFastBdModernTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stFastBdModernTest COMMAND stFastBdModernTest)
 	set_tests_properties(stFastBdModernTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 	# SD BASIC the same (SYNTAKT_SECTION7: exit 77 without it)
-	add_executable(stFastSdBasicTest stFastSdBasicTest.cpp stFastBench.h)
+	add_executable(stFastSdBasicTest stFastSdBasicTest.cpp stFastBench.h stFastMetrics.h)
 	target_link_libraries(stFastSdBasicTest PRIVATE stFast stEngine)
 	set_property(TARGET stFastSdBasicTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stFastSdBasicTest COMMAND stFastSdBasicTest)
 	set_tests_properties(stFastSdBasicTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 	# CY ALLOY the same (SYNTAKT_SECTION7: exit 77 without it)
-	add_executable(stFastCyAlloyTest stFastCyAlloyTest.cpp stFastBench.h)
+	add_executable(stFastCyAlloyTest stFastCyAlloyTest.cpp stFastBench.h stFastMetrics.h)
 	target_link_libraries(stFastCyAlloyTest PRIVATE stFast stEngine)
 	set_property(TARGET stFastCyAlloyTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stFastCyAlloyTest COMMAND stFastCyAlloyTest)
 	set_tests_properties(stFastCyAlloyTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 	# PC CARBON the same (SYNTAKT_SECTION7: exit 77 without it)
-	add_executable(stFastPcCarbonTest stFastPcCarbonTest.cpp stFastBench.h)
+	add_executable(stFastPcCarbonTest stFastPcCarbonTest.cpp stFastBench.h stFastMetrics.h)
 	target_link_libraries(stFastPcCarbonTest PRIVATE stFast stEngine)
 	set_property(TARGET stFastPcCarbonTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stFastPcCarbonTest COMMAND stFastPcCarbonTest)
 	set_tests_properties(stFastPcCarbonTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 	# The resampler that brings the fast Syntakt's 48 kHz to a 44.1 kHz host (Q11): no firmware
-	add_executable(stFastResampleTest stFastResampleTest.cpp stFastBench.h)
+	add_executable(stFastResampleTest stFastResampleTest.cpp stFastBdModernHits.h stFastBench.h stFastMetrics.h)
 	target_link_libraries(stFastResampleTest PRIVATE stFast stEngine)
 	set_property(TARGET stFastResampleTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stFastResampleTest COMMAND stFastResampleTest)
@@ -56,7 +56,8 @@ if(BUILD_TESTING)
 
 	# The listening test's WAVs and ABX page (ticket 05), by hand, into a folder outside the repository:
 	# stFastAbRender OUTDIR (SYNTAKT_SECTION7)
-	add_executable(stFastAbRender stFastAbRender.cpp stFastBench.h stFastAbPage.html)
+	add_executable(stFastAbRender stFastAbRender.cpp stFastBdModernHits.h stFastBench.h stFastMetrics.h
+		stFastAbPage.html)
 	target_link_libraries(stFastAbRender PRIVATE stFast stEngine)
 	target_compile_definitions(stFastAbRender PRIVATE ST_FAST_AB_PAGE="${CMAKE_CURRENT_SOURCE_DIR}/stFastAbPage.html"
 		ST_FAST_REPO="${CMAKE_SOURCE_DIR}")
@@ -64,7 +65,7 @@ if(BUILD_TESTING)
 
 	# Every value of every sound parameter, fast against exact, and A/B WAVs of chosen ones, by hand, outside the
 	# repository: stFastSweep sweep MACHINE OUT.csv | ab OUTDIR CASES.txt (SYNTAKT_SECTION7)
-	add_executable(stFastSweep stFastSweep.cpp stFastBench.h)
+	add_executable(stFastSweep stFastSweep.cpp stFastBdModernHits.h stFastBench.h stFastMetrics.h)
 	target_link_libraries(stFastSweep PRIVATE stFast stEngine)
 	target_compile_definitions(stFastSweep PRIVATE ST_FAST_AB_PAGE="${CMAKE_CURRENT_SOURCE_DIR}/stFastAbPage.html"
 		ST_FAST_REPO="${CMAKE_SOURCE_DIR}")

@@ -15,7 +15,7 @@ namespace syntakt::fast
 	class CyAlloy
 	{
 	public:
-		static constexpr int Parameters = 8;
+		static constexpr int Parameters = Controls::Parameters;
 		static constexpr int Units = 4;
 
 		// Its tables come from stFastTables' formulas: nothing of the firmware
@@ -28,8 +28,8 @@ namespace syntakt::fast
 		void setParameter(int _track, int _index, uint8_t _value, uint8_t _fine);
 
 		// For the next block rendered only
-		void trig(int _track);
-		void gateOff(int _track);
+		void trig(const int _track) { m_controls.trig(_track); }
+		void gateOff(const int _track) { m_controls.gateOff(_track); }
 
 		// For tests: the depth table at 0, as the exact port with that table at 0 plays: no feedback, and units 1 and 3
 		// unmodulated
@@ -44,7 +44,6 @@ namespace syntakt::fast
 	private:
 		void convert(int _track);
 		void control();
-		float driveStep(int _l);
 
 		// The tables CY ALLOY reads (stFastTables, section 7's words by formula): as floats, and as the words for the
 		// pitch (the ratios, the pitch map's exp2); the 256-entry sine units 0 and 2 read is computed
@@ -61,9 +60,8 @@ namespace syntakt::fast
 
 		float m_bq[5]{};	// the output's high-pass, b0, b1, b2, a1, a2: y = b0 x + b1 x1 + b2 x2 - a1 y1 - a2 y2
 
-		// Each Track's parameters, as words (value << 8 | fine), and note
-		int32_t m_word[Parameters][Lanes]{};
-		int m_note[Lanes]{};
+		// Each Track's parameters as words, its note and its trigs
+		Controls m_controls;
 
 		// What they convert to (convert): read every block, or latched at a trig (*Next)
 		int32_t m_pitch[Lanes]{};				// the pitch map's word for the note and TUNE (0x40002596's f)
@@ -78,26 +76,20 @@ namespace syntakt::fast
 
 		// The voices' state
 		bool m_playing[Lanes]{};	// since its first trig
-		bool m_trigQueued[Lanes]{}, m_gateQueued[Lanes]{};
-		bool m_trigPending[Lanes]{}, m_trigNow[Lanes]{}, m_gateOff[Lanes]{};
 		alignas(16) uint32_t m_phase[Units][Lanes]{};
 		Increments m_inc[Units]{};
 		alignas(16) float m_depth[Lanes]{};
 		int32_t m_fb[Lanes]{};
 		int32_t m_last[Lanes]{};	// unit 2's last sample, a Q31 word (feedbackSine)
-		// The 48 kHz block clock: the blocks since the trig and the envelopes' block
-		int64_t m_at[Lanes]{}, m_envBlock[Lanes]{};
+		Clock48 m_clock;
 		float m_decay[Units][Lanes]{};
-		Ramp48 m_env[Units], m_amp, m_driveGain;
-		int m_ampStage[Lanes]{}, m_driveStage[Lanes]{};
-		float m_driveX[Lanes]{};
-		bool m_drive[Lanes]{}, m_release[Lanes]{};
+		Ramp48 m_env[Units];
+		AmpEnvelope m_amp;
+		Drive m_drive;
 
-		// The envelopes over the block, sample by sample (the units', the amp's), the amp's at its end, and the drive's
-		// gain at the ends of the previous and this block, which it ramps between
+		// The envelopes over the block, sample by sample (the units', the amp's), the amp's at its end
 		Block m_gEnv[Units], m_gAmp;
 		float m_ampEnd[Lanes]{};
-		alignas(16) float m_driveFrom[Lanes]{}, m_driveTo[Lanes]{}, m_driveAmount[Lanes]{}, m_drivePost[Lanes]{};
 
 		alignas(16) float m_bqState[4][Lanes]{};	// x1, x2, y1, y2
 

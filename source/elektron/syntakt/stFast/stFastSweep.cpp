@@ -24,6 +24,8 @@
 #include <sstream>
 #include <string>
 
+#include "stFastBdModern.h"
+#include "stFastBdModernHits.h"
 #include "stFastBench.h"
 #include "stFastCyAlloy.h"
 #include "stFastPcCarbon.h"
@@ -39,23 +41,27 @@ namespace
 	constexpr double Seconds = 2;
 	constexpr int Note = 8;	// the parameter index the note is swept as
 
+	// A machine swept: its name, its id in the exact port, its base sound, what its tests' retrigger sets, its
+	// units (which the nudges move), its feedback table and its parameters' names
 	struct Machine
 	{
 		const char* name;
 		int id;
 		Hit base;
+		std::vector<int> retrigger;
+		int units;
 		uint32_t feedbackTable;	// 0: none
 		const char* params[9];
 	};
 
 	const Machine Machines[] = {
-		{"bd", 0, {{88, 64, 64, 64, 64, 0, 0, 64}, {}, 36, false, false}, 0x4001fc00,
+		{"bd", 0, {{88, 64, 64, 64, 64, 0, 0, 64}, {}, 36, false, false}, {3, 5}, fast::BdModern::Units, 0x4001fc00,
 			{"tune", "u2level", "transient", "sweep", "contour", "drive", "hold", "decay", "note"}},
-		{"sd", 1, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 60, false, false}, 0x40026e38,
+		{"sd", 1, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 60, false, false}, {3, 5}, fast::SdBasic::Units, 0x40026e38,
 			{"tune", "ratios", "feedback", "sweep", "envelopes", "drive", "hold", "decay", "note"}},
-		{"cy", 2, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, 0x40020c00,
+		{"cy", 2, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::CyAlloy::Units, 0x40020c00,
 			{"tune", "spread", "depth", "ratio", "levels", "drive", "hold", "decay", "note"}},
-		{"pc", 3, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, 0,
+		{"pc", 3, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::PcCarbon::Units, 0,
 			{"tune", "ratios", "depth", "sweep", "levels", "drive", "hold", "decay", "note"}},
 	};
 
@@ -76,10 +82,18 @@ namespace
 		return _h;
 	}
 
+	// _h on the 16 lanes of machine _m
+	HitSet lanesOf(const Machine& _m, const Hit& _h)
+	{
+		HitSet s{{}, _m.retrigger, _m.id};
+		std::fill(std::begin(s.hit), std::end(s.hit), _h);
+		return s;
+	}
+
 	using Renders = std::vector<std::vector<double>>;
 
 	template<typename Fast>
-	Renders renderFast(const Hit (&_hits)[Lanes], const bool _noFeedback)
+	Renders renderFast(const HitSet& _hits, const bool _noFeedback)
 	{
 		return fastHits<Fast>(48000, Seconds, _hits, [&](Fast& _e)
 		{
@@ -88,16 +102,9 @@ namespace
 		});
 	}
 
-	Renders renderExact(const std::vector<int32_t>& _s7, const Machine& _m, const Hit (&_hits)[Lanes],
-		const Nudge& _nudge)
+	Renders renderExact(const std::vector<int32_t>& _s7, const HitSet& _hits, const Nudge& _nudge)
 	{
-		return exactHits(_s7, Seconds, _nudge, [&](Exact16& _e, const int _b)
-		{
-			if(_b == 0)
-				for(int t = 0; t < Lanes; ++t)
-					_e.setMachine(t, _m.id);
-			events(_e, _b, 48000, _hits);
-		});
+		return exactHits(_s7, Seconds, _nudge, _hits);
 	}
 
 	struct Worst
@@ -125,7 +132,7 @@ namespace
 	{
 		Worst all, at40, at60;
 		double cents, snr, local, band, envAbs, cells, selfEnvAbs, selfCells;
-		PhaseBlind increments[IncrementNudgeCount];	// the exact port against its increment nudges, as played
+		std::vector<PhaseBlind> increments;	// the exact port against its increment nudges, as played
 		bool chaotic;
 	};
 
@@ -147,7 +154,7 @@ namespace
 	}
 
 	template<typename Fast>
-	Row measureCase(const std::vector<int32_t>& _s7, const Machine& _m, const Hit (&_hits)[Lanes], const int _l,
+	Row measureCase(const std::vector<int32_t>& _s7, const Machine& _m, const HitSet& _hits, const int _l,
 		const Renders& _ref, const Renders& _self, const std::vector<Renders>& _increments, const Renders& _test,
 		Renders* _detRef, Renders* _detTest)
 	{
@@ -158,7 +165,7 @@ namespace
 		{
 			if(_detRef->empty())
 			{
-				*_detRef = renderExact(withoutTable(_s7, _m.feedbackTable), _m, _hits, Nudge{});
+				*_detRef = renderExact(withoutTable(_s7, _m.feedbackTable), _hits, Nudge{});
 				*_detTest = renderFast<Fast>(_hits, true);
 			}
 			r = measure((*_detRef)[_l], (*_detTest)[_l]);
@@ -169,8 +176,9 @@ namespace
 		}
 		r.selfEnvAbs = self.envAbs;
 		r.selfCells = self.cells;
+		r.increments.assign(static_cast<size_t>(incrementNudgeCount(_m.units)), PhaseBlind{});
 		if(!chaotic)	// a chaotic value is judged with its feedback at 0, not by tolerance
-			for(int i = 0; i < IncrementNudgeCount; ++i)
+			for(int i = 0; i < incrementNudgeCount(_m.units); ++i)
 				r.increments[i] = phaseBlind(_ref[_l], _increments[static_cast<size_t>(i)][_l]);
 		r.chaotic = chaotic;
 		return r;
@@ -197,24 +205,24 @@ namespace
 		std::fprintf(f, "machine,param,value,chaotic,env_db,env_ms,env_level_db,env40_db,env40_ms,env40_level_db,"
 			"env60_db,env60_ms,env60_level_db,cents,snr_db,worst10ms_db,worst_band_db,"
 			"env_abs_db,cells30_db,self_env_abs_db,self_cells_db");
-		for(int i = 0; i < IncrementNudgeCount; ++i)
+		for(int i = 0; i < incrementNudgeCount(_m.units); ++i)
 			std::fprintf(f, ",inc%d_env_abs_db,inc%d_cells_db", i, i);
 		std::fprintf(f, "\n");
 		for(int p = 0; p <= Note; ++p)
 			for(int v0 = 0; v0 < 128; v0 += Lanes)
 			{
-				Hit hits[Lanes];
+				HitSet hits = lanesOf(_m, _m.base);
 				for(int l = 0; l < Lanes; ++l)
-					hits[l] = withValue(_m.base, p, v0 + l);
-				const auto ref = renderExact(_s7, _m, hits, Nudge{});
-				const auto self = renderExact(_s7, _m, hits, phaseNudge(1));
+					hits.hit[l] = withValue(_m.base, p, v0 + l);
+				const auto ref = renderExact(_s7, hits, Nudge{});
+				const auto self = renderExact(_s7, hits, phaseNudge(1, _m.units));
 				// The increment nudges only where a value is not chaotic: they give its tolerance
 				bool anyNot = false;
 				for(int l = 0; l < Lanes; ++l)
 					anyNot |= !chaoticSelf(phaseBlind(ref[l], self[l]));
 				std::vector<Renders> increments;
-				for(int i = 0; anyNot && i < IncrementNudgeCount; ++i)
-					increments.push_back(renderExact(_s7, _m, hits, incrementNudge(i)));
+				for(int i = 0; anyNot && i < incrementNudgeCount(_m.units); ++i)
+					increments.push_back(renderExact(_s7, hits, incrementNudge(i, _m.units)));
 				const auto test = renderFast<Fast>(hits, false);
 				Renders detRef, detTest;
 				for(int l = 0; l < Lanes; ++l)
@@ -228,41 +236,6 @@ namespace
 	}
 
 	// ---- A/B ----
-
-	void putLe(std::ofstream& _f, const uint32_t _v, const int _bytes)
-	{
-		for(int i = 0; i < _bytes; ++i)
-			_f.put(static_cast<char>(_v >> (8 * i)));
-	}
-
-	// 24-bit PCM, mono, 48 kHz, after 50 ms of silence, _gain and a 20 ms fade at the end (stFastAbRender's)
-	void writeWav(const std::string& _path, const std::vector<double>& _hit, const double _gain)
-	{
-		std::vector<double> x(2400, 0.0);
-		x.insert(x.end(), _hit.begin(), _hit.end());
-		std::ofstream f(_path, std::ios::binary);
-		const uint32_t data = static_cast<uint32_t>(x.size()) * 3, rate = 48000;
-		f.write("RIFF", 4);
-		putLe(f, 36 + data, 4);
-		f.write("WAVEfmt ", 8);
-		putLe(f, 16, 4);
-		putLe(f, 1, 2);
-		putLe(f, 1, 2);
-		putLe(f, rate, 4);
-		putLe(f, rate * 3, 4);
-		putLe(f, 3, 2);
-		putLe(f, 24, 2);
-		f.write("data", 4);
-		putLe(f, data, 4);
-		const size_t fade = 960;
-		for(size_t i = 0; i < x.size(); ++i)
-		{
-			const double left = static_cast<double>(x.size() - i);
-			const double g = _gain * (left < fade ? left / static_cast<double>(fade) : 1);
-			const auto v = static_cast<int32_t>(std::lround(std::clamp(x[i] * g, -1.0, 1.0) * 8388607));
-			putLe(f, static_cast<uint32_t>(v), 3);
-		}
-	}
 
 	// PC CARBON's Hit 10 of stFastPcCarbonTest
 	const Hit PcHit10 = {{64, 70, 50, 50, 70, 0, 0, 96}, {128, 77, 200, 0, 33, 0, 0, 0}, 48, false, false};
@@ -278,21 +251,21 @@ namespace
 	void renderCase(const std::vector<int32_t>& _s7, const Case& _c, const std::string& _dir, std::ostringstream& _json,
 		bool& _first)
 	{
-		Hit hits[Lanes];
-		std::fill(std::begin(hits), std::end(hits), _c.hit);
-		const auto ref = renderExact(_s7, *_c.m, hits, Nudge{});
-		const auto self = renderExact(_s7, *_c.m, hits, phaseNudge(1));
+		const Machine& m = *_c.m;
+		const HitSet hits = lanesOf(m, _c.hit);
+		const auto ref = renderExact(_s7, hits, Nudge{});
+		const auto self = renderExact(_s7, hits, phaseNudge(1, m.units));
 		std::vector<Renders> increments;
-		for(int i = 0; i < IncrementNudgeCount; ++i)
-			increments.push_back(renderExact(_s7, *_c.m, hits, incrementNudge(i)));
+		for(int i = 0; i < incrementNudgeCount(m.units); ++i)
+			increments.push_back(renderExact(_s7, hits, incrementNudge(i, m.units)));
 		const auto test = renderFast<Fast>(hits, false);
 		Renders detRef, detTest;
-		const Row r = measureCase<Fast>(_s7, *_c.m, hits, 0, ref, self, increments, test, &detRef, &detTest);
+		const Row r = measureCase<Fast>(_s7, m, hits, 0, ref, self, increments, test, &detRef, &detTest);
 		std::printf("%-22s chaotic %s; envelope %.3f dB at %.0f ms (%.1f dB below the peak); above -40 dB %.3f dB at "
 			"%.0f ms (%.1f dB); above -60 dB %.3f dB at %.0f ms (%.1f dB); %+.3f cents; null %.1f dB, 10 ms %.1f dB, "
 			"third octave %.1f dB\n", _c.name.c_str(), r.chaotic ? "yes" : "no", r.all.db, r.all.ms, -r.all.level,
 			r.at40.db, r.at40.ms, -r.at40.level, r.at60.db, r.at60.ms, -r.at60.level, r.cents, r.snr, r.local, r.band);
-		const auto tolerance = worstOf({std::begin(r.increments), std::end(r.increments)});
+		const auto tolerance = worstOf(r.increments);
 		std::printf("%-22s fast %.1f dB re peak, cells %.3f dB; the exact port against its increment nudges at worst "
 			"%.1f dB, %.3f dB\n", _c.name.c_str(), r.envAbs, r.cells, tolerance.envAbs, tolerance.cells);
 		// The real sound on both sides, under one gain: the louder at -3 dBFS
@@ -301,8 +274,8 @@ namespace
 			for(const double v : *x)
 				peak = std::max(peak, std::abs(v));
 		const double gain = std::pow(10.0, -3 / 20.0) / peak;
-		writeWav(_dir + _c.name + "-A.wav", ref[0], gain);
-		writeWav(_dir + _c.name + "-B.wav", test[0], gain);
+		writeWav(_dir + _c.name + "-A.wav", ref[0], 48000, gain, 0.05);	// after 50 ms of silence
+		writeWav(_dir + _c.name + "-B.wav", test[0], 48000, gain, 0.05);
 		char value[256];
 		std::snprintf(value, sizeof(value), "envelope %.3f dB above -60 dB, null %.1f dB", r.at60.db, r.snr);
 		_json << (_first ? "" : ",\n") << "  {\"id\": \"" << _c.name << "\", \"group\": \"exact-vs-fast\", \"a\": \""
@@ -327,7 +300,7 @@ namespace
 			if(what.rfind("hit", 0) == 0)
 			{
 				const int h = std::stoi(what.substr(3));
-				cases.push_back({m, name + "-" + what, m->id == 3 ? PcHit10 : Hits[h]});
+				cases.push_back({m, name + "-" + what, m->id == 3 ? PcHit10 : BdModernHits.hit[h]});
 				continue;
 			}
 			s >> value;
@@ -438,13 +411,12 @@ int main(const int _argc, char** _argv)
 		std::FILE* f = std::fopen(_argv[3], "w");
 		for(int i = 5; i < _argc; ++i)
 		{
-			Hit hits[Lanes];
-			std::fill(std::begin(hits), std::end(hits), withValue(m->base, static_cast<int>(name - m->params),
-				std::stoi(_argv[i])));
+			const int param = static_cast<int>(name - m->params);
+			const HitSet hits = lanesOf(*m, withValue(m->base, param, std::stoi(_argv[i])));
 			const auto line = [&](const char* _what, const std::vector<int32_t>& _s7, const bool _noChaos)
 			{
-				const auto ref = renderExact(_s7, *m, hits, Nudge{});
-				const auto self = renderExact(_s7, *m, hits, phaseNudge(1));
+				const auto ref = renderExact(_s7, hits, Nudge{});
+				const auto self = renderExact(_s7, hits, phaseNudge(1, m->units));
 				Renders test;
 				switch(m->id)
 				{
@@ -473,16 +445,14 @@ int main(const int _argc, char** _argv)
 		const size_t at = ((table - 0x40000400) >> 2) + std::stoul(_argv[5]);
 		const auto* name = std::find_if(m->params, m->params + 9,
 			[&](const char* _p) { return _argv[6] == std::string(_p); });
-		Hit hits[Lanes];
-		std::fill(std::begin(hits), std::end(hits), withValue(m->base, static_cast<int>(name - m->params),
-			std::stoi(_argv[7])));
-		const auto ref = renderExact(s7, *m, hits, Nudge{});
+		const HitSet hits = lanesOf(*m, withValue(m->base, static_cast<int>(name - m->params), std::stoi(_argv[7])));
+		const auto ref = renderExact(s7, hits, Nudge{});
 		std::FILE* f = std::fopen(_argv[3], "w");
 		for(const int d : {1, 10, 100, 1000, 2595, 10000})
 		{
 			auto moved = s7;
 			moved[at] += d;
-			const auto x = renderExact(moved, *m, hits, Nudge{});
+			const auto x = renderExact(moved, hits, Nudge{});
 			std::fprintf(f, "%s %s %s, word %+d LSB: envelope %.1f dB re peak, cells %.3f dB, SNR %.1f dB\n", _argv[2],
 				_argv[6], _argv[7], d, envelopeAbs(ref[0], x[0]), cellMax(ref[0], x[0]), null(ref[0], x[0], 48000).snr);
 		}

@@ -45,6 +45,7 @@
 #include "stBoot.h"
 #include "stFastBench.h"
 #include "stFastBdModern.h"
+#include "stFastBdModernHits.h"
 #include "stSection7.h"
 #include "stStages.h"
 
@@ -58,7 +59,7 @@ namespace
 	std::vector<std::vector<double>> renderFast(const double _fs, const double _seconds, const bool _noFeedback = false,
 		const bool _fromTrig = false)
 	{
-		return fastHits<fast::BdModern>(_fs, _seconds, Hits, [&](fast::BdModern& _e)
+		return fastHits<fast::BdModern>(_fs, _seconds, BdModernHits, [&](fast::BdModern& _e)
 		{
 			if(_noFeedback)
 				_e.testWithoutChaos();
@@ -69,7 +70,7 @@ namespace
 	std::vector<std::vector<double>> renderExact(const std::vector<int32_t>& _s7, const double _seconds,
 		const Nudge& _nudge = {})
 	{
-		return exactHits(_s7, _seconds, _nudge, [](Exact16& _e, const int _b) { events(_e, _b, 48000); });
+		return exactHits(_s7, _seconds, _nudge, BdModernHits);
 	}
 
 	// ---- Q2 and Q3: a stage against its integer original ----
@@ -279,7 +280,7 @@ namespace
 						r.ref[l].push_back(q31(v.sram.at(bufferB(u) + 4 * n)));
 				}
 				if(k == 2)
-					fast::pmWave(out, in, phase, inc, static_cast<float>(q31(depth) * 128), wave.data());
+					fast::pmWaveBd(out, in, phase, inc, static_cast<float>(q31(depth) * 128), wave.data());
 				else
 					fast::pmSine(out, &in, phase, inc, static_cast<float>(q31(depth) * 128));
 				for(int l = 0; l < Lanes; ++l)
@@ -289,54 +290,12 @@ namespace
 			ok &= r.print(k == 2 ? "PM wave (unit 2)" : "PM sine (unit 3)");
 		}
 
-		// The drive (0x400047ea) on lanes 0-7, clean on 8-15, fed a full-scale decaying sine from a trig, the float
-		// clip fed the integer gain envelope's levels
-		{
-			Runs r;
-			alignas(16) float from[Lanes], to[Lanes], drive[Lanes], post[Lanes];
-			for(int b = 0; b < Blocks; ++b)
-			{
-				fast::Block x;
-				int32_t ref[Lanes][BlockSize];
-				for(int l = 0; l < Lanes; ++l)
-				{
-					Voice v = st.voice(l);
-					const bool on = l < 8;
-					v.at(Voice::TrigNow) = b == 0;
-					if(b == 0)
-					{
-						v.at(0x414) = v.at(0x418) = on ? 0x02e3f426 : INT32_MAX;
-						v.at(0x41c) = on ? static_cast<int32_t>(0x85c7e84d) : 0;
-						v.at(0x420) = v.at(0x424) = on ? 0x004e99d0 : INT32_MAX;
-						v.at(0x428) = on ? static_cast<int32_t>(0x809d339f) : 0;
-						v.at(Voice::DriveFloor) = on ? 0x40000000 : 0x66666666;
-						v.at(Voice::DrivePreGain) = on ? 0x40000000 : 0x20000000;
-						v.at(Voice::DriveGain) = on ? 0x3eb851ec : 0x370a3d71;
-						v.at(Voice::DriveOn) = on;
-						v.at(Voice::DriveX1) = v.at(Voice::DriveY1) = INT32_MAX;
-					}
-					from[l] = static_cast<float>(on ? q31(v.at(Voice::DriveY1)) : q31(INT32_MAX));
-					drive[l] = on ? 2.0f : 1.0f;
-					post[l] = static_cast<float>(q31(v.at(Voice::DriveGain)));
-					for(int n = 0; n < BlockSize; ++n)
-					{
-						const double t = (b * BlockSize + n) / 48000.0;
-						const double decay = std::exp(-t / (0.05 + 0.05 * (l & 7)));
-						ref[l][n] = toQ31(decay * std::sin(2 * Pi * (40 + 10 * l) * t));
-						x.s[n][l] = static_cast<float>(q31(ref[l][n]));
-					}
-					driveClip(ref[l], v);
-					to[l] = static_cast<float>(q31(v.at(Voice::DriveY1)));
-					for(int n = 0; n < BlockSize; ++n)
-						r.ref[l].push_back(q31(ref[l][n]));
-				}
-				fast::driveClip(x, from, to, drive, post);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.test[l].push_back(x.s[n][l]);
-			}
-			ok &= r.print("drive clip (on, off)");
-		}
+		// The drive (0x400047ea) on lanes 0-7, clean on 8-15 (bench::q3DriveClip)
+		const DriveWords drive = {
+			{0x02e3f426, static_cast<int32_t>(0x85c7e84d), 0x004e99d0, static_cast<int32_t>(0x809d339f), 0x40000000,
+				0x40000000, 0x3eb851ec},
+			{INT32_MAX, 0, INT32_MAX, 0, 0x66666666, 0x20000000, 0x370a3d71}};
+		ok &= q3DriveClip(st, drive, "drive clip (on, off)");
 		checkValidated(ok, "Q3: the non-linear stages where not chaotic, SNR >= 70 dB, >= 60 dB in every 10 ms "
 			"window above -60 dB, no residual third octave above -60 dB");
 		checkValidated(chaoticOk, "Q3: the chaotic feedback sine's distributions within the calibrated factor x the "
@@ -344,39 +303,22 @@ namespace
 	}
 
 	constexpr double Seconds = 2;
-
-	// ---- cost ----
-
-	void cost(const std::vector<int32_t>& _s7)
-	{
-		Exact16 e(_s7);
-		printCost<fast::BdModern>("BD MODERN", Hits, costPerBlock(e, Hits, [&] { e.render(); }));
-	}
 }
 
 int main()
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
-	const char* path = std::getenv("SYNTAKT_SECTION7");
-	if(!path || !*path)
-	{
-		std::printf("SYNTAKT_SECTION7 not set: skipped\n");
-		return 77;
-	}
-	const auto s7 = loadSection7(path);
+	const auto s7 = loadSection7OrSkip();
 	if(s7.empty())
-	{
-		std::printf("%s is not OS 1.41's section 7: skipped\n", path);
 		return 77;
-	}
 
 	q2(s7);
 	q3(s7);
-	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); });
+	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); }, fast::BdModern::Units);
 	q4(exact, renderFast(48000, Seconds));
 	deterministic(renderExact(withoutTable(s7, 0x4001fc00), Seconds), renderFast(48000, Seconds, true));
 	q15(renderFast(48000, Seconds + 0.05, false, true), renderFast(44100, Seconds + 0.05, false, true), Seconds);
-	cost(s7);
+	printCost<fast::BdModern>("BD MODERN", s7, BdModernHits);
 
 	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
 	return g_failures ? 1 : 0;

@@ -14,6 +14,8 @@
 #include <cstdio>
 #include <vector>
 
+#include "stFastBdModern.h"
+#include "stFastBdModernHits.h"
 #include "stFastBench.h"
 #include "stFastResample.h"
 
@@ -174,8 +176,8 @@ namespace
 		for(int t = 0; t < Lanes; ++t)
 		{
 			for(int i = 0; i < 8; ++i)
-				e.setParameter(t, i, Hits[0].value[i], Hits[0].fine[i]);
-			e.setNote(t, Hits[0].note);
+				e.setParameter(t, i, BdModernHits.hit[0].value[i], BdModernHits.hit[0].fine[i]);
+			e.setNote(t, BdModernHits.hit[0].note);
 		}
 		std::vector<std::vector<double>> out(Lanes);
 		std::array<std::array<float, fast::BlockSize>, Lanes> buf{};

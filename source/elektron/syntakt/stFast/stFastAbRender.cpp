@@ -3,7 +3,7 @@
 //	stFastAbRender OUTDIR [--round2]
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7; everything written is derived from it, so OUTDIR must be
-// outside the repository. Writes into OUTDIR, for a few Hits of stFastBdModernTest (stFastBench.h):
+// outside the repository. Writes into OUTDIR, for a few Hits of stFastBdModernTest (stFastBdModernHits.h):
 //	the exact port and the fast engine at 48 kHz;
 //	the fast render degraded around Q3 and Q4's thresholds as first proposed: white noise at an SNR of 60, 50, 40,
 //		30 dB; a gain growing in dB from 0 at the onset to 0.1, 0.3, 1, 3 dB at the end; TUNE's fine raised for
@@ -23,6 +23,8 @@
 #include <sstream>
 #include <string>
 
+#include "stFastBdModern.h"
+#include "stFastBdModernHits.h"
 #include "stFastBench.h"
 #include "stSection7.h"
 
@@ -50,10 +52,11 @@ namespace
 			ptr[t] = buf[t].data();
 		for(int b = 0; b < (samples + skip) / fast::BlockSize + 1; ++b)
 		{
-			events(e, b, _fs);
+			events(e, b, _fs, BdModernHits);
 			if(b == 0 && _fine)
 				for(int t = 0; t < Lanes; ++t)
-					e.setParameter(t, 0, Hits[t].value[0], static_cast<uint8_t>(Hits[t].fine[0] + _fine));
+					e.setParameter(t, 0, BdModernHits.hit[t].value[0],
+						static_cast<uint8_t>(BdModernHits.hit[t].fine[0] + _fine));
 			e.render(ptr.data());
 			for(int t = 0; t < Lanes; ++t)
 				out[t].insert(out[t].end(), buf[t].begin(), buf[t].end());
@@ -70,7 +73,7 @@ namespace
 		Hit16 out(Lanes);
 		for(int b = 0; b < samples / BlockSize + 2; ++b)
 		{
-			events(e, b, 48000);
+			events(e, b, 48000, BdModernHits);
 			e.render();
 			for(int t = 0; t < Lanes; ++t)
 				for(int n = 0; n < BlockSize; ++n)
@@ -118,42 +121,6 @@ namespace
 		std::string id, group, a, b, value;
 		double size;	// how large the difference is, to put the largest first
 	};
-
-	void putLe(std::ofstream& _f, const uint32_t _v, const int _bytes)
-	{
-		for(int i = 0; i < _bytes; ++i)
-			_f.put(static_cast<char>(_v >> (8 * i)));
-	}
-
-	// 24-bit PCM, mono, after _pre seconds of silence, _gain and a 20 ms fade at the end
-	void writeWav(const std::string& _path, const std::vector<double>& _hit, const double _fs, const double _gain,
-		const double _pre)
-	{
-		std::vector<double> x(static_cast<size_t>(_pre * _fs), 0.0);
-		x.insert(x.end(), _hit.begin(), _hit.end());
-		std::ofstream f(_path, std::ios::binary);
-		const uint32_t data = static_cast<uint32_t>(x.size()) * 3, rate = static_cast<uint32_t>(_fs);
-		f.write("RIFF", 4);
-		putLe(f, 36 + data, 4);
-		f.write("WAVEfmt ", 8);
-		putLe(f, 16, 4);
-		putLe(f, 1, 2);
-		putLe(f, 1, 2);
-		putLe(f, rate, 4);
-		putLe(f, rate * 3, 4);
-		putLe(f, 3, 2);
-		putLe(f, 24, 2);
-		f.write("data", 4);
-		putLe(f, data, 4);
-		const size_t fade = static_cast<size_t>(0.02 * _fs);
-		for(size_t i = 0; i < x.size(); ++i)
-		{
-			const double left = static_cast<double>(x.size() - i);
-			const double g = _gain * (left < fade ? left / static_cast<double>(fade) : 1);
-			const auto v = static_cast<int32_t>(std::lround(std::clamp(x[i] * g, -1.0, 1.0) * 8388607));
-			putLe(f, static_cast<uint32_t>(v), 3);
-		}
-	}
 
 	std::string format(const char* _fmt, const double _v)
 	{

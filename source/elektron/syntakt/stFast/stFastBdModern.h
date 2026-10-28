@@ -11,8 +11,9 @@ namespace syntakt::fast
 	// _out = a + b, clipped to [-1, 1]
 	void sum(const Block& _a, const Block& _b, Block& _out);
 
-	// A 256-entry wave (257 values, linearly interpolated) phase-modulated by _src
-	void pmWave(Block& _out, const Block& _src, uint32_t* _phase, const Increments& _inc, float _depth,
+	// A 256-entry wave (257 values, linearly interpolated) phase-modulated by _src at a fixed depth (the shared pmWave
+	// ramps its depth)
+	void pmWaveBd(Block& _out, const Block& _src, uint32_t* _phase, const Increments& _inc, float _depth,
 		const float* _wave);
 
 	// The click: a ramp from 1 down by _dec per sample, held at 0, times a level ramped from _from to _to
@@ -26,7 +27,8 @@ namespace syntakt::fast
 	class BdModern
 	{
 	public:
-		static constexpr int Parameters = 8;
+		static constexpr int Parameters = Controls::Parameters;
+		static constexpr int Units = 4;
 
 		// Its tables come from stFastTables' formulas: nothing of the firmware
 		BdModern();
@@ -37,8 +39,8 @@ namespace syntakt::fast
 		void setParameter(int _track, int _index, uint8_t _value, uint8_t _fine);
 
 		// For the next block rendered only
-		void trig(int _track);
-		void gateOff(int _track);
+		void trig(const int _track) { m_controls.trig(_track); }
+		void gateOff(const int _track) { m_controls.gateOff(_track); }
 
 		// For tests: unit 0's feedback table at 0, the voice without its chaos
 		void testWithoutChaos();
@@ -64,15 +66,12 @@ namespace syntakt::fast
 		};
 		Tables m_tables;
 
-		float driveStep(int _l);
-
 		// The click's step per sample and its filters
 		float m_clickDec = 0;
 		OnePole m_hp{}, m_lp{};
 
-		// Each Track's parameters, as words (value << 8 | fine), and note
-		int32_t m_word[Parameters][Lanes]{};
-		int m_note[Lanes]{};
+		// Each Track's parameters as words, its note and its trigs
+		Controls m_controls;
 
 		// What they convert to (convert): read every block, or latched at a trig (*Next)
 		int32_t m_pitch[Lanes]{};		// the pitch map's word for the note and TUNE (pitchWord)
@@ -86,28 +85,23 @@ namespace syntakt::fast
 		bool m_hold[Lanes]{};
 
 		// The voices' state
-		bool m_trigQueued[Lanes]{}, m_gateQueued[Lanes]{};
-		bool m_trigPending[Lanes]{}, m_trigNow[Lanes]{}, m_gateOff[Lanes]{};
-		alignas(16) uint32_t m_phase[4][Lanes]{};
+		alignas(16) uint32_t m_phase[Units][Lanes]{};
 		Increments m_inc3{}, m_inc012{};	// unit 3's, and units 0-2's
 		int32_t m_fb[Lanes]{};
 		int32_t m_last[Lanes]{};	// unit 0's last sample, a Q31 word (feedbackSine)
 		alignas(16) float m_g0Cur[Lanes]{}, m_g1Cur[Lanes]{};
-		// The block-rate control runs on the machine's 48 kHz block clock: the blocks since the trig and the envelopes'
-		// block
-		int64_t m_at[Lanes]{}, m_envBlock[Lanes]{};
+		Clock48 m_clock;	// the block-rate control's
 		double m_sweepDecay[Lanes]{}, m_sweep[Lanes]{};	// the sweep at its block
-		Ramp48 m_u2, m_mod, m_amp, m_driveGain;
-		int m_modStage[Lanes]{}, m_ampStage[Lanes]{}, m_driveStage[Lanes]{};
+		Ramp48 m_u2, m_mod;
+		AmpEnvelope m_amp;
+		int m_modStage[Lanes]{};
 		float m_modDecay[Lanes]{};
-		float m_driveX[Lanes]{};
-		bool m_drive[Lanes]{}, m_release[Lanes]{};
+		Drive m_drive;
 
 		// The envelopes at the ends of the previous and this block, which the stages ramp between
 		alignas(16) float m_u2Level[Lanes]{}, m_u2Prev[Lanes]{};
 		alignas(16) float m_modLevel[Lanes]{}, m_modPrev[Lanes]{};
 		alignas(16) float m_ampLevel[Lanes]{}, m_ampPrev[Lanes]{};
-		alignas(16) float m_driveFrom[Lanes]{}, m_driveTo[Lanes]{}, m_driveAmount[Lanes]{}, m_drivePost[Lanes]{};
 
 		alignas(16) float m_clickRamp[Lanes]{}, m_clickCur[Lanes]{};
 		alignas(16) float m_hpX[Lanes]{}, m_hpY[Lanes]{}, m_lpX[Lanes]{}, m_lpY[Lanes]{};

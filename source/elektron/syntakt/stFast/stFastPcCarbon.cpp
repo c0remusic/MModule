@@ -27,69 +27,43 @@ namespace syntakt::fast
 		constexpr int PitchOffset = 64;
 	}
 
-	PcCarbon::PcCarbon()
+	PcCarbon::PcCarbon() : m_drive(FallPole, RisePole, DriveFloor, {4 * DriveOn, 1.0f}, {1.0f, 1.0f})
 	{
-		const auto read = [](float* _dst, const auto& _words)
-		{
-			for(size_t i = 0; i < _words.size(); ++i)
-				_dst[i] = q31(_words[i]);
-		};
-		const auto copy = [](int32_t* _dst, const auto& _words) { std::copy(_words.begin(), _words.end(), _dst); };
 		using tables::PcCarbon;
 		Tables& t = m_tables;
-		read(t.decayPosition, tables::pcCarbon(PcCarbon::DecayPosition));
-		read(t.decayCurve, tables::pcCarbonDecayCurve());
-		read(t.decayU0, tables::pcCarbon(PcCarbon::DecayU0));
-		read(t.decayU2, tables::pcCarbon(PcCarbon::DecayU2));
-		read(t.depthU1, tables::pcCarbon(PcCarbon::DepthU1));
-		read(t.depthU3, tables::pcCarbon(PcCarbon::DepthU3));
-		read(t.targetU0, tables::pcCarbon(PcCarbon::TargetU0));
-		read(t.targetU2, tables::pcCarbon(PcCarbon::TargetU2));
-		copy(t.factor[0], tables::pcCarbon(PcCarbon::FactorU0));
-		copy(t.factor[1], tables::pcCarbon(PcCarbon::FactorU1));
-		copy(t.factor[2], tables::pcCarbon(PcCarbon::FactorU2));
-		copy(t.sweepDepth, tables::pcCarbon(PcCarbon::SweepDepth));
-		copy(t.sweepDecay, tables::pcCarbon(PcCarbon::SweepDecay));
-		copy(t.exp2, tables::exp2());
-		read(t.wave, tables::pcCarbonWave());
+		readQ31(t.decayPosition, tables::pcCarbon(PcCarbon::DecayPosition));
+		readQ31(t.decayCurve, tables::pcCarbonDecayCurve());
+		readQ31(t.decayU0, tables::pcCarbon(PcCarbon::DecayU0));
+		readQ31(t.decayU2, tables::pcCarbon(PcCarbon::DecayU2));
+		readQ31(t.depthU1, tables::pcCarbon(PcCarbon::DepthU1));
+		readQ31(t.depthU3, tables::pcCarbon(PcCarbon::DepthU3));
+		readQ31(t.targetU0, tables::pcCarbon(PcCarbon::TargetU0));
+		readQ31(t.targetU2, tables::pcCarbon(PcCarbon::TargetU2));
+		copyWords(t.factor[0], tables::pcCarbon(PcCarbon::FactorU0));
+		copyWords(t.factor[1], tables::pcCarbon(PcCarbon::FactorU1));
+		copyWords(t.factor[2], tables::pcCarbon(PcCarbon::FactorU2));
+		copyWords(t.sweepDepth, tables::pcCarbon(PcCarbon::SweepDepth));
+		copyWords(t.sweepDecay, tables::pcCarbon(PcCarbon::SweepDecay));
+		copyWords(t.exp2, tables::exp2());
+		readQ31(t.wave, tables::pcCarbonWave());
 		t.wave[257] = t.wave[256];
-		for(int i = 0; i < 258; ++i)
-			t.sine[i] = static_cast<float>(std::sin(2 * 3.14159265358979323846 * i / 256));
+		sineTable(t.sine);
 
-		// The voice before its first trig: silent, the drive's gain at 1 recovering
+		// The voice before its first trig: silent, the drive's gain at 1 recovering (Drive)
 		for(int l = 0; l < Lanes; ++l)
-		{
-			m_driveStage[l] = 5;
-			m_driveX[l] = 1;
-			m_driveGain.prev[l] = m_driveGain.level[l] = 1;
-			m_driveFrom[l] = m_driveTo[l] = 1;
-			m_ampStage[l] = 1;
 			convert(l);
-		}
 	}
 
 	void PcCarbon::setNote(const int _track, const int _note)
 	{
-		m_note[_track] = _note;
+		m_controls.notes[_track] = _note;
 		convert(_track);
 	}
 
 	void PcCarbon::setParameter(const int _track, const int _index, const uint8_t _value, const uint8_t _fine)
 	{
-		if(_index < 0 || _index >= Parameters)
-			return;
-		m_word[_index][_track] = std::min<int32_t>(_value, 127) << 8 | _fine;
-		convert(_track);
-	}
-
-	void PcCarbon::trig(const int _track)
-	{
-		m_trigQueued[_track] = true;
-	}
-
-	void PcCarbon::gateOff(const int _track)
-	{
-		m_gateQueued[_track] = true;
+		if(m_controls.setParameter(_track, _index, _value, _fine))
+			convert(_track);
 	}
 
 	float PcCarbon::decayAt(const double _x) const
@@ -106,12 +80,12 @@ namespace syntakt::fast
 
 	void PcCarbon::convert(const int _l)
 	{
-		const auto word = [this, _l](const int _i) { return m_word[_i][_l]; };
-		const auto byte = [this, _l](const int _i) { return m_word[_i][_l] >> 8; };
+		const auto word = [this, _l](const int _i) { return m_controls.words[_i][_l]; };
+		const auto byte = [this, _l](const int _i) { return m_controls.words[_i][_l] >> 8; };
 		const Tables& t = m_tables;
 
 		// TUNE: (value - 64 + fine / 256) semitones on the note
-		m_pitch[_l] = pitchWord(t.exp2, m_note[_l], word(0), PitchOffset);
+		m_pitch[_l] = pitchWord(t.exp2, m_controls.notes[_l], word(0), PitchOffset);
 
 		// The second: units 0-2's frequency factors, unit 3 at the note's
 		for(int k = 0; k < 3; ++k)
@@ -143,17 +117,12 @@ namespace syntakt::fast
 		m_decayNext[1][_l] = -t.decayU2[byte(7)];
 	}
 
-	float PcCarbon::driveStep(const int _l)
-	{
-		return driveGain(m_driveStage[_l], m_driveX[_l], m_driveGain.level[_l], m_drive[_l], FallPole,
-			RisePole, DriveFloor);
-	}
-
 	void PcCarbon::control()
 	{
 		for(int l = 0; l < Lanes; ++l)
 		{
-			const bool now = m_trigNow[l], pending = m_trigPending[l];
+			const Trigs& trigs = m_controls.trigs;
+			const bool now = trigs.now[l], pending = trigs.pending[l];
 
 			// With HOLD the amp decays as unit 3 did in the block before (0x40007280 reads its decay before it sets it)
 			if(m_hold[l])
@@ -176,26 +145,17 @@ namespace syntakt::fast
 				m_decay[0][l] = m_decayNext[0][l];
 				m_decay[2][l] = m_decayNext[1][l];
 				m_target[1][l] = m_target[3][l] = m_hold[l] ? HoldRest : 0.0f;
-				m_drive[l] = m_driveNext[l];
+				m_drive.trig(l, m_driveNext[l]);
 				m_sweepDecay[l] = m_sweepDecayNext[l];
 				m_sweep[l] = 2147483647.0 / 2147483648.0;
-				m_at[l] = 0;
-				m_envBlock[l] = 0;
+				m_clock.restart(l);
 
 				// The units' envelopes start from 1 without a ramp; the amp rises from the trig's block's silence to
 				// full over the block (half its step, then its step, saturated), and stays full without HOLD: units
 				// 1 and 3 decay instead
-				m_ampStage[l] = 0;
-				m_amp.prev[l] = 0;
-				m_amp.level[l] = 1;
+				m_amp.trigRise(l, 1);
 				if(!m_hold[l])
 					m_ampDecay[l] = 1;
-				m_release[l] = false;
-				m_driveStage[l] = 1;
-				m_driveX[l] = 1;
-				m_driveGain.prev[l] = m_driveGain.level[l] = 1;
-				m_driveGain.level[l] = driveStep(l);
-				m_driveFrom[l] = 1;
 			}
 			m_decay[1][l] = m_decayOdd[0][l];
 			m_decay[3][l] = m_decayOdd[1][l];
@@ -205,50 +165,18 @@ namespace syntakt::fast
 			// the machine computes them in integers; the machine steps the sweep before the next block's increments
 			const int64_t m = sweepWord(m_sweepDepth[l], m_sweep[l]);
 			for(int k = 0; k < Units; ++k)
-			{
-				const double inc48 = increment48(m, m_factor[k][l], 0x40000000, m_pitch[l]);
-				const auto inc = static_cast<uint32_t>(std::llround(inc48 * 256));
-				for(auto& s : m_inc[k].s)
-					s[l] = inc;
-			}
+				setIncrement(m_inc[k], l, m, m_factor[k][l], 0x40000000, m_pitch[l]);
 			m_sweep[l] *= m_sweepDecay[l];
 
-			// The envelopes step once per 48 kHz block, as on the machine, but in the trig's block; each sample reads
-			// their ramps (SdBasic::control)
-			const auto stepEnvelopes = [&]
+			// The envelopes on the block clock; each sample reads their ramps. The amp, full from the trig, has no
+			// attack to rise by
+			for(int s = m_clock.advance(l); s > 0; --s)
 			{
 				for(int k = 0; k < Units; ++k)
-				{
-					const float a = m_decay[k][l];
-					m_env[k].step(l, a * m_env[k].level[l] + (1 - a) * m_target[k][l]);
-				}
-
-				const float amp = m_amp.level[l];
-				if(m_ampStage[l] == 0)
-				{
-					m_ampStage[l] = !m_release[l] && m_hold[l] ? 2 : 1;
-					m_amp.step(l, amp);
-				}
-				else if(m_ampStage[l] == 2)
-				{
-					if(m_release[l])
-					{
-						m_ampStage[l] = 1;
-						m_release[l] = false;
-					}
-					m_amp.step(l, amp);
-				}
-				else
-				{
-					m_amp.step(l, amp * m_ampDecay[l]);
-				}
-
-				m_driveGain.step(l, driveStep(l));
-				++m_envBlock[l];
-			};
-			const int64_t start = m_at[l]++;	// the block's start, in 48 kHz blocks since the trig
-			while(start >= m_envBlock[l] + 1)
-				stepEnvelopes();
+					m_env[k].stepToward(l, m_decay[k][l], m_target[k][l]);
+				m_amp.stepAmp(l, m_ampDecay[l], 0, m_hold[l]);
+				m_drive.step(l);
+			}
 			for(int n = 0; n < BlockSize; ++n)
 			{
 				const double f = n / static_cast<double>(BlockSize);
@@ -256,27 +184,18 @@ namespace syntakt::fast
 					m_gEnv[k].s[n][l] = m_env[k].at(l, f);
 				m_gAmp.s[n][l] = m_amp.at(l, f);
 			}
-			if(m_gateOff[l] && !pending)
-				m_release[l] = true;
+			if(trigs.releases(l))
+				m_amp.release(l);
 
 			// The drive's gain ramps over the block, slow enough
-			constexpr double t = 1;	// the ramps at the block's end
-			m_driveTo[l] = m_driveGain.at(l, t);
+			m_drive.end(l);
 
-			// A pending block fades the amp out from where the last block left it, and leaves it silent until the trig
-			if(pending)
-			{
-				for(int n = 0; n < BlockSize; ++n)
-					m_gAmp.s[n][l] = m_ampEnd[l] * (1 - static_cast<float>(n) / BlockSize);
-				m_amp.prev[l] = m_amp.level[l] = 0;
-			}
-			m_ampEnd[l] = m_amp.at(l, t);
+			// A pending block fades the amp out, and leaves it silent until the trig
+			fadePending(m_gAmp, m_amp, m_ampEnd, l, pending);
 
-			// Drive on: unit 3 at 0.5 and unit 1 at 0.25 into a pre-gain of 1.32 and a clip; off, 0.25 and 0.125
-			m_driveAmount[l] = m_drive[l] ? 4 * DriveOn : 1.0f;
-			m_drivePost[l] = 1;
-			m_gainU3[l] = m_drive[l] ? 0.5f : 0.25f;
-			m_gainU1[l] = m_drive[l] ? 0.25f : 0.125f;
+			// Drive on: unit 3 at 0.5 and unit 1 at 0.25 into the drive (a pre-gain of 1.32); off, 0.25 and 0.125
+			m_gainU3[l] = m_drive.on[l] ? 0.5f : 0.25f;
+			m_gainU1[l] = m_drive.on[l] ? 0.25f : 0.125f;
 		}
 	}
 
@@ -284,12 +203,7 @@ namespace syntakt::fast
 	{
 		const FlushDenormals ftz;
 
-		for(int l = 0; l < Lanes; ++l)
-		{
-			m_trigPending[l] = m_trigQueued[l];
-			m_gateOff[l] = m_gateQueued[l];
-			m_trigQueued[l] = m_gateQueued[l] = false;
-		}
+		m_controls.trigs.start();
 		control();
 
 		// The units under their envelopes: unit 0 alone modulating unit 1, unit 2 alone modulating unit 3
@@ -308,14 +222,13 @@ namespace syntakt::fast
 
 		// Units 3 and 1 mixed, into the drive and the amp
 		mix(m_b[3], m_b[1], m_out, m_gainU3, m_gainU3, m_gainU1, m_gainU1);
-		driveClip(m_out, m_driveFrom, m_driveTo, m_driveAmount, m_drivePost);
+		driveClip(m_out, m_drive.from, m_drive.to, m_drive.amount, m_drive.post);
 		gain(m_out, m_gAmp);
 
 		// The drive's ramp's end is the next block's start
-		std::copy_n(m_driveTo, Lanes, m_driveFrom);
+		m_drive.advance();
 
-		for(int l = 0; l < Lanes; ++l)
-			m_trigNow[l] = m_trigPending[l];
+		m_controls.trigs.end();
 		return m_out;
 	}
 }

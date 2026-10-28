@@ -53,38 +53,26 @@ namespace syntakt::fast
 	}
 
 	CyAlloy::CyAlloy()
+		: m_drive(-q31(FallPoleWord), -q31(RisePoleWord), q31(DriveOnWord), {4 * q31(DriveOnWord), q31(INT32_MAX)},
+			{1.0f, q31(PostOffWord)})
 	{
-		const auto read = [](float* _dst, const auto& _words)
-		{
-			for(size_t i = 0; i < _words.size(); ++i)
-				_dst[i] = q31(_words[i]);
-		};
-		const auto copy = [](int32_t* _dst, const auto& _words) { std::copy(_words.begin(), _words.end(), _dst); };
 		using tables::CyAlloy;
 		Tables& t = m_tables;
-		read(t.decayOdd, tables::cyAlloy(CyAlloy::DecayOdd));
-		read(t.decayEven, tables::cyAlloy(CyAlloy::DecayEven));
-		read(t.target, tables::cyAlloy(CyAlloy::Target));
-		copy(t.depth, tables::cyAlloy(CyAlloy::Depth));
-		read(t.ampDecay, tables::cyAlloy(CyAlloy::AmpDecay));
-		copy(t.ratio, tables::cyAlloy(CyAlloy::Ratio));
-		copy(t.spread, tables::cyAlloy(CyAlloy::Spread));
-		copy(t.exp2, tables::exp2());
-		read(t.wave, tables::cyAlloyWave());
+		readQ31(t.decayOdd, tables::cyAlloy(CyAlloy::DecayOdd));
+		readQ31(t.decayEven, tables::cyAlloy(CyAlloy::DecayEven));
+		readQ31(t.target, tables::cyAlloy(CyAlloy::Target));
+		copyWords(t.depth, tables::cyAlloy(CyAlloy::Depth));
+		readQ31(t.ampDecay, tables::cyAlloy(CyAlloy::AmpDecay));
+		copyWords(t.ratio, tables::cyAlloy(CyAlloy::Ratio));
+		copyWords(t.spread, tables::cyAlloy(CyAlloy::Spread));
+		copyWords(t.exp2, tables::exp2());
+		readQ31(t.wave, tables::cyAlloyWave());
 		t.wave[257] = t.wave[256];
-		for(int i = 0; i < 258; ++i)
-			t.sine[i] = static_cast<float>(std::sin(2 * 3.14159265358979323846 * i / 256));
+		sineTable(t.sine);
 
-		// The voice before its first trig: silent, the drive's gain at 1 recovering
+		// The voice before its first trig: silent, the drive's gain at 1 recovering (Drive)
 		for(int l = 0; l < Lanes; ++l)
-		{
-			m_driveStage[l] = 5;
-			m_driveX[l] = 1;
-			m_driveGain.prev[l] = m_driveGain.level[l] = 1;
-			m_driveFrom[l] = m_driveTo[l] = 1;
-			m_ampStage[l] = 1;
 			convert(l);
-		}
 		highPass(m_bq);
 	}
 
@@ -98,26 +86,14 @@ namespace syntakt::fast
 
 	void CyAlloy::setNote(const int _track, const int _note)
 	{
-		m_note[_track] = _note;
+		m_controls.notes[_track] = _note;
 		convert(_track);
 	}
 
 	void CyAlloy::setParameter(const int _track, const int _index, const uint8_t _value, const uint8_t _fine)
 	{
-		if(_index < 0 || _index >= Parameters)
-			return;
-		m_word[_index][_track] = std::min<int32_t>(_value, 127) << 8 | _fine;
-		convert(_track);
-	}
-
-	void CyAlloy::trig(const int _track)
-	{
-		m_trigQueued[_track] = true;
-	}
-
-	void CyAlloy::gateOff(const int _track)
-	{
-		m_gateQueued[_track] = true;
+		if(m_controls.setParameter(_track, _index, _value, _fine))
+			convert(_track);
 	}
 
 	void CyAlloy::testWithoutChaos()
@@ -129,12 +105,12 @@ namespace syntakt::fast
 
 	void CyAlloy::convert(const int _l)
 	{
-		const auto word = [this, _l](const int _i) { return m_word[_i][_l]; };
-		const auto byte = [this, _l](const int _i) { return m_word[_i][_l] >> 8; };
+		const auto word = [this, _l](const int _i) { return m_controls.words[_i][_l]; };
+		const auto byte = [this, _l](const int _i) { return m_controls.words[_i][_l] >> 8; };
 		const Tables& t = m_tables;
 
 		// TUNE: (value - 64 + fine / 256) semitones on the note, 24 up
-		m_pitch[_l] = pitchWord(t.exp2, m_note[_l], word(0), PitchOffset);
+		m_pitch[_l] = pitchWord(t.exp2, m_controls.notes[_l], word(0), PitchOffset);
 
 		// The frequency factors: unit 1 at Ratio, unit 2 at Spread, unit 0 at their product, unit 3 at the note's,
 		// each product truncated as the machine's
@@ -163,17 +139,12 @@ namespace syntakt::fast
 		m_ampDecay[_l] = -t.ampDecay[byte(7)];
 	}
 
-	float CyAlloy::driveStep(const int _l)
-	{
-		return driveGain(m_driveStage[_l], m_driveX[_l], m_driveGain.level[_l], m_drive[_l], -q31(FallPoleWord),
-			-q31(RisePoleWord), q31(DriveOnWord));
-	}
-
 	void CyAlloy::control()
 	{
 		for(int l = 0; l < Lanes; ++l)
 		{
-			const bool now = m_trigNow[l], pending = m_trigPending[l];
+			const Trigs& trigs = m_controls.trigs;
+			const bool now = trigs.now[l], pending = trigs.pending[l];
 
 			// The update (0x40006d7c) and the envelopes' 48 kHz block 0: what a trig restarts and latches
 			if(now)
@@ -196,62 +167,26 @@ namespace syntakt::fast
 					m_decay[k][l] = m_decayNext[k][l];
 					m_env[k].prev[l] = m_env[k].level[l] = 1;
 				}
-				m_drive[l] = m_driveNext[l];
-				m_at[l] = 0;
-				m_envBlock[l] = 0;
+				m_drive.trig(l, m_driveNext[l]);
+				m_clock.restart(l);
 
 				// The units' envelopes and the amp's start from 1 without a ramp; the amp holds or decays from the
 				// next block
-				m_ampStage[l] = m_hold[l] ? 2 : 1;
-				m_amp.prev[l] = m_amp.level[l] = 1;
-				m_release[l] = false;
-				m_driveStage[l] = 1;
-				m_driveX[l] = 1;
-				m_driveGain.prev[l] = m_driveGain.level[l] = 1;
-				m_driveGain.level[l] = driveStep(l);
-				m_driveFrom[l] = 1;
+				m_amp.trigFull(l, m_hold[l]);
 			}
 
 			// No sweep: each unit's increment is the machine's at 48 kHz, as it computes it in integers
 			for(int k = 0; k < Units; ++k)
-			{
-				const double inc48 = increment48(0x04000000, m_factor[k][l], 0x40000000, m_pitch[l]);
-				const auto inc = static_cast<uint32_t>(std::llround(inc48 * 256));
-				for(auto& s : m_inc[k].s)
-					s[l] = inc;
-			}
+				setIncrement(m_inc[k], l, 0x04000000, m_factor[k][l], 0x40000000, m_pitch[l]);
 
-			// The envelopes step once per 48 kHz block, as on the machine, but in the trig's block; each sample reads
-			// their ramps (SdBasic::control)
-			const auto stepEnvelopes = [&]
+			// The envelopes on the block clock; each sample reads their ramps
+			for(int s = m_clock.advance(l); s > 0; --s)
 			{
 				for(int k = 0; k < Units; ++k)
-				{
-					const float a = m_decay[k][l];
-					m_env[k].step(l, a * m_env[k].level[l] + (1 - a) * m_target[k][l]);
-				}
-
-				const float amp = m_amp.level[l];
-				if(m_ampStage[l] == 2)
-				{
-					if(m_release[l])
-					{
-						m_ampStage[l] = 1;
-						m_release[l] = false;
-					}
-					m_amp.step(l, amp);
-				}
-				else
-				{
-					m_amp.step(l, amp * m_ampDecay[l]);
-				}
-
-				m_driveGain.step(l, driveStep(l));
-				++m_envBlock[l];
-			};
-			const int64_t start = m_at[l]++;	// the block's start, in 48 kHz blocks since the trig
-			while(start >= m_envBlock[l] + 1)
-				stepEnvelopes();
+					m_env[k].stepToward(l, m_decay[k][l], m_target[k][l]);
+				m_amp.stepAmp(l, m_ampDecay[l], 0, m_hold[l]);
+				m_drive.step(l);
+			}
 			for(int n = 0; n < BlockSize; ++n)
 			{
 				const double f = n / static_cast<double>(BlockSize);
@@ -259,24 +194,14 @@ namespace syntakt::fast
 					m_gEnv[k].s[n][l] = m_env[k].at(l, f);
 				m_gAmp.s[n][l] = m_amp.at(l, f);
 			}
-			if(m_gateOff[l] && !pending)
-				m_release[l] = true;
+			if(trigs.releases(l))
+				m_amp.release(l);
 
 			// The drive's gain ramps over the block, slow enough
-			constexpr double t = 1;	// the ramps at the block's end
-			m_driveTo[l] = m_driveGain.at(l, t);
+			m_drive.end(l);
 
-			// A pending block fades the amp out from where the last block left it, and leaves it silent until the trig
-			if(pending)
-			{
-				for(int n = 0; n < BlockSize; ++n)
-					m_gAmp.s[n][l] = m_ampEnd[l] * (1 - static_cast<float>(n) / BlockSize);
-				m_amp.prev[l] = m_amp.level[l] = 0;
-			}
-			m_ampEnd[l] = m_amp.at(l, t);
-
-			m_driveAmount[l] = m_drive[l] ? 4 * q31(DriveOnWord) : 1.0f;
-			m_drivePost[l] = m_drive[l] ? q31(INT32_MAX) : q31(PostOffWord);
+			// A pending block fades the amp out, and leaves it silent until the trig
+			fadePending(m_gAmp, m_amp, m_ampEnd, l, pending);
 		}
 	}
 
@@ -284,12 +209,7 @@ namespace syntakt::fast
 	{
 		const FlushDenormals ftz;
 
-		for(int l = 0; l < Lanes; ++l)
-		{
-			m_trigPending[l] = m_trigQueued[l];
-			m_gateOff[l] = m_gateQueued[l];
-			m_trigQueued[l] = m_gateQueued[l] = false;
-		}
+		m_controls.trigs.start();
 		control();
 
 		// The units under their envelopes: unit 0 alone modulating unit 1, unit 2 feeding back on itself modulating
@@ -310,14 +230,13 @@ namespace syntakt::fast
 			0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f};
 		mix(m_b[3], m_b[1], m_out, Half, Half, Half, Half);
 		biquad(m_out, m_bq, m_bqState);
-		driveClip(m_out, m_driveFrom, m_driveTo, m_driveAmount, m_drivePost);
+		driveClip(m_out, m_drive.from, m_drive.to, m_drive.amount, m_drive.post);
 		gain(m_out, m_gAmp);
 
 		// The drive's ramp's end is the next block's start
-		std::copy_n(m_driveTo, Lanes, m_driveFrom);
+		m_drive.advance();
 
-		for(int l = 0; l < Lanes; ++l)
-			m_trigNow[l] = m_trigPending[l];
+		m_controls.trigs.end();
 		return m_out;
 	}
 }

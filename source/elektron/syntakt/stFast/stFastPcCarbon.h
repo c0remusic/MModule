@@ -15,7 +15,7 @@ namespace syntakt::fast
 	class PcCarbon
 	{
 	public:
-		static constexpr int Parameters = 8;
+		static constexpr int Parameters = Controls::Parameters;
 		static constexpr int Units = 4;
 
 		// Its tables come from stFastTables' formulas: nothing of the firmware
@@ -28,8 +28,8 @@ namespace syntakt::fast
 		void setParameter(int _track, int _index, uint8_t _value, uint8_t _fine);
 
 		// For the next block rendered only
-		void trig(int _track);
-		void gateOff(int _track);
+		void trig(const int _track) { m_controls.trig(_track); }
+		void gateOff(const int _track) { m_controls.gateOff(_track); }
 
 		// For tests, as the other machines': PC CARBON has no feedback, nothing to take out
 		void testWithoutChaos() {}
@@ -40,7 +40,6 @@ namespace syntakt::fast
 	private:
 		void convert(int _track);
 		void control();
-		float driveStep(int _l);
 
 		// The decay coefficient units 1 and 3 read from their curve at _x in [0, 1]
 		float decayAt(double _x) const;
@@ -58,9 +57,8 @@ namespace syntakt::fast
 		};
 		Tables m_tables;
 
-		// Each Track's parameters, as words (value << 8 | fine), and note
-		int32_t m_word[Parameters][Lanes]{};
-		int m_note[Lanes]{};
+		// Each Track's parameters as words, its note and its trigs
+		Controls m_controls;
 
 		// What they convert to (convert): read every block, or latched at a trig (*Next)
 		int32_t m_pitch[Lanes]{};				// the pitch map's word for the note and TUNE (0x40002596's f)
@@ -76,26 +74,21 @@ namespace syntakt::fast
 
 		// The voices' state
 		bool m_playing[Lanes]{};	// since its first trig
-		bool m_trigQueued[Lanes]{}, m_gateQueued[Lanes]{};
-		bool m_trigPending[Lanes]{}, m_trigNow[Lanes]{}, m_gateOff[Lanes]{};
 		alignas(16) uint32_t m_phase[Units][Lanes]{};
 		Increments m_inc[Units]{};
 		alignas(16) float m_depth[2][Lanes]{};
-		// The 48 kHz block clock: the blocks since the trig and the envelopes' block
-		int64_t m_at[Lanes]{}, m_envBlock[Lanes]{};
+		Clock48 m_clock;
 		double m_sweepDecay[Lanes]{}, m_sweep[Lanes]{};
 		float m_decay[Units][Lanes]{};
 		float m_ampDecay[Lanes]{}, m_decayU3Prev[Lanes]{};
-		Ramp48 m_env[Units], m_amp, m_driveGain;
-		int m_ampStage[Lanes]{}, m_driveStage[Lanes]{};
-		float m_driveX[Lanes]{};
-		bool m_drive[Lanes]{}, m_release[Lanes]{};
+		Ramp48 m_env[Units];
+		AmpEnvelope m_amp;
+		Drive m_drive;
 
-		// The envelopes over the block, sample by sample (the units', the amp's), the amp's at its end, the drive's
-		// gain at the ends of the previous and this block, which it ramps between, and the mix's gains
+		// The envelopes over the block, sample by sample (the units', the amp's), the amp's at its end, and the mix's
+		// gains
 		Block m_gEnv[Units], m_gAmp;
 		float m_ampEnd[Lanes]{};
-		alignas(16) float m_driveFrom[Lanes]{}, m_driveTo[Lanes]{}, m_driveAmount[Lanes]{}, m_drivePost[Lanes]{};
 		alignas(16) float m_gainU3[Lanes]{}, m_gainU1[Lanes]{};
 
 		Block m_b[Units], m_out;

@@ -46,7 +46,7 @@ namespace
 	// The 16 Hits: TUNE, the units' ratios, the depth, the sweep, units 0 and 2's levels at rest, the drive, HOLD,
 	// DECAY. The retrigger (106.7 ms) sets the sweep and the drive to 127 and the note 2 up; the gate-off is at
 	// 213.3 ms
-	const Hit Hits[Lanes] = {
+	const HitSet Hits = {{
 		{{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false},
 		{{64, 0, 0, 0, 0, 0, 0, 40}, {}, 48, false, false},
 		{{64, 127, 127, 127, 127, 1, 0, 90}, {}, 48, false, false},
@@ -63,7 +63,7 @@ namespace
 		{{0, 90, 70, 127, 90, 1, 0, 85}, {}, 72, false, false},
 		{{64, 120, 15, 80, 60, 1, 1, 120}, {}, 42, true, true},
 		{{64, 64, 100, 0, 64, 0, 0, 30}, {}, 48, true, false},
-	};
+	}, {3, 5}, Machine};
 
 	constexpr double Seconds = 2;
 	constexpr uint32_t DepthU1Table = 0x40023404, WaveTable = 0x40024804;
@@ -82,11 +82,11 @@ namespace
 		return f;
 	}
 
+	// The sine the fast engine reads (fast::sineTable)
 	std::vector<float> sine()
 	{
 		std::vector<float> s(258);
-		for(int i = 0; i < 258; ++i)
-			s[static_cast<size_t>(i)] = static_cast<float>(std::sin(2 * Pi * i / 256));
+		fast::sineTable(s.data());
 		return s;
 	}
 
@@ -100,13 +100,7 @@ namespace
 	std::vector<std::vector<double>> renderExact(const std::vector<int32_t>& _s7, const double _seconds,
 		const Nudge& _nudge = {})
 	{
-		return exactHits(_s7, _seconds, _nudge, [](Exact16& _e, const int _b)
-		{
-			if(_b == 0)
-				for(int t = 0; t < Lanes; ++t)
-					_e.setMachine(t, Machine);
-			events(_e, _b, 48000, Hits);
-		});
+		return exactHits(_s7, _seconds, _nudge, Hits);
 	}
 
 	// ---- Q2: the linear stages against their integer originals ----
@@ -292,91 +286,32 @@ namespace
 			ok &= r.print("PM sine (units 1 and 3)");
 		}
 
-		// The drive (0x400047ea) with PC CARBON's coefficients, on on lanes 0-7, off on 8-15, fed a full-scale decaying
-		// sine from a trig, the float clip fed the integer gain envelope's levels
-		{
-			Runs r;
-			alignas(16) float from[Lanes], to[Lanes], drive[Lanes], post[Lanes];
-			for(int b = 0; b < Blocks; ++b)
-			{
-				fast::Block x;
-				int32_t ref[Lanes][BlockSize];
-				for(int l = 0; l < Lanes; ++l)
-				{
-					Voice v = st.voice(l);
-					const bool on = l < 8;
-					v.at(Voice::TrigNow) = b == 0;
-					if(b == 0)
-					{
-						v.at(0x414) = v.at(0x418) = 0x012c0f26;
-						v.at(0x41c) = static_cast<int32_t>(0x82581e4b);
-						v.at(0x420) = v.at(0x424) = 0x0013af8c;
-						v.at(0x428) = static_cast<int32_t>(0x80275f18);
-						v.at(Voice::DriveFloor) = on ? 0x20000000 : INT32_MAX;
-						v.at(Voice::DrivePreGain) = on ? 0x2a3d70a4 : 0x20000000;
-						v.at(Voice::DriveGain) = INT32_MAX;
-						v.at(Voice::DriveOn) = on;
-						v.at(Voice::DriveX1) = v.at(Voice::DriveY1) = INT32_MAX;
-					}
-					from[l] = static_cast<float>(on ? q31(v.at(Voice::DriveY1)) : q31(INT32_MAX));
-					drive[l] = static_cast<float>(4 * q31(v.at(Voice::DrivePreGain)));
-					post[l] = static_cast<float>(q31(v.at(Voice::DriveGain)));
-					for(int n = 0; n < BlockSize; ++n)
-					{
-						const double t = (b * BlockSize + n) / 48000.0;
-						const double decay = std::exp(-t / (0.05 + 0.05 * (l & 7)));
-						ref[l][n] = toQ31(decay * std::sin(2 * Pi * (40 + 10 * l) * t));
-						x.s[n][l] = static_cast<float>(q31(ref[l][n]));
-					}
-					driveClip(ref[l], v);
-					to[l] = static_cast<float>(q31(v.at(Voice::DriveY1)));
-					for(int n = 0; n < BlockSize; ++n)
-						r.ref[l].push_back(q31(ref[l][n]));
-				}
-				fast::driveClip(x, from, to, drive, post);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.test[l].push_back(x.s[n][l]);
-			}
-			ok &= r.print("drive clip (on, off)");
-		}
+		// The drive (0x400047ea) with PC CARBON's coefficients, on on lanes 0-7, off on 8-15 (bench::q3DriveClip)
+		const DriveWords drive = {
+			{0x012c0f26, static_cast<int32_t>(0x82581e4b), 0x0013af8c, static_cast<int32_t>(0x80275f18), 0x20000000,
+				0x2a3d70a4, INT32_MAX},
+			{0x012c0f26, static_cast<int32_t>(0x82581e4b), 0x0013af8c, static_cast<int32_t>(0x80275f18), INT32_MAX,
+				0x20000000, INT32_MAX}};
+		ok &= q3DriveClip(st, drive, "drive clip (on, off)");
 		checkValidated(ok, "Q3: the non-linear stages, SNR >= 70 dB, >= 60 dB in every 10 ms window above -60 dB, "
 			"no residual third octave above -60 dB");
 	}
 
-	// ---- cost ----
-
-	void cost(const std::vector<int32_t>& _s7)
-	{
-		Exact16 e(_s7);
-		for(int t = 0; t < Lanes; ++t)
-			e.setMachine(t, Machine);
-		printCost<fast::PcCarbon>("PC CARBON", Hits, costPerBlock(e, Hits, [&] { e.render(); }));
-	}
 }
 
 int main()
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
-	const char* path = std::getenv("SYNTAKT_SECTION7");
-	if(!path || !*path)
-	{
-		std::printf("SYNTAKT_SECTION7 not set: skipped\n");
-		return 77;
-	}
-	const auto s7 = loadSection7(path);
+	const auto s7 = loadSection7OrSkip();
 	if(s7.empty())
-	{
-		std::printf("%s is not OS 1.41's section 7: skipped\n", path);
 		return 77;
-	}
 
 	q2(s7);
 	q3(s7);
-	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); });
+	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); }, fast::PcCarbon::Units);
 	q4(exact, renderFast(48000, Seconds));
 	q15(renderFast(48000, Seconds + 0.05, true), renderFast(44100, Seconds + 0.05, true), Seconds);
-	cost(s7);
+	printCost<fast::PcCarbon>("PC CARBON", s7, Hits);
 
 	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
 	return g_failures ? 1 : 0;

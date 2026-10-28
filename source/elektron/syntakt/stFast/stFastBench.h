@@ -1,388 +1,40 @@
 #pragma once
 
-// What the fast machines' tests measure with and play, shared with stFastAbRender (the listening test's renders): the
-// metrics, the exact port's eight tracks as the voice CPU renders them, BD MODERN's 16 Hits with their events, and the
-// criteria every machine is judged by (Q2-Q4, the chaotic Hits' distributions, the cost)
+// What the fast machines' tests play and judge with, shared with stFastAbRender (the listening test's renders) and
+// stFastSweep: the exact port's eight tracks as the voice CPU renders them, a machine's 16 Hits with their events,
+// and the criteria every machine is judged by (Q2-Q4, Q15, the chaotic Hits' distributions, the cost). The measures
+// they read are stFastMetrics.h's
 
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
-#include <complex>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "stBoot.h"
 #include "stEngine.h"
-#include "stFastBdModern.h"
+#include "stFastMetrics.h"
 #include "stFastResample.h"
+#include "stSection7.h"
 #include "stStages.h"
 
 namespace syntakt::fast::bench
 {
-	constexpr double Pi = 3.14159265358979323846;
-
-	// ---- Q31 and dB ----
-
-	inline double q31(const int32_t _v) { return _v / 2147483648.0; }
-	inline int32_t toQ31(const double _v)
-	{
-		return static_cast<int32_t>(std::clamp<long long>(std::llround(_v * 2147483648.0), INT32_MIN, INT32_MAX));
-	}
-	inline double db(const double _power) { return 10 * std::log10(std::max(_power, 1e-300)); }
-
-	// ---- metrics ----
-
-	inline void fft(std::vector<std::complex<double>>& _a)
-	{
-		const size_t n = _a.size();
-		for(size_t i = 1, j = 0; i < n; ++i)
-		{
-			size_t bit = n >> 1;
-			for(; j & bit; bit >>= 1)
-				j ^= bit;
-			j ^= bit;
-			if(i < j)
-				std::swap(_a[i], _a[j]);
-		}
-		for(size_t len = 2; len <= n; len <<= 1)
-		{
-			const double ang = -2 * Pi / static_cast<double>(len);
-			const std::complex<double> wl(std::cos(ang), std::sin(ang));
-			for(size_t i = 0; i < n; i += len)
-			{
-				std::complex<double> w(1);
-				for(size_t k = 0; k < len / 2; ++k)
-				{
-					const auto u = _a[i + k], v = _a[i + k + len / 2] * w;
-					_a[i + k] = u + v;
-					_a[i + k + len / 2] = u - v;
-					w *= wl;
-				}
-			}
-		}
-	}
-
-	// |X_k|^2 of _x zero-padded to a power of two of at least _min points
-	inline std::vector<double> powerSpectrum(const std::vector<double>& _x, size_t _min = 0)
-	{
-		size_t n = 1;
-		while(n < std::max(_x.size(), _min))
-			n <<= 1;
-		std::vector<std::complex<double>> a(n);
-		for(size_t i = 0; i < _x.size(); ++i)
-			a[i] = _x[i];
-		fft(a);
-		std::vector<double> p(n / 2);
-		for(size_t k = 0; k < n / 2; ++k)
-			p[k] = std::norm(a[k]);
-		return p;
-	}
-	// Energy per third octave (centres 1000 2^(k/3), k = _first .. _last), in seconds-weighted units comparable across
-	// rates: sum |X|^2 / (N fs), one-sided
-	inline std::vector<double> bands(const std::vector<double>& _x, const double _fs, const int _first, const int _last)
-	{
-		const auto p = powerSpectrum(_x, size_t(1) << 20);	// fine bins: a band's edges cut few of them
-		const double n = 2.0 * static_cast<double>(p.size());
-		std::vector<double> e(static_cast<size_t>(_last - _first + 1), 0.0);
-		for(size_t k = 1; k < p.size(); ++k)
-		{
-			const double f = static_cast<double>(k) * _fs / n;
-			const double b = std::floor(3 * std::log2(f / 1000) + 0.5);
-			if(b >= _first && b <= _last)
-				e[static_cast<size_t>(b - _first)] += 2 * p[k] / (n * _fs);
-		}
-		return e;
-	}
-
-	inline double energy(const std::vector<double>& _x)
-	{
-		double e = 0;
-		for(const double v : _x)
-			e += v * v;
-		return e;
-	}
-
-	struct Null
-	{
-		double snr, worstBand;
-	};
-
-	// SNR of _test against _ref, and the residual's loudest third octave (20 Hz to Nyquist at 48 kHz) relative to
-	// _ref's energy
-	inline Null null(const std::vector<double>& _ref, const std::vector<double>& _test, const double _fs)
-	{
-		std::vector<double> res(_ref.size());
-		for(size_t i = 0; i < res.size(); ++i)
-			res[i] = _test[i] - _ref[i];
-		const auto rb = bands(_ref, _fs, -17, 14), eb = bands(res, _fs, -17, 14);	// 20 Hz to Nyquist
-		double total = 0, worst = 0;
-		for(const double v : rb)
-			total += v;
-		for(const double v : eb)
-			worst = std::max(worst, v);
-		return {db(energy(_ref) / energy(res)), db(worst / total)};
-	}
-
-	// The worst SNR of _test against _ref over 10 ms rectangular windows, one after the other, among those where _ref
-	// is above its loudest window - 60 dB: the measure that set Q3's local threshold by listening (ticket 05)
-	inline double localSnr(const std::vector<double>& _ref, const std::vector<double>& _test, const double _fs)
-	{
-		const auto w = static_cast<size_t>(std::lround(0.01 * _fs));
-		std::vector<double> sig, res;
-		for(size_t a = 0; a + w <= _ref.size(); a += w)
-		{
-			double s = 0, r = 0;
-			for(size_t i = a; i < a + w; ++i)
-			{
-				s += _ref[i] * _ref[i];
-				r += (_test[i] - _ref[i]) * (_test[i] - _ref[i]);
-			}
-			sig.push_back(s);
-			res.push_back(r);
-		}
-		const double loud = *std::max_element(sig.begin(), sig.end());
-		double worst = 1e9;
-		for(size_t k = 0; k < sig.size(); ++k)
-			if(sig[k] >= loud * 1e-6)
-				worst = std::min(worst, db(sig[k] / res[k]));
-		return worst;
-	}
-
-	// Mean square over 1 ms windows from sample 0, at _fs. Sample i stands for [i - 1/2, i + 1/2) / _fs and counts for
-	// the part of it a window covers: whole samples would move a window's edges by up to a sample at 44.1 kHz, which
-	// near a low note's zero crossing changes its RMS by tenths of a dB
-	inline std::vector<double> envelope(const std::vector<double>& _x, const double _fs, const double _ms = 1)
-	{
-		std::vector<double> e;
-		for(int k = 0;; ++k)
-		{
-			const double a = k * _ms * _fs / 1000 + 0.5, b = (k + 1) * _ms * _fs / 1000 + 0.5;
-			if(b + 1 > static_cast<double>(_x.size()))
-				break;
-			double s = 0;
-			for(auto i = static_cast<size_t>(a); i <= static_cast<size_t>(b); ++i)
-			{
-				const double w = std::min(b, i + 1.0) - std::max(a, static_cast<double>(i));
-				if(w > 0)
-					s += w * _x[i] * _x[i];
-			}
-			e.push_back(s / (b - a));
-		}
-		return e;
-	}
-
-	// The largest difference in dB between two envelopes where _ref is above its peak - 40 dB
-	inline double envelopeDiff(const std::vector<double>& _ref, const std::vector<double>& _test)
-	{
-		const double peak = *std::max_element(_ref.begin(), _ref.end());
-		double worst = 0;
-		for(size_t k = 0; k < std::min(_ref.size(), _test.size()); ++k)
-			if(_ref[k] > peak * 1e-4)
-				worst = std::max(worst, std::abs(db(_test[k] / _ref[k])));
-		return worst;
-	}
-
-	// The spectral peak between 20 Hz and 8 kHz, interpolated on the log power around the largest bin
-	inline double peakHz(const std::vector<double>& _x, const double _fs)
-	{
-		const auto p = powerSpectrum(_x, size_t(1) << 20);
-		const double n = 2.0 * static_cast<double>(p.size());
-		const auto lo = static_cast<size_t>(20 * n / _fs), hi = static_cast<size_t>(8000 * n / _fs);
-		size_t k = lo;
-		for(size_t i = lo; i < hi; ++i)
-			if(p[i] > p[k])
-				k = i;
-		const double a = std::log(p[k - 1]), b = std::log(p[k]), c = std::log(p[k + 1]);
-		return (static_cast<double>(k) + 0.5 * (a - c) / (a - 2 * b + c)) * _fs / n;
-	}
-
-	// ---- Q4's phase-blind measures (set by the ABX of ticket 05 on 06-sweep's pairs) ----
-
-	// Both renders from the exact port's onset, its first sample above its peak - 60 dB: a fast render whose sweep or
-	// pitch drifts its phase a little nulls badly yet sounds the same, so Q4 compares what the ear follows
-	inline size_t onsetOf(const std::vector<double>& _ref)
-	{
-		double peak = 0;
-		for(const double v : _ref)
-			peak = std::max(peak, std::abs(v));
-		size_t i = 0;
-		while(i < _ref.size() && std::abs(_ref[i]) <= peak * 1e-3)
-			++i;
-		return i < _ref.size() ? i : 0;
-	}
-
-	// The magnitude of _x's analytic signal (zero-padded to a power of two), smoothed by a 5 ms boxcar at 48 kHz
-	inline std::vector<double> hilbertEnvelope(const std::vector<double>& _x)
-	{
-		size_t n = 1;
-		while(n < _x.size())
-			n <<= 1;
-		std::vector<std::complex<double>> a(n);
-		for(size_t i = 0; i < _x.size(); ++i)
-			a[i] = _x[i];
-		fft(a);
-		for(size_t k = 1; k < n / 2; ++k)
-			a[k] *= 2;
-		for(size_t k = n / 2 + 1; k < n; ++k)
-			a[k] = 0;
-		for(auto& v : a)	// the inverse transform, by conjugation
-			v = std::conj(v);
-		fft(a);
-		std::vector<double> e(_x.size());
-		for(size_t i = 0; i < e.size(); ++i)
-			e[i] = std::abs(a[i]) / static_cast<double>(n);
-		constexpr int Box = 240, Before = Box / 2;	// samples i - 120 to i + 119
-		std::vector<double> sum(e.size() + 1, 0.0), y(e.size());
-		for(size_t i = 0; i < e.size(); ++i)
-			sum[i + 1] = sum[i] + e[i];
-		const auto n0 = static_cast<int64_t>(e.size());
-		for(int64_t i = 0; i < n0; ++i)
-		{
-			const int64_t lo = std::max<int64_t>(0, i - Before), hi = std::min<int64_t>(n0, i - Before + Box);
-			y[static_cast<size_t>(i)] = (sum[static_cast<size_t>(hi)] - sum[static_cast<size_t>(lo)]) / Box;
-		}
-		return y;
-	}
-
-	// Whether two renders can be compared sample for sample: _test at least as long as _ref, both finite. Q4's
-	// measures fail (+inf) otherwise
-	inline bool comparable(const std::vector<double>& _ref, const std::vector<double>& _test)
-	{
-		const auto finite = [](const std::vector<double>& _x)
-		{
-			return std::all_of(_x.begin(), _x.end(), [](const double _v) { return std::isfinite(_v); });
-		};
-		return _test.size() >= _ref.size() && finite(_ref) && finite(_test);
-	}
-
-	// The larger of two measures, a NaN in either kept: std::max would drop it
-	inline double worseOf(const double _a, const double _b)
-	{
-		return std::isnan(_a) || std::isnan(_b) ? std::nan("") : std::max(_a, _b);
-	}
-
-	// The envelopes' largest difference relative to the exact port's peak, in dB: max |B - A| / max A; +inf where the
-	// renders cannot be compared or the exact port is silent
-	inline double envelopeAbs(const std::vector<double>& _ref, const std::vector<double>& _test)
-	{
-		if(!comparable(_ref, _test))
-			return HUGE_VAL;
-		const auto on = static_cast<std::ptrdiff_t>(onsetOf(_ref));
-		const auto end = static_cast<std::ptrdiff_t>(_ref.size());
-		const auto a = hilbertEnvelope({_ref.begin() + on, _ref.end()});
-		const auto b = hilbertEnvelope({_test.begin() + on, _test.begin() + end});
-		double peak = 0, worst = 0;
-		for(size_t i = 0; i < a.size(); ++i)
-		{
-			peak = std::max(peak, a[i]);
-			worst = worseOf(worst, std::abs(b[i] - a[i]));
-		}
-		if(!(peak > 0))
-			return HUGE_VAL;
-		return 20 * std::log10(std::max(worst, 1e-300) / peak);
-	}
-
-	// Power per third octave (centres 1000 2^(k/3), k -14 to 13, edges at +-1/6 octave, bands without a bin left out)
-	// in 1024-sample Hann frames, hop 256, at 48 kHz: [frame][band]
-	inline std::vector<std::vector<double>> shortTimeBands(const std::vector<double>& _x)
-	{
-		constexpr int N = 1024, Hop = 256;
-		std::vector<std::pair<int, int>> bins;	// each band's bins, [first, last)
-		for(int k = -14; k <= 13; ++k)
-		{
-			const double c = 1000 * std::exp2(k / 3.0);
-			int first = N / 2 + 1, last = 0;
-			for(int b = 0; b <= N / 2; ++b)
-			{
-				const double f = b * 48000.0 / N;
-				if(f >= c * std::exp2(-1 / 6.0) && f < c * std::exp2(1 / 6.0))
-				{
-					first = std::min(first, b);
-					last = b + 1;
-				}
-			}
-			if(last > first)
-				bins.emplace_back(first, last);
-		}
-		std::vector<std::vector<double>> s;
-		std::vector<std::complex<double>> a(N);
-		for(size_t at = 0; at + N <= _x.size(); at += Hop)
-		{
-			for(int i = 0; i < N; ++i)	// numpy's hanning: symmetric
-				a[i] = _x[at + i] * (0.5 - 0.5 * std::cos(2 * Pi * i / (N - 1)));
-			fft(a);
-			std::vector<double> row;
-			for(const auto& [first, last] : bins)
-			{
-				double p = 0;
-				for(int b = first; b < last; ++b)
-					p += std::norm(a[b]);
-				row.push_back(p);
-			}
-			s.push_back(row);
-		}
-		return s;
-	}
-
-	// The short-time third octaves' largest difference in dB, over the cells where the exact port's is within _range
-	// dB of its loudest cell; +inf where the renders cannot be compared or the exact port is silent
-	inline double cellMax(const std::vector<double>& _ref, const std::vector<double>& _test, const double _range = 30)
-	{
-		if(!comparable(_ref, _test))
-			return HUGE_VAL;
-		const auto on = static_cast<std::ptrdiff_t>(onsetOf(_ref));
-		const auto end = static_cast<std::ptrdiff_t>(_ref.size());
-		const auto a = shortTimeBands({_ref.begin() + on, _ref.end()});
-		const auto b = shortTimeBands({_test.begin() + on, _test.begin() + end});
-		double top = 0, worst = 0;
-		for(const auto& row : a)
-			for(const double v : row)
-				top = std::max(top, v);
-		if(!(top > 0))
-			return HUGE_VAL;
-		for(size_t t = 0; t < a.size(); ++t)
-			for(size_t k = 0; k < a[t].size(); ++k)
-				if(a[t][k] > top * std::pow(10.0, -_range / 10))
-					worst = worseOf(worst, std::abs(db(std::max(b[t][k], 1e-30) / a[t][k])));
-		return worst;
-	}
-
-	// Q4's fatal thresholds on those measures, and the null's (printed in Q4; the chaos classification's)
+	// Q4's fatal thresholds on the measures, and the null's (printed in Q4; the chaos classification's)
 	constexpr double EnvelopeAbsDb = -39, CellMaxDb = 1;
 	constexpr double NullSnrDb = 70, NullLocalDb = 60, NullBandDb = -60;
 
-	// What Q4, the deterministic check and stFastSweep measure of a fast render (_test) against the exact port's
-	struct HitMeasures
-	{
-		double snr, local, band;	// the null: global, worst 10 ms, worst residual third octave
-		double env;					// the 1 ms envelope's largest difference above -40 dB
-		double refHz, cents;		// the exact port's spectral peak, the fast render's against it
-		double envAbs, cells;		// the Hilbert envelope (dB re peak), the short-time third octaves
-	};
-
-	inline HitMeasures measureHit(const std::vector<double>& _ref, const std::vector<double>& _test)
-	{
-		HitMeasures m{};
-		const auto n = null(_ref, _test, 48000);
-		m.snr = n.snr;
-		m.band = n.worstBand;
-		m.local = localSnr(_ref, _test, 48000);
-		m.env = envelopeDiff(envelope(_ref, 48000), envelope(_test, 48000));
-		m.refHz = peakHz(_ref, 48000);
-		m.cents = 1200 * std::log2(peakHz(_test, 48000) / m.refHz);
-		m.envAbs = envelopeAbs(_ref, _test);
-		m.cells = cellMax(_ref, _test);
-		return m;
-	}
-
 	// ---- the exact port ----
 
-	// Eight tracks of syntakt::bdModern as the voice CPU renders them, before the track stages: CPU #1's block in,
-	// renderVoices' output out (the block's layout as VoiceCpu writes it)
+	// Eight tracks of the exact port's machines as the voice CPU renders them, before the track stages: CPU #1's block
+	// in, renderVoices' output out (the block's layout as VoiceCpu writes it). A track plays BD MODERN until
+	// setMachine says otherwise
 	class Exact
 	{
 	public:
@@ -469,45 +121,37 @@ namespace syntakt::fast::bench
 
 	// ---- the Hits ----
 
+	// The retrigger's 48 kHz block (106.7 ms), the gate-off's twice it
+	constexpr int RetrigBlock48 = 160;
+
 	struct Hit
 	{
-		uint8_t value[8];	// TUNE, U2 level, transient, SWEEP, CONTOUR, drive, HOLD, DECAY
+		uint8_t value[8];	// the Machine page's eight parameters
 		uint8_t fine[8];
 		int note;
-		bool retrig;		// a second trig at 106.7 ms (block 160 at 48 kHz, 147 at 44.1): SWEEP, drive 127, note + 2
+		bool retrig;		// a second trig at RetrigBlock48 (147 at 44.1 kHz): HitSet's retrigger
 		bool gate;			// a gate-off at 213.3 ms (block 320, 294)
 	};
 
-	const Hit Hits[Lanes] = {
-		{{88, 64, 64, 64, 64, 0, 0, 64}, {}, 36, false, false},
-		{{88, 0, 0, 0, 0, 0, 0, 40}, {}, 36, false, false},
-		{{88, 127, 127, 127, 127, 1, 0, 90}, {}, 36, false, false},
-		{{100, 32, 96, 20, 100, 0, 0, 110}, {}, 40, false, false},
-		{{76, 96, 32, 110, 10, 1, 0, 70}, {}, 30, false, false},
-		{{88, 64, 127, 64, 64, 1, 0, 127}, {}, 36, false, false},
-		{{88, 127, 0, 127, 0, 0, 0, 100}, {}, 48, false, false},
-		{{64, 80, 50, 30, 120, 0, 0, 80}, {}, 60, false, false},
-		{{88, 64, 64, 64, 64, 0, 1, 90}, {}, 36, false, true},
-		{{110, 20, 110, 90, 40, 1, 0, 60}, {}, 24, false, false},
-		{{88, 50, 70, 50, 70, 0, 0, 96}, {128, 77, 200, 0, 33, 0, 0, 0}, 36, false, false},
-		{{88, 64, 64, 64, 64, 1, 0, 100}, {}, 36, true, false},
-		{{127, 40, 40, 40, 40, 0, 0, 80}, {}, 50, false, false},
-		{{0, 90, 90, 90, 90, 1, 0, 85}, {}, 100, false, false},
-		{{88, 110, 20, 80, 60, 1, 1, 120}, {}, 33, false, true},
-		{{88, 64, 100, 0, 64, 0, 0, 100}, {}, 36, true, false},
+	// A machine's 16 Hits, the parameters its retrigger sets to 127 before its trig, the note 2 up (none: a Hit set
+	// that retriggers fails), and the machine's id in the exact port (Exact::setMachine)
+	struct HitSet
+	{
+		Hit hit[Lanes];
+		std::vector<int> retrigger;
+		int machine;
 	};
 
 	// The Hits' events before block _b at _fs (48 or 44.1 kHz: the retrigger and the gate-off land on a block there),
-	// on any engine with BdModern's interface. _hits: another machine's, whose parameters 3 and 5 the retrigger sets
-	// as well
+	// on any engine with a machine's interface
 	template<typename Engine>
-	void events(Engine& _e, const int _b, const double _fs, const Hit (&_hits)[Lanes] = Hits)
+	void events(Engine& _e, const int _b, const double _fs, const HitSet& _hits)
 	{
-		const int retrig = static_cast<int>(std::lround(160 * _fs / 48000));
+		const int retrig = static_cast<int>(std::lround(RetrigBlock48 * _fs / 48000));
 		const int gate = 2 * retrig;
 		for(int t = 0; t < Lanes; ++t)
 		{
-			const Hit& h = _hits[t];
+			const Hit& h = _hits.hit[t];
 			if(_b == 0)
 			{
 				for(int i = 0; i < 8; ++i)
@@ -517,8 +161,10 @@ namespace syntakt::fast::bench
 			}
 			if(h.retrig && _b == retrig)
 			{
-				_e.setParameter(t, 3, 127, 0);
-				_e.setParameter(t, 5, 127, 0);
+				if(_hits.retrigger.empty())
+					throw std::logic_error("a Hit set that retriggers names what its retrigger sets");
+				for(const int i : _hits.retrigger)
+					_e.setParameter(t, i, 127, 0);
 				_e.setNote(t, h.note + 2);
 				_e.trig(t);
 			}
@@ -777,7 +423,7 @@ namespace syntakt::fast::bench
 	// the onset (the block after the trig's), or from the trig (_fromTrig), the instant both rates share, the onset
 	// coming 32 samples later at 48 kHz and 29.4 at 44.1. _setup(machine) before the first block (a test hook)
 	template<typename Machine, typename Setup>
-	std::vector<std::vector<double>> fastHits(const double _fs, const double _seconds, const Hit (&_hits)[Lanes],
+	std::vector<std::vector<double>> fastHits(const double _fs, const double _seconds, const HitSet& _hits,
 		Setup&& _setup, const bool _fromTrig = false)
 	{
 		Host<Machine> e(static_cast<float>(_fs));
@@ -803,63 +449,81 @@ namespace syntakt::fast::bench
 		return out;
 	}
 
-	// _seconds of the exact port's 16 Hits at 48 kHz, _events(e, block) before each block, from the onset (the block
-	// after the trig's). _nudge: every unit's phase _nudge LSB (2^-24 cycle) on after each trig's onset block (the
-	// trig at block 0 and the retrigger at 160, whose trig restarts the phases: a nudge before it would be undone),
-	// what the exact port nulls to against itself: the floor of a null where the voice is chaotic. Its inc: LSB added
-	// to each unit's increment word throughout, after each update (Exact::setIncrementNudge): the frequency word a
-	// table or the tune moves when it is a little off
+	// The units a nudge may move: a voice's 7, at least 1
+	constexpr int checkedUnits(const int _units)
+	{
+		if(_units < 1 || _units > 7)
+			throw std::invalid_argument("a machine has 1 to 7 units");
+		return _units;
+	}
+
+	// What the exact port's Hits are rendered under (exactHits). Its phase: the phase of each of a machine's first
+	// units (units, which phaseNudge sets with it) _phase LSB (2^-24 cycle) on after each trig's onset block (the trig
+	// at block 0 and the retrigger at RetrigBlock48, whose trig restarts the phases: a nudge before it would be
+	// undone), what the exact port nulls to against itself: the floor of a null where the voice is chaotic. Its inc:
+	// LSB added to each unit's increment word throughout, after each update (Exact::setIncrementNudge): the frequency
+	// word a table or the tune moves when it is a little off. Nudge{}: none
 	struct Nudge
 	{
 		int32_t phase = 0;
+		int units = 0;	// the units the phase nudge moves
 		int8_t inc[7] = {};
 	};
 
-	inline Nudge phaseNudge(const int32_t _lsb)
+	// The phase nudge of a machine's _units units
+	inline Nudge phaseNudge(const int32_t _lsb, const int _units)
 	{
 		Nudge n;
 		n.phase = _lsb;
+		n.units = checkedUnits(_units);
 		return n;
 	}
 
-	//
-	// The increment nudges, each up (even index) and down (odd): each of units 0-3 1 LSB alone, all four, then each
-	// pair of them. A unit alone is what one table's entry moves (a ratio), all four what the pitch moves (TUNE, the
-	// note), a pair what one entry read by two units moves (CY ALLOY's Spread: unit 2 and, through a product, unit 0)
-	constexpr int Units4 = 4;
-	constexpr int IncrementNudgeCount = 2 * (Units4 + 1 + Units4 * (Units4 - 1) / 2);	// 22
-
-	// Whether nudge _i (of IncrementNudgeCount) moves unit _k
-	constexpr bool incrementNudgeMoves(const int _i, const int _k)
+	// The increment nudges of a machine's _units units (at most 7), each up (even index) and down (odd): each unit 1
+	// LSB alone, all of them, then each pair of them. A unit alone is what one table's entry moves (a ratio), all what
+	// the pitch moves (TUNE, the note), a pair what one entry read by two units moves (CY ALLOY's Spread: unit 2 and,
+	// through a product, unit 0). 22 for four units
+	constexpr int incrementNudgeCount(const int _units)
 	{
-		const int set = _i / 2;	// 0-3 a unit alone, 4 all four, 5-10 the pairs (0 1) (0 2) (0 3) (1 2) (1 3) (2 3)
-		if(_k >= Units4)
+		const int u = checkedUnits(_units);
+		return 2 * (u + 1 + u * (u - 1) / 2);
+	}
+
+	// Whether nudge _i (of incrementNudgeCount(_units)) moves unit _k
+	constexpr bool incrementNudgeMoves(const int _i, const int _k, const int _units)
+	{
+		const int set = _i / 2;	// a unit alone below _units, all at _units, then the pairs (0 1) (0 2) ... in order
+		if(_k >= _units)
 			return false;
-		if(set < Units4)
+		if(set < _units)
 			return _k == set;
-		if(set == Units4)
+		if(set == _units)
 			return true;
-		int pair = set - Units4 - 1;
-		for(int a = 0; a < Units4; ++a)
-			for(int b = a + 1; b < Units4; ++b)
+		int pair = set - _units - 1;
+		for(int a = 0; a < _units; ++a)
+			for(int b = a + 1; b < _units; ++b)
 				if(pair-- == 0)
 					return _k == a || _k == b;
 		return false;
 	}
 
-	inline Nudge incrementNudge(const int _i)
+	inline Nudge incrementNudge(const int _i, const int _units)
 	{
 		Nudge n;
+		checkedUnits(_units);
 		for(int k = 0; k < 7; ++k)
-			n.inc[k] = static_cast<int8_t>(incrementNudgeMoves(_i, k) ? (_i % 2 ? -1 : 1) : 0);
+			n.inc[k] = static_cast<int8_t>(incrementNudgeMoves(_i, k, _units) ? (_i % 2 ? -1 : 1) : 0);
 		return n;
 	}
 
-	template<typename Events>
-	std::vector<std::vector<double>> exactHits(const std::vector<int32_t>& _s7, const double _seconds,
-		const Nudge& _n, Events&& _events)
+	// _seconds of the exact port's 16 Hits (_hits, every Track on its machine) at 48 kHz under _n, from the onset (the
+	// block after the trig's)
+	inline std::vector<std::vector<double>> exactHits(const std::vector<int32_t>& _s7, const double _seconds,
+		const Nudge& _n, const HitSet& _hits)
 	{
 		const int32_t nudge = _n.phase;
+		if(nudge)
+			checkedUnits(_n.units);
 		Exact16 e(_s7);
 		e.a.setIncrementNudge(_n.inc);
 		e.b.setIncrementNudge(_n.inc);
@@ -868,11 +532,14 @@ namespace syntakt::fast::bench
 		std::vector<std::vector<double>> out(Lanes);
 		for(int b = 0; b < blocks; ++b)
 		{
-			_events(e, b);
+			if(b == 0)
+				for(int t = 0; t < Lanes; ++t)
+					e.setMachine(t, _hits.machine);
+			events(e, b, 48000, _hits);
 			e.render();
-			if(nudge && (b == 2 || b == 162))
+			if(nudge && (b == 2 || b == RetrigBlock48 + 2))
 				for(int t = 0; t < 8; ++t)
-					for(uint32_t k = 0; k < 4; ++k)
+					for(uint32_t k = 0; k < static_cast<uint32_t>(_n.units); ++k)
 					{
 						e.a.nudge(t, k, nudge);
 						e.b.nudge(t, k, nudge);
@@ -1063,13 +730,78 @@ namespace syntakt::fast::bench
 		_ok &= clean.print("feedback sine (unit 0), not chaotic");
 	}
 
+	// A machine's drive (0x400047ea) as its voice holds it, with the drive on and off: the gain envelope's fall
+	// (0x414-0x41c: its start, twice, and pole) and rise (0x420-0x428), its floor, pre-gain and gain after the clip
+	struct DriveWords
+	{
+		struct Side
+		{
+			int32_t fallStart, fallPole, riseStart, risePole, floor, preGain, gain;
+		};
+		Side on, off;
+	};
+
+	// Q3 of the drive over 1 s with a machine's words (_words), on on lanes 0-7, off on 8-15, fed a full-scale
+	// decaying sine from a trig, the float clip fed the integer gain envelope's levels; printed as _stage, true where
+	// it passes
+	inline bool q3DriveClip(Stage& _st, const DriveWords& _words, const char* _stage)
+	{
+		constexpr int Blocks = 1500;
+		Runs r;
+		alignas(16) float from[Lanes], to[Lanes], drive[Lanes], post[Lanes];
+		for(int b = 0; b < Blocks; ++b)
+		{
+			fast::Block x;
+			int32_t ref[Lanes][BlockSize];
+			for(int l = 0; l < Lanes; ++l)
+			{
+				Voice v = _st.voice(l);
+				const bool on = l < 8;
+				const DriveWords::Side& w = on ? _words.on : _words.off;
+				v.at(Voice::TrigNow) = b == 0;
+				if(b == 0)
+				{
+					v.at(0x414) = v.at(0x418) = w.fallStart;
+					v.at(0x41c) = w.fallPole;
+					v.at(0x420) = v.at(0x424) = w.riseStart;
+					v.at(0x428) = w.risePole;
+					v.at(Voice::DriveFloor) = w.floor;
+					v.at(Voice::DrivePreGain) = w.preGain;
+					v.at(Voice::DriveGain) = w.gain;
+					v.at(Voice::DriveOn) = on;
+					v.at(Voice::DriveX1) = v.at(Voice::DriveY1) = INT32_MAX;
+				}
+				from[l] = static_cast<float>(on ? q31(v.at(Voice::DriveY1)) : q31(INT32_MAX));
+				drive[l] = static_cast<float>(4 * q31(v.at(Voice::DrivePreGain)));
+				post[l] = static_cast<float>(q31(v.at(Voice::DriveGain)));
+				for(int n = 0; n < BlockSize; ++n)
+				{
+					const double t = (b * BlockSize + n) / 48000.0;
+					const double decay = std::exp(-t / (0.05 + 0.05 * (l & 7)));
+					ref[l][n] = toQ31(decay * std::sin(2 * Pi * (40 + 10 * l) * t));
+					x.s[n][l] = static_cast<float>(q31(ref[l][n]));
+				}
+				syntakt::driveClip(ref[l], v);
+				to[l] = static_cast<float>(q31(v.at(Voice::DriveY1)));
+				for(int n = 0; n < BlockSize; ++n)
+					r.ref[l].push_back(q31(ref[l][n]));
+			}
+			fast::driveClip(x, from, to, drive, post);
+			for(int l = 0; l < Lanes; ++l)
+				for(int n = 0; n < BlockSize; ++n)
+					r.test[l].push_back(x.s[n][l]);
+		}
+		return r.print(_stage);
+	}
+
 	// ---- Q4: the voice against the exact port ----
 
 	// The exact port's 16 Hits at 48 kHz, and the same with every unit's phase nudged as Nudges says after the
 	// onsets (_render(nudge)), and with its increments moved by the increment nudges. A Hit is chaotic where the first
 	// phase nudge fails Q4's own measures against the unperturbed render (chaoticSelf); there, 16 phase nudges give
 	// the dispersion its distributions are judged against, with the limit's factor calibrated on all 17, below 18 kHz.
-	// Elsewhere the increment nudges give its tolerance, with k calibrated on them (calibrateTolerance) (Q4)
+	// Elsewhere the increment nudges give its tolerance, with k calibrated on them (calibrateTolerance) (Q4). _units:
+	// the machine's units, which the nudges move
 	struct Exacts
 	{
 		std::vector<std::vector<double>> ref;
@@ -1080,11 +812,11 @@ namespace syntakt::fast::bench
 		double factor = 2, k = 1;
 
 		template<typename Render>
-		explicit Exacts(Render&& _render) : ref(_render(Nudge{}))
+		Exacts(Render&& _render, const int _units) : ref(_render(Nudge{}))
 		{
 			// The first phase nudge classifies; the other 16 are rendered only for a chaotic Hit's dispersion, the
 			// increment nudges only for the tolerance of a Hit that is not
-			std::vector<std::vector<std::vector<double>>> nudged{_render(phaseNudge(Nudges[0]))}, increments;
+			std::vector<std::vector<std::vector<double>>> nudged{_render(phaseNudge(Nudges[0], _units))}, increments;
 			bool anyChaotic = false, anyNot = false;
 			for(int l = 0; l < Lanes; ++l)
 			{
@@ -1098,9 +830,9 @@ namespace syntakt::fast::bench
 				(chaotic[l] ? anyChaotic : anyNot) = true;
 			}
 			for(size_t i = 1; anyChaotic && i < std::size(Nudges); ++i)
-				nudged.push_back(_render(phaseNudge(Nudges[i])));
-			for(int i = 0; anyNot && i < IncrementNudgeCount; ++i)
-				increments.push_back(_render(incrementNudge(i)));
+				nudged.push_back(_render(phaseNudge(Nudges[i], _units)));
+			for(int i = 0; anyNot && i < incrementNudgeCount(_units); ++i)
+				increments.push_back(_render(incrementNudge(i, _units)));
 			std::vector<std::vector<Deviation>> sets;
 			std::vector<std::vector<PhaseBlind>> tolerances;
 			for(int l = 0; l < Lanes; ++l)
@@ -1422,15 +1154,15 @@ namespace syntakt::fast::bench
 
 	// 16 Tracks playing _hits: each retriggers every 300 + 20 t blocks with its Hit's parameters
 	template<typename Engine, typename Render>
-	double costPerBlock(Engine& _e, const Hit (&_hits)[Lanes], Render&& _render)
+	double costPerBlock(Engine& _e, const HitSet& _hits, Render&& _render)
 	{
 		using Clock = std::chrono::steady_clock;
 		constexpr int Blocks = 15000;	// 10 s at 48 kHz
 		for(int t = 0; t < Lanes; ++t)
 		{
 			for(int i = 0; i < 8; ++i)
-				_e.setParameter(t, i, _hits[t].value[i], _hits[t].fine[i]);
-			_e.setNote(t, _hits[t].note);
+				_e.setParameter(t, i, _hits.hit[t].value[i], _hits.hit[t].fine[i]);
+			_e.setNote(t, _hits.hit[t].note);
 		}
 		double best = 1e9;
 		for(int rep = 0; rep < 5; ++rep)
@@ -1449,10 +1181,15 @@ namespace syntakt::fast::bench
 	}
 
 	// 16 Machine voices playing _hits (costPerBlock): per block at 48 kHz, and per host block at 44.1 kHz with the
-	// resampler, printed against _exactUs, the exact port's per 48 kHz block
+	// resampler, printed against the exact port's per 48 kHz block, every Track on _hits' machine, measured first
 	template<typename Machine>
-	void printCost(const char* _name, const Hit (&_hits)[Lanes], const double _exactUs)
+	void printCost(const char* _name, const std::vector<int32_t>& _s7, const HitSet& _hits)
 	{
+		Exact16 e(_s7);
+		for(int t = 0; t < Lanes; ++t)
+			e.setMachine(t, _hits.machine);
+		const double exactUs = costPerBlock(e, _hits, [&] { e.render(); });
+
 		std::array<std::array<float, BlockSize>, Lanes> buf{};
 		std::array<float*, Lanes> ptr{};
 		for(int t = 0; t < Lanes; ++t)
@@ -1463,6 +1200,23 @@ namespace syntakt::fast::bench
 		const double block48 = 32 / 48000.0 * 1e6, block44 = 32 / 44100.0 * 1e6;
 		std::printf("  cost, 16 %s voices per 32-sample block: fast %.2f us (%.2f %% of a core at 48 kHz), exact %.2f "
 			"us (%.2f %%), %.1fx; at 44.1 kHz with the resampler %.2f us a host block (%.2f %%)\n", _name, us48,
-			100 * us48 / block48, _exactUs, 100 * _exactUs / block48, _exactUs / us48, us44, 100 * us44 / block44);
+			100 * us48 / block48, exactUs, 100 * exactUs / block48, exactUs / us48, us44, 100 * us44 / block44);
+	}
+
+	// ---- the tests' start ----
+
+	// OS 1.41's section 7 from SYNTAKT_SECTION7, or, printing why, empty: a test then exits 77, skipped
+	inline std::vector<int32_t> loadSection7OrSkip()
+	{
+		const char* path = std::getenv("SYNTAKT_SECTION7");
+		if(!path || !*path)
+		{
+			std::printf("SYNTAKT_SECTION7 not set: skipped\n");
+			return {};
+		}
+		auto s7 = loadSection7(path);
+		if(s7.empty())
+			std::printf("%s is not OS 1.41's section 7: skipped\n", path);
+		return s7;
 	}
 }
