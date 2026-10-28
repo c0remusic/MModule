@@ -76,14 +76,12 @@ namespace syntakt::fast
 		read(m_tables.modDecay, tables::parameter(Parameter::ModDecay));
 		read(m_tables.ampDecay, tables::parameter(Parameter::AmpDecay));
 		read(m_tables.modTarget, tables::parameter(Parameter::ModTarget));
-		read(m_tables.feedback, tables::parameter(Parameter::Feedback));
+		copy(m_tables.feedback, tables::parameter(Parameter::Feedback));
 		read(m_tables.levelU0, tables::parameter(Parameter::LevelU0));
 		read(m_tables.levelU2, tables::parameter(Parameter::LevelU2));
 		read(m_tables.wave, tables::wave());
 		copy(m_tables.exp2, tables::exp2());
 		m_tables.wave[257] = m_tables.wave[256];
-		for(int i = 0; i < 258; ++i)
-			m_tables.sine[i] = static_cast<float>(std::sin(2 * 3.14159265358979323846 * i / 256));
 
 		// The boot's voice: silent, the drive's gain at 1 recovering
 		for(int l = 0; l < Lanes; ++l)
@@ -128,7 +126,7 @@ namespace syntakt::fast
 
 	void BdModern::testWithoutChaos()
 	{
-		std::fill_n(m_tables.feedback, 128, 0.0f);
+		std::fill_n(m_tables.feedback, 128, 0);
 		for(int l = 0; l < Lanes; ++l)
 			convert(l);
 	}
@@ -145,8 +143,8 @@ namespace syntakt::fast
 		m_g0[_l] = interpolate(t.levelU2, word(1));
 		m_g1[_l] = interpolate(t.levelU0, word(2));
 		m_clickTarget[_l] = interpolate(t.clickLevel, word(2));
-		// The feedback word Q31 F adds F / 32 of a 2^-24 cycle per unit sample: 4 F cycles
-		m_fbTarget[_l] = 4 * interpolate(t.feedback, word(2));
+		// The feedback word Q31 F adds F / 32 of a 2^-24 cycle per unit sample (4 F cycles), truncated as the machine's
+		m_fbWord[_l] = interpolateWord(t.feedback, word(2));
 		m_sweepDepth[_l] = t.sweepDepth[byte(3)];
 		m_sweepDecayNext[_l] = -t.sweepDecay[byte(3)] / 2147483648.0;	// per 48 kHz block
 		m_modTarget[_l] = interpolate(t.modTarget, word(4));
@@ -293,7 +291,7 @@ namespace syntakt::fast
 		pmSine(m_b1, nullptr, m_phase[1], m_inc012, 0);
 		pmWave(m_a2, m_b1, m_phase[2], m_inc012, q31(static_cast<int32_t>(0xffe3d70a)) * 128, m_tables.wave);
 		rampedGain(m_a2, m_u2Prev, m_u2Level);
-		feedbackSine(m_b0, m_phase[0], m_inc012, m_fb, m_fbTarget, m_last, m_tables.sine);
+		feedbackSine(m_b0, m_phase[0], m_inc012, m_fb, m_fbWord, m_last);
 		mix(m_a2, m_b0, m_mix, m_g0Cur, m_g0, m_g1Cur, m_g1);
 		rampedGain(m_mix, m_modPrev, m_modLevel);
 		pmSine(m_b3, &m_mix, m_phase[3], m_inc3, q31(0x00ffffff) * 128);

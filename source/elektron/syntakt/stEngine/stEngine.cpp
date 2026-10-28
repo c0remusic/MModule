@@ -33,7 +33,7 @@ namespace syntakt
 	}
 
 	void renderVoices(Sram& _sram, Globals& _g, const Rom& _rom, const uint32_t _out, const uint32_t _params,
-		const int32_t _trig, const int32_t _gateOff)
+		const int32_t _trig, const int32_t _gateOff, const AfterUpdate _afterUpdate, void* _ctx)
 	{
 		uint8_t order[Voices], key[Voices];
 		for(uint32_t v = 0; v < static_cast<uint32_t>(Voices); ++v)
@@ -90,6 +90,8 @@ namespace syntakt
 			if(const auto* e = engine(static_cast<uint32_t>(voice.at(Voice::Engine))))
 			{
 				e->update(_sram.at(Pitch + 4 * static_cast<uint32_t>(v)), voice, params + 0x1c, _rom);
+				if(_afterUpdate)
+					_afterUpdate(voice, v, _ctx);
 				e->render(_sram.ptr(_out + TrackOutStride * static_cast<uint32_t>(v)), voice, _rom);
 			}
 			else

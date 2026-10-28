@@ -89,7 +89,7 @@ namespace syntakt::fast
 		read(t.ampAttack, tables::sdBasic(SdBasic::AmpAttack));
 		copy(t.sweepDepth, tables::sdBasic(SdBasic::SweepDepth));
 		copy(t.sweepDecay, tables::sdBasic(SdBasic::SweepDecay));
-		read(t.feedback, tables::sdBasic(SdBasic::Feedback));
+		copy(t.feedback, tables::sdBasic(SdBasic::Feedback));
 		read(t.targetU0, tables::sdBasic(SdBasic::TargetU0));
 		read(t.targetU1, tables::sdBasic(SdBasic::TargetU1));
 		copy(t.scaleU0, tables::sdBasic(SdBasic::ScaleU0));
@@ -98,8 +98,6 @@ namespace syntakt::fast
 		read(t.depthU3, tables::sdBasic(SdBasic::DepthU3));
 		read(t.lowPass, tables::sdBasic(SdBasic::LowPass));
 		copy(t.exp2, tables::exp2());
-		for(int i = 0; i < 258; ++i)
-			t.sine[i] = static_cast<float>(std::sin(2 * 3.14159265358979323846 * i / 256));
 
 		// The voice before its first trig: silent, the drive's gain at 1 recovering
 		for(int l = 0; l < Lanes; ++l)
@@ -146,7 +144,7 @@ namespace syntakt::fast
 
 	void SdBasic::testWithoutChaos()
 	{
-		std::fill_n(m_tables.feedback, 128, 0.0f);
+		std::fill_n(m_tables.feedback, 128, 0);
 		for(int l = 0; l < Lanes; ++l)
 			convert(l);
 	}
@@ -168,7 +166,7 @@ namespace syntakt::fast
 
 		// The third: unit 0's feedback (the word Q31 F adds F / 32 of a 2^-24 cycle per unit sample: 4 F cycles),
 		// unit 3's modulation by unit 0 (16 D cycles of the word D / 8) and its low-pass
-		m_fbTarget[_l] = 4 * interpolate(t.feedback, word(2));
+		m_fbWord[_l] = interpolateWord(t.feedback, word(2));
 		m_depth2Target[_l] = 16 * interpolate(t.depthU3, word(2));
 		const float lp = m_lpPole[lowPassEntry(word(2)) - 126];
 		m_lpA[_l] = lp;
@@ -218,7 +216,8 @@ namespace syntakt::fast
 				if(!m_playing[l])
 				{
 					m_playing[l] = true;
-					m_fb[l] = m_depth2[l] = 0;
+					m_fb[l] = 0;
+					m_depth2[l] = 0;
 				}
 				for(auto& p : m_phase)
 					p[l] = 0;
@@ -364,7 +363,7 @@ namespace syntakt::fast
 
 		// The units under their envelopes: unit 0 feeding back on itself, unit 1 alone, unit 2 modulated by unit 1,
 		// unit 3 by units 1 and 0
-		feedbackSine(m_b[0], m_phase[0], m_inc[0], m_fb, m_fbTarget, m_last, m_tables.sine);
+		feedbackSine(m_b[0], m_phase[0], m_inc[0], m_fb, m_fbWord, m_last);
 		gain(m_b[0], m_gEnv[0]);
 		pmSine(m_b[1], nullptr, m_phase[1], m_inc[1], 0);
 		gain(m_b[1], m_gEnv[1]);

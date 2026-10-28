@@ -16,7 +16,7 @@ if(BUILD_TESTING)
 	target_link_libraries(stFastTablesTest PRIVATE stFast stEngine)
 	set_property(TARGET stFastTablesTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stFastTablesTest COMMAND stFastTablesTest)
-	set_tests_properties(stFastTablesTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 60)
+	set_tests_properties(stFastTablesTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 10)
 
 	# BD MODERN against the exact port at 48 kHz, 44.1 against 48 kHz, and its cost for 16 Tracks
 	# (SYNTAKT_SECTION7: exit 77 without it)
@@ -52,7 +52,7 @@ if(BUILD_TESTING)
 	target_link_libraries(stFastResampleTest PRIVATE stFast stEngine)
 	set_property(TARGET stFastResampleTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stFastResampleTest COMMAND stFastResampleTest)
-	set_tests_properties(stFastResampleTest PROPERTIES TIMEOUT 60)
+	set_tests_properties(stFastResampleTest PROPERTIES TIMEOUT 10)
 
 	# The listening test's WAVs and ABX page (ticket 05), by hand, into a folder outside the repository:
 	# stFastAbRender OUTDIR (SYNTAKT_SECTION7)

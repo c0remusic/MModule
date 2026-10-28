@@ -1,4 +1,5 @@
 #include "stFastStages.h"
+#include <array>
 
 namespace syntakt::fast
 {
@@ -60,26 +61,43 @@ namespace syntakt::fast
 		}
 	}
 
-	void feedbackSine(Block& _out, uint32_t* _phase, const Increments& _inc, float* _fb, const float* _fbTarget,
-		float* _last, const float* _wave)
+	namespace
 	{
-		for(int g = 0; g < Lanes; g += 4)
+		// The RAM sine the machine's oscillators read: sin(2 pi i / 256) in Q31, 257 words
+		const std::array<int64_t, 257> QSine = []
 		{
-			__m128i p = _mm_load_si128(reinterpret_cast<const __m128i*>(_phase + g));
-			V fb = _mm_load_ps(_fb + g), s = _mm_load_ps(_last + g);
-			const V step = stepOf(_fb, _fbTarget, g);
+			std::array<int64_t, 257> t{};
+			for(int i = 0; i < 257; ++i)
+				t[i] = std::clamp<int64_t>(std::llround(std::sin(2 * 3.14159265358979323846 * i / 256) * 2147483648.0),
+					INT32_MIN, INT32_MAX);
+			return t;
+		}();
+	}
+
+	void feedbackSine(Block& _out, uint32_t* _phase, const Increments& _inc, int32_t* _fb, const int32_t* _fbWord,
+		int32_t* _last)
+	{
+		// Per lane in 64-bit integers, as the machine's accumulator: the target frac(0x04000000, word), the word >> 5;
+		// the amount ramped by (target - start) >> 5 a sample; the phase sum (phase << 8) + (fb s >> 23), then >> 8;
+		// the lookup (T[i] << 8) + (f T[i + 1] >> 23) - (f T[i] >> 23), then >> 8
+		for(int l = 0; l < Lanes; ++l)
+		{
+			const int32_t target = _fbWord[l] >> 5;
+			int64_t phase = _phase[l] >> 8, s = _last[l], fb = _fb[l];
+			const int64_t step = (static_cast<int64_t>(target) - fb) >> 5;
 			for(int n = 0; n < BlockSize; ++n)
 			{
-				const V u = _mm_add_ps(phaseOf(p), _mm_mul_ps(fb, s));
-				s = _wave ? lookup(u, _wave) : sin2pi(u);
-				_mm_store_ps(_out.s[n] + g, s);
-				p = _mm_add_epi32(p, _mm_load_si128(reinterpret_cast<const __m128i*>(_inc.s[n] + g)));
-				fb = _mm_add_ps(fb, step);
+				const int64_t p = (phase * 256 + ((fb * s) >> 23)) >> 8;
+				const int64_t i = (p & 0xffffff) >> 16, f = (p & 0xffff) << 15;
+				s = (QSine[i] * 256 + ((f * QSine[i + 1]) >> 23) - ((f * QSine[i]) >> 23)) >> 8;
+				_out.s[n][l] = static_cast<float>(static_cast<double>(s) / 2147483648.0);
+				phase = (phase + (_inc.s[n][l] >> 8)) & 0xffffff;
+				fb += step;
 			}
-			_mm_store_si128(reinterpret_cast<__m128i*>(_phase + g), p);
-			_mm_store_ps(_last + g, s);
+			_phase[l] = static_cast<uint32_t>(phase << 8);
+			_last[l] = static_cast<int32_t>(s);
+			_fb[l] = target;
 		}
-		std::copy_n(_fbTarget, Lanes, _fb);
 	}
 
 	void pmSine(Block& _out, const Block* _src, uint32_t* _phase, const Increments& _inc, const float _depth)

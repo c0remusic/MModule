@@ -44,15 +44,15 @@ namespace syntakt::fast
 
 		// The tables SD BASIC reads (stFastTables, section 7's words by formula): as floats, and as the words for the
 		// pitch, which the machine computes in integers as a long Hit's phase needs it (the ratios, the sweep's depth,
-		// the pitch map's exp2); the 256-entry sine unit 0 reads is computed
+		// the pitch map's exp2); the sine unit 0 reads is feedbackSine's
 		struct Tables
 		{
 			float decayU0[128], decayU1[128], decayU2[128], decayU3[128], ampDecay[128], modDecay[128];
-			float ampAttack[128], feedback[128], targetU0[128], targetU1[128];
+			float ampAttack[128], targetU0[128], targetU1[128];
+			int32_t feedback[128];	// as words: unit 0's feedback is the machine's integers (feedbackSine)
 			float depthU3[128], lowPass[128];
 			int32_t scaleU0[128], scaleU1[128], scaleU3[128], sweepDepth[128], sweepDecay[128];
 			int32_t exp2[2048];
-			float sine[258];	// computed: sin(2 pi i / 256)
 		};
 		Tables m_tables;
 
@@ -67,7 +67,8 @@ namespace syntakt::fast
 		// What they convert to (convert): read every block, or latched at a trig (*Next)
 		int32_t m_pitch[Lanes]{};			// the pitch map's word for the note and TUNE (0x40002596's f)
 		int32_t m_scale[Units][Lanes]{};	// the units' ratio words (Q31, 0.5 the note's)
-		alignas(16) float m_fbTarget[Lanes]{}, m_depth2Target[Lanes]{};
+		alignas(16) float m_depth2Target[Lanes]{};
+		int32_t m_fbWord[Lanes]{};	// unit 0's feedback word, the machine's 0x2c
 		float m_target[Units][Lanes]{};		// the units' envelopes' levels at rest
 		float m_modDecay[Lanes]{}, m_ampDecay[Lanes]{};
 		bool m_hold[Lanes]{};
@@ -84,7 +85,9 @@ namespace syntakt::fast
 		bool m_trigPending[Lanes]{}, m_trigNow[Lanes]{}, m_gateOff[Lanes]{};
 		alignas(16) uint32_t m_phase[Units][Lanes]{};
 		Increments m_inc[Units]{};
-		alignas(16) float m_fb[Lanes]{}, m_last[Lanes]{}, m_depth2[Lanes]{};
+		alignas(16) float m_depth2[Lanes]{};
+		int32_t m_fb[Lanes]{};
+		int32_t m_last[Lanes]{};	// unit 0's last sample, a Q31 word (feedbackSine)
 		// The 48 kHz block clock: the blocks since the trig and the envelopes' block
 		int64_t m_at[Lanes]{}, m_envBlock[Lanes]{};
 		double m_sweepDecay[Lanes]{}, m_sweep[Lanes]{};

@@ -52,15 +52,15 @@ namespace syntakt::fast
 
 		// The tables BD MODERN reads (stFastTables, section 7's words by formula): the 128-entry parameter tables and
 		// unit 2's wave as floats, the pitch's as words (the sweep's, the pitch map's exp2), which the machine
-		// computes in integers; the 256-entry sine unit 0 reads is computed
+		// computes in integers; the sine unit 0 reads is feedbackSine's
 		struct Tables
 		{
 			int32_t sweepDepth[128], sweepDecay[128];
 			float clickLevel[128], modDecay[128], ampDecay[128];
-			float modTarget[128], feedback[128], levelU0[128], levelU2[128];
+			float modTarget[128], levelU0[128], levelU2[128];
+			int32_t feedback[128];	// as words: unit 0's feedback is the machine's integers (feedbackSine)
 			float wave[258];	// 257 and a copy of the last, for a phase that rounds up to 1
 			int32_t exp2[2048];
-			float sine[258];	// computed: sin(2 pi i / 256)
 		};
 		Tables m_tables;
 
@@ -80,7 +80,8 @@ namespace syntakt::fast
 		double m_sweepDecayNext[Lanes]{};
 		float m_modDecayNext[Lanes]{};
 		bool m_driveNext[Lanes]{};
-		alignas(16) float m_g0[Lanes]{}, m_g1[Lanes]{}, m_clickTarget[Lanes]{}, m_fbTarget[Lanes]{};
+		alignas(16) float m_g0[Lanes]{}, m_g1[Lanes]{}, m_clickTarget[Lanes]{};
+		int32_t m_fbWord[Lanes]{};	// unit 0's feedback word, the machine's 0x2c
 		float m_modTarget[Lanes]{}, m_ampDecay[Lanes]{};
 		bool m_hold[Lanes]{};
 
@@ -89,7 +90,8 @@ namespace syntakt::fast
 		bool m_trigPending[Lanes]{}, m_trigNow[Lanes]{}, m_gateOff[Lanes]{};
 		alignas(16) uint32_t m_phase[4][Lanes]{};
 		Increments m_inc3{}, m_inc012{};	// unit 3's, and units 0-2's
-		alignas(16) float m_fb[Lanes]{}, m_last[Lanes]{};
+		int32_t m_fb[Lanes]{};
+		int32_t m_last[Lanes]{};	// unit 0's last sample, a Q31 word (feedbackSine)
 		alignas(16) float m_g0Cur[Lanes]{}, m_g1Cur[Lanes]{};
 		// The block-rate control runs on the machine's 48 kHz block clock: the blocks since the trig and the envelopes'
 		// block

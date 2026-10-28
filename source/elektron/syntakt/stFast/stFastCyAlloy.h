@@ -50,7 +50,8 @@ namespace syntakt::fast
 		// pitch (the ratios, the pitch map's exp2); the 256-entry sine units 0 and 2 read is computed
 		struct Tables
 		{
-			float decayOdd[128], decayEven[128], target[128], depth[128], ampDecay[128];
+			float decayOdd[128], decayEven[128], target[128], ampDecay[128];
+			int32_t depth[128];	// as words: unit 2's feedback is the machine's integers
 			int32_t ratio[128], spread[128];
 			int32_t exp2[2048];
 			float wave[258];	// units 1 and 3's, and a copy of the last
@@ -67,7 +68,8 @@ namespace syntakt::fast
 		// What they convert to (convert): read every block, or latched at a trig (*Next)
 		int32_t m_pitch[Lanes]{};				// the pitch map's word for the note and TUNE (0x40002596's f)
 		int64_t m_factor[Units][Lanes]{};		// the units' frequency factors (0x50, 0x04000000 the note's)
-		alignas(16) float m_fbTarget[Lanes]{}, m_depthTarget[Lanes]{};
+		alignas(16) float m_depthTarget[Lanes]{};
+		int32_t m_fbWord[Lanes]{};	// unit 2's feedback word, the machine's 0x2c
 		float m_target[Units][Lanes]{};			// the units' envelopes' levels at rest
 		float m_ampDecay[Lanes]{};
 		bool m_hold[Lanes]{};
@@ -80,7 +82,9 @@ namespace syntakt::fast
 		bool m_trigPending[Lanes]{}, m_trigNow[Lanes]{}, m_gateOff[Lanes]{};
 		alignas(16) uint32_t m_phase[Units][Lanes]{};
 		Increments m_inc[Units]{};
-		alignas(16) float m_fb[Lanes]{}, m_last[Lanes]{}, m_depth[Lanes]{};
+		alignas(16) float m_depth[Lanes]{};
+		int32_t m_fb[Lanes]{};
+		int32_t m_last[Lanes]{};	// unit 2's last sample, a Q31 word (feedbackSine)
 		// The 48 kHz block clock: the blocks since the trig and the envelopes' block
 		int64_t m_at[Lanes]{}, m_envBlock[Lanes]{};
 		float m_decay[Units][Lanes]{};

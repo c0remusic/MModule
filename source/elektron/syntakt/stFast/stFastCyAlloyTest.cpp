@@ -13,8 +13,9 @@
 //	Q15	the same Hits at 44.1 kHz, rendered at 48 and resampled (Host), against 48 kHz (bench::q15): envelope below
 //		18 kHz within 0.2 dB, every third octave below 10 kHz within 0.5 dB, nothing excused
 //	cost: microseconds per 32-sample block of 16 voices playing, fast against exact, and at 44.1 kHz
-// A Hit is chaotic where the exact port, its phases 1 LSB on, misses the null against itself, and is then judged by its
-// distributions within the calibrated factor times the exact port's own dispersion + 0.5 dB (bench::calibrate).
+// A Hit is chaotic where the exact port, its phases 1 LSB on, fails Q4's measures against itself (a lane of Q3's
+// feedback sine where it misses the null), and is then judged by its distributions within the calibrated factor times
+// the exact port's own dispersion + 0.5 dB (bench::calibrate).
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7. Exit 77 without it.
 
@@ -47,15 +48,16 @@ namespace
 
 	// The 16 Hits: TUNE, unit 2's ratio, the depth, units 0 and 1's ratio, units 0 and 2's levels at rest, the drive,
 	// HOLD, DECAY. The retrigger (106.7 ms) sets units 0 and 1's ratio and the drive to 127 and the note 2 up; the
-	// gate-off is at 213.3 ms
+	// gate-off is at 213.3 ms. Hits 0, 6 and 15 hold the values the sweep (stFastSweep) found most sensitive to a
+	// unit's ratio: unit 2's ratio at 50 and 126, units 0 and 1's between 66 and 67
 	const Hit Hits[Lanes] = {
-		{{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false},
+		{{64, 50, 64, 64, 64, 0, 0, 64}, {}, 48, false, false},
 		{{64, 0, 0, 0, 0, 0, 0, 40}, {}, 48, false, false},
 		{{64, 127, 127, 127, 127, 1, 0, 90}, {}, 48, false, false},
 		{{76, 32, 96, 20, 100, 0, 0, 110}, {}, 40, false, false},
 		{{52, 96, 32, 110, 10, 1, 0, 70}, {}, 52, false, false},
 		{{64, 10, 127, 64, 64, 1, 0, 127}, {}, 36, false, false},
-		{{64, 127, 0, 127, 0, 0, 0, 100}, {}, 45, false, false},
+		{{64, 127, 64, 66, 0, 0, 0, 100}, {0, 0, 0, 128, 0, 0, 0, 0}, 45, false, false},
 		{{100, 50, 110, 30, 120, 0, 0, 80}, {}, 30, false, false},
 		{{64, 64, 64, 64, 64, 0, 1, 90}, {}, 48, false, true},
 		{{30, 110, 30, 90, 40, 1, 0, 60}, {}, 55, false, false},
@@ -64,7 +66,7 @@ namespace
 		{{127, 40, 1, 40, 40, 0, 0, 80}, {}, 50, false, false},
 		{{0, 90, 70, 127, 90, 1, 0, 85}, {}, 72, false, false},
 		{{64, 120, 15, 80, 60, 1, 1, 120}, {}, 42, false, true},
-		{{64, 64, 100, 0, 64, 0, 0, 30}, {}, 48, true, false},
+		{{64, 126, 100, 0, 64, 0, 0, 30}, {}, 48, true, false},
 	};
 
 	constexpr double Seconds = 2;
@@ -100,7 +102,7 @@ namespace
 
 	// The same from the exact port at 48 kHz, every Track on CY ALLOY
 	std::vector<std::vector<double>> renderExact(const std::vector<int32_t>& _s7, const double _seconds,
-		const int32_t _nudge = 0)
+		const Nudge& _nudge = {})
 	{
 		return exactHits(_s7, _seconds, _nudge, [](Exact16& _e, const int _b)
 		{
@@ -416,7 +418,7 @@ int main()
 
 	q2(s7);
 	q3(s7);
-	const Exacts exact([&](const int32_t _p) { return renderExact(s7, Seconds, _p); });
+	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); });
 	q4(exact, renderFast(48000, Seconds));
 	deterministic(renderExact(withoutTable(s7, DepthTable), Seconds), renderFast(48000, Seconds, true));
 	q15(renderFast(48000, Seconds + 0.05, false, true), renderFast(44100, Seconds + 0.05, false, true), Seconds);

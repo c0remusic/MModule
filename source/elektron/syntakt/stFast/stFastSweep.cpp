@@ -10,8 +10,9 @@
 // values a render, 2 s from the onset. Per value: the 1 ms envelope's worst difference in dB where the exact port's
 // is above -150 dB below its peak (digital silence left out), above -40 dB and above -60 dB, each with its time and
 // the level there below the peak; the pitch in cents (bench::peakHz); the null (SNR, worst 10 ms, worst residual third
-// octave). A value is chaotic where the exact port, its phases 1 LSB on, misses the null against itself; there both
-// engines are measured again with the machine's feedback table at 0 (none in PC CARBON), the row flagged.
+// octave). A value is chaotic where the exact port, its phases 1 LSB on, fails Q4's measures against itself
+// (bench::chaoticSelf); there both engines are measured again with the machine's feedback table at 0 (none in PC
+// CARBON), the row flagged.
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7; what is written is derived from it, so it must go outside the
 // repository.
@@ -88,7 +89,7 @@ namespace
 	}
 
 	Renders renderExact(const std::vector<int32_t>& _s7, const Machine& _m, const Hit (&_hits)[Lanes],
-		const int32_t _nudge)
+		const Nudge& _nudge)
 	{
 		return exactHits(_s7, Seconds, _nudge, [&](Exact16& _e, const int _b)
 		{
@@ -123,7 +124,8 @@ namespace
 	struct Row
 	{
 		Worst all, at40, at60;
-		double cents, snr, local, band, selfSnr, selfLocal, envAbs, cells;
+		double cents, snr, local, band, envAbs, cells, selfEnvAbs, selfCells;
+		PhaseBlind increments[IncrementNudgeCount];	// the exact port against its increment nudges, as played
 		bool chaotic;
 	};
 
@@ -146,17 +148,17 @@ namespace
 
 	template<typename Fast>
 	Row measureCase(const std::vector<int32_t>& _s7, const Machine& _m, const Hit (&_hits)[Lanes], const int _l,
-		const Renders& _ref, const Renders& _self, const Renders& _test, Renders* _detRef, Renders* _detTest)
+		const Renders& _ref, const Renders& _self, const std::vector<Renders>& _increments, const Renders& _test,
+		Renders* _detRef, Renders* _detTest)
 	{
-		const double selfSnr = null(_ref[_l], _self[_l], 48000).snr;
-		const double selfLocal = localSnr(_ref[_l], _self[_l], 48000);
-		const bool chaotic = chaoticNull(selfSnr, selfLocal);
+		const auto self = phaseBlind(_ref[_l], _self[_l]);	// what chaoticSelf reads, without the null's FFTs
+		const bool chaotic = chaoticSelf(self);
 		Row r;
 		if(chaotic && _m.feedbackTable)
 		{
 			if(_detRef->empty())
 			{
-				*_detRef = renderExact(withoutTable(_s7, _m.feedbackTable), _m, _hits, 0);
+				*_detRef = renderExact(withoutTable(_s7, _m.feedbackTable), _m, _hits, Nudge{});
 				*_detTest = renderFast<Fast>(_hits, true);
 			}
 			r = measure((*_detRef)[_l], (*_detTest)[_l]);
@@ -165,19 +167,25 @@ namespace
 		{
 			r = measure(_ref[_l], _test[_l]);
 		}
-		r.selfSnr = selfSnr;
-		r.selfLocal = selfLocal;
+		r.selfEnvAbs = self.envAbs;
+		r.selfCells = self.cells;
+		if(!chaotic)	// a chaotic value is judged with its feedback at 0, not by tolerance
+			for(int i = 0; i < IncrementNudgeCount; ++i)
+				r.increments[i] = phaseBlind(_ref[_l], _increments[static_cast<size_t>(i)][_l]);
 		r.chaotic = chaotic;
 		return r;
 	}
 
 	void printRow(std::FILE* _f, const Machine& _m, const int _param, const int _value, const Row& _r)
 	{
-		std::fprintf(_f, "%s,%s,%d,%s,%.4f,%.0f,%.1f,%.4f,%.0f,%.1f,%.4f,%.0f,%.1f,%.3f,%.1f,%.1f,%.1f,%.1f,%.1f,%.2f,"
-			"%.3f\n", _m.name, _m.params[_param], _value,
+		std::fprintf(_f, "%s,%s,%d,%s,%.4f,%.0f,%.1f,%.4f,%.0f,%.1f,%.4f,%.0f,%.1f,%.3f,%.1f,%.1f,%.1f,%.2f,%.3f,%.2f,"
+			"%.3f", _m.name, _m.params[_param], _value,
 			_r.chaotic ? (_m.feedbackTable ? "feedback0" : "chaotic") : "no", _r.all.db, _r.all.ms, _r.all.level,
 			_r.at40.db, _r.at40.ms, _r.at40.level, _r.at60.db, _r.at60.ms, _r.at60.level, _r.cents, _r.snr, _r.local,
-			_r.band, _r.selfSnr, _r.selfLocal, _r.envAbs, _r.cells);
+			_r.band, _r.envAbs, _r.cells, _r.selfEnvAbs, _r.selfCells);
+		for(const auto& n : _r.increments)
+			std::fprintf(_f, ",%.2f,%.3f", n.envAbs, n.cells);
+		std::fprintf(_f, "\n");
 	}
 
 	template<typename Fast>
@@ -187,19 +195,31 @@ namespace
 		if(!f)
 			return 2;
 		std::fprintf(f, "machine,param,value,chaotic,env_db,env_ms,env_level_db,env40_db,env40_ms,env40_level_db,"
-			"env60_db,env60_ms,env60_level_db,cents,snr_db,worst10ms_db,worst_band_db,self_snr_db,self_10ms_db,"
-			"env_abs_db,cells30_db\n");
+			"env60_db,env60_ms,env60_level_db,cents,snr_db,worst10ms_db,worst_band_db,"
+			"env_abs_db,cells30_db,self_env_abs_db,self_cells_db");
+		for(int i = 0; i < IncrementNudgeCount; ++i)
+			std::fprintf(f, ",inc%d_env_abs_db,inc%d_cells_db", i, i);
+		std::fprintf(f, "\n");
 		for(int p = 0; p <= Note; ++p)
 			for(int v0 = 0; v0 < 128; v0 += Lanes)
 			{
 				Hit hits[Lanes];
 				for(int l = 0; l < Lanes; ++l)
 					hits[l] = withValue(_m.base, p, v0 + l);
-				const auto ref = renderExact(_s7, _m, hits, 0), self = renderExact(_s7, _m, hits, 1);
+				const auto ref = renderExact(_s7, _m, hits, Nudge{});
+				const auto self = renderExact(_s7, _m, hits, phaseNudge(1));
+				// The increment nudges only where a value is not chaotic: they give its tolerance
+				bool anyNot = false;
+				for(int l = 0; l < Lanes; ++l)
+					anyNot |= !chaoticSelf(phaseBlind(ref[l], self[l]));
+				std::vector<Renders> increments;
+				for(int i = 0; anyNot && i < IncrementNudgeCount; ++i)
+					increments.push_back(renderExact(_s7, _m, hits, incrementNudge(i)));
 				const auto test = renderFast<Fast>(hits, false);
 				Renders detRef, detTest;
 				for(int l = 0; l < Lanes; ++l)
-					printRow(f, _m, p, v0 + l, measureCase<Fast>(_s7, _m, hits, l, ref, self, test, &detRef, &detTest));
+					printRow(f, _m, p, v0 + l,
+						measureCase<Fast>(_s7, _m, hits, l, ref, self, increments, test, &detRef, &detTest));
 				std::fflush(f);
 				std::printf("%s %s %d-%d\n", _m.name, _m.params[p], v0, v0 + Lanes - 1);
 			}
@@ -260,14 +280,21 @@ namespace
 	{
 		Hit hits[Lanes];
 		std::fill(std::begin(hits), std::end(hits), _c.hit);
-		const auto ref = renderExact(_s7, *_c.m, hits, 0), self = renderExact(_s7, *_c.m, hits, 1);
+		const auto ref = renderExact(_s7, *_c.m, hits, Nudge{});
+		const auto self = renderExact(_s7, *_c.m, hits, phaseNudge(1));
+		std::vector<Renders> increments;
+		for(int i = 0; i < IncrementNudgeCount; ++i)
+			increments.push_back(renderExact(_s7, *_c.m, hits, incrementNudge(i)));
 		const auto test = renderFast<Fast>(hits, false);
 		Renders detRef, detTest;
-		const Row r = measureCase<Fast>(_s7, *_c.m, hits, 0, ref, self, test, &detRef, &detTest);
+		const Row r = measureCase<Fast>(_s7, *_c.m, hits, 0, ref, self, increments, test, &detRef, &detTest);
 		std::printf("%-22s chaotic %s; envelope %.3f dB at %.0f ms (%.1f dB below the peak); above -40 dB %.3f dB at "
 			"%.0f ms (%.1f dB); above -60 dB %.3f dB at %.0f ms (%.1f dB); %+.3f cents; null %.1f dB, 10 ms %.1f dB, "
 			"third octave %.1f dB\n", _c.name.c_str(), r.chaotic ? "yes" : "no", r.all.db, r.all.ms, -r.all.level,
 			r.at40.db, r.at40.ms, -r.at40.level, r.at60.db, r.at60.ms, -r.at60.level, r.cents, r.snr, r.local, r.band);
+		const auto tolerance = worstOf({std::begin(r.increments), std::end(r.increments)});
+		std::printf("%-22s fast %.1f dB re peak, cells %.3f dB; the exact port against its increment nudges at worst "
+			"%.1f dB, %.3f dB\n", _c.name.c_str(), r.envAbs, r.cells, tolerance.envAbs, tolerance.cells);
 		// The real sound on both sides, under one gain: the louder at -3 dBFS
 		double peak = 0;
 		for(const auto* x : {&ref[0], &test[0]})
@@ -416,7 +443,8 @@ int main(const int _argc, char** _argv)
 				std::stoi(_argv[i])));
 			const auto line = [&](const char* _what, const std::vector<int32_t>& _s7, const bool _noChaos)
 			{
-				const auto ref = renderExact(_s7, *m, hits, 0), self = renderExact(_s7, *m, hits, 1);
+				const auto ref = renderExact(_s7, *m, hits, Nudge{});
+				const auto self = renderExact(_s7, *m, hits, phaseNudge(1));
 				Renders test;
 				switch(m->id)
 				{
@@ -448,13 +476,13 @@ int main(const int _argc, char** _argv)
 		Hit hits[Lanes];
 		std::fill(std::begin(hits), std::end(hits), withValue(m->base, static_cast<int>(name - m->params),
 			std::stoi(_argv[7])));
-		const auto ref = renderExact(s7, *m, hits, 0);
+		const auto ref = renderExact(s7, *m, hits, Nudge{});
 		std::FILE* f = std::fopen(_argv[3], "w");
 		for(const int d : {1, 10, 100, 1000, 2595, 10000})
 		{
 			auto moved = s7;
 			moved[at] += d;
-			const auto x = renderExact(moved, *m, hits, 0);
+			const auto x = renderExact(moved, *m, hits, Nudge{});
 			std::fprintf(f, "%s %s %s, word %+d LSB: envelope %.1f dB re peak, cells %.3f dB, SNR %.1f dB\n", _argv[2],
 				_argv[6], _argv[7], d, envelopeAbs(ref[0], x[0]), cellMax(ref[0], x[0]), null(ref[0], x[0], 48000).snr);
 		}

@@ -411,12 +411,23 @@ namespace syntakt::fast::bench
 		void trig(const int _t) { m_block[0x180] |= static_cast<uint8_t>(1 << _t); }
 		void gateOff(const int _t) { m_block[0x181] |= static_cast<uint8_t>(1 << _t); }
 
+		// LSB added to unit k's increment word (0x78) after each update, before its render reads it, on every voice
+		// (_inc[7], kept by the caller), null for none. Set after the constructor: the boot never runs under it
+		void setIncrementNudge(const int8_t* _inc) { m_inc = _inc; }
+
 		// Track _t's 32 samples at m_sram->ptr(VoiceOut + 0x80 t)
 		void render()
 		{
 			int32_t trig = 0, gateOff = 0;
 			receiveBlock(*m_sram, m_block.data(), trig, gateOff);
-			renderVoices(*m_sram, m_globals, m_rom, VoiceOut, TrackParams, trig, gateOff);
+			const AfterUpdate nudge = [](Voice& _v, int32_t, void* _ctx)
+			{
+				const auto* inc = static_cast<const int8_t*>(_ctx);
+				for(uint32_t k = 0; k < 7; ++k)
+					_v.unit(k, 0x78) += inc[k];
+			};
+			renderVoices(*m_sram, m_globals, m_rom, VoiceOut, TrackParams, trig, gateOff, m_inc ? nudge : nullptr,
+				const_cast<int8_t*>(m_inc));
 			m_block[0x180] = 0;
 			m_block[0x181] = 0;
 		}
@@ -435,6 +446,7 @@ namespace syntakt::fast::bench
 		Globals m_globals;
 		Rom m_rom;
 		std::array<uint8_t, BlockBytes> m_block{};
+		const int8_t* m_inc = nullptr;
 	};
 
 	// The 16 Tracks of the exact port: two voice CPUs
@@ -531,9 +543,106 @@ namespace syntakt::fast::bench
 		std::printf("%s (not fatal): %s\n", _ok ? "pass" : "FAIL", _what);
 	}
 
-	// Chaotic: the exact port against itself, its phases 1 LSB on, misses the null in force, SNR >= 70 dB and >= 60 dB
-	// in every 10 ms window above -60 dB (localSnr). No rewrite can null where the exact port cannot
-	inline bool chaoticNull(const double _snr, const double _local) { return _snr < NullSnrDb || _local < NullLocalDb; }
+	// Chaotic for a null (Q3's stages): the exact port against itself, its phases 1 LSB on, misses the null, SNR
+	// >= 70 dB and >= 60 dB in every 10 ms window above -60 dB (localSnr). No rewrite can null where it cannot
+	inline bool chaoticForNull(const double _snr, const double _local)
+	{
+		return _snr < NullSnrDb || _local < NullLocalDb;
+	}
+
+	// Chaotic for Q4 (a Hit, a sweep's value): the exact port against itself, its phases 1 LSB on (_self), fails Q4's
+	// own measures, the Hilbert envelope or the short-time third octaves. A voice whose nudge only drifts its phase
+	// sounds the same and is judged as it plays. _self: HitMeasures or PhaseBlind
+	template<typename Measures>
+	bool chaoticSelf(const Measures& _self)
+	{
+		return !(_self.envAbs <= EnvelopeAbsDb && _self.cells <= CellMaxDb);
+	}
+
+	// ---- Q4's tolerance: the exact port against its own increments ----
+
+	// Q4's two measures alone (no null, no pitch): what the increment nudges are measured by
+	struct PhaseBlind
+	{
+		double envAbs, cells;
+	};
+
+	inline PhaseBlind phaseBlind(const std::vector<double>& _ref, const std::vector<double>& _test)
+	{
+		return {envelopeAbs(_ref, _test), cellMax(_ref, _test)};
+	}
+
+	// Where one LSB of a frequency word moves the exact port past Q4, a rewrite that is not bit-exact moves as far: a
+	// voice not chaotic passes within max(-39 dB, the worst of the exact port against its increment nudges + 20 log10
+	// _k) and max(1 dB, _k times their worst cells), at most -20 dB and 4 dB: a Hit whose nudges decorrelate it would
+	// otherwise pass anything. The cap judges the fast engine only: the calibration of k measures the exact port's
+	// own nudges, uncapped (capped, CY ALLOY's sweep, whose nudges move many values past -20 dB, would need k past 4)
+	constexpr double EnvelopeAbsCapDb = -20, CellsCapDb = 4;
+
+	inline PhaseBlind worstOf(const std::vector<PhaseBlind>& _nudges)
+	{
+		PhaseBlind w{-1e9, 0};
+		for(const auto& n : _nudges)
+			w = {worseOf(w.envAbs, n.envAbs), worseOf(w.cells, n.cells)};
+		return w;
+	}
+
+	inline double envelopeLimit(const PhaseBlind& _tolerance, const double _k, const bool _cap = true)
+	{
+		const double limit = std::max(EnvelopeAbsDb, _tolerance.envAbs + 20 * std::log10(_k));
+		return _cap ? std::min(EnvelopeAbsCapDb, limit) : limit;
+	}
+
+	inline double cellsLimit(const PhaseBlind& _tolerance, const double _k, const bool _cap = true)
+	{
+		const double limit = std::max(CellMaxDb, _k * _tolerance.cells);
+		return _cap ? std::min(CellsCapDb, limit) : limit;
+	}
+
+	// Whether either limit is held at its cap
+	inline bool atCap(const PhaseBlind& _tolerance, const double _k)
+	{
+		return envelopeLimit(_tolerance, _k, false) > EnvelopeAbsCapDb || cellsLimit(_tolerance, _k, false) > CellsCapDb;
+	}
+
+	inline bool withinTolerance(const PhaseBlind& _m, const PhaseBlind& _tolerance, const double _k,
+		const bool _cap = true)
+	{
+		return _m.envAbs <= envelopeLimit(_tolerance, _k, _cap) && _m.cells <= cellsLimit(_tolerance, _k, _cap);
+	}
+
+	// The factor k that lets each held-out increment nudge pass against the tolerance of the others at least 95 % of
+	// the time, from 1 up in steps of 0.25, at most 4 (not reached there: fatal, and 4 is used). Only the held-out
+	// nudges past Q4's fixed limits are counted, the others passing by them whatever k: none, and k is 1. _sets: per
+	// Hit not chaotic, its nudges' measures against the exact port
+	inline double calibrateTolerance(const std::vector<std::vector<PhaseBlind>>& _sets, const char* _what)
+	{
+		constexpr double MaxK = 4;
+		double k = 1, rate = 1;
+		int total = 0;
+		for(;; k += 0.25)
+		{
+			int pass = 0;
+			total = 0;
+			for(const auto& set : _sets)
+				for(size_t i = 0; i < set.size(); ++i)
+				{
+					if(set[i].envAbs <= EnvelopeAbsDb && set[i].cells <= CellMaxDb)
+						continue;
+					std::vector<PhaseBlind> others(set);
+					others.erase(others.begin() + static_cast<std::ptrdiff_t>(i));
+					pass += withinTolerance(set[i], worstOf(others), k, false);
+					++total;
+				}
+			rate = total ? static_cast<double>(pass) / total : 1;
+			if(rate >= 0.95 || k >= MaxK)
+				break;
+		}
+		std::printf("  %s: tolerance factor k %.2f, the exact port's held-out increment nudges passing %.1f %% (%d "
+			"past Q4's fixed limits, over %zu Hits)\n", _what, k, 100 * rate, total, _sets.size());
+		check(rate >= 0.95, "tolerance: the exact port's held-out increment nudges pass at least 95 % within k = 4");
+		return k;
+	}
 
 	// A threshold set by the listening tests of ticket 05 (elektron-drums-v1)
 	inline void checkValidated(const bool _ok, const char* _what)
@@ -545,8 +654,8 @@ namespace syntakt::fast::bench
 
 	// ---- a chaotic Hit, judged by its distributions ----
 
-	// Where a voice is chaotic, no rewrite nulls against the exact port, which does not null against itself either: it
-	// is judged by its mean third-octave spectrum (bands 20 Hz to 18 kHz, index k + 17 for centre 1000 2^(k/3)) and its
+	// Where a voice is chaotic, no rewrite matches the exact port, which does not match itself either: it is judged by
+	// its mean third-octave spectrum (bands 20 Hz to 18 kHz, index k + 17 for centre 1000 2^(k/3)) and its
 	// 10 ms RMS envelope, against the exact port's own dispersion under 1-LSB perturbations of its phases
 	constexpr int Band10k = 9 + 17, Band18k = 12 + 17;	// the last band below 10 kHz, below 18 kHz
 
@@ -697,12 +806,63 @@ namespace syntakt::fast::bench
 	// _seconds of the exact port's 16 Hits at 48 kHz, _events(e, block) before each block, from the onset (the block
 	// after the trig's). _nudge: every unit's phase _nudge LSB (2^-24 cycle) on after each trig's onset block (the
 	// trig at block 0 and the retrigger at 160, whose trig restarts the phases: a nudge before it would be undone),
-	// what the exact port nulls to against itself: the floor of a null where the voice is chaotic
+	// what the exact port nulls to against itself: the floor of a null where the voice is chaotic. Its inc: LSB added
+	// to each unit's increment word throughout, after each update (Exact::setIncrementNudge): the frequency word a
+	// table or the tune moves when it is a little off
+	struct Nudge
+	{
+		int32_t phase = 0;
+		int8_t inc[7] = {};
+	};
+
+	inline Nudge phaseNudge(const int32_t _lsb)
+	{
+		Nudge n;
+		n.phase = _lsb;
+		return n;
+	}
+
+	//
+	// The increment nudges, each up (even index) and down (odd): each of units 0-3 1 LSB alone, all four, then each
+	// pair of them. A unit alone is what one table's entry moves (a ratio), all four what the pitch moves (TUNE, the
+	// note), a pair what one entry read by two units moves (CY ALLOY's Spread: unit 2 and, through a product, unit 0)
+	constexpr int Units4 = 4;
+	constexpr int IncrementNudgeCount = 2 * (Units4 + 1 + Units4 * (Units4 - 1) / 2);	// 22
+
+	// Whether nudge _i (of IncrementNudgeCount) moves unit _k
+	constexpr bool incrementNudgeMoves(const int _i, const int _k)
+	{
+		const int set = _i / 2;	// 0-3 a unit alone, 4 all four, 5-10 the pairs (0 1) (0 2) (0 3) (1 2) (1 3) (2 3)
+		if(_k >= Units4)
+			return false;
+		if(set < Units4)
+			return _k == set;
+		if(set == Units4)
+			return true;
+		int pair = set - Units4 - 1;
+		for(int a = 0; a < Units4; ++a)
+			for(int b = a + 1; b < Units4; ++b)
+				if(pair-- == 0)
+					return _k == a || _k == b;
+		return false;
+	}
+
+	inline Nudge incrementNudge(const int _i)
+	{
+		Nudge n;
+		for(int k = 0; k < 7; ++k)
+			n.inc[k] = static_cast<int8_t>(incrementNudgeMoves(_i, k) ? (_i % 2 ? -1 : 1) : 0);
+		return n;
+	}
+
 	template<typename Events>
 	std::vector<std::vector<double>> exactHits(const std::vector<int32_t>& _s7, const double _seconds,
-		const int32_t _nudge, Events&& _events)
+		const Nudge& _n, Events&& _events)
 	{
+		const int32_t nudge = _n.phase;
 		Exact16 e(_s7);
+		e.a.setIncrementNudge(_n.inc);
+		e.b.setIncrementNudge(_n.inc);
 		const int samples = static_cast<int>(_seconds * 48000);
 		const int blocks = samples / BlockSize + 2;
 		std::vector<std::vector<double>> out(Lanes);
@@ -710,12 +870,12 @@ namespace syntakt::fast::bench
 		{
 			_events(e, b);
 			e.render();
-			if(_nudge && (b == 2 || b == 162))
+			if(nudge && (b == 2 || b == 162))
 				for(int t = 0; t < 8; ++t)
 					for(uint32_t k = 0; k < 4; ++k)
 					{
-						e.a.nudge(t, k, _nudge);
-						e.b.nudge(t, k, _nudge);
+						e.a.nudge(t, k, nudge);
+						e.b.nudge(t, k, nudge);
 					}
 			for(int t = 0; t < Lanes; ++t)
 				for(int n = 0; n < BlockSize; ++n)
@@ -802,7 +962,7 @@ namespace syntakt::fast::bench
 
 	// Q3 of unit 0's sine with self-feedback (0x400035de) over 1 s, feedback from a machine's table at _table across
 	// its range (lane l at entry 8 l + 7 of its _parameter, shifted right by _shift as the machine's update does), read
-	// from a 256-entry sine as the engines read it. Lanes where the feedback makes the oscillator chaotic are judged by
+	// from the 256-entry sine the engines read. Lanes where the feedback makes the oscillator chaotic are judged by
 	// their distributions; _ok and _chaoticOk take the verdicts
 	inline void q3FeedbackSine(Stage& _st, const uint32_t _table, const char* _parameter, bool& _ok, bool& _chaoticOk,
 		const int _shift = 0)
@@ -810,13 +970,11 @@ namespace syntakt::fast::bench
 		constexpr int Blocks = 1500;
 		const Rom& rom = _st.rom;
 		const auto inc24 = sweptIncrement;
-		std::vector<float> sine(258);
-		for(int i = 0; i < 258; ++i)
-			sine[static_cast<size_t>(i)] = static_cast<float>(std::sin(2 * Pi * i / 256));
 		Runs r;
 		alignas(16) uint32_t phase[Lanes] = {};
 		fast::Increments inc;
-		alignas(16) float fb[Lanes] = {}, target[Lanes], last[Lanes] = {};
+		int32_t fb[Lanes] = {}, target[Lanes];
+		int32_t last[Lanes] = {};
 		for(int b = 0; b < Blocks; ++b)
 		{
 			fast::Block out;
@@ -834,12 +992,12 @@ namespace syntakt::fast::bench
 				v.unit(0, 0x78) = inc24(l, b, 2);
 				for(auto& s : inc.s)
 					s[l] = static_cast<uint32_t>(v.unit(0, 0x78)) << 8;
-				target[l] = static_cast<float>(4 * q31(f));
+				target[l] = f;	// the machine's feedback word, its 0x2c
 				feedbackOscillator(0, v, rom);
 				for(int n = 0; n < BlockSize; ++n)
 					r.ref[l].push_back(q31(v.sram.at(bufferB(0) + 4 * n)));
 			}
-			fast::feedbackSine(out, phase, inc, fb, target, last, sine.data());
+			fast::feedbackSine(out, phase, inc, fb, target, last);
 			for(int l = 0; l < Lanes; ++l)
 				for(int n = 0; n < BlockSize; ++n)
 					r.test[l].push_back(out.s[n][l]);
@@ -871,7 +1029,7 @@ namespace syntakt::fast::bench
 		{
 			const auto self = exact(l, 1);
 			const double selfSnr = null(r.ref[l], self, 48000).snr, selfLocal = localSnr(r.ref[l], self, 48000);
-			const bool isChaotic = chaoticNull(selfSnr, selfLocal);
+			const bool isChaotic = chaoticForNull(selfSnr, selfLocal);
 			std::printf("  Q3 feedback sine, %s %3d (feedback %.4f): SNR %6.1f dB, worst 10 ms %6.1f dB; "
 				"the exact port against itself 1 LSB off: %6.1f, %6.1f dB%s\n", _parameter, 8 * l + 7,
 				q31(rom.entry(_table, 8 * l + 7) >> _shift), null(r.ref[l], r.test[l], 48000).snr,
@@ -908,40 +1066,63 @@ namespace syntakt::fast::bench
 	// ---- Q4: the voice against the exact port ----
 
 	// The exact port's 16 Hits at 48 kHz, and the same with every unit's phase nudged as Nudges says after the
-	// onsets (_render(nudge)). A Hit is chaotic where the first of those misses the null against the unperturbed one;
-	// there, 16 of them give the dispersion its distributions are judged against, with the limit's factor calibrated on
-	// all 17, below 18 kHz (Q4)
+	// onsets (_render(nudge)), and with its increments moved by the increment nudges. A Hit is chaotic where the first
+	// phase nudge fails Q4's own measures against the unperturbed render (chaoticSelf); there, 16 phase nudges give
+	// the dispersion its distributions are judged against, with the limit's factor calibrated on all 17, below 18 kHz.
+	// Elsewhere the increment nudges give its tolerance, with k calibrated on them (calibrateTolerance) (Q4)
 	struct Exacts
 	{
 		std::vector<std::vector<double>> ref;
 		bool chaotic[Lanes];
-		double selfSnr[Lanes], selfLocal[Lanes], selfEnv[Lanes];
+		double selfSnr[Lanes], selfLocal[Lanes], selfEnv[Lanes], selfEnvAbs[Lanes], selfCells[Lanes];
+		PhaseBlind tolerance[Lanes]{};		// the worst of the exact port against its increment nudges
 		std::vector<Deviation> spread[Lanes];	// the nudges' deviations, on a chaotic Hit
-		double factor = 2;
+		double factor = 2, k = 1;
 
 		template<typename Render>
-		explicit Exacts(Render&& _render) : ref(_render(0))
+		explicit Exacts(Render&& _render) : ref(_render(Nudge{}))
 		{
-			std::vector<std::vector<std::vector<double>>> nudged;
-			for(const int32_t p : Nudges)
-				nudged.push_back(_render(p));
-			std::vector<std::vector<Deviation>> sets;
+			// The first phase nudge classifies; the other 16 are rendered only for a chaotic Hit's dispersion, the
+			// increment nudges only for the tolerance of a Hit that is not
+			std::vector<std::vector<std::vector<double>>> nudged{_render(phaseNudge(Nudges[0]))}, increments;
+			bool anyChaotic = false, anyNot = false;
 			for(int l = 0; l < Lanes; ++l)
 			{
-				selfSnr[l] = null(ref[l], nudged[0][l], 48000).snr;
-				selfLocal[l] = localSnr(ref[l], nudged[0][l], 48000);
-				selfEnv[l] = envelopeDiff(envelope(ref[l], 48000), envelope(nudged[0][l], 48000));
-				chaotic[l] = chaoticNull(selfSnr[l], selfLocal[l]);
+				const auto self = measureHit(ref[l], nudged[0][l]);
+				selfSnr[l] = self.snr;
+				selfLocal[l] = self.local;
+				selfEnv[l] = self.env;
+				selfEnvAbs[l] = self.envAbs;
+				selfCells[l] = self.cells;
+				chaotic[l] = chaoticSelf(self);
+				(chaotic[l] ? anyChaotic : anyNot) = true;
+			}
+			for(size_t i = 1; anyChaotic && i < std::size(Nudges); ++i)
+				nudged.push_back(_render(phaseNudge(Nudges[i])));
+			for(int i = 0; anyNot && i < IncrementNudgeCount; ++i)
+				increments.push_back(_render(incrementNudge(i)));
+			std::vector<std::vector<Deviation>> sets;
+			std::vector<std::vector<PhaseBlind>> tolerances;
+			for(int l = 0; l < Lanes; ++l)
+			{
 				if(!chaotic[l])
+				{
+					std::vector<PhaseBlind> set;
+					for(const auto& n : increments)
+						set.push_back(phaseBlind(ref[l], n[l]));
+					tolerance[l] = worstOf(set);
+					tolerances.push_back(set);
 					continue;
+				}
 				const auto r = distribution(ref[l], 48000);
 				for(const auto& n : nudged)
 					spread[l].push_back(deviation(r, distribution(n[l], 48000)));
 				sets.push_back(spread[l]);
 			}
-			if(sets.empty())
-				return;
-			factor = calibrate(sets, Band18k, "Q4 chaotic Hits, below 18 kHz");
+			if(!tolerances.empty())
+				k = calibrateTolerance(tolerances, "Q4 Hits not chaotic");
+			if(!sets.empty())
+				factor = calibrate(sets, Band18k, "Q4 chaotic Hits, below 18 kHz");
 		}
 
 		// The exact port's dispersion on Hit _l: its perturbed renders' deviations from its own
@@ -956,16 +1137,23 @@ namespace syntakt::fast::bench
 		// The worst over the Hits not chaotic; the smaller the worse for the null's SNRs, as negated maxima
 		double snr = -1e9, local = -1e9, band = -1e9, env = 0, cents = 0, envAbs = -1e9, cells = 0;
 		int judged = 0;
-		bool chaoticOk = true;
-		std::string below;
+		bool chaoticOk = true, envOk = true, cellsOk = true;
+		std::string below, byTolerance, capped;
 		std::printf("  Q4 Hit  SNR dB  10 ms dB  worst 1/3 oct dB  envelope dB  pitch Hz (exact)  cents  envelope re "
-			"peak dB  1/3 oct cells dB  | the exact port against itself 1 LSB off: SNR dB, 10 ms dB, envelope dB\n");
+			"peak dB  1/3 oct cells dB  | the exact port against itself 1 LSB off: SNR dB, 10 ms dB, envelope dB, "
+			"envelope re peak dB, 1/3 oct cells dB; the limits from its increment nudges (k %.2f): envelope dB, cells "
+			"dB\n", _exact.k);
 		for(int l = 0; l < Lanes; ++l)
 		{
 			const auto m = measureHit(ref[l], test[l]);
+			const PhaseBlind& tol = _exact.tolerance[l];	// read only where not chaotic
+			const bool clean = !_exact.chaotic[l];
+			const double envLimit = clean ? envelopeLimit(tol, _exact.k) : 0;
+			const double cellLimit = clean ? cellsLimit(tol, _exact.k) : 0;
 			std::printf("     %2d  %6.1f  %8.1f  %16.1f  %11.3f  %16.2f  %+5.2f  %17.1f  %16.2f  | %6.1f  %6.1f  "
-				"%6.3f%s\n", l, m.snr, m.local, m.band, m.env, m.refHz, m.cents, m.envAbs, m.cells, _exact.selfSnr[l],
-				_exact.selfLocal[l], _exact.selfEnv[l], _exact.chaotic[l] ? "  chaotic" : "");
+				"%6.3f  %6.1f  %6.2f; %6.1f  %6.2f%s\n", l, m.snr, m.local, m.band, m.env, m.refHz, m.cents, m.envAbs,
+				m.cells, _exact.selfSnr[l], _exact.selfLocal[l], _exact.selfEnv[l], _exact.selfEnvAbs[l],
+				_exact.selfCells[l], envLimit, cellLimit, _exact.chaotic[l] ? "  chaotic" : "");
 			if(_exact.chaotic[l])
 			{
 				const auto j = judge(deviation(distribution(ref[l], 48000), distribution(test[l], 48000)),
@@ -982,6 +1170,13 @@ namespace syntakt::fast::bench
 			env = worseOf(env, m.env);
 			envAbs = worseOf(envAbs, m.envAbs);
 			cells = worseOf(cells, m.cells);
+			envOk &= m.envAbs <= envLimit;
+			cellsOk &= m.cells <= cellLimit;
+			const bool fixed = m.envAbs <= EnvelopeAbsDb && m.cells <= CellMaxDb;
+			if(!fixed && withinTolerance({m.envAbs, m.cells}, tol, _exact.k))
+				byTolerance += (byTolerance.empty() ? "" : ", ") + std::to_string(l);
+			if(atCap(tol, _exact.k))
+				capped += (capped.empty() ? "" : ", ") + std::to_string(l);
 			if(!(m.snr >= NullSnrDb && m.local >= NullLocalDb))
 				below += (below.empty() ? "" : ", ") + std::to_string(l);
 		}
@@ -996,13 +1191,18 @@ namespace syntakt::fast::bench
 				"the pitch\n");
 		std::printf("  Q4 Hits not chaotic below 70 dB of SNR or 60 dB in a 10 ms window: %s\n",
 			below.empty() ? "none" : below.c_str());
+		std::printf("  Q4 Hits past -39 dB or 1 dB that pass within the exact port's own tolerance: %s\n",
+			byTolerance.empty() ? "none" : byTolerance.c_str());
+		std::printf("  Q4 Hits whose limits are held at the cap (-20 dB, 4 dB), judged there: %s\n",
+			capped.empty() ? "none" : capped.c_str());
 		report(snr >= NullSnrDb && local >= NullLocalDb && band <= NullBandDb, "Q4: the voice where not chaotic, SNR "
 			">= 70 dB, >= 60 dB in every 10 ms window above -60 dB, no residual third octave above -60 dB");
 		report(env <= 0.1, "Q4: the voice where not chaotic, 1 ms envelope within 0.1 dB above -40 dB");
-		checkValidated(envAbs <= EnvelopeAbsDb, "Q4: the voice where not chaotic, Hilbert envelope (5 ms) within "
-			"-39 dB of the exact port's peak");
-		checkValidated(cells <= CellMaxDb, "Q4: the voice where not chaotic, third octaves in 1024-sample frames "
-			"within 1 dB where the exact port's are within 30 dB of its loudest");
+		checkValidated(envOk, "Q4: the voice where not chaotic, Hilbert envelope (5 ms) within -39 dB of the exact "
+			"port's peak, or within the exact port's against its increment nudges + 20 log10 k");
+		checkValidated(cellsOk, "Q4: the voice where not chaotic, third octaves in 1024-sample frames within 1 dB "
+			"where the exact port's are within 30 dB of its loudest, or within k times the exact port's against its "
+			"increment nudges");
 		checkValidated(cents <= 1, "Q4: the voice's pitch within 1 cent");
 		checkValidated(chaoticOk, "Q4: the chaotic Hits' distributions within the calibrated factor x the exact port's "
 			"dispersion + 0.5 dB");

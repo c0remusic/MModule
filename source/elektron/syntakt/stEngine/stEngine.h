@@ -30,6 +30,9 @@ namespace syntakt
 	// per-track parameter array (0x80003c40, 0x8e bytes per track); _trig and _gateOff hold one bit per voice. A trig is
 	// seen in its block as pending (the voice fades out) and starts the voice in the next block; an engine changes only
 	// there. Voices render grouped by machine, as in the original. Voices on an engine not ported stay silent.
+	// _afterUpdate, for tests and not the firmware's: called with _ctx between each voice's update and its render, on
+	// voice _track (0-7), where it may perturb what render reads
+	using AfterUpdate = void (*)(Voice& _v, int32_t _track, void* _ctx);
 	void renderVoices(Sram& _sram, Globals& _g, const Rom& _rom, uint32_t _out, uint32_t _params, int32_t _trig,
-		int32_t _gateOff);
+		int32_t _gateOff, AfterUpdate _afterUpdate = nullptr, void* _ctx = nullptr);
 }

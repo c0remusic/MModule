@@ -52,7 +52,7 @@ namespace syntakt::fast::tables
 
 	constexpr bool exact(const CyAlloy _t)
 	{
-		return _t == CyAlloy::Target || _t == CyAlloy::Depth || _t == CyAlloy::AmpDecay;
+		return _t == CyAlloy::Target || _t == CyAlloy::Spread || _t == CyAlloy::Depth || _t == CyAlloy::AmpDecay;
 	}
 
 	std::array<int32_t, 128> cyAlloy(CyAlloy _t);

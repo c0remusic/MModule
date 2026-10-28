@@ -17,9 +17,10 @@
 // the law of its units 0-2, its amp and its modulator. Its levels with six decimals are 4 times the feedback, 1.1
 // times unit 0's target, unit 1's target itself
 // The rule: laws, round knots carried by a stretch, fitted stretches; no segment of one entry, no word written for an
-// entry of its own. One exception, the user's: a three-constant parabola over three entries where a turn follows no
+// entry of its own. Two exceptions, the user's: a three-constant parabola over three entries where a turn follows no
 // stretch, in four places only: SD BASIC's SweepDepth 63-65, PC CARBON's SweepDepth 63-65 and its FactorU2 29-31 and
-// 47-49
+// 47-49; and an exact round knot of its own in a frequency-ratio table where no stretch can hold it and the exact port
+// itself moves past its tolerance with that word a little off, in one place only: CY ALLOY's Spread 116
 namespace syntakt::fast::tables
 {
 	namespace
@@ -325,16 +326,20 @@ namespace syntakt::fast::tables
 
 		// Units 1 and 3's frequency factors (Ratio) and unit 2's (Spread), in millionths of the note's factor
 		// (0x04000000): round knots joined by exponentials (Ratio 1.01, 1.28, 1.5, 1.74, 2.01 at 0, 36, 72, 96, 127;
-		// Spread 1.002 at 0, 2.52 at 116, 2.84 at 127) and lines. Ratio's 62-71 is approximate, one exponential where
-		// the firmware's turns at 70 (306 millionths); Spread's knot at 116 is carried by the line before it, 178
-		// millionths off
+		// Spread 1.002 at 0, 2.52 at 116, 2.84 at 127) and lines. Ratio's turn at 70 is a cubic over 68-72, within 3.2
+		// millionths (approximate there, exact elsewhere: a unit 306 millionths off its ratio is heard as Q4 measures
+		// it); Spread's knot at 116 is exact, an entry of its own (the rule's exception, header): no stretch holds it
+		// without moving its neighbours, and the exact port moves past its own tolerance with a word 1000 LSB off at
+		// 116, 805 LSB at 115 (a cubic over 112-116), 201 LSB at 120 under Hit 14 of stFastCyAlloyTest (fifth degree
+		// over 116-122: -22.4 dB against its tolerance's -30.5, unit pairs nudged too)
 		const Segment Ratio[] = {
 			{0, 36, 0, Kind::Exp, {1336127.0496637938, -326126.9487278214, -0.048879617778127916}},
 			{37, 49, 37, Kind::Exp, {1260592.967504099, 22015.296168065724, 0.12611091122006515}},
 			{50, 56, 50, Kind::Exp, {1537452.4241489484, -163311.5521777052, -0.0877498583726489}},
 			{57, 61, 57, Kind::Exp, {1463838.0759055342, -14904.225071798306, -0.4556158647320812}},
-			{62, 71, 62, Kind::Exp, {1461425.5437443, 910.2555155056419, 0.3709511259992971}},
-			{72, 96, 72, Kind::Exp, {1873668.2655520998, -373668.1796835267, -0.04283367057814161}},
+			{62, 67, 62, Kind::Exp, {1460433.1162041437, 1596.8094560388752, 0.2988356071151076}},
+			{68, 72, 68, Kind::Poly, {1470029.125, 2599.166666667314, 574.2499999997672, 162.33333333335517}},
+			{73, 96, 73, Kind::Exp, {1873668.9126667008, -358001.1748848942, -0.042833566456615055}},
 			{97, 127, 97, Kind::Exp, {1589623.91772229, 155446.3269054666, 0.0331616406987084}},
 		};
 
@@ -344,7 +349,8 @@ namespace syntakt::fast::tables
 			{35, 58, 35, Kind::Exp, {1834018.3477036958, -358957.53748103627, -0.05220188997621075}},
 			{59, 82, 59, Kind::Exp, {1391190.370870563, 340385.2022860991, 0.01660501468079772}},
 			{83, 107, 83, Kind::Exp, {1746067.0612524853, 151936.48995884313, 0.05068404536237697}},
-			{108, 116, 108, Kind::Linear, {2286966, 29107}},
+			{108, 115, 108, Kind::Linear, {2286966, 29107}},
+			{116, 116, 116, Kind::Linear, {2520000, 0}},	// the knot, exact: the rule's exception (header)
 			{117, 127, 117, Kind::Linear, {2548928.9999999995, 29107.142857143004}},
 		};
 

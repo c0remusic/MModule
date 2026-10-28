@@ -12,9 +12,9 @@
 //	Q15	the same Hits at 44.1 kHz, rendered at 48 and resampled (Host), against 48 kHz (bench::q15): envelope below
 //		18 kHz within 0.2 dB above -40 dB, spectrum below 10 kHz within 0.5 dB per third octave, nothing excused
 //	cost: microseconds per 32-sample block of 16 voices playing, fast against exact
-// A Hit (or a lane of Q3's feedback sine) is chaotic where the exact port, its phases 1 LSB on, misses the null
-// against itself (TRANSIENT's feedback): no rewrite can null it either. There the null criteria give way to
-// distributions, the mean third-octave spectrum and the 10 ms RMS envelope, which pass within a factor times the
+// A Hit is chaotic where the exact port, its phases 1 LSB on, fails Q4's measures against itself (TRANSIENT's
+// feedback), a lane of Q3's feedback sine where it misses the null: no rewrite can do better. There Q4 and Q3 give
+// way to distributions, the mean third-octave spectrum and the 10 ms RMS envelope, which pass within a factor times the
 // exact port's own dispersion over 16 perturbations of its phases (1 to 8 LSB either way) plus 0.5 dB, the factor
 // calibrated so that the exact port's held-out perturbations pass 95 % of the time (bench::calibrate); at 44.1
 // against 48 kHz, below 10 kHz, against the same dispersion. The voice with unit 0's feedback table at 0 in both
@@ -67,7 +67,7 @@ namespace
 
 	// The same from the exact port at 48 kHz (exactHits)
 	std::vector<std::vector<double>> renderExact(const std::vector<int32_t>& _s7, const double _seconds,
-		const int32_t _nudge = 0)
+		const Nudge& _nudge = {})
 	{
 		return exactHits(_s7, _seconds, _nudge, [](Exact16& _e, const int _b) { events(_e, _b, 48000); });
 	}
@@ -372,7 +372,7 @@ int main()
 
 	q2(s7);
 	q3(s7);
-	const Exacts exact([&](const int32_t _p) { return renderExact(s7, Seconds, _p); });
+	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); });
 	q4(exact, renderFast(48000, Seconds));
 	deterministic(renderExact(withoutTable(s7, 0x4001fc00), Seconds), renderFast(48000, Seconds, true));
 	q15(renderFast(48000, Seconds + 0.05, false, true), renderFast(44100, Seconds + 0.05, false, true), Seconds);

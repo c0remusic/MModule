@@ -65,7 +65,7 @@ namespace syntakt::fast
 		read(t.decayOdd, tables::cyAlloy(CyAlloy::DecayOdd));
 		read(t.decayEven, tables::cyAlloy(CyAlloy::DecayEven));
 		read(t.target, tables::cyAlloy(CyAlloy::Target));
-		read(t.depth, tables::cyAlloy(CyAlloy::Depth));
+		copy(t.depth, tables::cyAlloy(CyAlloy::Depth));
 		read(t.ampDecay, tables::cyAlloy(CyAlloy::AmpDecay));
 		copy(t.ratio, tables::cyAlloy(CyAlloy::Ratio));
 		copy(t.spread, tables::cyAlloy(CyAlloy::Spread));
@@ -122,7 +122,7 @@ namespace syntakt::fast
 
 	void CyAlloy::testWithoutChaos()
 	{
-		std::fill_n(m_tables.depth, 128, 0.0f);
+		std::fill_n(m_tables.depth, 128, 0);
 		for(int l = 0; l < Lanes; ++l)
 			convert(l);
 	}
@@ -146,9 +146,9 @@ namespace syntakt::fast
 
 		// The third: units 1 and 3's modulation (the word D >> 6, 2 D cycles) and unit 2's feedback (the word D >> 3,
 		// D / 2 cycles a unit, as SdBasic's 4 F)
-		const float d = interpolate(t.depth, word(2));
-		m_depthTarget[_l] = 2 * d;
-		m_fbTarget[_l] = d / 2;
+		const int32_t d = interpolateWord(t.depth, word(2));
+		m_depthTarget[_l] = 2 * q31(d);
+		m_fbWord[_l] = d >> 3;
 
 		// The fifth: units 0 and 2's levels at rest; units 1 and 3 rest at 0.75
 		m_target[0][_l] = m_target[2][_l] = interpolate(t.target, word(4));
@@ -183,7 +183,8 @@ namespace syntakt::fast
 				if(!m_playing[l])
 				{
 					m_playing[l] = true;
-					m_fb[l] = m_depth[l] = 0;
+					m_fb[l] = 0;
+					m_depth[l] = 0;
 				}
 				for(auto& p : m_phase)
 					p[l] = 0;
@@ -298,7 +299,7 @@ namespace syntakt::fast
 		gain(m_b[0], m_gEnv[0]);
 		pmWave(m_b[1], &m_b[0], m_depth, m_depthTarget, m_phase[1], m_inc[1], t.wave);
 		gain(m_b[1], m_gEnv[1]);
-		feedbackSine(m_b[2], m_phase[2], m_inc[2], m_fb, m_fbTarget, m_last, t.sine);
+		feedbackSine(m_b[2], m_phase[2], m_inc[2], m_fb, m_fbWord, m_last);
 		gain(m_b[2], m_gEnv[2]);
 		pmWave(m_b[3], &m_b[2], m_depth, m_depthTarget, m_phase[3], m_inc[3], t.wave);
 		gain(m_b[3], m_gEnv[3]);

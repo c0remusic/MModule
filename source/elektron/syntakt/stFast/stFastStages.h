@@ -49,10 +49,13 @@ namespace syntakt::fast
 		uint32_t s[BlockSize][Lanes];
 	};
 
-	// A sine phase-modulated by its previous sample, the amount ramped from _fb to _fbTarget (left there). _wave: a
-	// 256-entry sine (258 values) read as the machine reads its own; nullptr, the sine itself
-	void feedbackSine(Block& _out, uint32_t* _phase, const Increments& _inc, float* _fb, const float* _fbTarget,
-		float* _last, const float* _wave);
+	// A sine phase-modulated by its previous sample, the amount ramped from _fb to frac(0x04000000, _fbWord) (left
+	// there), in the machine's own integers (0x400035de): its 256-entry sine as Q31 words, the phase sum and the lookup
+	// truncated as its accumulator truncates them. A float one drifts from it where the feedback is strong (SD BASIC's
+	// feedback 1: 1.6 dB of third octaves). _fbWord: the machine's feedback words (its 0x2c) as its update computes
+	// them; _fb: the amount ramped, 2^-24 cycle per unit of input (its 0x30); _last: the previous sample, a Q31 word
+	void feedbackSine(Block& _out, uint32_t* _phase, const Increments& _inc, int32_t* _fb, const int32_t* _fbWord,
+		int32_t* _last);
 
 	// A sine phase-modulated by _src (nullptr: none)
 	void pmSine(Block& _out, const Block* _src, uint32_t* _phase, const Increments& _inc, float _depth);

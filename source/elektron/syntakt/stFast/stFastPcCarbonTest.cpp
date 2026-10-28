@@ -12,7 +12,7 @@
 //	Q15	the same Hits at 44.1 kHz, rendered at 48 and resampled (Host), against 48 kHz (bench::q15): envelope below
 //		18 kHz within 0.2 dB, every third octave below 10 kHz within 0.5 dB, nothing excused
 //	cost: microseconds per 32-sample block of 16 voices playing, fast against exact, and at 44.1 kHz
-// A Hit would be chaotic where the exact port, its phases 1 LSB on, missed the null against itself, and would then be
+// A Hit would be chaotic where the exact port, its phases 1 LSB on, failed Q4's measures against itself, and would be
 // judged by its distributions (bench::Exacts): Q4 prints it, should one be.
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7. Exit 77 without it.
@@ -98,7 +98,7 @@ namespace
 
 	// The same from the exact port at 48 kHz, every Track on PC CARBON
 	std::vector<std::vector<double>> renderExact(const std::vector<int32_t>& _s7, const double _seconds,
-		const int32_t _nudge = 0)
+		const Nudge& _nudge = {})
 	{
 		return exactHits(_s7, _seconds, _nudge, [](Exact16& _e, const int _b)
 		{
@@ -373,7 +373,7 @@ int main()
 
 	q2(s7);
 	q3(s7);
-	const Exacts exact([&](const int32_t _p) { return renderExact(s7, Seconds, _p); });
+	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); });
 	q4(exact, renderFast(48000, Seconds));
 	q15(renderFast(48000, Seconds + 0.05, true), renderFast(44100, Seconds + 0.05, true), Seconds);
 	cost(s7);

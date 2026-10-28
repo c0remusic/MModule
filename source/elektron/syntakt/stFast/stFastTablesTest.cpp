@@ -192,8 +192,8 @@ int main()
 		{"DecayOdd", 0x40020200, CyAlloy::DecayOdd, true, 4200},
 		{"Target", 0x40020400, CyAlloy::Target, false, 0},
 		{"DecayEven", 0x40020600, CyAlloy::DecayEven, true, 7700},
-		{"Ratio", 0x40020800, CyAlloy::Ratio, false, 21000},
-		{"Spread", 0x40020a00, CyAlloy::Spread, false, 0, {{116, 116, 12500}}},
+		{"Ratio", 0x40020800, CyAlloy::Ratio, false, 0, {{68, 72, 250}}},
+		{"Spread", 0x40020a00, CyAlloy::Spread, false, 0},
 		{"Depth", 0x40020c00, CyAlloy::Depth, false, 0},
 		{"AmpDecay", 0x40020e00, CyAlloy::AmpDecay, true, 0},
 	};
