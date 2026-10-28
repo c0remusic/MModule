@@ -1,7 +1,7 @@
 // A diagnostic, by hand, not a test: every value of every sound parameter of a fast machine against the exact port
 // at 48 kHz, through the bench (stFastBench.h).
 //
-//	stFastSweep sweep MACHINE OUT.csv	MACHINE bd, sd, cy, pc or sv
+//	stFastSweep sweep MACHINE OUT.csv	MACHINE bd, sd, cy, pc, sv or cp
 //	stFastSweep ab OUTDIR CASES.txt		A/B WAVs and an ABX page for the cases, one a line: MACHINE PARAM VALUE, or
 //										MACHINE hitN (BD's bench Hits, PC CARBON's Hit 10)
 //
@@ -12,12 +12,14 @@
 // the level there below the peak; the pitch in cents (bench::peakHz); the null (SNR, worst 10 ms, worst residual third
 // octave). A value is chaotic where the exact port, its phases 1 LSB on, fails Q4's measures against itself
 // (bench::chaoticSelf); there both engines are measured again with the machine's feedback table at 0 (none in PC
-// CARBON), the row flagged. A machine with noise (SD VINTAGE) starts it from the exact port's seeds (fastHits).
+// CARBON), the row flagged. A machine with noise (SD VINTAGE, CP VINTAGE) starts it from the exact port's seeds
+// (fastHits).
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7; what is written is derived from it, so it must go outside the
 // repository.
 
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -27,6 +29,7 @@
 #include "stFastBdModern.h"
 #include "stFastBdModernHits.h"
 #include "stFastBench.h"
+#include "stFastCpVintage.h"
 #include "stFastCyAlloy.h"
 #include "stFastPcCarbon.h"
 #include "stFastSdBasic.h"
@@ -66,7 +69,34 @@ namespace
 			{"tune", "ratios", "depth", "sweep", "levels", "drive", "hold", "decay", "note"}},
 		{"sv", 6, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::SdVintage::Units, 0x40039a38,
 			{"tune", "ratios", "balance", "sweep", "u3decay", "drive", "hold", "decay", "note"}},
+		{"cp", 7, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::CpVintage::Units, 0x4003b438,
+			{"tune", "tone", "balance", "period", "tonedecay", "drive", "hold", "decay", "note"}},
 	};
+
+	// A machine's type, handed to what withMachine calls
+	template<typename M>
+	struct Type
+	{
+		using type = M;
+	};
+
+	// _f(Type<the fast machine of the exact port's id _id>{}); an id no fast machine has aborts
+	template<typename F>
+	decltype(auto) withMachine(const int _id, F&& _f)
+	{
+		switch(_id)
+		{
+		case 0: return _f(Type<fast::BdModern>{});
+		case 1: return _f(Type<fast::SdBasic>{});
+		case 2: return _f(Type<fast::CyAlloy>{});
+		case 3: return _f(Type<fast::PcCarbon>{});
+		case 6: return _f(Type<fast::SdVintage>{});
+		case 7: return _f(Type<fast::CpVintage>{});
+		default:
+			std::fprintf(stderr, "no fast machine has the id %d\n", _id);
+			std::abort();
+		}
+	}
 
 	const Machine* machine(const std::string& _name)
 	{
@@ -317,14 +347,7 @@ namespace
 		json << "[\n";
 		bool first = true;
 		for(const auto& c : cases)
-			switch(c.m->id)
-			{
-			case 0: renderCase<fast::BdModern>(_s7, c, _dir, json, first); break;
-			case 1: renderCase<fast::SdBasic>(_s7, c, _dir, json, first); break;
-			case 2: renderCase<fast::CyAlloy>(_s7, c, _dir, json, first); break;
-			case 3: renderCase<fast::PcCarbon>(_s7, c, _dir, json, first); break;
-			default: renderCase<fast::SdVintage>(_s7, c, _dir, json, first); break;
-			}
+			withMachine(c.m->id, [&](auto _m) { renderCase<typename decltype(_m)::type>(_s7, c, _dir, json, first); });
 		json << "\n]\n";
 		std::ofstream(_dir + "pairs.json") << json.str();
 		std::ifstream page(ST_FAST_AB_PAGE);
@@ -422,15 +445,8 @@ int main(const int _argc, char** _argv)
 			{
 				const auto ref = renderExact(_s7, hits, Nudge{});
 				const auto self = renderExact(_s7, hits, phaseNudge(1, m->units));
-				Renders test;
-				switch(m->id)
-				{
-				case 0: test = renderFast<fast::BdModern>(hits, _noChaos); break;
-				case 1: test = renderFast<fast::SdBasic>(hits, _noChaos); break;
-				case 2: test = renderFast<fast::CyAlloy>(hits, _noChaos); break;
-				case 3: test = renderFast<fast::PcCarbon>(hits, _noChaos); break;
-				default: test = renderFast<fast::SdVintage>(hits, _noChaos); break;
-				}
+				const Renders test = withMachine(m->id,
+					[&](auto _m) { return renderFast<typename decltype(_m)::type>(hits, _noChaos); });
 				const auto s = measureHit(ref[0], self[0]), t = measureHit(ref[0], test[0]);
 				std::fprintf(f, "%s %s %s, %s: exact 1 LSB on %.1f dB re peak, cells %.3f dB, SNR %.1f, 10 ms %.1f dB; "
 					"fast %.1f dB re peak, cells %.3f dB, SNR %.1f dB\n", _argv[2], _argv[4], _argv[i], _what, s.envAbs,
@@ -467,12 +483,5 @@ int main(const int _argc, char** _argv)
 	}
 	if(mode != "sweep" || !m)
 		return 2;
-	switch(m->id)
-	{
-	case 0: return sweep<fast::BdModern>(s7, *m, _argv[3]);
-	case 1: return sweep<fast::SdBasic>(s7, *m, _argv[3]);
-	case 2: return sweep<fast::CyAlloy>(s7, *m, _argv[3]);
-	case 3: return sweep<fast::PcCarbon>(s7, *m, _argv[3]);
-	default: return sweep<fast::SdVintage>(s7, *m, _argv[3]);
-	}
+	return withMachine(m->id, [&](auto _m) { return sweep<typename decltype(_m)::type>(s7, *m, _argv[3]); });
 }

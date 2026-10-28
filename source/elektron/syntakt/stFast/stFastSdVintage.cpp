@@ -52,11 +52,7 @@ namespace syntakt::fast
 		// The noise's fixed low-pass, 4 kHz by the bilinear transform without prewarping, K = pi f / fs (round values,
 		// the words); the output's high-pass, a one-pole at 150 Hz, its pole exp(-2 pi f / fs) (6.3e-7 of the pole
 		// under the word)
-		const OnePole NoiseLp2 = []
-		{
-			const double k = Pi * 4000 / 48000, c = (k - 1) / (k + 1);
-			return OnePole{static_cast<float>((1 + c) / 2), static_cast<float>((1 + c) / 2), static_cast<float>(-c)};
-		}();
+		const OnePole NoiseLp2 = bilinearLowPass(4000);
 		const OnePole OutHp = []
 		{
 			const double p = std::exp(-2 * Pi * 150 / 48000);
@@ -66,17 +62,6 @@ namespace syntakt::fast
 		// TUNE at 64 plays the note: the machine's offset to the note is -64. Unit 2 plays two octaves up
 		constexpr int PitchOffset = 64;
 		constexpr int64_t NoteFactor = int64_t(1) << 26;
-
-		// The doubling into the drive, saturated as the machine's add
-		void doubled(Block& _buf)
-		{
-			for(int n = 0; n < BlockSize; ++n)
-				for(int g = 0; g < Lanes; g += 4)
-				{
-					const V x = _mm_load_ps(_buf.s[n] + g);
-					_mm_store_ps(_buf.s[n] + g, clip(_mm_add_ps(x, x)));
-				}
-		}
 	}
 
 	SdVintage::SdVintage()
@@ -292,7 +277,7 @@ namespace syntakt::fast
 		// The noise, gated, high-passed into its clip and doubled, low-passed twice, under the modulator's envelope
 		m_noise.render(m_noiseOut, Gate);
 		biquad(m_noiseOut, NoiseHp.data(), m_bq);
-		doubled(m_noiseOut);
+		saturate(m_noiseOut, 2);
 		onePoleLanes(m_noiseOut, m_lpB, m_lpA, m_lp1X, m_lp1Y);
 		onePole(m_noiseOut, NoiseLp2, m_lp2X, m_lp2Y);
 		gain(m_noiseOut, m_gMod);
@@ -303,7 +288,7 @@ namespace syntakt::fast
 		for(int i = 0; i < 4; ++i)
 			std::copy_n(m_gainTarget[i], Lanes, m_gain[i]);
 		onePole(m_out, OutHp, m_hpX, m_hpY);
-		doubled(m_out);
+		saturate(m_out, 2);
 		driveClip(m_out, m_drive.from, m_drive.to, m_drive.amount, m_drive.post);
 		gain(m_out, m_gAmp);
 

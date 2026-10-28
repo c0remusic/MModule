@@ -95,6 +95,9 @@ namespace syntakt::fast::bench
 			m_sram->at(Voice::addressOf(_t) + 0x80 * _k + 0x6c) += _lsb;
 		}
 
+		// Track _t's voice field at _offset, as the last render left it
+		int32_t field(const int _t, const uint32_t _offset) const { return m_sram->at(Voice::addressOf(_t) + _offset); }
+
 		// The voice CPU's own globals: the generator voices draw their noise seeds from
 		const Globals& globals() const { return m_globals; }
 
@@ -122,6 +125,7 @@ namespace syntakt::fast::bench
 		void gateOff(const int _t) { cpu(_t).gateOff(_t & 7); }
 		void render() { a.render(); b.render(); }
 		const int32_t* out(const int _t) { return cpu(_t).out(_t & 7); }
+		int32_t field(const int _t, const uint32_t _offset) { return cpu(_t).field(_t & 7, _offset); }
 	};
 
 	// The six words (0x570-0x584) each Track of the exact port draws when its first trig puts it on another machine,
@@ -624,6 +628,25 @@ namespace syntakt::fast::bench
 
 		Voice voice(const int _l) { return Voice{*sram[_l / 8], Voice::addressOf(_l & 7)}; }
 	};
+
+	// Voice _l of _st after an exact port's machine update (_update, a syntakt::xxx::update) at a trig (TrigNow), its
+	// Machine page's bytes _bytes (parameter i's value at 2 + 2 i, its fine after, the others 0), at _pitch: the words
+	// the machine runs its stages with, which a test reads rather than writes
+	template<typename Update>
+	Voice updatedVoice(Stage& _st, const int _l, const int32_t _pitch,
+		const std::vector<std::pair<int, uint8_t>>& _bytes, Update&& _update)
+	{
+		Voice v = _st.voice(_l);
+		const uint32_t params = TrackParams + ParamStride * static_cast<uint32_t>(_l & 7);
+		for(uint32_t k = 2; k < 18; ++k)
+			v.sram.setByte(params + 0x3e + k, 0);
+		for(const auto& [k, b] : _bytes)
+			v.sram.setByte(params + 0x3e + static_cast<uint32_t>(k), b);
+		v.at(Voice::TrigNow) = 1;
+		v.at(Voice::TrigPending) = 0;
+		_update(_pitch, v, params + 0x1c, _st.rom);
+		return v;
+	}
 
 	struct Residual
 	{

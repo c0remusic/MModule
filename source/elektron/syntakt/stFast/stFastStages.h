@@ -43,6 +43,26 @@ namespace syntakt::fast
 	};
 	void onePole(Block& _buf, const OnePole& _c, float* _x1, float* _y1);
 
+	// A one-pole's pole by the bilinear transform without prewarping at _hz, 48 kHz: (1 - K) / (1 + K), K = pi f / fs
+	inline double bilinearPole(const double _hz)
+	{
+		const double k = 3.14159265358979323846 * _hz / 48000;
+		return (1 - k) / (1 + k);
+	}
+
+	// The low-pass and the high-pass on that pole: y = (1 - p) / 2 (x + x1) + p y1, y = (1 + p) / 2 (x - x1) + p y1
+	inline OnePole bilinearLowPass(const double _hz)
+	{
+		const double p = bilinearPole(_hz);
+		return {static_cast<float>((1 - p) / 2), static_cast<float>((1 - p) / 2), static_cast<float>(p)};
+	}
+
+	inline OnePole bilinearHighPass(const double _hz)
+	{
+		const double p = bilinearPole(_hz);
+		return {static_cast<float>((1 + p) / 2), static_cast<float>(-(1 + p) / 2), static_cast<float>(p)};
+	}
+
 	// First-order IIR in place, y = b x + b x1 + a y1, its coefficients per lane
 	void onePoleLanes(Block& _buf, const float* _b, const float* _a, float* _x1, float* _y1);
 
@@ -56,6 +76,14 @@ namespace syntakt::fast
 	// 0x400044e2: noise from a lagged additive generator per lane (_s: its four words, s[k][lane]), in the machine's
 	// integers; a sample is the generator's first sum where its second is above _gate (signed), else 0
 	void gatedNoise(Block& _out, uint32_t (*_s)[Lanes], int32_t _gate);
+
+	// 0x40003eb4: white noise from a lagged additive generator per lane, two of its words (_s0, _s1), in the machine's
+	// integers: a sample is s0 + s1, which becomes s0 and is added to s1
+	void whiteNoise(Block& _out, uint32_t* _s0, uint32_t* _s1);
+
+	// 0x4000569a: two sample-and-holds per lane, at periods p + 1 and p + 2 samples, crossfaded by p's fraction: _rate
+	// p in Q16 per lane; _held the two held samples, _count the samples since each took one
+	void reduceRate(Block& _buf, const int32_t* _rate, float (*_held)[Lanes], int32_t (*_count)[Lanes]);
 
 	// The gated noise of the 16 Tracks (gatedNoise), each from its seed at the Track's first trig. The seeds are a
 	// law: word w of Track t is splitmix32's output 4 t + w + 1 from 0. The firmware draws them from its boot generator
@@ -110,6 +138,15 @@ namespace syntakt::fast
 	void feedbackSine(Block& _out, uint32_t* _phase, const Increments& _inc, int32_t* _fb, const int32_t* _fbWord,
 		int32_t* _last);
 
+	// 0x40003958 with the RAM sine, as feedbackSine runs 0x400035de: the sine phase-modulated by its own previous
+	// output under its envelope, in the machine's own integers per lane (a float one drifts from it where the feedback
+	// is strong: CP VINTAGE's unit 1, a cycle per unit, 2 dB at 16 kHz on its chaotic Hits). _scaled the output under
+	// the envelope, _last its previous sample (Q31); the feedback ramped from _fb to the words' _fbWord >> 5 (left
+	// there); the envelope ramped from _amountFrom to _amountTo (left there), Q31 words in the machine's negative
+	// representation
+	void scaledFeedbackSine(Block& _scaled, uint32_t* _phase, const Increments& _inc, int32_t* _fb,
+		const int32_t* _fbWord, int32_t* _last, int32_t* _amountFrom, const int32_t* _amountTo);
+
 	// A sine phase-modulated by _src (nullptr: none)
 	void pmSine(Block& _out, const Block* _src, uint32_t* _phase, const Increments& _inc, float _depth);
 
@@ -126,6 +163,9 @@ namespace syntakt::fast
 
 	// Drive into a hard clip under a ramped gain: _buf = g post clip(drive x)
 	void driveClip(Block& _buf, const float* _from, const float* _to, const float* _drive, const float* _post);
+
+	// _buf = clip(_k x), as the machine's saturated stores (x 2: a doubling, x 8: three, each saturated)
+	void saturate(Block& _buf, float _k);
 
 	// ---- the control path ----
 
@@ -174,12 +214,19 @@ namespace syntakt::fast
 
 	// ---- the pitch, as the machine computes it (0x40002596): in integers, so that a long Hit keeps its phase ----
 
-	// The pitch map's word for the note, the TUNE word (value << 8 | fine) and the machine's offset to the note in
-	// semitones (its 0x40): the pitch clamped to notes 0-127 (Q16), octaves from A4 by its 1/12 (0x0aaaaaab), their
-	// fraction's top 11 bits indexing its exp2 table (_exp2: 2048 words)
+	// The pitch for the note, the TUNE word (value << 8 | fine) and the machine's offset to the note in semitones (its
+	// 0x40): note - offset + TUNE / 256 semitones, Q16, clamped to notes 0-127
+	inline int32_t pitchQ16(const int _note, const int32_t _tune, const int _offset)
+	{
+		return static_cast<int32_t>(std::clamp<int64_t>((_note - _offset) * int64_t(65536) + 256 * _tune, 0,
+			127 * 65536));
+	}
+
+	// The pitch map's word at pitchQ16: octaves from A4 by the machine's 1/12 (0x0aaaaaab), their fraction's top 11
+	// bits indexing its exp2 table (_exp2: 2048 words)
 	inline int32_t pitchWord(const int32_t* _exp2, const int _note, const int32_t _tune, const int _offset)
 	{
-		const int64_t p = std::clamp<int64_t>((_note - _offset) * int64_t(65536) + 256 * _tune, 0, 127 * 65536);
+		const int64_t p = pitchQ16(_note, _tune, _offset);
 		const int64_t q = ((p - 69 * 65536) * 0x0aaaaaab) >> 31;
 		const int octave = static_cast<int16_t>(q >> 16);
 		const int64_t f = (int64_t(0x6e000000) * _exp2[(q & 0xffff) >> 5]) >> 31;
@@ -400,6 +447,8 @@ namespace syntakt::fast
 	//	- testWithoutChaos(): for tests, the voice with its feedback (or depth) table at 0, nothing chaotic left
 	//	- const Block& renderBlock(): one 48 kHz block of the 16 Tracks, in this order: FlushDenormals,
 	//	  controls.trigs.start(), the block-rate control, the stages, controls.trigs.end()
+	//	- at 48 kHz only, a machine may step its envelopes once per block but in the trig's block rather than on
+	//	  Clock48, whose steps that is (CP VINTAGE does)
 	// Controls holds what the front sets, which the machine converts (its convert(track)) and its control reads
 	struct Controls
 	{

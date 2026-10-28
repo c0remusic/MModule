@@ -1,7 +1,7 @@
-// syntakt::fast::tables, the tables BD MODERN, SD BASIC, CY ALLOY, PC CARBON and SD VINTAGE read made by formula,
-// against OS 1.41's section 7 word for word: per table, exact or the number of words that differ and the largest
-// error (in LSB of Q31, and of the table's own unit: the time constant of a decay, the share of full scale of a
-// level). A table its header calls exact that differs fails.
+// syntakt::fast::tables, the tables BD MODERN, SD BASIC, CY ALLOY, PC CARBON, SD VINTAGE and CP VINTAGE read made by
+// formula, against OS 1.41's section 7 word for word: per table, exact or the number of words that differ and the
+// largest error (in LSB of Q31, and of the table's own unit: the time constant of a decay, the share of full scale of
+// a level). A table its header calls exact that differs fails.
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7. Exit 77 without it.
 
@@ -234,6 +234,30 @@ int main()
 	// The waves' entry 128, the firmware's -1 where the law gives 0, bound apart; every other word exact
 	compare(s7, "WaveU2", 0x40059af4, syntakt::fast::tables::sdVintageWaveU2(), false, false, 0, {{128, 128, 1}});
 	compare(s7, "WaveU3", 0x400596f0, syntakt::fast::tables::sdVintageWaveU3(), false, false, 0, {{128, 128, 1}});
+
+	// CP VINTAGE's, each stretch of a law bound apart, every word exact
+	using syntakt::fast::tables::CpVintage;
+	const std::vector<Bound> halves = {{0, 64, 0}, {65, 127, 0}};
+	const Entry<CpVintage> cpVintage[] = {
+		{"ModDecay", 0x4003a238, CpVintage::ModDecay, true, 0},
+		{"ToneDecay", 0x4003a438, CpVintage::ToneDecay, true, 0},
+		{"SampleRate", 0x4003a838, CpVintage::SampleRate, false, 0, halves},
+		{"Period", 0x4003aa38, CpVintage::Period, false, 0, halves},
+		{"RepeatDecay", 0x4003ac38, CpVintage::RepeatDecay, true, 0, halves},
+		{"ClapLevel", 0x4003ae38, CpVintage::ClapLevel, false, 0, {{0, 63, 0}, {64, 127, 0}}},
+		{"ToneLevel", 0x4003b038, CpVintage::ToneLevel, false, 0, {{0, 63, 0}, {64, 127, 0}}},
+		{"ToneDepth", 0x4003b238, CpVintage::ToneDepth, false, 0},
+		{"ToneFeedback", 0x4003b438, CpVintage::ToneFeedback, false, 0, {{0, 125, 0}, {126, 127, 0}}},
+		{"ToneRatio", 0x4003b638, CpVintage::ToneRatio, false, 0},
+		{"ClapDecay", 0x4003b838, CpVintage::ClapDecay, true, 0, halves},
+		{"CrackleDecay", 0x4003ba38, CpVintage::CrackleDecay, true, 0, halves},
+		{"HighPass", 0x4003bc38, CpVintage::HighPass, false, 0, {{0, 22, 0}, {23, 95, 0}, {96, 127, 0}}},
+	};
+	compareAll(s7, "CP VINTAGE", cpVintage, syntakt::fast::tables::cpVintage);
+	compare(s7, "ResonatorA", 0x40014b80, syntakt::fast::tables::cpVintageResonator(false), true, false, 0);
+	compare(s7, "ResonatorB", 0x40015b80, syntakt::fast::tables::cpVintageResonator(true), true, false, 0);
+	compare(s7, "Log2", 0x4000f48c, syntakt::fast::tables::cpVintageLog2(), true, false, 0);
+	compare(s7, "Exp2Half", 0x4000e488, syntakt::fast::tables::cpVintageExp2(), true, false, 0);
 
 	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
 	return g_failures ? 1 : 0;

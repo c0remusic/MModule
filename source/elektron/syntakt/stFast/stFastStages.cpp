@@ -152,6 +152,55 @@ namespace syntakt::fast
 		}
 	}
 
+	void whiteNoise(Block& _out, uint32_t* _s0, uint32_t* _s1)
+	{
+		const V scale = _mm_set1_ps(1.0f / 2147483648.0f);
+		for(int g = 0; g < Lanes; g += 4)
+		{
+			__m128i s0 = _mm_load_si128(reinterpret_cast<const __m128i*>(_s0 + g));
+			__m128i s1 = _mm_load_si128(reinterpret_cast<const __m128i*>(_s1 + g));
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				s0 = _mm_add_epi32(s0, s1);
+				s1 = _mm_add_epi32(s1, s0);
+				_mm_store_ps(_out.s[n] + g, _mm_mul_ps(_mm_cvtepi32_ps(s0), scale));
+			}
+			_mm_store_si128(reinterpret_cast<__m128i*>(_s0 + g), s0);
+			_mm_store_si128(reinterpret_cast<__m128i*>(_s1 + g), s1);
+		}
+	}
+
+	void reduceRate(Block& _buf, const int32_t* _rate, float (*_held)[Lanes], int32_t (*_count)[Lanes])
+	{
+		const __m128i one = _mm_set1_epi32(1);
+		for(int g = 0; g < Lanes; g += 4)
+		{
+			const __m128i rate = _mm_load_si128(reinterpret_cast<const __m128i*>(_rate + g));
+			const __m128i p1 = _mm_add_epi32(_mm_srai_epi32(rate, 16), one), p2 = _mm_add_epi32(p1, one);
+			const V w = _mm_mul_ps(_mm_cvtepi32_ps(_mm_and_si128(rate, _mm_set1_epi32(0xffff))),
+				_mm_set1_ps(1.0f / 65536));
+			V h1 = _mm_load_ps(_held[0] + g), h2 = _mm_load_ps(_held[1] + g);
+			__m128i n1 = _mm_load_si128(reinterpret_cast<const __m128i*>(_count[0] + g));
+			__m128i n2 = _mm_load_si128(reinterpret_cast<const __m128i*>(_count[1] + g));
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				// A hold takes the sample where its period has passed (p + 1 <= n1), and counts from 0 again
+				const V x = _mm_load_ps(_buf.s[n] + g);
+				const __m128i keep1 = _mm_cmpgt_epi32(p1, n1), keep2 = _mm_cmpgt_epi32(p2, n2);
+				const V k1 = _mm_castsi128_ps(keep1), k2 = _mm_castsi128_ps(keep2);
+				h1 = _mm_or_ps(_mm_and_ps(k1, h1), _mm_andnot_ps(k1, x));
+				h2 = _mm_or_ps(_mm_and_ps(k2, h2), _mm_andnot_ps(k2, x));
+				n1 = _mm_add_epi32(_mm_and_si128(keep1, n1), one);
+				n2 = _mm_add_epi32(_mm_and_si128(keep2, n2), one);
+				_mm_store_ps(_buf.s[n] + g, _mm_add_ps(h1, _mm_mul_ps(w, _mm_sub_ps(h2, h1))));
+			}
+			_mm_store_ps(_held[0] + g, h1);
+			_mm_store_ps(_held[1] + g, h2);
+			_mm_store_si128(reinterpret_cast<__m128i*>(_count[0] + g), n1);
+			_mm_store_si128(reinterpret_cast<__m128i*>(_count[1] + g), n2);
+		}
+	}
+
 	namespace
 	{
 		// The RAM sine the machine's oscillators read: sin(2 pi i / 256) in Q31, 257 words
@@ -163,14 +212,25 @@ namespace syntakt::fast
 					INT32_MIN, INT32_MAX);
 			return t;
 		}();
+
+		// The sample both feedback oscillators read (0x400035de, 0x40003958), the RAM sine at the 24-bit _phase moved
+		// by _fb (2^-24 cycle per unit) times their feedback _x, in the machine's integers: the phase sum
+		// (phase << 8) + (fb x >> 23), then >> 8; the lookup (T[i] << 8) + (f T[i + 1] >> 23) - (f T[i] >> 23), then
+		// >> 8. Neither saturates nor wraps where the machine's accumulator would: the phase sum stays within 2^25 and
+		// the lookup between two words of the table (Q3 of their machines, sample for sample)
+		inline int64_t feedbackSample(const int64_t _phase, const int64_t _fb, const int64_t _x)
+		{
+			const int64_t p = (_phase * 256 + ((_fb * _x) >> 23)) >> 8;
+			const int64_t i = (p & 0xffffff) >> 16, f = (p & 0xffff) << 15;
+			return (QSine[i] * 256 + ((f * QSine[i + 1]) >> 23) - ((f * QSine[i]) >> 23)) >> 8;
+		}
 	}
 
 	void feedbackSine(Block& _out, uint32_t* _phase, const Increments& _inc, int32_t* _fb, const int32_t* _fbWord,
 		int32_t* _last)
 	{
 		// Per lane in 64-bit integers, as the machine's accumulator: the target frac(0x04000000, word), the word >> 5;
-		// the amount ramped by (target - start) >> 5 a sample; the phase sum (phase << 8) + (fb s >> 23), then >> 8;
-		// the lookup (T[i] << 8) + (f T[i + 1] >> 23) - (f T[i] >> 23), then >> 8
+		// the amount ramped by (target - start) >> 5 a sample; the sample (feedbackSample) moved by the last one
 		for(int l = 0; l < Lanes; ++l)
 		{
 			const int32_t target = _fbWord[l] >> 5;
@@ -178,9 +238,7 @@ namespace syntakt::fast
 			const int64_t step = (static_cast<int64_t>(target) - fb) >> 5;
 			for(int n = 0; n < BlockSize; ++n)
 			{
-				const int64_t p = (phase * 256 + ((fb * s) >> 23)) >> 8;
-				const int64_t i = (p & 0xffffff) >> 16, f = (p & 0xffff) << 15;
-				s = (QSine[i] * 256 + ((f * QSine[i + 1]) >> 23) - ((f * QSine[i]) >> 23)) >> 8;
+				s = feedbackSample(phase, fb, s);
 				_out.s[n][l] = static_cast<float>(static_cast<double>(s) / 2147483648.0);
 				phase = (phase + (_inc.s[n][l] >> 8)) & 0xffffff;
 				fb += step;
@@ -189,6 +247,41 @@ namespace syntakt::fast
 			_last[l] = static_cast<int32_t>(s);
 			_fb[l] = target;
 		}
+	}
+
+	void scaledFeedbackSine(Block& _scaled, uint32_t* _phase, const Increments& _inc, int32_t* _fb,
+		const int32_t* _fbWord, int32_t* _last, int32_t* _amountFrom, const int32_t* _amountTo)
+	{
+		// As feedbackSine, the envelope ramped by its difference >> 5 a sample, the output -(amount s >> 23) >> 8 (at
+		// most full scale: neither saturates), which feeds back
+		for(int l = 0; l < Lanes; ++l)
+		{
+			const int32_t target = _fbWord[l] >> 5;
+			int64_t phase = _phase[l] >> 8, y = _last[l], fb = _fb[l], amount = _amountFrom[l];
+			const int64_t step = (static_cast<int64_t>(target) - fb) >> 5;
+			const int64_t amountStep = (static_cast<int64_t>(_amountTo[l]) - amount) >> 5;
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				const int64_t s = feedbackSample(phase, fb, y);
+				y = -((amount * s) >> 23) >> 8;
+				_scaled.s[n][l] = static_cast<float>(static_cast<double>(y) / 2147483648.0);
+				phase = (phase + (_inc.s[n][l] >> 8)) & 0xffffff;
+				fb += step;
+				amount += amountStep;
+			}
+			_phase[l] = static_cast<uint32_t>(phase << 8);
+			_last[l] = static_cast<int32_t>(y);
+			_fb[l] = target;
+			_amountFrom[l] = _amountTo[l];
+		}
+	}
+
+	void saturate(Block& _buf, const float _k)
+	{
+		const V k = _mm_set1_ps(_k);
+		for(int n = 0; n < BlockSize; ++n)
+			for(int g = 0; g < Lanes; g += 4)
+				_mm_store_ps(_buf.s[n] + g, clip(_mm_mul_ps(k, _mm_load_ps(_buf.s[n] + g))));
 	}
 
 	void pmSine(Block& _out, const Block* _src, uint32_t* _phase, const Increments& _inc, const float _depth)

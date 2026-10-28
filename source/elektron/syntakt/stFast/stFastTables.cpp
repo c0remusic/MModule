@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <iterator>
+
+#include "stFastStages.h"
 
 // The parameter tables are designed curves: round knots (SweepDecay, ModDecay, ClickLevel) and long stretches of a
 // line or an exponential, each in the table's own unit, joined at corners of one to three entries that follow
@@ -26,6 +29,7 @@ namespace syntakt::fast::tables
 	namespace
 	{
 		constexpr double Q31 = 2147483648.0;
+		constexpr double Pi = 3.14159265358979323846;
 
 		enum class Kind
 		{
@@ -734,6 +738,116 @@ namespace syntakt::fast::tables
 	std::array<int32_t, 257> sdVintageWaveU3()
 	{
 		return harmonics({1, 2, 3, 4}, {-3.92, -9.9, -13.5, -16.0});
+	}
+
+	// ---- CP VINTAGE ----
+	//
+	// Laws of the entry i (x = i / 127, or i / 128 where the firmware's step is a power of two), every word the
+	// firmware's: the decays by SD BASIC's 60 dB law (T60), levels as sin^2, the claps' period in milliseconds, the
+	// filters by the bilinear transform without prewarping, K = pi f / fs
+
+	namespace
+	{
+		// The tone's decay, its 60 dB time 15 ms at 127 and growing as (1 - x)^2: the growth fitted (one constant over
+		// 128 entries, every word exact; 4e-11 of it moves a word)
+		double toneDecayT60(const double _x) { return 0.015 + 0.132898864741 * (1 - _x) * (1 - _x); }
+
+		// The claps' period in ms, the same both sides of 64: 25 ms at the ends, 9.06 at 64
+		double periodMs(const int _i)
+		{
+			const int d = 64 - std::abs(_i - 64);
+			return 13 - d / 16.0 + 12 * std::exp(-d / 12.0);
+		}
+	}
+
+	std::array<int32_t, 128> cpVintage(const CpVintage _t)
+	{
+		std::array<int32_t, 128> t{};
+		for(int i = 0; i < 128; ++i)
+		{
+			const double x = i / 127.0;
+			const double s2 = std::sin(Pi * x) * std::sin(Pi * x);
+			switch(_t)
+			{
+			case CpVintage::ModDecay:		// the tone's modulator: 1.5 times the tone's time
+				t[i] = toWord(Unit::T60, 1, 1.5 * toneDecayT60(x));
+				break;
+			case CpVintage::ToneDecay:
+				t[i] = toWord(Unit::T60, 1, toneDecayT60(x));
+				break;
+			case CpVintage::SampleRate:		// the rate reducer's period less one, Q16: k log2(k + 1) / 24 at k = i - 64
+				t[i] = i <= 64 ? 0 : clamp((i - 64) * std::log2(i - 63.0) / 24 * 65536);
+				break;
+			case CpVintage::Period:			// in the voice's timer, 2^19 a block (1.5 a ms)
+				t[i] = clamp(periodMs(i) * 1.5 * 524288);
+				break;
+			case CpVintage::RepeatDecay:	// the repeats' decay: 39/16 of the period less 8.4375 ms
+				t[i] = toWord(Unit::T60, 1, 2.4375 * periodMs(i) / 1000 - 0.0084375);
+				break;
+			case CpVintage::ClapLevel:		// the clap in the mix: full, then sin^2 from 1/2
+				t[i] = clamp((i < 64 ? 1 : s2) * Q31);
+				break;
+			case CpVintage::ToneLevel:		// the tone's: -4 dB times sin^2 up to 1/2, then held
+				t[i] = clamp(fromDb(-4) * (i < 64 ? s2 : 1) * Q31);
+				break;
+			case CpVintage::ToneDepth:		// unit 0's modulation by unit 1: 0.05 to 1 cycle at 128
+				t[i] = clamp((0.05 + 0.95 * i / 128) * Q31);
+				break;
+			case CpVintage::ToneFeedback:	// unit 1's: 0.05 + (i / 128 - 0.02)^6 / 4, at most 0.25 (x 4: cycles)
+				t[i] = clamp(std::min(0.25, 0.05 + std::pow(i / 128.0 - 0.02, 6) / 4) * Q31);
+				break;
+			case CpVintage::ToneRatio:		// unit 1's factor: 3 to 8 at 128 times the note's (2^26)
+				t[i] = clamp((3 + 5 * i / 128.0) * 67108864);
+				break;
+			case CpVintage::ClapDecay:		// the noise's last decay: 15 ms, up 15.375 ms an entry, from 64 by 28.125
+				t[i] = toWord(Unit::T60, 1, i <= 64 ? 0.015 + 0.015375 * i : 0.999 + 0.028125 * (i - 64));
+				break;
+			case CpVintage::CrackleDecay:	// the crackle's last decay: 15 ms up to 210 ms at 64, then held
+				t[i] = toWord(Unit::T60, 1, 0.015 + 0.195 * std::min(i, 64) / 64);
+				break;
+			case CpVintage::HighPass:		// the clap's high-pass, -its pole: 4.8 times the note, within 30-2093 Hz
+				{
+					const double f = std::clamp(440 * std::exp2((i - 69) / 12.0), 30.0, 2093.0);
+					t[i] = clamp(-bilinearPole(4.8 * f) * Q31);
+				}
+				break;
+			case CpVintage::Count:
+				break;
+			}
+		}
+		return t;
+	}
+
+	std::array<int32_t, 1024> cpVintageResonator(const bool _radius)
+	{
+		// At entry i, the note i / 8 (A4 440 Hz) at 48 kHz, theta its frequency in radians: -cos theta, and the
+		// allpass's (1 - t) / (1 + t), t = tan(theta / 4.6), whose band-pass has a Q of 2.3
+		std::array<int32_t, 1024> t{};
+		for(int i = 0; i < 1024; ++i)
+		{
+			const double theta = 2 * Pi * 440 * std::exp2((i / 8.0 - 69) / 12) / 48000;
+			const double k = std::tan(theta / 4.6);
+			t[i] = clamp((_radius ? (1 - k) / (1 + k) : -std::cos(theta)) * Q31);
+		}
+		return t;
+	}
+
+	std::array<int32_t, 1024> cpVintageLog2()
+	{
+		// log2((k + 1) / 2048) at k = 1024 to 2047, the mantissa rounded up
+		std::array<int32_t, 1024> t{};
+		for(int k = 0; k < 1024; ++k)
+			t[k] = clamp(std::log2((k + 1025) / 2048.0) * Q31);
+		return t;
+	}
+
+	std::array<int32_t, 1025> cpVintageExp2()
+	{
+		// 2^(j / 1024) / 2, the last saturated
+		std::array<int32_t, 1025> t{};
+		for(int j = 0; j < 1025; ++j)
+			t[j] = clamp(std::exp2(j / 1024.0) * 1073741824.0);
+		return t;
 	}
 
 	std::array<int32_t, 257> wave()

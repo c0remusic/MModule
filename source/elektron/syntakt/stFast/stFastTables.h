@@ -3,8 +3,8 @@
 #include <array>
 #include <cstdint>
 
-// The tables syntakt::fast::BdModern, SdBasic, CyAlloy, PcCarbon and SdVintage read, made by formula rather than read
-// from the firmware
+// The tables syntakt::fast::BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage and CpVintage read, made by formula
+// rather than read from the firmware
 // (ticket 07 of elektron-drums-v1), as the firmware's Q31 words. stFastTablesTest compares each with OS 1.41's
 // section 7; the exact ones were checked with MSVC's runtime, and another libm may round a word 1 LSB apart.
 namespace syntakt::fast::tables
@@ -99,6 +99,27 @@ namespace syntakt::fast::tables
 	// 0x8000a080): 257 words each. Approximate: entry 128, about 2e-9 of full scale, is 1 LSB off
 	std::array<int32_t, 257> sdVintageWaveU2();
 	std::array<int32_t, 257> sdVintageWaveU3();
+
+	// CP VINTAGE's 128-entry tables (section 7 at 0x4003a238 to 0x4003bc38, but HOLD's periods at 0x4003a638, which
+	// it never reads: its HOLD's period runs on the clock step MoDule leaves at 0): every one exact
+	enum class CpVintage
+	{
+		ModDecay, ToneDecay, SampleRate, Period, RepeatDecay, ClapLevel, ToneLevel, ToneDepth, ToneFeedback,
+		ToneRatio, ClapDecay, CrackleDecay, HighPass, Count
+	};
+
+	constexpr bool exact(CpVintage) { return true; }
+
+	std::array<int32_t, 128> cpVintage(CpVintage _t);
+
+	// CP VINTAGE's resonator, by eighths of a semitone (0x40014b80 and 0x40015b80): -cos of the frequency and the
+	// allpass's second coefficient (_radius), 1024 words each. Exact
+	std::array<int32_t, 1024> cpVintageResonator(bool _radius);
+
+	// The voice CPU's log2 of a 10-bit mantissa (0x4000f48c, its entries 1024-2047) and its exp2 (0x4000e488), which
+	// CP VINTAGE's resonator computes its square roots with: 1024 and 1025 words. Exact
+	std::array<int32_t, 1024> cpVintageLog2();
+	std::array<int32_t, 1025> cpVintageExp2();
 
 	// Unit 2's wave (0x4001e7fc): 257 words, 16-bit samples in the top half. Exact
 	std::array<int32_t, 257> wave();
