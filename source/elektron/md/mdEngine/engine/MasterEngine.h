@@ -61,5 +61,6 @@ namespace md::engine
 		std::unique_ptr<dsp56k::PeripheralsNop> m_periphY;
 		std::unique_ptr<dsp56k::DSP> m_dsp;
 		std::string m_fault;
+		bool m_running = false;	// in runUntilDone
 	};
 }

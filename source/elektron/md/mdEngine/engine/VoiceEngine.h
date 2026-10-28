@@ -108,6 +108,7 @@ namespace md::engine
 		std::unique_ptr<dsp56k::PeripheralsNop> m_periphY;
 		std::unique_ptr<dsp56k::DSP> m_dsp;
 		std::string m_fault;
+		size_t m_txWanted = 0;	// the HOTX words a runUntilTx waits for, 0 outside one
 		std::array<std::shared_ptr<const md::mds::Package>, kUserMachines> m_userMachines{};
 		std::shared_ptr<const fw::DspImage> m_x20Voice;
 		uint32_t m_x20Builtins = 0;

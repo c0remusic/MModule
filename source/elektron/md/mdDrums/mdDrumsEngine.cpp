@@ -191,19 +191,26 @@ namespace mdDrums
 			mix(words, extend[t], BlockSize);
 		}
 
-		for(int i = 0; i < BlockSize; ++i)
+		// Lane by lane, so that each reads its ring in order; add wraps as the DSP's accumulator does, so the sum is the
+		// same in any order
+		std::array<std::array<Acc, Channels>, BlockSize> sums{};
+		for(int t = 0; t < TrackCount; ++t)
 		{
-			const auto slot = (start + i) & mask;
-			std::array<Acc, Channels> sum{};
-			for(int t = 0; t < TrackCount; ++t)
+			auto& lane = lanes[t];
+			for(int i = 0; i < BlockSize; ++i)
 			{
-				auto& lane = lanes[t];
+				const auto slot = (start + i) & mask;
+				auto& mixed = lane.mix[slot];
 				for(int c = 0; c < Channels; ++c)
-					sum[c] = add(sum[c], lane.mix[slot][c]);
-				lane.mix[slot] = {};
+					sums[i][c] = add(sums[i][c], mixed[c]);
+				mixed = {};
 				solo[t][i] = lim(lane.solo[slot]);
 				lane.solo[slot] = 0;
 			}
+		}
+		for(int i = 0; i < BlockSize; ++i)
+		{
+			const auto& sum = sums[i];
 			dry[i] = {md::engine::Mixer::mainSample(sum[0]), md::engine::Mixer::mainSample(sum[1])};
 			rev[i] = {md::engine::Mixer::mainSample(sum[2]), md::engine::Mixer::mainSample(sum[3])};
 			del[i] = {md::engine::Mixer::mainSample(sum[4]), md::engine::Mixer::mainSample(sum[5])};

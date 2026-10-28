@@ -195,21 +195,23 @@ namespace md::engine
 		y1 = x[0x2a];
 		y[0x13] = y1;
 
-		// the filter loop
+		// the filter loop: r5 runs modulo 5 over the coefficients, five a sample, so each move reads the same one every
+		// sample (r5 is 0 here: the five pushes above went round once)
 		r0 = 8;
 		r2 = 9;
 		a = acc48(y[0x14], u24(y[0x15]));
 		x0 = x[r0++]; y0 = popC();
 		a = add(a, mpy(y0, x0)); x1 = x[r0++]; y1 = popC();
 		b = acc(x[r2]);
+		const int32_t c0 = c[0], c1 = c[1], c2 = c[2], c3 = c[3], c4 = c[4];
 		for(int i = 0; i < kBlock; ++i)
 		{
 			{ a = add(a, mpy(y1, x1)); x[r2++] = lim(b); }
-			{ a = add(a, mpy(y1, x1)); x0 = x[r0++]; y0 = popC(); }
-			{ a = add(a, mpy(y0, x0)); x0 = x[r0++]; y0 = popC(); }
-			{ a = add(a, mpy(y0, x0)); x0 = x[r0]; r0 -= 3; y0 = popC(); }
-			{ a = add(a, mpy(y0, x0)); x0 = x[r0++]; y0 = popC(); }
-			{ b = a; x1 = x[r0++]; y1 = popC(); }
+			{ a = add(a, mpy(y1, x1)); x0 = x[r0++]; y0 = c2; }
+			{ a = add(a, mpy(y0, x0)); x0 = x[r0++]; y0 = c3; }
+			{ a = add(a, mpy(y0, x0)); x0 = x[r0]; r0 -= 3; y0 = c4; }
+			{ a = add(a, mpy(y0, x0)); x0 = x[r0++]; y0 = c0; }
+			{ b = a; x1 = x[r0++]; y1 = c1; }
 			{ const Acc oa = a; a = add(a, mpy(y0, x0)); x1 = lim(oa); }
 		}
 		x[r2--] = lim(b);

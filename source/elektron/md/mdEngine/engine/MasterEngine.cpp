@@ -41,6 +41,7 @@ namespace md::engine
 
 		constexpr uint64_t kMaxInstrInit = 20'000'000;	// the delay pool's clear alone is ~230k iterations
 		constexpr uint64_t kMaxInstrBlock = 200'000;	// a block costs ~9,740
+		constexpr uint64_t kRunCycles = 1'000'000;		// cycles a run of runUntilDone may go before it checks its budget
 	}
 
 	MasterEngine::MasterEngine(const fw::Firmware& _fw)
@@ -73,6 +74,13 @@ namespace md::engine
 		}
 		m_periphX->getHI08().setRXRateLimit(0);
 		m_periphX->getHI08().setTransmitDataAlwaysEmpty(true);
+		// runUntilDone runs the DSP under one JIT entry: the HOTX word that says the block is done ends the run at the end
+		// of its block, where stepping block by block stopped
+		m_periphX->getHI08().setWriteTxCallback([this]
+		{
+			if(m_running)
+				m_dsp->requestExecExit();
+		});
 
 		m_dsp->resetHW();
 		for(const auto& r : _fw.dspB.records)
@@ -141,17 +149,20 @@ namespace md::engine
 	{
 		auto& hi = m_periphX->getHI08();
 		const auto start = m_dsp->getInstructionCounter();
+		m_running = true;
 		while(hi.txData().empty())
 		{
-			m_dsp->exec();
+			m_dsp->execUntilCycles(m_dsp->getCycles() + kRunCycles);
 			if(m_dsp->getInstructionCounter() - start > _maxInstructions)
 			{
 				std::ostringstream o;
 				o << "instruction budget exceeded at PC=$" << std::hex << m_dsp->getPC().toWord();
 				m_fault = o.str();
+				m_running = false;
 				return false;
 			}
 		}
+		m_running = false;
 		while(hi.hasTX())
 			hi.readTX();
 		return true;

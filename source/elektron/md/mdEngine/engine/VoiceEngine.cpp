@@ -65,6 +65,8 @@ namespace md::engine
 
 		constexpr uint64_t kMaxInstrInit = 200'000'000;
 		constexpr uint64_t kMaxInstrBlock = 20'000'000;
+		// Cycles a run of runUntilTx may go before it checks its budget; the HOTX write it waits for ends it sooner
+		constexpr uint64_t kRunCycles = 1'000'000;
 
 		// md-drums: the dispatch tables (Y, in the memory P, X and Y share), one word per type (machine id + 1): INIT, the
 		// update (MDS's TRIG) and RENDER, which the program reads through the bases it holds at P:$8A and P:$95 and the
@@ -113,6 +115,13 @@ namespace md::engine
 		}
 		m_periphX->getHI08().setRXRateLimit(0);
 		m_periphX->getHI08().setTransmitDataAlwaysEmpty(true);
+		// runUntilTx runs the DSP under one JIT entry: the HOTX write that brings the words it waits for ends the run at
+		// the end of its block, where stepping block by block stopped
+		m_periphX->getHI08().setWriteTxCallback([this]
+		{
+			if(m_txWanted && m_periphX->getHI08().txData().size() >= m_txWanted)
+				m_dsp->requestExecExit();
+		});
 
 		// The program's init starts both ESSI ports (ESSI0 = link to the mixer DSP, ESSI1 = codec ADC). The
 		// harness replaces the link and does not use the ADC: feed silence and discard output, never block.
@@ -524,9 +533,10 @@ namespace md::engine
 		const auto start = m_dsp->getInstructionCounter();
 		static const bool debug = std::getenv("MDV_DEBUG") != nullptr;
 		uint64_t nextReport = start + 5'000'000;
+		m_txWanted = _words;
 		while(hi.txData().size() < _words)
 		{
-			m_dsp->exec();
+			m_dsp->execUntilCycles(m_dsp->getCycles() + kRunCycles);
 			if(debug && m_dsp->getInstructionCounter() > nextReport)
 			{
 				std::fprintf(stderr, "  PC=$%06x instr=%llu tx=%zu\n", m_dsp->getPC().toWord(),
@@ -539,9 +549,11 @@ namespace md::engine
 				o << "instruction budget exceeded at PC=$" << std::hex << m_dsp->getPC().toWord() << std::dec
 				  << " with " << hi.txData().size() << "/" << _words << " words";
 				m_fault = o.str();
+				m_txWanted = 0;
 				return false;
 			}
 		}
+		m_txWanted = 0;
 		return true;
 	}
 
@@ -562,11 +574,10 @@ namespace md::engine
 			}
 			if(!runUntilTx(voice.size(), _maxInstructions))
 				return false;
-			for(auto& s : voice)
-			{
-				const TWord t = hi.readTX() & 0xffffff;
-				s = static_cast<int32_t>(t << 8) >> 8;
-			}
+			std::array<TWord, kBlockFrames> words;
+			hi.readTX(words.data(), words.size());
+			for(size_t i = 0; i < voice.size(); ++i)
+				voice[i] = static_cast<int32_t>((words[i] & 0xffffff) << 8) >> 8;
 		}
 		return true;
 	}
