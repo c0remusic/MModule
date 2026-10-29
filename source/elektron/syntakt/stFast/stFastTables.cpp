@@ -23,7 +23,8 @@
 // entry of its own. Two exceptions, the user's: a three-constant parabola over three entries where a turn follows no
 // stretch, in four places only: SD BASIC's SweepDepth 63-65, PC CARBON's SweepDepth 63-65 and its FactorU2 29-31 and
 // 47-49; and an exact round knot of its own in a frequency-ratio table where no stretch can hold it and the exact port
-// itself moves past its tolerance with that word a little off, in one place only: CY ALLOY's Spread 116
+// itself moves past its tolerance with that word a little off, in two places only: CY ALLOY's Spread 116 and SY TONE's
+// Ratio 0-7
 namespace syntakt::fast::tables
 {
 	namespace
@@ -847,6 +848,100 @@ namespace syntakt::fast::tables
 		std::array<int32_t, 1025> t{};
 		for(int j = 0; j < 1025; ++j)
 			t[j] = clamp(std::exp2(j / 1024.0) * 1073741824.0);
+		return t;
+	}
+
+	// ---- SY TONE ----
+	//
+	// Laws of the entry i in the units of BD MODERN's tables: the feedback, the index and the modulator's level at rest
+	// in millionths as the tool that made them printed them (the feedback times 4, the index times 2), each one or two
+	// exponentials with their growth fitted to the firmware's words; the ratios by a pattern of round values about
+	// each whole ratio; the modulator's decay in time constants of SyKnotTau blocks; the amp's SD BASIC's DECAY law at
+	// 15 s (CY ALLOY's)
+
+	namespace
+	{
+		// _top times (e^(k i) - 1) / (e^(127 k) - 1): 0 at 0, _top at 127
+		double growth(const int _i, const double _top, const double _k)
+		{
+			return _top * std::expm1(_k * _i) / std::expm1(_k * 127);
+		}
+
+		// The 16 ratios of a whole ratio n from 1 to 7: n times 1, 1.001 and 1.01, n plus 0.1 to 0.9, n + 1 times 0.99
+		// and 0.999
+		constexpr double RatioTimes[3] = {1, 1.001, 1.01};
+		constexpr double RatioPlus[11] = {0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.75, 0.8, 0.9};
+		constexpr double RatioBelow[2] = {0.99, 0.999};
+
+		// Entries 0-7, below 1, are the designer's round ratios, exact, entries of their own: the rule's exception
+		// (header), the user's, as CY ALLOY's Spread 116. No law with fewer constants than entries holds them (searched:
+		// powers, octave and logistic laws, laws on 1 - ratio, every split into stretches of 3 or more; the best, two
+		// stretches, 53.5 cents off), and the exact port moves past Q4 with them a little off
+		constexpr double RatioLow[8] = {0.0125, 0.075, 0.125, 0.25, 0.5, 0.75, 0.9, 0.99};
+
+		// The modulator's decay, its time constant y SyKnotTau blocks (the firmware's 60 dB time 5.3025 ms a unit),
+		// SyKnotTau fitted to its plateaus 800 and 5, which it holds from 0 to 29 and from 98: between them a knee and
+		// four exponentials (approximate: within 2 LSB but at 71 and 81, round knots 70.48 and 40 the stretches run
+		// past, 43 and 221 LSB off, 1.7e-6 and 4.9e-6 of the time constant)
+		constexpr double SyKnotTau = 1.1514232886;
+		const Segment SyModDecay[] = {
+			{0, 29, 0, Kind::Linear, {800, 0}},
+			{30, 33, 30, Kind::Exp, {800.07906363514792, -0.097239499798643145, 1.7298685657943786}},
+			{34, 66, 34, Kind::Exp, {-417.5700702236756, 1171.0324555383127, -0.02436764389405895}},
+			{67, 78, 67, Kind::Exp, {34.797578518578661, 71.648663363613394, -0.17427828543635357}},
+			{79, 88, 79, Kind::Exp, {71.726475293299799, -28.111681939126672, 0.060480104694639367}},
+			{89, 98, 89, Kind::Exp, {0.35944237315066552, 19.856615940616347, -0.16152252396753167}},
+			{99, 127, 99, Kind::Linear, {5, 0}},
+		};
+	}
+
+	std::array<int32_t, 128> syTone(const SyTone _t)
+	{
+		constexpr double Micro = Q31 / 1e6;
+		switch(_t)
+		{
+		case SyTone::ModDecay:
+			return build(curve(SyModDecay, Unit::Tau, SyKnotTau));
+		case SyTone::AmpDecay:
+			return build(curve(DecayLaw, Unit::T60, 10));
+		default:
+			break;
+		}
+		std::array<int32_t, 128> t{};
+		for(int i = 0; i < 128; ++i)
+		{
+			switch(_t)
+			{
+			case SyTone::Feedback:		// unit 0's: 0 to 0.25 (2 cycles per unit), growing 1.18 % an entry
+				t[i] = toWord(Unit::Micro, Micro / 4, growth(i, 1e6, 0.011741605533583225));
+				break;
+			case SyTone::Ratio:			// unit 0's factor times the note's (2^26): 8 to 15 from 120
+				{
+					double r = i - 112;
+					if(i < 8)
+						r = RatioLow[i];	// the exception's knots
+					else if(i < 120)
+					{
+						const int n = 1 + (i - 8) / 16, k = (i - 8) % 16;
+						r = k < 3 ? n * RatioTimes[k] : k < 14 ? n + RatioPlus[k - 3] : (n + 1) * RatioBelow[k - 14];
+					}
+					t[i] = clamp(r * 67108864);
+				}
+				break;
+			case SyTone::Index:			// unit 1's modulation: 0 to 1 (4 cycles per unit), growing 3.11 % an entry
+				t[i] = toWord(Unit::Micro, Micro / 2, growth(i, 2e6, 0.030597867189663376));
+				break;
+			case SyTone::ModTarget:		// unit 0's level at rest: from 1 down an exponential, then to 0.1 at 96, held
+				{
+					const double y = i < 90 ? 1e6 + 1140036.5004055849 * (std::pow(0.98355947250584386, i) - 1)
+						: std::max(1e5, 1e5 + 6667.7216446267939 * (std::pow(0.81329458255596676, i - 96) - 1));
+					t[i] = toWord(Unit::Micro, Micro, y);
+				}
+				break;
+			default:
+				break;
+			}
+		}
 		return t;
 	}
 

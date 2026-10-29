@@ -297,6 +297,8 @@ int main()
 
 	q2(s7);
 	q3(s7);
+	// Block by block (bench::blockByBlock): its output against the exact port's
+	blockByBlock<fast::PcCarbon>(s7, Hits, "PC CARBON", [](fast::PcCarbon&) {});
 	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); }, fast::PcCarbon::Units);
 	q4(exact, renderFast(48000, Seconds));
 	q15(renderFast(48000, Seconds + 0.05, true), renderFast(44100, Seconds + 0.05, true), Seconds);

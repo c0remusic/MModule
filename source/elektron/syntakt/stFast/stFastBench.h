@@ -1014,6 +1014,95 @@ namespace syntakt::fast::bench
 			"dispersion + 0.5 dB");
 	}
 
+	// ---- the block-rate control, block by block ----
+
+	// _hits at 48 kHz in the exact port, every Track on their machine, and in Machine, then again with trigs in
+	// adjacent blocks: a second in the block after the first (block 1, the machine change's block, which loses it and
+	// the gate-off sent with it as the exact port's 0x40003ee0 clears the voice's words 0x00-0x3c), two more at blocks
+	// 80 and 81, and a second after the retrigger (161): blocks that see a trig while their own sounds (TrigNow and
+	// TrigPending at once). Per block from the first trig's, the words _words(machine, track, words) gives equal to the
+	// exact port's voice fields _fields, in their order, fatal (none for an empty _fields). Every Hit by Q4's fixed
+	// measures, fatal: Hilbert envelope within -39 dB of the peak, third octave cells within 1 dB. A machine with noise
+	// starts it from the exact port's seeds (exactNoiseSeeds); _setup(machine) before the first block; _label names
+	// the runs
+	template<typename Machine, typename Setup, typename Words>
+	void blockByBlock(const std::vector<int32_t>& _s7, const HitSet& _hits, const char* _label, Setup&& _setup,
+		const std::vector<uint32_t>& _fields, Words&& _words)
+	{
+		for(const bool adjacent : {false, true})
+		{
+			Exact16 exact(_s7);
+			auto machine = std::make_unique<Machine>();
+			if constexpr(SeedsNoise<Machine>::value)
+			{
+				const auto seeds = exactNoiseSeeds(_s7);
+				for(int t = 0; t < Lanes; ++t)
+					machine->testSeedNoise(t, seeds[static_cast<size_t>(t)].data());
+			}
+			_setup(*machine);
+			for(int t = 0; t < Lanes; ++t)
+				exact.setMachine(t, _hits.machine);
+			std::vector<std::vector<double>> ref(Lanes), test(Lanes);
+			int64_t words = 0, differ = 0;
+			for(int b = 0; b <= 2 * 48000 / BlockSize; ++b)	// 2 s
+			{
+				const auto both = [&](auto&& _f) { _f(exact); _f(*machine); };
+				both([&](auto& _e) { events(_e, b, 48000, _hits); });
+				for(int t = 0; adjacent && t < Lanes; ++t)
+				{
+					if(b == 1 || b == 80 || b == 81 || (_hits.hit[t].retrig && b == RetrigBlock48 + 1))
+						both([&](auto& _e) { _e.trig(t); });
+					if(b == 1)
+						both([&](auto& _e) { _e.gateOff(t); });
+				}
+				exact.render();
+				const Block& out = machine->renderBlock();
+				for(int t = 0; t < Lanes; ++t)
+				{
+					if(b >= 1 && !_fields.empty())
+					{
+						int32_t w[8];
+						_words(*machine, t, w);
+						for(size_t k = 0; k < _fields.size(); ++k, ++words)
+							differ += w[k] != exact.field(t, _fields[k]);
+					}
+					for(int n = 0; n < BlockSize; ++n)
+					{
+						ref[t].push_back(q31(exact.out(t)[n]));
+						test[t].push_back(out.s[n][t]);
+					}
+				}
+			}
+			bool ok = true;
+			const std::string what = std::string(_label) + (adjacent ? ", trigs in adjacent blocks" : ", as played");
+			for(int t = 0; t < Lanes; ++t)
+			{
+				// From the onset, as exactHits
+				const std::vector<double> r(ref[t].begin() + BlockSize, ref[t].end());
+				const std::vector<double> x(test[t].begin() + BlockSize, test[t].end());
+				const auto m = measureHit(r, x);
+				ok &= m.envAbs <= EnvelopeAbsDb && m.cells <= CellMaxDb;
+				std::printf("  %s, Hit %2d: envelope %.1f dB re peak, cells %.3f dB, SNR %.1f dB\n", what.c_str(), t,
+					m.envAbs, m.cells, m.snr);
+			}
+			if(!_fields.empty())
+			{
+				std::printf("  %s: %lld words, %lld differ\n", what.c_str(), static_cast<long long>(words),
+					static_cast<long long>(differ));
+				check(differ == 0, "block by block: the machine's words are the exact port's every block");
+			}
+			check(ok, "block by block: every Hit's Hilbert envelope within -39 dB of the peak, third octave cells "
+				"within 1 dB");
+		}
+	}
+
+	// blockByBlock without words to compare
+	template<typename Machine, typename Setup>
+	void blockByBlock(const std::vector<int32_t>& _s7, const HitSet& _hits, const char* _label, Setup&& _setup)
+	{
+		blockByBlock<Machine>(_s7, _hits, _label, _setup, {}, [](const Machine&, int, int32_t*) {});
+	}
+
 	// ---- Q15: 44.1 against 48 kHz, its envelopes read on one sample grid ----
 
 	// A Kaiser window (_beta) at _r in [-1, 1]

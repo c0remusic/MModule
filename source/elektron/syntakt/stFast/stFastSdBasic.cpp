@@ -154,16 +154,20 @@ namespace syntakt::fast
 
 		for(int l = 0; l < Lanes; ++l)
 		{
-			const Trigs& trigs = m_controls.trigs;
-			const bool now = trigs.now[l], pending = trigs.pending[l];
+			Trigs& trigs = m_controls.trigs;
+			const bool now = trigs.now[l];
+			bool pending = trigs.pending[l];
 
 			// The update (0x40007c68) and the envelopes' 48 kHz block 0: what a trig restarts and latches
 			if(now)
 			{
 				// The machine puts a Track on SD BASIC at its trig (0x40003ee0): its feedback and unit 3's modulation
-				// by unit 0 ramp from 0 in the first block
+				// by unit 0 ramp from 0 in the first block; a trig or a gate-off in that block is lost
+				// (Trigs::machineChange)
 				if(!m_playing[l])
 				{
+					trigs.machineChange(l);
+					pending = false;
 					m_playing[l] = true;
 					m_fb[l] = 0;
 					m_depth2[l] = 0;
@@ -188,6 +192,11 @@ namespace syntakt::fast
 				// it rises from half its step, ramped from the silence of the trig's block; the amp's rises from one
 				// and a half of its step, ramped too; the drive's gain falls from 1
 				m_mod.trig(l, m_drive.on[l] ? 1.0f : 0.0f, m_drive.on[l] ? 1.0f : modAttack / 2);
+
+				// With the drive on, 0x40003df2 sets the modulator's ramp to start full at once: a block that sees
+				// another trig fades it out from there, not from where the last block left it
+				if(m_drive.on[l])
+					m_modEnd[l] = 1;
 				m_amp.trigRise(l, m_ampAttack[l]);
 			}
 

@@ -65,6 +65,17 @@ namespace syntakt
 	{
 		void update(int32_t _pitch, Voice& _v, uint32_t _params, const Rom& _rom);
 		void render(int32_t* _out, Voice& _v, const Rom& _rom);
+
+		// 0x40003aac: unit _k's sine with feedback from its scaled output, 64 samples at 96 kHz, into its buffers A
+		// (scaled by the unit's envelope) and B (raw, halved), each after an 8-word header
+		void feedbackOperator(uint32_t _k, Voice& _v, const Rom& _rom);
+
+		// 0x40002c16: unit _k's sine phase-modulated by two buffers, 64 samples at 96 kHz, into its buffers A and B
+		void pmOperator(uint32_t _k, Voice& _v, const Rom& _rom);
+
+		// 0x400051c6: a 2:1 polyphase IIR halfband, 96 kHz to 48 kHz, of the 64 samples at _buf + 0x20 into _out, the
+		// voice's history (0x56c) read and written
+		void decimate(Voice& _v, uint32_t _buf, int32_t* _out);
 	}
 
 	namespace syChord

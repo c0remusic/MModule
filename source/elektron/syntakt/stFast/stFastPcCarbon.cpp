@@ -121,8 +121,9 @@ namespace syntakt::fast
 	{
 		for(int l = 0; l < Lanes; ++l)
 		{
-			const Trigs& trigs = m_controls.trigs;
-			const bool now = trigs.now[l], pending = trigs.pending[l];
+			Trigs& trigs = m_controls.trigs;
+			const bool now = trigs.now[l];
+			bool pending = trigs.pending[l];
 
 			// With HOLD the amp decays as unit 3 did in the block before (0x40007280 reads its decay before it sets it)
 			if(m_hold[l])
@@ -132,9 +133,11 @@ namespace syntakt::fast
 			if(now)
 			{
 				// The machine puts a Track on PC CARBON at its trig (0x40003ee0): units 1 and 3's modulation ramps
-				// from 0 in the first block
+				// from 0 in the first block; a trig or a gate-off in that block is lost (Trigs::machineChange)
 				if(!m_playing[l])
 				{
+					trigs.machineChange(l);
+					pending = false;
 					m_playing[l] = true;
 					m_depth[0][l] = m_depth[1][l] = 0;
 				}

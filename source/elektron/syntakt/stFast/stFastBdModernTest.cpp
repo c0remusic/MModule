@@ -314,6 +314,10 @@ int main()
 
 	q2(s7);
 	q3(s7);
+	// Block by block (bench::blockByBlock): its output against the exact port's, the feedback table at 0 in both
+	// (Hits 5 and 9 are chaotic, and the float feedback drifts from them past Q4's fixed measures)
+	blockByBlock<fast::BdModern>(withoutTable(s7, 0x4001fc00), BdModernHits, "BD MODERN, feedback 0",
+		[](fast::BdModern& _m) { _m.testWithoutChaos(); });
 	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); }, fast::BdModern::Units);
 	q4(exact, renderFast(48000, Seconds));
 	deterministic(renderExact(withoutTable(s7, 0x4001fc00), Seconds), renderFast(48000, Seconds, true));

@@ -3,7 +3,7 @@
 #include <array>
 #include <cstdint>
 
-// The tables syntakt::fast::BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage and CpVintage read, made by formula
+// The tables syntakt::fast::BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage, CpVintage and SyTone read, made by formula
 // rather than read from the firmware
 // (ticket 07 of elektron-drums-v1), as the firmware's Q31 words. stFastTablesTest compares each with OS 1.41's
 // section 7; the exact ones were checked with MSVC's runtime, and another libm may round a word 1 LSB apart.
@@ -120,6 +120,16 @@ namespace syntakt::fast::tables
 	// CP VINTAGE's resonator computes its square roots with: 1024 and 1025 words. Exact
 	std::array<int32_t, 1024> cpVintageLog2();
 	std::array<int32_t, 1025> cpVintageExp2();
+
+	// SY TONE's 128-entry tables (section 7 at 0x40021404 to 0x40021e04). ModDecay is approximate, the others exact
+	enum class SyTone
+	{
+		Feedback, Ratio, Index, ModTarget, ModDecay, AmpDecay, Count
+	};
+
+	constexpr bool exact(const SyTone _t) { return _t != SyTone::ModDecay; }
+
+	std::array<int32_t, 128> syTone(SyTone _t);
 
 	// Unit 2's wave (0x4001e7fc): 257 words, 16-bit samples in the top half. Exact
 	std::array<int32_t, 257> wave();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -129,6 +130,48 @@ namespace syntakt::fast
 	{
 		uint32_t s[BlockSize][Lanes];
 	};
+
+	// ---- the machine's integers, where a stage computes as its accumulator does ----
+
+	// A product of two words as the accumulator holds it, Q39, and a sum of such stored to a word, saturated
+	inline int64_t product(const int32_t _y, const int32_t _x) { return (static_cast<int64_t>(_y) * _x) >> 23; }
+
+	inline int32_t store(const int64_t _acc)
+	{
+		return static_cast<int32_t>(std::clamp<int64_t>(_acc >> 8, INT32_MIN, INT32_MAX));
+	}
+
+	inline int32_t wrap(const int64_t _v) { return static_cast<int32_t>(static_cast<uint32_t>(_v)); }
+
+	// 0x40003c0e's decay step of a unit's envelope in its words (negative, INT32_MIN full): toward _target, the
+	// coefficient _c negative, the two products truncated alone and added wrapping, as the machine's
+	inline int32_t envelopeDecay(const int32_t _level, const int32_t _c, const int32_t _target)
+	{
+		return wrap(static_cast<int64_t>(store(-product(_level, _c))) +
+			store(-product(_target, wrap(static_cast<int64_t>(_c) + INT32_MAX))));
+	}
+
+	// The RAM sine the machine's oscillators read: sin(2 pi i / 256) in Q31, 257 words
+	inline const std::array<int64_t, 257> QSine = []
+	{
+		std::array<int64_t, 257> t{};
+		for(int i = 0; i < 257; ++i)
+			t[i] = std::clamp<int64_t>(std::llround(std::sin(2 * 3.14159265358979323846 * i / 256) * 2147483648.0),
+				INT32_MIN, INT32_MAX);
+		return t;
+	}();
+
+	// The sample the feedback oscillators read (0x400035de, 0x40003958, and 0x40003aac at 96 kHz, which halves it),
+	// the RAM sine at the 24-bit _phase moved by _fb (2^-24 cycle per unit) times their feedback _x, in the machine's
+	// integers: the phase sum (phase << 8) + (fb x >> 23), then >> 8; the lookup (T[i] << 8) + (f T[i + 1] >> 23) -
+	// (f T[i] >> 23), then >> 8. Neither saturates nor wraps where the machine's accumulator would: the phase sum stays
+	// within 2^25 and the lookup between two words of the table (Q3 of their machines, sample for sample)
+	inline int64_t feedbackSample(const int64_t _phase, const int64_t _fb, const int64_t _x)
+	{
+		const int64_t p = (_phase * 256 + ((_fb * _x) >> 23)) >> 8;
+		const int64_t i = (p & 0xffffff) >> 16, f = (p & 0xffff) << 15;
+		return (QSine[i] * 256 + ((f * QSine[i + 1]) >> 23) - ((f * QSine[i]) >> 23)) >> 8;
+	}
 
 	// A sine phase-modulated by its previous sample, the amount ramped from _fb to frac(0x04000000, _fbWord) (left
 	// there), in the machine's own integers (0x400035de): its 256-entry sine as Q31 words, the phase sum and the lookup
@@ -417,6 +460,10 @@ namespace syntakt::fast
 
 		// Whether the block's gate-off releases the Track: not in a trig's block
 		bool releases(const int _l) const { return gateOff[_l] && !pending[_l]; }
+
+		// The machine change at a Track's first trig (0x40003ee0) clears its voice's words 0x00-0x3c, its trig flags
+		// and gate-off among them: a trig or a gate-off in that block is lost
+		void machineChange(const int _l) { pending[_l] = gateOff[_l] = false; }
 	};
 
 	// The 48 kHz block clock of the block-rate control: the blocks since the trig and the envelopes' block. The
@@ -448,7 +495,7 @@ namespace syntakt::fast
 	//	- const Block& renderBlock(): one 48 kHz block of the 16 Tracks, in this order: FlushDenormals,
 	//	  controls.trigs.start(), the block-rate control, the stages, controls.trigs.end()
 	//	- at 48 kHz only, a machine may step its envelopes once per block but in the trig's block rather than on
-	//	  Clock48, whose steps that is (CP VINTAGE does)
+	//	  Clock48, whose steps that is (CP VINTAGE and SY TONE do)
 	// Controls holds what the front sets, which the machine converts (its convert(track)) and its control reads
 	struct Controls
 	{

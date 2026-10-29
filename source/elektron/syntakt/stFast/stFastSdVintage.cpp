@@ -163,16 +163,20 @@ namespace syntakt::fast
 	{
 		for(int l = 0; l < Lanes; ++l)
 		{
-			const Trigs& trigs = m_controls.trigs;
-			const bool now = trigs.now[l], pending = trigs.pending[l];
+			Trigs& trigs = m_controls.trigs;
+			const bool now = trigs.now[l];
+			bool pending = trigs.pending[l];
 
 			// The update (0x40008074) and the envelopes' 48 kHz block 0: what a trig restarts and latches
 			if(now)
 			{
 				// The machine puts a Track on SD VINTAGE at its trig (0x40003ee0): unit 3's feedback and units 0-2's
-				// modulation ramp from 0 in the first block, the noise starts from its seed
+				// modulation ramp from 0 in the first block, the noise starts from its seed; a trig or a gate-off in
+				// that block is lost (Trigs::machineChange)
 				if(!m_playing[l])
 				{
+					trigs.machineChange(l);
+					pending = false;
 					m_playing[l] = true;
 					m_fb[l] = 0;
 					for(auto& d : m_depth)

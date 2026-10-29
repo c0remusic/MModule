@@ -397,6 +397,8 @@ int main()
 
 	q2(s7);
 	q3(s7);
+	// Block by block (bench::blockByBlock): its output against the exact port's
+	blockByBlock<fast::SdVintage>(s7, Hits, "SD VINTAGE", [](fast::SdVintage&) {});
 	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); }, fast::SdVintage::Units);
 	q4(exact, renderFast(48000, Seconds));
 	deterministic(renderExact(withoutTable(s7, FeedbackTable), Seconds), renderFast(48000, Seconds, true));

@@ -395,71 +395,6 @@ namespace
 		checkValidated(ok, "Q3: the non-linear stages, SNR >= 70 dB, >= 60 dB in every 10 ms window above -60 dB, "
 			"no residual third octave above -60 dB");
 	}
-
-	// ---- the block-rate control, block by block ----
-
-	// The 16 Hits at 48 kHz in both engines, then again with trigs in adjacent blocks: a second in the block after the
-	// first (block 1, the machine change's block, which loses it as the exact port's 0x40003ee0 clears the voice's trig
-	// flags), two more at blocks 80 and 81, and a second after the retrigger (161): blocks that see a trig while their
-	// own sounds (TrigNow and TrigPending at once). Per block from the first trig's, unit 1's envelope word
-	// (0x40003c0e, the voice's 0xfc) equal to the exact port's, fatal: its repeats, its decay without the target's
-	// term (EnvTarget, 0xdc, is 0: the machine change clears it and CP VINTAGE never writes it). Every Hit by Q4's
-	// fixed measures, fatal: Hilbert envelope within -39 dB of the peak, third octave cells within 1 dB
-	void blockByBlock(const std::vector<int32_t>& _s7)
-	{
-		const auto seeds = exactNoiseSeeds(_s7);
-		for(const bool adjacent : {false, true})
-		{
-			Exact16 exact(_s7);
-			fast::CpVintage machine;
-			for(int t = 0; t < Lanes; ++t)
-			{
-				exact.setMachine(t, Machine);
-				machine.testSeedNoise(t, seeds[static_cast<size_t>(t)].data());
-			}
-			std::vector<std::vector<double>> ref(Lanes), test(Lanes);
-			int64_t words = 0, differ = 0;
-			for(int b = 0; b <= static_cast<int>(Seconds * 48000) / BlockSize; ++b)
-			{
-				const auto both = [&](auto&& _f) { _f(exact); _f(machine); };
-				both([&](auto& _e) { events(_e, b, 48000, Hits); });
-				for(int t = 0; adjacent && t < Lanes; ++t)
-					if(b == 1 || b == 80 || b == 81 || (Hits.hit[t].retrig && b == RetrigBlock48 + 1))
-						both([&](auto& _e) { _e.trig(t); });
-				exact.render();
-				const fast::Block& out = machine.renderBlock();
-				for(int t = 0; t < Lanes; ++t)
-				{
-					if(b >= 1)
-					{
-						++words;
-						differ += machine.testEnvelope(t) != exact.field(t, 0xfc);
-					}
-					for(int n = 0; n < BlockSize; ++n)
-					{
-						ref[t].push_back(q31(exact.out(t)[n]));
-						test[t].push_back(out.s[n][t]);
-					}
-				}
-			}
-			bool ok = true;
-			const char* what = adjacent ? "trigs in adjacent blocks" : "as played";
-			for(int t = 0; t < Lanes; ++t)
-			{
-				// From the onset, as bench::exactHits
-				const std::vector<double> r(ref[t].begin() + BlockSize, ref[t].end());
-				const std::vector<double> x(test[t].begin() + BlockSize, test[t].end());
-				const auto m = measureHit(r, x);
-				ok &= m.envAbs <= EnvelopeAbsDb && m.cells <= CellMaxDb;
-				std::printf("  %s, Hit %2d: envelope %.1f dB re peak, cells %.3f dB, SNR %.1f dB\n", what, t, m.envAbs,
-					m.cells, m.snr);
-			}
-			std::printf("  %s: unit 1's envelope, %lld words, %lld differ\n", what, static_cast<long long>(words),
-				static_cast<long long>(differ));
-			check(differ == 0, "unit 1's envelope word is the exact port's every block");
-			check(ok, "every Hit's Hilbert envelope within -39 dB of the peak, third octave cells within 1 dB");
-		}
-	}
 }
 
 int main()
@@ -471,7 +406,9 @@ int main()
 
 	q2(s7);
 	q3(s7);
-	blockByBlock(s7);
+	// Block by block (bench::blockByBlock), unit 1's envelope word (0x40003c0e, the voice's 0xfc) the exact port's
+	blockByBlock<fast::CpVintage>(s7, Hits, "CP VINTAGE", [](fast::CpVintage&) {},
+		{0xfc}, [](const fast::CpVintage& _m, const int _t, int32_t* _w) { _w[0] = _m.testEnvelope(_t); });
 	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); }, fast::CpVintage::Units);
 	q4(exact, renderFast(48000, Seconds));
 	deterministic(renderExact(withoutTable(s7, FeedbackTable), Seconds), renderFast(48000, Seconds, true));

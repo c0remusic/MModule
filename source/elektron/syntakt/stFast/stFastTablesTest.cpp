@@ -1,7 +1,7 @@
-// syntakt::fast::tables, the tables BD MODERN, SD BASIC, CY ALLOY, PC CARBON, SD VINTAGE and CP VINTAGE read made by
-// formula, against OS 1.41's section 7 word for word: per table, exact or the number of words that differ and the
-// largest error (in LSB of Q31, and of the table's own unit: the time constant of a decay, the share of full scale of
-// a level). A table its header calls exact that differs fails.
+// syntakt::fast::tables, the tables BD MODERN, SD BASIC, CY ALLOY, PC CARBON, SD VINTAGE, CP VINTAGE and SY TONE read
+// made by formula, against OS 1.41's section 7 word for word: per table, exact or the number of words that differ and
+// the largest error (in LSB of Q31, and of the table's own unit: the time constant of a decay, the share of full scale
+// of a level). A table its header calls exact that differs fails.
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7. Exit 77 without it.
 
@@ -258,6 +258,19 @@ int main()
 	compare(s7, "ResonatorB", 0x40015b80, syntakt::fast::tables::cpVintageResonator(true), true, false, 0);
 	compare(s7, "Log2", 0x4000f48c, syntakt::fast::tables::cpVintageLog2(), true, false, 0);
 	compare(s7, "Exp2Half", 0x4000e488, syntakt::fast::tables::cpVintageExp2(), true, false, 0);
+
+	// SY TONE's: Ratio's entries 0-7 (the designer's ratios, the rule's exception) and ModDecay's knots at 71 and 81
+	// bound apart; every other word exact but ModDecay's (2 LSB)
+	using syntakt::fast::tables::SyTone;
+	const Entry<SyTone> syTone[] = {
+		{"Feedback", 0x40021404, SyTone::Feedback, false, 0},
+		{"Ratio", 0x40021604, SyTone::Ratio, false, 0, {{0, 7, 0}}},
+		{"Index", 0x40021804, SyTone::Index, false, 0},
+		{"ModTarget", 0x40021a04, SyTone::ModTarget, false, 0},
+		{"ModDecay", 0x40021c04, SyTone::ModDecay, true, 2, {{71, 71, 45}, {81, 81, 225}}},
+		{"AmpDecay", 0x40021e04, SyTone::AmpDecay, true, 0},
+	};
+	compareAll(s7, "SY TONE", syTone, syntakt::fast::tables::syTone);
 
 	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
 	return g_failures ? 1 : 0;

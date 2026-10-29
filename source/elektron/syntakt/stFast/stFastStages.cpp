@@ -1,5 +1,4 @@
 #include "stFastStages.h"
-#include <array>
 
 namespace syntakt::fast
 {
@@ -198,31 +197,6 @@ namespace syntakt::fast
 			_mm_store_ps(_held[1] + g, h2);
 			_mm_store_si128(reinterpret_cast<__m128i*>(_count[0] + g), n1);
 			_mm_store_si128(reinterpret_cast<__m128i*>(_count[1] + g), n2);
-		}
-	}
-
-	namespace
-	{
-		// The RAM sine the machine's oscillators read: sin(2 pi i / 256) in Q31, 257 words
-		const std::array<int64_t, 257> QSine = []
-		{
-			std::array<int64_t, 257> t{};
-			for(int i = 0; i < 257; ++i)
-				t[i] = std::clamp<int64_t>(std::llround(std::sin(2 * 3.14159265358979323846 * i / 256) * 2147483648.0),
-					INT32_MIN, INT32_MAX);
-			return t;
-		}();
-
-		// The sample both feedback oscillators read (0x400035de, 0x40003958), the RAM sine at the 24-bit _phase moved
-		// by _fb (2^-24 cycle per unit) times their feedback _x, in the machine's integers: the phase sum
-		// (phase << 8) + (fb x >> 23), then >> 8; the lookup (T[i] << 8) + (f T[i + 1] >> 23) - (f T[i] >> 23), then
-		// >> 8. Neither saturates nor wraps where the machine's accumulator would: the phase sum stays within 2^25 and
-		// the lookup between two words of the table (Q3 of their machines, sample for sample)
-		inline int64_t feedbackSample(const int64_t _phase, const int64_t _fb, const int64_t _x)
-		{
-			const int64_t p = (_phase * 256 + ((_fb * _x) >> 23)) >> 8;
-			const int64_t i = (p & 0xffffff) >> 16, f = (p & 0xffff) << 15;
-			return (QSine[i] * 256 + ((f * QSine[i + 1]) >> 23) - ((f * QSine[i]) >> 23)) >> 8;
 		}
 	}
 

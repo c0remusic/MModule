@@ -50,15 +50,7 @@ namespace syntakt::fast
 
 		// ---- the machine's integers, for the coefficients it computes in them ----
 
-		int64_t product(const int32_t _y, const int32_t _x) { return (static_cast<int64_t>(_y) * _x) >> 23; }
-
-		int32_t store(const int64_t _acc)
-		{
-			return static_cast<int32_t>(std::clamp<int64_t>(_acc >> 8, INT32_MIN, INT32_MAX));
-		}
-
 		int32_t frac(const int32_t _y, const int32_t _x) { return store(product(_y, _x)); }
-		int32_t wrap(const int64_t _v) { return static_cast<int32_t>(static_cast<uint32_t>(_v)); }
 		int32_t neg(const int32_t _v) { return wrap(-static_cast<int64_t>(_v)); }
 
 		int32_t asrReg(const int32_t _v, const int32_t _n)
@@ -300,10 +292,11 @@ namespace syntakt::fast
 			{
 				// The machine puts a Track on CP VINTAGE at its trig (0x40003ee0): unit 1's feedback ramps from 0 in
 				// the first block, the noise starts from its seed, the resonator's coefficients ramp from 0 and the
-				// rate reducer starts empty. It clears the voice's trig flags as it does: a trig in that block is lost
+				// rate reducer starts empty; a trig or a gate-off in that block is lost (Trigs::machineChange)
 				if(!m_playing[l])
 				{
-					trigs.pending[l] = pending = false;
+					trigs.machineChange(l);
+					pending = false;
 					m_playing[l] = true;
 					m_fb[l] = m_last[l] = 0;
 					m_noise.start(l);
@@ -368,9 +361,8 @@ namespace syntakt::fast
 				m_toneEnv.stepAmp(l, m_toneDecay[l], Attack, false);
 
 				// Unit 1's envelope (0x40003c0e) in its words: up by its step, saturated, held full a block, then
-				// decaying toward 0, the product truncated as the machine's; rising again from 0 at the noise's repeat,
-				// its ramp from where it was. The decay's target term is left out: unit 1's target (0xdc) is 0, which
-				// the machine change clears and CP VINTAGE never writes
+				// decaying toward 0 (envelopeDecay); rising again from 0 at the noise's repeat, its ramp from where it
+				// was
 				int32_t& env = m_env[l];
 				if(restart)
 				{
@@ -378,7 +370,7 @@ namespace syntakt::fast
 					m_envRising[l] = true;
 				}
 				else if(!m_envRising[l])
-					env = store(-product(env, m_modDecay[l]));
+					env = envelopeDecay(env, m_modDecay[l], 0);
 				else if(env == INT32_MIN)
 					m_envRising[l] = false;
 				else

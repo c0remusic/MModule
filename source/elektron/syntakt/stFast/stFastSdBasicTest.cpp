@@ -369,6 +369,10 @@ int main()
 
 	q2(s7);
 	q3(s7);
+	// Block by block (bench::blockByBlock): its output against the exact port's, the feedback table at 0 in both
+	// (its chaotic Hits drift past Q4's fixed measures)
+	blockByBlock<fast::SdBasic>(withoutTable(s7, FeedbackTable), Hits, "SD BASIC, feedback 0",
+		[](fast::SdBasic& _m) { _m.testWithoutChaos(); });
 	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); }, fast::SdBasic::Units);
 	q4(exact, renderFast(48000, Seconds));
 	deterministic(renderExact(withoutTable(s7, FeedbackTable), Seconds), renderFast(48000, Seconds, true));
