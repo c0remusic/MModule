@@ -393,7 +393,11 @@ namespace mdDrums
 	void Engine::setMachine(const int _track, const uint8_t _machineId)
 	{
 		auto& host = m_state->engine.host();
-		host.setMachine(_track, _machineId);
+		// One of X.20's built-ins without X.20's OS (GND-SN aside, which OS 1.63 has) plays the empty machine, as an empty
+		// User Machine number does, rather than the machine the Track had
+		const bool missing = md::engine::x20::isBuiltin(_machineId) && _machineId != md::engine::x20::GndSnPro
+			&& !host.playsX20(_machineId);
+		host.setMachine(_track, missing ? 0 : _machineId);
 		// A NEIGHBOUR User Machine, an effect, works from now on without waiting for a Hit (ticket 32 of the User Machines
 		// map)
 		if(isNeighbour(_machineId))

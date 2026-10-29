@@ -1709,6 +1709,16 @@ int main()
 		std::printf("TRXBD velocity 40: peak %.4f\n", soft);
 		require(soft < loud * 0.8f && soft > 0.0f, "the velocity does not scale the level");
 
+		// One of X.20's built-ins without X.20's OS plays the empty machine, not the machine the Track had (ticket 08 of
+		// the map of X.20's built-in Machines)
+		settle(engine);
+		engine.setMachine(0, md::engine::x20::GndSw);
+		engine.trigger(0, 127);
+		const auto missing = listen(engine).second;
+		std::printf("GND-SW without X.20 after TRXBD: peak %.4f\n", missing);
+		require(missing < 1e-4f, "GND-SW without X.20 plays the machine the Track had");
+		engine.setMachine(0, machineId(engine.machines(), "TRXBD"));
+
 		// On engines of their own: 48 Hits leave their track's voice in another state than the tests below expect
 		for(const bool accurate : {false, true})
 		{

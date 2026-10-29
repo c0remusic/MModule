@@ -31,8 +31,12 @@ Construit le 2026-10-21, à juger : [capture](../08-navigateur-x20.png).
   sur la Track 1 avec PTC1 73 sonne, crête 0,105 ; un second Processor le retrouve dans les `roms`) ; `mdDrumsSkinTest`
   (cachées puis montrées, à 256, 416 et 816, 352 ; la molette ; GND-SW choisi avec PTC1), dans des dossiers de données
   temporaires, jamais celui de l'utilisateur.
-- Pas encore : un set qui joue une des 6 ouvert sans l'OS X.20 (la Track garde sa Machine, rien ne le dit) ; le nom
-  « GND-SN-PRO » dans la bande de tête ; Push.
+- Pas encore : Push.
+- Un set qui joue une des 6 ouvert sans l'OS X.20 (2026-10-29) : la Track joue la Machine vide (GND---), plus celle
+  qu'elle avait (`Engine::setMachine`) ; le Kit garde le numéro pour un MoDule qui a l'OS ; la ligne d'état dit
+  « T03 plays GND-SW: choose MDX X.20's OS », un clic ouvre le choix du fichier. GND-SN reste joué par l'OS 1.63.
+- GND-SN-PRO (2026-10-29) : avec l'OS X.20, la ligne de famille de la bande de tête dit « SN-PRO, X.20 » au lieu de
+  « generator » ; le nom de la Machine reste « GND-SN », celui du paramètre Machine que Live et Push montrent.
 - L'aperçu du Hit et du navigateur (2026-10-29) : la requête porte le code voix d'X.20 que joue le Device
   (`Processor::playedX20Voice`), installé sur le moteur de l'aperçu avant le Kit ; une NFX y frappe aussi les Tracks
   qu'elle entend. `mdDrumsHitPreviewTest` : GND-SW sur la Track 1, 0 colonne sur 4410 hors du premier Hit du Device ;

@@ -71,6 +71,7 @@ namespace mdDrums
 		{
 			None,
 			ChooseFlash,
+			ChooseX20,
 			OpenRelease
 		};
 

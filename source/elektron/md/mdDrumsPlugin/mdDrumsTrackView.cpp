@@ -449,10 +449,12 @@ namespace mdDrums
 		// A User Machine's names are its package's, which an install changes under the same number
 		const auto package = md::engine::isUserMachine(static_cast<uint8_t>(machine))
 			? m_editor.processor().userMachine(machine - Engine::FirstUserMachine) : nullptr;
-		if(machine == m_machineShown && package == m_packageShown)
+		const bool snPro = machine == md::engine::x20::GndSnPro && m_editor.processor().playsX20();
+		if(machine == m_machineShown && package == m_packageShown && snPro == m_snProShown)
 			return false;
 		m_machineShown = machine;
 		m_packageShown = package;
+		m_snProShown = snPro;
 		updateMachine();
 		return true;
 	}
@@ -503,7 +505,9 @@ namespace mdDrums
 			code->SetInnerRML(family ? std::string(family->name) : std::string());
 		if(auto* text = find("family_text"))
 		{
+			// GND-SN's number plays X.20's GND-SN-PRO while the Device plays X.20's built-ins: the family line says so
 			const auto said = isUser ? (package ? package->displayName() + " " + package->name : std::string("empty"))
+				: m_snProShown ? std::string("SN-PRO, X.20")
 				: std::string(family ? familyText(family->name) : "");
 			text->SetInnerRML(Rml::StringUtilities::EncodeRml(said));
 		}

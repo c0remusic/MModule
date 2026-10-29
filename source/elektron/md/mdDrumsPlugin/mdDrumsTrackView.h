@@ -135,6 +135,7 @@ namespace mdDrums
 		int m_machineShown = -1;
 		// The User Machine's package drawn, held so that a new one can never take its address
 		std::shared_ptr<const md::mds::Package> m_packageShown;
+		bool m_snProShown = false;	// GND-SN's number drawn as X.20's GND-SN-PRO, which it plays while the Device plays X.20's
 		uint32_t m_userCellsShown = ~0u;		// followUserCells's, all lit until the first frame dims what is empty
 		double m_userCellsNextMs = 0.0;
 		bool m_x20Shown = false;	// X.20's built-in Machines in the browser; hidden in the skin until the Device plays them

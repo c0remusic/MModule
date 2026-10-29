@@ -38,6 +38,7 @@
 #include "mdDrumsMeterView.h"
 #include "mdDrumsProcessor.h"
 #include "mdDrumsStatusView.h"
+#include "X20Builtins.h"
 #include "mdDrumsTestMachine.h"
 #include "mdDrumsTestSupport.h"
 #include "mdDrumsTrackView.h"
@@ -1473,6 +1474,25 @@ namespace
 			second.deleteFile();
 		}
 
+		// A set whose Kit plays one of X.20's built-ins, without X.20's OS (ticket 08 of the map of X.20's built-in
+		// Machines): the line names the Track and the Machine, and a click on it chooses the OS
+		{
+			auto& third = mdDrums::testSupport::parameter(_f.processor, "Machine", 2);
+			const auto was = static_cast<int>(third.getUnnormalizedValue());
+			look(8100.0);	// what the drops said, 8 s, goes first
+			third.setValueFromSynth(md::engine::x20::GndSw, pluginLib::Parameter::Origin::PresetChange);
+			look(1000.0 / mdDrums::StatusView::RefreshHz);
+			const auto missing = view->text();
+			std::printf("status: Track 3 on GND-SW without X.20 says \"%s\", %g of %g dp wide\n", missing.c_str(),
+				line->GetScrollWidth(), _f.box(*line).w);
+			require(missing == "T03 plays GND-SW: choose MDX X.20's OS" && line->IsClassSet("action"),
+				"a Track on GND-SW without X.20's OS is not said");
+			require(line->GetScrollWidth() <= _f.box(*line).w + 0.5f, "the X.20 line overflows its box");
+			third.setValueFromSynth(was, pluginLib::Parameter::Origin::PresetChange);
+			look(1000.0 / mdDrums::StatusView::RefreshHz);
+			require(view->text().empty(), "the X.20 line stays once the Track plays another machine");
+		}
+
 		// A User Machine dropped (ticket 17 of the User Machines map): Track 1 on USR-01, the head band says its package's
 		// category, code and name, SYN1 and SYN2 its parameters' names, the others unused
 		const auto mds = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("MoDuleDrop.mds");
@@ -1821,6 +1841,9 @@ namespace
 		tracks.stepMachine(1);
 		const auto after = static_cast<int>(machine->getUnnormalizedValue());
 		require(after == 16, "the wheel stepped into X.20's built-ins without X.20's OS: " + std::to_string(after));
+		set(f, "Machine", 0, 1);
+		f.step(100);
+		const auto plainSn = f.text("family_text");
 
 		require(processor.loadX20Os(std::filesystem::u8path(path)).empty(), "X.20's OS was refused");
 		require(processor.playsX20(), "the Device made again does not play X.20's built-ins");
@@ -1840,6 +1863,13 @@ namespace
 		set(f, "Machine", 0, 3);
 		tracks.stepMachine(1);
 		require(static_cast<int>(machine->getUnnormalizedValue()) == 4, "the wheel does not reach GND-SW with X.20's OS");
+		// GND-SN's number plays GND-SN-PRO with X.20's OS: the head band's family line says so
+		set(f, "Machine", 0, 1);
+		f.step(100);
+		const auto pro = f.text("family_text");
+		std::printf("X.20 browser: GND-SN's family line \"%s\" without X.20's OS, \"%s\" with it\n", plainSn.c_str(),
+			pro.c_str());
+		require(plainSn == "generator" && pro == "SN-PRO, X.20", "the family line does not say GND-SN-PRO with X.20's OS");
 		std::printf("X.20 browser: hidden without X.20's OS, the wheel past them; shown with it, GND-SW chosen with PTC1\n");
 		if(_png && *_png)
 		{

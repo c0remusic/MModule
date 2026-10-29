@@ -6,6 +6,9 @@
 #include "mdDrumsFrame.h"
 #include "mdDrumsProcessor.h"
 
+#include "X20Builtins.h"
+#include "mdProtocol/mdmachines.h"
+
 #include "RmlUi/Core/Element.h"
 #include "RmlUi/Core/StringUtilities.h"
 
@@ -151,6 +154,23 @@ namespace mdDrums
 			return {std::string(number) + " " + (kept->name.empty() ? std::string("in this set") : kept->name)
 				+ " plays nothing here: " + kept->reason + ". The set keeps it.", Action::None};
 		}
+		// A Track on one of X.20's built-ins, which plays nothing without X.20's OS (ticket 08 of the map of X.20's built-in
+		// Machines); GND-SN-PRO's number plays OS 1.63's GND-SN
+		if(!m_editor.processor().playsX20())
+		{
+			for(uint8_t track = 0; track < Engine::TrackCount; ++track)
+			{
+				const auto* machine = m_editor.controller().getParameter("Machine", track);
+				const auto id = machine ? static_cast<uint8_t>(machine->getUnnormalizedValue()) : uint8_t(0);
+				if(!md::engine::x20::isBuiltin(id) || id == md::engine::x20::GndSnPro)
+					continue;
+				const auto* known = md::machines::find(md::MachineModel::Machinedrum, id);
+				char name[4];
+				std::snprintf(name, sizeof(name), "T%02d", track + 1);
+				return {std::string(name) + " plays " + std::string(known ? known->name : "an X.20 Machine")
+					+ ": choose MDX X.20's OS", Action::ChooseX20};
+			}
+		}
 		// With its installer, a click downloads it (the browser saves it; the user runs it with the host closed)
 		if(m_newer)
 			return {"MoDule " + m_newer->version + " is out"
@@ -164,6 +184,9 @@ namespace mdDrums
 		{
 		case Action::ChooseFlash:
 			chooseFlashImage();
+			break;
+		case Action::ChooseX20:
+			chooseX20Os();
 			break;
 		case Action::OpenRelease:
 			if(m_newer)
