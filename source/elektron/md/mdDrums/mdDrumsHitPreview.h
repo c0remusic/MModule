@@ -19,6 +19,7 @@
 
 namespace md::fw
 {
+	struct DspImage;
 	struct FlashOs;
 	struct RomBank;
 }
@@ -56,6 +57,9 @@ namespace mdDrums
 			// The Tracks a NEIGHBOUR on the Track hears, as its Device has them (Engine::setSources); none: the four
 			// before it
 			std::optional<std::array<uint8_t, 4>> sources;
+			// X.20's voice DSP program, as the instance's Device plays its built-in Machines with it (Engine::installX20);
+			// none: a Track on one of them keeps the machine it had, as the Device without them
+			std::shared_ptr<const md::fw::DspImage> x20Voice;
 		};
 
 		struct Result

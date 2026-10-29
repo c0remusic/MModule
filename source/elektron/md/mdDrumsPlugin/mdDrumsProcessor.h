@@ -66,6 +66,8 @@ namespace mdDrums
 		std::string loadX20Os(const std::filesystem::path& _file);
 		// Whether the Device plays X.20's built-in Machines
 		bool playsX20();
+		// X.20's voice DSP program the Device plays them with, for the Hit preview; none when it does not play them
+		std::shared_ptr<const md::fw::DspImage> playedX20Voice() { return playsX20() ? m_x20Voice : nullptr; }
 
 		// What the editor shows of the sound, which every Device this Processor creates writes (ticket 16)
 		Telemetry& getTelemetry() const { return *m_telemetry; }

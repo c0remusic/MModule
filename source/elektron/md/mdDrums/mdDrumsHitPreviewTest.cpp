@@ -24,10 +24,13 @@
 #include "mdDrumsTestSupport.h"
 
 #include "MdsPackage.h"
+#include "X20Builtins.h"
+#include "X20Os.h"
 
 #include <chrono>
 #include <functional>
 #include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <string>
 #include <thread>
@@ -76,12 +79,12 @@ namespace
 	};
 
 	Live live(const std::vector<uint8_t>& _flash, const std::vector<synthLib::SMidiEvent>& _events, const int _track,
-		const std::function<void(mdDrums::Device&)>& _setUp = {})
+		const std::function<void(mdDrums::Device&)>& _setUp = {}, std::shared_ptr<const md::fw::DspImage> _x20 = {})
 	{
 		synthLib::DeviceCreateParams params;
 		params.romData = _flash;
 		auto telemetry = std::make_shared<mdDrums::Telemetry>();
-		mdDrums::Device device(params, telemetry);
+		mdDrums::Device device(params, telemetry, std::move(_x20));
 		if(_setUp)
 			_setUp(device);
 		constexpr size_t block = 512;
@@ -230,6 +233,44 @@ int main()
 			const auto rendered = preview(os, bank, request);
 			std::printf("NEIGHBOUR copier on Track 6: its preview %s\n", audible(rendered) ? "sounds Track 5" : "is silent");
 			require(audible(rendered), "a NEIGHBOUR User Machine's preview did not strike the Track before it");
+		}
+
+		// X.20's built-in Machines (ticket 08 of their map), where MD_X20_OS names the user's X.20 OS: GND-SW on Track 1
+		// previews as a Device playing X.20 plays its first Hit; without X.20's voice code in the request the Track keeps
+		// the machine it had, as such a Device does; NFX-EV on Track 6 previews what it makes of Track 5
+		if(const auto* path = std::getenv("MD_X20_OS"); path && *path)
+		{
+			const auto voice = std::make_shared<const md::fw::DspImage>(md::fw::parseX20Os(md::fw::readFile(path)).voice);
+			constexpr int track = 0;
+			using md::automation::sysex::KitChange;
+			const auto assign = md::automation::sysex::encodeKitChange({KitChange::Kind::Machine, track,
+				KitChange::AssignScope, static_cast<uint8_t>(md::engine::x20::GndSw)});
+			require(assign.has_value(), "no ASSIGN MACHINE for GND-SW");
+			const auto device = live(_flash, {sysex(assign->message()), note(track, 100)}, track, {}, voice);
+			require(device.kit.machine(track) == md::engine::x20::GndSw, "the Device did not take GND-SW");
+			mdDrums::HitPreview::Request request;
+			request.kit = device.kit;
+			request.track = track;
+			request.velocity = 100;
+			const auto without = preview(os, bank, request);
+			request.x20Voice = voice;
+			const auto rendered = preview(os, bank, request);
+			const auto differ = differing(device.capture, rendered);
+			std::printf("GND-SW on Track 1: %d of %d columns differ from the Device's first Hit; without X.20, %d differ\n",
+				differ, rendered.count, differing(rendered, without));
+			require(audible(rendered) && differ == 0, "GND-SW's preview is not the Device's first Hit");
+			require(differing(rendered, without) > 0, "GND-SW previewed without X.20's voice code");
+
+			request.kit = *factory;
+			request.kit.machines[5] = md::engine::x20::NfxEv;
+			request.track = 5;
+			const auto effect = preview(os, bank, request);
+			std::printf("NFX-EV on Track 6: its preview %s\n", audible(effect) ? "sounds Track 5" : "is silent");
+			require(audible(effect), "NFX-EV's preview did not strike the Track before it");
+		}
+		else
+		{
+			std::printf("MD_X20_OS unset: X.20's built-in Machines not previewed\n");
 		}
 
 		// The same request twice, on two fresh engines

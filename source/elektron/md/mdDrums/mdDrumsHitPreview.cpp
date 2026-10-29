@@ -20,7 +20,10 @@ namespace mdDrums
 			if(const auto& sample = _request.samples[static_cast<size_t>(rom)])
 				_engine.setSample(rom, sample);
 		_engine.writeSamples();
-		// The Tracks struck: the shown one, and for a NEIGHBOUR User Machine the four it hears, by default those before it
+		// X.20's built-in Machines before the Kit, as the Device installs them
+		if(_request.x20Voice)
+			_engine.installX20(_request.x20Voice);
+		// The Tracks struck: the shown one, and for a NEIGHBOUR User Machine or an NFX of X.20 the four it hears, by default those before it
 		// (tickets 21 and 31 of the User Machines map), only the shown one heard. Each one's User Machine installed as the instance holds
 		// it, a fresh engine having none; one the voice DSP refuses plays the empty machine, as on the Device.
 		const auto userIndex = [&](const int _t)
@@ -34,7 +37,9 @@ namespace mdDrums
 			return index >= 0 ? _request.userMachines[static_cast<size_t>(index)] : nullptr;
 		};
 		std::vector<int> struck{track};
-		if(const auto own = packageOf(track); own && (own->flags & md::mds::FlagNeighbour))
+		const auto own = packageOf(track);
+		if((own && (own->flags & md::mds::FlagNeighbour))
+			|| _engine.isNeighbour(static_cast<uint8_t>(_request.kit.machine(static_cast<uint8_t>(track)))))
 		{
 			if(_request.sources)
 				_engine.setSources(track, *_request.sources);

@@ -32,5 +32,9 @@ Construit le 2026-10-21, à juger : [capture](../08-navigateur-x20.png).
   (cachées puis montrées, à 256, 416 et 816, 352 ; la molette ; GND-SW choisi avec PTC1), dans des dossiers de données
   temporaires, jamais celui de l'utilisateur.
 - Pas encore : un set qui joue une des 6 ouvert sans l'OS X.20 (la Track garde sa Machine, rien ne le dit) ; le nom
-  « GND-SN-PRO » dans la bande de tête ; l'aperçu du Hit et du navigateur pour les six ; Push.
+  « GND-SN-PRO » dans la bande de tête ; Push.
+- L'aperçu du Hit et du navigateur (2026-10-29) : la requête porte le code voix d'X.20 que joue le Device
+  (`Processor::playedX20Voice`), installé sur le moteur de l'aperçu avant le Kit ; une NFX y frappe aussi les Tracks
+  qu'elle entend. `mdDrumsHitPreviewTest` : GND-SW sur la Track 1, 0 colonne sur 4410 hors du premier Hit du Device ;
+  NFX-EV sur la Track 6 sonne la Track 5.
 - À juger : la place (GND, colonne 11), le chargement par le Menu et le lâcher.

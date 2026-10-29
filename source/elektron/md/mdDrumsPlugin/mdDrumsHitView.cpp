@@ -194,6 +194,7 @@ namespace mdDrums
 		for(int index = 0; index < static_cast<int>(request.userMachines.size()); ++index)
 			request.userMachines[static_cast<size_t>(index)] = m_editor.processor().userMachine(index);
 		request.sources = controller.sources(track);
+		request.x20Voice = m_editor.processor().playedX20Voice();
 		m_requested = m_client.request(std::move(request));
 	}
 
