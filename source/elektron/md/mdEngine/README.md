@@ -88,7 +88,9 @@ later versions can be compared file by file. Their documentation is in `.scratch
   voice's way. Its Hit or a change of its slot's words makes it render again; the machines that retrigger themselves
   (RTRG: E12, ROM), RAM-R and -P, X.20's built-ins and the User Machines never stop. What a stopped voice would have
   computed (an oscillator's phase, its noise generator) stays where it was, so its next Hit starts from another phase
-  than the Machinedrum's, as one Hit does from the next on a machine that does not reset it.
+  than the Machinedrum's, as one Hit does from the next on a machine that does not reset it. The master effects stop
+  as well once their three buses are silent and Main has stayed within ±8 for 6144 blocks (4.5 s, longer than the
+  Echo's lines), until a bus sounds or the words a tick sends differ from those in Y; Main then gives zeros.
 
 Machinemodule's own `dsp56300` fork is not used: its x64 JIT stops the voice DSP's init on Windows
 (`instruction budget exceeded at PC=$10008b`), and ours runs it.

@@ -4,6 +4,7 @@
 #pragma once
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <array>
 #include <memory>
 #include <stdexcept>
@@ -164,9 +165,13 @@ namespace md::engine
 
 		// md-drums, not bit-exact: a voice that sounded and went quiet stops rendering until its next Hit or a change of its
 		// words (VoiceEngine::setQuietSkip), on every audio machine of the OS but those that retrigger themselves (RTRG:
-		// E12, ROM) and RAM-R and -P. Off, as the Machinedrum, until this is called.
+		// E12, ROM) and RAM-R and -P. The master effects stop too once their three buses are silent and Main has stayed
+		// within kMasterQuiet for kMasterQuietBlocks (longer than the Echo's longest line), until a bus sounds or their
+		// words change: their state stays as it was, Main gives zeros. Off, as the Machinedrum, until this is called.
 		void setQuietSkip(const bool _on)
 		{
+			m_masterQuietSkip = _on;
+			m_masterQuiet = 0;
 			std::bitset<256> types;
 			for(const auto& m : m_os->machines())
 			{
@@ -201,12 +206,28 @@ namespace md::engine
 		{
 			if(!m_master)
 				return false;
+			const auto silent = [](const Mixer::Stereo& _bus, const int32_t _max)
+			{
+				return std::all_of(_bus.begin(), _bus.end(), [&](const std::array<int32_t, 2>& _frame)
+				{
+					return std::abs(_frame[0]) <= _max && std::abs(_frame[1]) <= _max;
+				});
+			};
+			const bool silentIn = m_masterQuietSkip && silent(_main, 0) && silent(_rev, 0) && silent(_del, 0);
+			if(silentIn && m_masterQuiet >= kMasterQuietBlocks)
+			{
+				_out = {};
+				++m_masterSkipped;
+				return true;
+			}
 			const auto tm0 = timingOn ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 			const bool ok = m_master->process(_main, _rev, _del, _out);
 			if(timingOn)
 				masterUs += std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - tm0).count();
+			m_masterQuiet = silentIn && silent(_out, kMasterQuiet) ? m_masterQuiet + 1 : 0;
 			return ok;
 		}
+		uint64_t masterQuietBlocks() const { return m_masterSkipped; }	// master blocks not run so far (setQuietSkip)
 
 		uint32_t dryMute = 0;	// tracks kept out of the dry main mix (see Mixer::process); set by the caller between renders
 		// md-drums: false leaves Output::mix untouched, for a caller that mixes Output::tracks itself (mixer())
@@ -247,7 +268,13 @@ namespace md::engine
 			{
 				typename HostModel<TVoices>::MasterWords words;
 				if(m_host->takeMasterWords(words))
+				{
+					// Every tick sends them: only a change wakes the master
+					for(int k = 0; k < words.count; ++k)
+						if(m_master->readY(words.y + static_cast<uint32_t>(k)) != (words.words[k] & 0xffffff))
+							m_masterQuiet = 0;
 					m_master->setWords(words.y, words.words.data(), words.count);
+				}
 			}
 			for(int t = 0; t < kTracks; ++t)
 				fxTrack(t, m_voiceOut[t].data(), _out.tracks[t].data());
@@ -286,6 +313,11 @@ namespace md::engine
 		std::unique_ptr<TrackFx> m_fx;
 		Mixer m_mixer;
 		std::unique_ptr<MasterEngine> m_master;	// md-drums: the master effects, once enabled
+		static constexpr int32_t kMasterQuiet = 8;			// 24-bit samples, about -120 dBFS
+		static constexpr int kMasterQuietBlocks = 6144;		// 4.5 s: the Echo's lines hold 194,039 words
+		bool m_masterQuietSkip = false;
+		int m_masterQuiet = 0;		// master blocks in a row with silent buses and Main within kMasterQuiet
+		uint64_t m_masterSkipped = 0;
 		std::array<TrackFx::State, kTracks> m_state{};
 		std::array<TrackFx::State, kTracks> m_settledState{};
 		std::array<bool, kTracks> m_settled{};

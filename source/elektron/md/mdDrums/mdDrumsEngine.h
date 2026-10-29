@@ -120,10 +120,12 @@ namespace mdDrums
 		const std::vector<uint16_t>& sampleCodes() const;	// the OS's 12-bit table (makeSample)
 		void writeSamples();	// what setSample left, at once: for an engine before its first block
 		// Not bit-exact: a voice that sounded and went quiet stops rendering until its Track's next Hit or a change of what
-		// it plays (md::engine::EngineT::setQuietSkip), which spares the voice DSP most of a quiet Track's cost. Off, as the
-		// Machinedrum, until this is called; never while render runs.
+		// it plays (md::engine::EngineT::setQuietSkip), which spares the voice DSP most of a quiet Track's cost; the master
+		// effects stop as well once Main has been quiet for 4.5 s. Off, as the Machinedrum, until this is called; never
+		// while render runs.
 		void setQuietSkip(bool _on);
-		uint64_t quietBlocks() const;	// voice blocks not rendered so far
+		uint64_t quietBlocks() const;		// voice blocks not rendered so far
+		uint64_t quietMasterBlocks() const;	// master blocks not run so far
 		void setParam(int _track, int _param, int _value);	// 0-127
 		// A knob turned or a CC (0-127): the Kit's value, and over a Lock or a slide the value played at once, as the OS's
 		// CC path (md::engine::HostModel::knob)

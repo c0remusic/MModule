@@ -367,6 +367,11 @@ namespace mdDrums
 		return m_state->engine.voices().quietBlocks();
 	}
 
+	uint64_t Engine::quietMasterBlocks() const
+	{
+		return m_state->engine.masterQuietBlocks();
+	}
+
 	void Engine::writeSamples()
 	{
 		m_state->samples.write(m_state->engine.voices(), Samples::End - Samples::Base);

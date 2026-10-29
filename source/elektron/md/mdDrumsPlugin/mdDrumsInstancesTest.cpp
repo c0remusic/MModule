@@ -5,7 +5,8 @@
 //   take together (what a host's threads share out), each instance's, and the worst block against its deadline;
 // - the memory an open editor adds, then the Hit screen's preview (its engine, shared by the process), then three more
 //   editors.
-// usage: mdDrumsInstancesTest [instances=16] [seconds=10]
+// usage: mdDrumsInstancesTest [instances=16] [seconds=10] [idle]: idle plays no note and warms up 6 s, so that the
+// master effects have stopped (mdDrums::Engine::setQuietSkip)
 
 #include "mdDrumsController.h"
 #include "mdDrumsDevice.h"
@@ -49,6 +50,7 @@ namespace
 	constexpr double g_rate = 44100.0;
 	constexpr int g_block = 128;
 	constexpr double g_sixteenth = g_rate * 60.0 / 120.0 / 4.0;	// samples, at 120 BPM
+	bool g_idle = false;
 
 	// The process's private memory, in MB
 	double privateMb()
@@ -100,7 +102,7 @@ namespace
 		const auto from = _instance.position - _instance.offset;
 		const auto to = from + g_block;
 		for(auto step = static_cast<int64_t>(std::ceil(static_cast<double>(std::max<int64_t>(from, 0)) / g_sixteenth));
-			static_cast<double>(step) * g_sixteenth < static_cast<double>(to); ++step)
+			!g_idle && static_cast<double>(step) * g_sixteenth < static_cast<double>(to); ++step)
 		{
 			const auto at = static_cast<int64_t>(static_cast<double>(step) * g_sixteenth) - from;
 			for(const auto track : struck(step))
@@ -123,13 +125,14 @@ int main(const int _argc, char** _argv)
 	juce::ScopedJuceInitialiser_GUI juce;
 	const auto count = _argc > 1 ? std::max(1, std::atoi(_argv[1])) : 16;
 	const auto seconds = _argc > 2 ? std::max(1, std::atoi(_argv[2])) : 10;
+	g_idle = _argc > 3 && std::string(_argv[3]) == "idle";
 	try
 	{
 		std::vector<Instance> instances;
 		instances.reserve(static_cast<size_t>(count));
 		const auto baseline = privateMb();
-		std::printf("%d instances, %d s of a busy pattern at 44.1 kHz in blocks of %d; process at %.1f MB before\n", count,
-			seconds, g_block, baseline);
+		std::printf("%d instances, %d s of %s at 44.1 kHz in blocks of %d; process at %.1f MB before\n", count,
+			seconds, g_idle ? "silence" : "a busy pattern", g_block, baseline);
 		for(int i = 0; i < count; ++i)
 		{
 			Instance instance;
@@ -152,8 +155,8 @@ int main(const int _argc, char** _argv)
 			}
 		}
 
-		// A second of warming up, then the measure
-		const auto blocks = static_cast<int>(g_rate / g_block);
+		// A second of warming up (six idle), then the measure
+		const auto blocks = static_cast<int>((g_idle ? 6 : 1) * g_rate / g_block);
 		for(int b = 0; b < blocks; ++b)
 			for(auto& instance : instances)
 				render(instance);

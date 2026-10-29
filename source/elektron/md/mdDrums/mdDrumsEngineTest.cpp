@@ -1635,6 +1635,42 @@ namespace
 			static_cast<unsigned long long>(still), static_cast<unsigned long long>(woken));
 		require(still == 8, "a quiet voice still renders");
 		require(woken < 32, "a knob turned does not wake its Track's voice");
+
+		// Track 1 struck every 6 s: the master effects stop once Main has been quiet for 4.5 s, give silence, and the next
+		// Hit sounds on Main within half a decibel of the Machinedrum's
+		const auto exact = build(false), sparse = build(true);
+		std::vector<float> left(44100 * 6), right(44100 * 6);
+		double worst = 0;
+		bool silent = true;
+		for(int hit = 0; hit < 3; ++hit)
+		{
+			std::array<double, 2> energy{};
+			for(size_t e = 0; e < 2; ++e)
+			{
+				auto& engine = e == 0 ? *exact : *sparse;
+				engine.trigger(0, 100);
+				engine.render(left.data(), right.data(), left.size());
+				for(size_t i = 0; i < 22050; ++i)
+					energy[e] += double(left[i]) * left[i] + double(right[i]) * right[i];
+				if(e == 1)
+					silent = silent && std::all_of(left.end() - 32 * 64, left.end(), [](float _s) { return _s == 0.0f; });
+			}
+			worst = std::max(worst, std::abs(10.0 * std::log10(energy[1] / energy[0])));
+		}
+		const auto masterBlocks = sparse->quietMasterBlocks();
+		std::printf("quiet master: %llu of %d blocks not run over three Hits 6 s apart, each Hit's half second on Main"
+			" %.2f dB from the Machinedrum's\n", static_cast<unsigned long long>(masterBlocks), 3 * 44100 * 6 / 32, worst);
+		require(masterBlocks > 1000, "the master effects keep running on silence");
+		require(silent, "Main is not silent while the master effects stop");
+		require(worst < 0.5, "a Hit after the master effects stopped sounds other than the Machinedrum's");
+		// A master parameter changed wakes them when the OS sends its effect's words: one effect a tick, in turn, so
+		// within 44 blocks
+		sparse->setMaster(7, 0);
+		sparse->render(left.data(), right.data(), 32 * 64);
+		const auto masterWoken = sparse->quietMasterBlocks() - masterBlocks;
+		std::printf("quiet master: a master parameter changed, %llu of 64 blocks not run\n",
+			static_cast<unsigned long long>(masterWoken));
+		require(masterWoken <= 44, "a master parameter changed does not wake the master effects");
 	}
 }
 
