@@ -1012,6 +1012,18 @@ namespace syntakt::fast::tables
 		return t;
 	}
 
+	std::array<int32_t, 128> spTwinshotPole()
+	{
+		// A trapezoidal one-pole's g / (1 + g), g = tan(pi f / 48 kHz), f from 5 Hz to 22 kHz exponentially in the entry
+		std::array<int32_t, 128> t{};
+		for(int i = 0; i < 128; ++i)
+		{
+			const double g = std::tan(Pi * 5 * std::pow(22000.0 / 5, i / 127.0) / 48000);
+			t[i] = clamp(g / (1 + g) * Q31);
+		}
+		return t;
+	}
+
 	std::array<int32_t, 257> wave()
 	{
 		// floor of five harmonics: sines 128 : 22 : 11 : 7 : 3 and cosines ~1e-6 of the fundamental, the generator's

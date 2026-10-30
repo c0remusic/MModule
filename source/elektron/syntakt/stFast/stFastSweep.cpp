@@ -1,7 +1,7 @@
 // A diagnostic, by hand, not a test: every value of every sound parameter of a fast machine against the exact port
 // at 48 kHz, through the bench (stFastBench.h).
 //
-//	stFastSweep sweep MACHINE OUT.csv	MACHINE bd, sd, cy, pc, sv, cp, ty or sb
+//	stFastSweep sweep MACHINE OUT.csv	MACHINE bd, sd, cy, pc, sv, cp, ty, sb or tw
 //	stFastSweep ab OUTDIR CASES.txt		A/B WAVs and an ABX page for the cases, one a line: MACHINE PARAM VALUE, or
 //										MACHINE hitN (BD's bench Hits, PC CARBON's Hit 10)
 //
@@ -12,7 +12,8 @@
 // the level there below the peak; the pitch in cents (bench::peakHz); the null (SNR, worst 10 ms, worst residual third
 // octave). A value is chaotic where the exact port, its phases 1 LSB on, fails Q4's measures against itself
 // (bench::chaoticSelf); there both engines are measured again with the machine's feedback table at 0 (none in PC
-// CARBON and SY BITS), the row flagged. A machine with noise (SD VINTAGE, CP VINTAGE, SY BITS) starts it from the
+// CARBON, SY BITS and SP TWINSHOT), the row flagged. SP TWINSHOT plays SYNTAKT_SAMPLES's sample set, its base sound
+// the decaying sine and the sine forward. A machine with noise (SD VINTAGE, CP VINTAGE, SY BITS) starts it from the
 // exact port's seeds (fastHits). A value both engines play as exact silence passes, its row flagged "silent" and not
 // measured.
 //
@@ -36,6 +37,7 @@
 #include "stFastPcCarbon.h"
 #include "stFastSdBasic.h"
 #include "stFastSdVintage.h"
+#include "stFastSpTwinshot.h"
 #include "stFastSyBits.h"
 #include "stFastSyToy.h"
 #include "stSection7.h"
@@ -79,6 +81,8 @@ namespace
 			{"tune", "ratios", "depth", "levels", "decays", "drive", "hold", "decay", "note"}},
 		{"sb", 37, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {1, 2, 4}, fast::SyBits::Units, 0,
 			{"tune", "detune", "mix", "srr", "wave", "bits", "hold", "decay", "note"}},
+		{"tw", 44, {{64, 70, 64, 64, 64, 67, 0, 64}, {}, 60, false, false}, {1, 3, 5}, fast::SpTwinshot::Units, 0,
+			{"tunea", "samplea", "band", "xfade", "tuneb", "sampleb", "hold", "decay", "note"}},
 	};
 
 	// A machine's type, handed to what withMachine calls
@@ -102,6 +106,7 @@ namespace
 		case 7: return _f(Type<fast::CpVintage>{});
 		case 36: return _f(Type<fast::SyToy>{});
 		case 37: return _f(Type<fast::SyBits>{});
+		case 44: return _f(Type<fast::SpTwinshot>{});
 		default:
 			std::fprintf(stderr, "no fast machine has the id %d\n", _id);
 			std::abort();
@@ -352,6 +357,8 @@ namespace
 			const Machine* m = machine(name);
 			if(!m)
 				return 2;
+			if(m->id == 44 && !loadSamplesOrSkip())
+				return 2;
 			if(what.rfind("hit", 0) == 0)
 			{
 				const int h = std::stoi(what.substr(3));
@@ -452,6 +459,9 @@ int main(const int _argc, char** _argv)
 	if(mode == "ab")
 		return ab(s7, std::string(_argv[2]) + "/", _argv[3]);
 	const Machine* m = machine(_argv[2]);
+	// SP TWINSHOT plays the sample set SYNTAKT_SAMPLES names, in both engines
+	if(m && m->id == 44 && !loadSamplesOrSkip())
+		return 2;
 	// stFastSweep nudge MACHINE OUT.txt PARAM VALUE...: Q4's measures of the exact port against itself 1 LSB on (the
 	// chaos classification's nudge) beside the fast engine's against it, as rendered and with the feedback table at 0
 	if(mode == "nudge" && m && _argc >= 6)

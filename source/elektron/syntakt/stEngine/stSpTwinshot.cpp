@@ -91,118 +91,121 @@ namespace syntakt::spTwinshot
 			acc.mac(_s1, _weight1);
 			return asl(acc.storeClear(), 16);
 		}
+	}
 
-		// 0x40006764: 32 samples of a player into _out, forward or reversed. At the end a looping player goes on at
-		// its next pointer and length, otherwise it stops and the rest of the block is silent
-		void player(int32_t* _out, int32_t* _r, const Rom& _rom)
+	// 0x40006764: 32 samples of a player into _out, forward or reversed. At the end a looping player goes on at
+	// its next pointer and length, otherwise it stops and the rest of the block is silent
+	void player(int32_t* _out, int32_t* _r, const Rom& _rom)
+	{
+		const int32_t rate = _r[Rate / 4];
+		int32_t length = _r[Length / 4];
+		const int32_t loop = _r[Loop / 4];
+		uint32_t pointer = static_cast<uint32_t>(_r[Pointer / 4]);
+		int32_t pos = _r[Position / 4];
+		const int32_t nextPointer = _r[NextPointer / 4];
+		const int32_t nextLength = _r[NextLength / 4];
+
+		if(!_r[Playing / 4] || length <= 0 || !pointer)
 		{
-			const int32_t rate = _r[Rate / 4];
-			int32_t length = _r[Length / 4];
-			const int32_t loop = _r[Loop / 4];
-			uint32_t pointer = static_cast<uint32_t>(_r[Pointer / 4]);
-			int32_t pos = _r[Position / 4];
-			const int32_t nextPointer = _r[NextPointer / 4];
-			const int32_t nextLength = _r[NextLength / 4];
-
-			if(!_r[Playing / 4] || length <= 0 || !pointer)
-			{
-				for(int n = 0; n < BlockSize; ++n)
-					_out[n] = 0;
-				_r[Position / 4] = pos;
-				return;
-			}
-
-			// The last sample's index, from the length at the block's start: a loop does not change it
-			const int32_t last = (length >> 12) - 1;
-			int n = 0;
-			bool stopped = false;
-			if(!_r[Reverse / 4])
-			{
-				for(; n < BlockSize; ++n)
-				{
-					const int32_t i0 = pos >> 12;
-					const int32_t i1 = i0 + 1 <= last ? i0 + 1 : 0;
-					const int32_t w = asl(pos & 0xfff, 19);
-					pos = addWrap(pos, rate);
-					_out[n] = interpolated(sampleAt(_rom, pointer, i0), sampleAt(_rom, pointer, i1), w);
-					if(length > pos)
-						continue;
-					if(loop && nextLength > 0 && nextPointer)
-					{
-						// rems.l (0x4000681a, which Capstone shows as divs.l): what is past the end, modulo the
-						// next length
-						pos = subWrap(pos, length) % nextLength;
-						pointer = static_cast<uint32_t>(nextPointer);
-						_r[Pointer / 4] = nextPointer;
-						_r[Length / 4] = nextLength;
-						length = nextLength;
-						continue;
-					}
-					stopped = true;
-					break;
-				}
-			}
-			else
-			{
-				for(; n < BlockSize; ++n)
-				{
-					// As the original weighs them: the fraction goes to the later sample, which is behind
-					const int32_t w = asl(pos & 0xfff, 19);
-					const int32_t i1 = pos >> 12;
-					const int32_t i0 = i1 - 1 >= 0 ? i1 - 1 : last;
-					_out[n] = interpolated(sampleAt(_rom, pointer, i0), sampleAt(_rom, pointer, i1), w);
-					pos = subWrap(pos, rate);
-					if(pos >= 0)
-						continue;
-					if(loop)
-					{
-						// rems.l, as forward: the length plus the negative position, modulo the next length. The
-						// original does not check the next length, which the update never leaves 0 while a player
-						// plays; at 0 it would trap, and the port keeps the position
-						if(nextLength)
-							pos = addWrap(length, pos) % nextLength;
-						pointer = static_cast<uint32_t>(nextPointer);
-						_r[Pointer / 4] = nextPointer;
-						_r[Length / 4] = nextLength;
-						length = nextLength;
-						continue;
-					}
-					stopped = true;
-					break;
-				}
-			}
-
-			if(stopped)
-			{
-				// The sample written last is cleared with the rest
-				_r[Playing / 4] = 0;
-				pos = 0;
-				for(; n < BlockSize; ++n)
-					_out[n] = 0;
-			}
-			_r[Position / 4] = pos;
-		}
-
-		// 0x400068ea: two one-poles in series, coefficients _c[0] and _c[1], states _c[2] and _c[3], each step
-		// saturated; the output is the first's minus the second's, a band-pass
-		void bandPass(const int32_t* _in, int32_t* _out, int32_t* _c)
-		{
-			const int32_t c0 = _c[0], c1 = _c[1];
-			int32_t s1 = _c[2], s2 = _c[3];
 			for(int n = 0; n < BlockSize; ++n)
-			{
-				const int32_t d1 = frac(subSat(_in[n], s1), c0);
-				const int32_t l1 = addSat(d1, s1);
-				const int32_t d2 = frac(subSat(l1, s2), c1);
-				const int32_t l2 = addSat(d2, s2);
-				_out[n] = subSat(l1, l2);
-				s1 = addSat(l1, d1);
-				s2 = addSat(l2, d2);
-			}
-			_c[2] = s1;
-			_c[3] = s2;
+				_out[n] = 0;
+			_r[Position / 4] = pos;
+			return;
 		}
 
+		// The last sample's index, from the length at the block's start: a loop does not change it
+		const int32_t last = (length >> 12) - 1;
+		int n = 0;
+		bool stopped = false;
+		if(!_r[Reverse / 4])
+		{
+			for(; n < BlockSize; ++n)
+			{
+				const int32_t i0 = pos >> 12;
+				const int32_t i1 = i0 + 1 <= last ? i0 + 1 : 0;
+				const int32_t w = asl(pos & 0xfff, 19);
+				pos = addWrap(pos, rate);
+				_out[n] = interpolated(sampleAt(_rom, pointer, i0), sampleAt(_rom, pointer, i1), w);
+				if(length > pos)
+					continue;
+				if(loop && nextLength > 0 && nextPointer)
+				{
+					// rems.l (0x4000681a, which Capstone shows as divs.l): what is past the end, modulo the
+					// next length
+					pos = subWrap(pos, length) % nextLength;
+					pointer = static_cast<uint32_t>(nextPointer);
+					_r[Pointer / 4] = nextPointer;
+					_r[Length / 4] = nextLength;
+					length = nextLength;
+					continue;
+				}
+				stopped = true;
+				break;
+			}
+		}
+		else
+		{
+			for(; n < BlockSize; ++n)
+			{
+				// As the original weighs them: the fraction goes to the later sample, which is behind
+				const int32_t w = asl(pos & 0xfff, 19);
+				const int32_t i1 = pos >> 12;
+				const int32_t i0 = i1 - 1 >= 0 ? i1 - 1 : last;
+				_out[n] = interpolated(sampleAt(_rom, pointer, i0), sampleAt(_rom, pointer, i1), w);
+				pos = subWrap(pos, rate);
+				if(pos >= 0)
+					continue;
+				if(loop)
+				{
+					// rems.l, as forward: the length plus the negative position, modulo the next length. The
+					// original does not check the next length, which the update never leaves 0 while a player
+					// plays; at 0 it would trap, and the port keeps the position
+					if(nextLength)
+						pos = addWrap(length, pos) % nextLength;
+					pointer = static_cast<uint32_t>(nextPointer);
+					_r[Pointer / 4] = nextPointer;
+					_r[Length / 4] = nextLength;
+					length = nextLength;
+					continue;
+				}
+				stopped = true;
+				break;
+			}
+		}
+
+		if(stopped)
+		{
+			// The sample written last is cleared with the rest
+			_r[Playing / 4] = 0;
+			pos = 0;
+			for(; n < BlockSize; ++n)
+				_out[n] = 0;
+		}
+		_r[Position / 4] = pos;
+	}
+
+	// 0x400068ea: two one-poles in series, coefficients _c[0] and _c[1], states _c[2] and _c[3], each step
+	// saturated; the output is the first's minus the second's, a band-pass
+	void bandPass(const int32_t* _in, int32_t* _out, int32_t* _c)
+	{
+		const int32_t c0 = _c[0], c1 = _c[1];
+		int32_t s1 = _c[2], s2 = _c[3];
+		for(int n = 0; n < BlockSize; ++n)
+		{
+			const int32_t d1 = frac(subSat(_in[n], s1), c0);
+			const int32_t l1 = addSat(d1, s1);
+			const int32_t d2 = frac(subSat(l1, s2), c1);
+			const int32_t l2 = addSat(d2, s2);
+			_out[n] = subSat(l1, l2);
+			s1 = addSat(l1, d1);
+			s2 = addSat(l2, d2);
+		}
+		_c[2] = s1;
+		_c[3] = s2;
+	}
+
+	namespace
+	{
 		// The sample a player's byte chooses: byte - 64, its complement and reversed when negative, 0 to 63
 		int32_t sampleIndex(const int32_t _byte, bool& _reverse)
 		{

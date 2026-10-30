@@ -302,6 +302,9 @@ int main()
 		compare(s7, name.c_str(), bitsWaves[n], syntakt::fast::tables::syBitsWave(n), true, false, 0);
 	}
 
+	std::printf("SP TWINSHOT's tables by formula against section 7 (its AmpDecay is SY BITS's):\n");
+	compare(s7, "Pole", 0x40014980, syntakt::fast::tables::spTwinshotPole(), true, false, 0);
+
 	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
 	return g_failures ? 1 : 0;
 }

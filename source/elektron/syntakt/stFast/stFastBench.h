@@ -23,8 +23,10 @@
 #include "stEngine.h"
 #include "stFastMetrics.h"
 #include "stFastResample.h"
+#include "stFastSpTwinshot.h"
 #include "stSection7.h"
 #include "stStages.h"
+#include "stSyntaktScenario.h"
 
 namespace syntakt::fast::bench
 {
@@ -34,6 +36,11 @@ namespace syntakt::fast::bench
 
 	// ---- the exact port ----
 
+	// The sample set SP TWINSHOT plays (loadSamplesOrSkip): as the exact port reads it, and as the fast machine does.
+	// None (null, empty) for the other machines
+	inline const Samples* g_samples = nullptr;
+	inline TwinshotSamples g_twinshotSamples;
+
 	// Eight tracks of the exact port's machines as the voice CPU renders them, before the track stages: CPU #1's block
 	// in, renderVoices' output out (the block's layout as VoiceCpu writes it). A track plays BD MODERN until
 	// setMachine says otherwise
@@ -41,7 +48,7 @@ namespace syntakt::fast::bench
 	{
 	public:
 		explicit Exact(const std::vector<int32_t>& _section7)
-			: m_sram(std::make_unique<Sram>()), m_rom{_section7.data()}
+			: m_sram(std::make_unique<Sram>()), m_rom{_section7.data(), g_samples}
 		{
 			boot(*m_sram, m_globals, m_rom);
 		}
@@ -155,6 +162,20 @@ namespace syntakt::fast::bench
 	template<typename Machine>
 	struct SeedsNoise<Machine, std::void_t<decltype(std::declval<Machine&>().testSeedNoise(0,
 		static_cast<const int32_t*>(nullptr)))>> : std::true_type {};
+
+	// Whether a fast machine plays samples (its setSamples), which the bench gives it from g_twinshotSamples
+	template<typename Machine, typename = void>
+	struct TakesSamples : std::false_type {};
+	template<typename Machine>
+	struct TakesSamples<Machine, std::void_t<decltype(std::declval<Machine&>().setSamples(
+		static_cast<const TwinshotSamples*>(nullptr)))>> : std::true_type {};
+
+	template<typename Machine>
+	void giveSamples(Machine& _m)
+	{
+		if constexpr(TakesSamples<Machine>::value)
+			_m.setSamples(&g_twinshotSamples);
+	}
 
 	// ---- the Hits ----
 
@@ -472,6 +493,7 @@ namespace syntakt::fast::bench
 			for(int t = 0; t < Lanes; ++t)
 				e.testSeedNoise(t, seeds[static_cast<size_t>(t)].data());
 		}
+		giveSamples(e);
 		_setup(e);
 		const int samples = static_cast<int>(_seconds * _fs);
 		// The onset at 44.1 kHz is 29.4 samples after the trig: from the 29th, 0.4 sample before it
@@ -618,7 +640,7 @@ namespace syntakt::fast::bench
 		Globals g;
 		Rom rom;
 
-		explicit Stage(const std::vector<int32_t>& _s7) : rom{_s7.data()}
+		explicit Stage(const std::vector<int32_t>& _s7) : rom{_s7.data(), g_samples}
 		{
 			for(auto& s : sram)
 			{
@@ -1070,6 +1092,7 @@ namespace syntakt::fast::bench
 				for(int t = 0; t < Lanes; ++t)
 					machine->testSeedNoise(t, seeds[static_cast<size_t>(t)].data());
 			}
+			giveSamples(*machine);
 			_setup(*machine);
 			for(int t = 0; t < Lanes; ++t)
 				exact.setMachine(t, _hits.machine);
@@ -1389,6 +1412,8 @@ namespace syntakt::fast::bench
 		for(int t = 0; t < Lanes; ++t)
 			ptr[t] = buf[t].data();
 		Host<Machine> f48(48000), f44(44100);
+		giveSamples(f48);
+		giveSamples(f44);
 		const double us48 = costPerBlock(f48, _hits, [&] { f48.render(ptr.data()); });
 		const double us44 = costPerBlock(f44, _hits, [&] { f44.render(ptr.data()); });
 		const double block48 = 32 / 48000.0 * 1e6, block44 = 32 / 44100.0 * 1e6;
@@ -1398,6 +1423,40 @@ namespace syntakt::fast::bench
 	}
 
 	// ---- the tests' start ----
+
+	// SP TWINSHOT's sample set from SYNTAKT_SAMPLES (twinshot_samples.py's file) into g_samples and g_twinshotSamples,
+	// each slot with a length checked to lie where the fast machine reads it as the exact port (even from the base,
+	// outside section 7, which it does not read); false, printing why, when there is none: a test then exits 77
+	inline bool loadSamplesOrSkip()
+	{
+		static Samples exact;
+		const char* path = std::getenv("SYNTAKT_SAMPLES");
+		if(!path || !*path)
+		{
+			std::printf("SYNTAKT_SAMPLES not set: skipped\n");
+			return false;
+		}
+		if(!syntakt::test::readSamples(path, exact))
+		{
+			std::printf("%s is not a sample set: skipped\n", path);
+			return false;
+		}
+		TwinshotSamples& fast = g_twinshotSamples;
+		fast.base = exact.base;
+		fast.data.resize(exact.data.size() / 2);
+		for(size_t k = 0; k < fast.data.size(); ++k)
+			fast.data[k] = static_cast<int16_t>(exact.data[2 * k] << 8 | exact.data[2 * k + 1]);
+		for(size_t i = 0; i < exact.directory.size(); ++i)
+		{
+			const auto& e = exact.directory[i];
+			fast.slots[i] = {e.length, e.pointer};
+			const bool inSection7 = e.pointer >= Rom::Base && e.pointer < Rom::Base + Section7Size;
+			if(e.length && (((e.pointer - exact.base) & 1) || inSection7))
+				throw std::logic_error("a sample set whose slots the fast SP TWINSHOT cannot read as the exact port");
+		}
+		g_samples = &exact;
+		return true;
+	}
 
 	// OS 1.41's section 7 from SYNTAKT_SECTION7, or, printing why, empty: a test then exits 77, skipped
 	inline std::vector<int32_t> loadSection7OrSkip()

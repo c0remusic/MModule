@@ -119,6 +119,15 @@ namespace syntakt
 	{
 		void update(int32_t _pitch, Voice& _v, uint32_t _params, const Rom& _rom);
 		void render(int32_t* _out, Voice& _v, const Rom& _rom);
+
+		// 0x40006764: 32 samples of the player whose record (9 words: pointer, next pointer, position, length, next
+		// length, playing, rate, reverse, loop) is _record into _out, forward or reversed, looping on the next pointer
+		// and length, or stopping
+		void player(int32_t* _out, int32_t* _record, const Rom& _rom);
+
+		// 0x400068ea: two one-poles in series, coefficients _c[0], _c[1], states _c[2], _c[3], each step saturated;
+		// _out the first's output minus the second's
+		void bandPass(const int32_t* _in, int32_t* _out, int32_t* _c);
 	}
 
 	// The engines ported, the one list engine() and the oracle read: the engine's id, its name, the firmware's update

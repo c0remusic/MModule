@@ -3,8 +3,8 @@
 #include <array>
 #include <cstdint>
 
-// The tables syntakt::fast::BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage, CpVintage, SyToy and SyBits read,
-// made by formula rather than read from the firmware
+// The tables syntakt::fast::BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage, CpVintage, SyToy, SyBits and SpTwinshot
+// read, made by formula rather than read from the firmware
 // (ticket 07 of elektron-drums-v1), as the firmware's Q31 words. stFastTablesTest compares each with OS 1.41's
 // section 7; the exact ones were checked with MSVC's runtime, and another libm may round a word 1 LSB apart.
 namespace syntakt::fast::tables
@@ -147,6 +147,9 @@ namespace syntakt::fast::tables
 	// take (at or below 35, then by 12 from 36, from 108), 8 the triangle, 9 the sine (section 7's 0x4005c6fc,
 	// 0x4005bef8, 0x40056e68 down by 0x804 to 0x40054654, 0x4005cf00 and 0x4005d704). Exact
 	std::array<int32_t, 513> syBitsWave(int _n);
+
+	// SP TWINSHOT's band-pass, its one-poles' coefficients (0x40014980): 128 words. Exact
+	std::array<int32_t, 128> spTwinshotPole();
 
 	// Unit 2's wave (0x4001e7fc): 257 words, 16-bit samples in the top half. Exact
 	std::array<int32_t, 257> wave();
