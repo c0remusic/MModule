@@ -107,4 +107,10 @@ if(BUILD_TESTING)
 	target_compile_definitions(stFastSweep PRIVATE ST_FAST_AB_PAGE="${CMAKE_CURRENT_SOURCE_DIR}/stFastAbPage.html"
 		ST_FAST_REPO="${CMAKE_SOURCE_DIR}")
 	set_property(TARGET stFastSweep PROPERTY FOLDER "Elektron/test")
+
+	# What the 16 Tracks cost on the nine machines mixed, worst case and a realistic kit, at 48 and 44.1 kHz in host
+	# blocks of 32, 128 and 512, by hand, not a test: stFastMixCost [RUNS]. No firmware
+	add_executable(stFastMixCost stFastMixCost.cpp)
+	target_link_libraries(stFastMixCost PRIVATE stFast)
+	set_property(TARGET stFastMixCost PROPERTY FOLDER "Elektron/test")
 endif()
