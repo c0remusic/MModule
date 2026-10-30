@@ -1,7 +1,7 @@
-// syntakt::fast::tables, the tables BD MODERN, SD BASIC, CY ALLOY, PC CARBON, SD VINTAGE, CP VINTAGE, SY TONE and SY
-// CHORD read made by formula, against OS 1.41's section 7 word for word: per table, exact or the number of words that
-// differ and the largest error (in LSB of Q31, and of the table's own unit: the time constant of a decay, the share of
-// full scale of a level). A table its header calls exact that differs fails.
+// syntakt::fast::tables, the tables BD MODERN, SD BASIC, CY ALLOY, PC CARBON, SD VINTAGE, CP VINTAGE, SY TONE, SY
+// CHORD and SY TOY read made by formula, against OS 1.41's section 7 word for word: per table, exact or the number of
+// words that differ and the largest error (in LSB of Q31, and of the table's own unit: the time constant of a decay,
+// the share of full scale of a level). A table its header calls exact that differs fails.
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7. Exit 77 without it.
 
@@ -296,6 +296,27 @@ int main()
 		const std::string name = "Wave" + std::to_string(n);
 		compare(s7, name.c_str(), pointer, syntakt::fast::tables::syChordWave(n), false, false, bound);
 	}
+
+	// SY TOY's, every word exact
+	using syntakt::fast::tables::SyToy;
+	const Entry<SyToy> syToy[] = {
+		{"Target", 0x4003c038, SyToy::Target, false, 0},
+		{"DecayU4", 0x4003c238, SyToy::DecayU4, true, 0},
+		{"DecayU3", 0x4003c438, SyToy::DecayU3, true, 0},
+		{"DecayU2", 0x4003c638, SyToy::DecayU2, true, 0},
+		{"DecayU1", 0x4003c838, SyToy::DecayU1, true, 0},
+		{"Gain3", 0x4003ca38, SyToy::Gain3, false, 0},
+		{"Gain2", 0x4003cc38, SyToy::Gain2, false, 0},
+		{"Gain1", 0x4003ce38, SyToy::Gain1, false, 0},
+		{"Depth", 0x4003d038, SyToy::Depth, false, 0},
+		{"Feedback", 0x4003d238, SyToy::Feedback, false, 0},
+		{"RatioU4", 0x4003d438, SyToy::RatioU4, false, 0},
+		{"RatioU3", 0x4003d638, SyToy::RatioU3, false, 0},
+		{"RatioU2", 0x4003d838, SyToy::RatioU2, false, 0},
+		{"RatioU1", 0x4003da38, SyToy::RatioU1, false, 0},
+		{"AmpDecay", 0x4003dc38, SyToy::AmpDecay, true, 0},
+	};
+	compareAll(s7, "SY TOY", syToy, syntakt::fast::tables::syToy);
 
 	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
 	return g_failures ? 1 : 0;

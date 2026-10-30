@@ -1158,6 +1158,87 @@ namespace syntakt::fast::tables
 		return t;
 	}
 
+	// ---- SY TOY ----
+	//
+	// Laws of the entry i, every word the firmware's, in round constants: the decays by their 60 dB time in seconds,
+	// a parabola of x = i / 128 for the amp's and of y = (127 - i) / 128 for the units'; the units' level at rest,
+	// their modulation and the feedback polynomials of x or y; the units' levels in the mix in dB, a line; the ratios
+	// in the note's factor (2^26), lines of v = i / 127 between knots at v = 0, 1/2, 3/4 and 1, unit 4's the larger of
+	// unit 2's and a parabola of v on each of those three stretches
+
+	namespace
+	{
+		// Units 1 to 3's ratios, lines between their knots at v = 0, 1/2, 3/4 and 1 (v = i / 127 is never a knot but 0
+		// and 1); unit 4's parabolas a v^2 + b v + c on [0, 1/2), [1/2, 3/4) and [3/4, 1]
+		const Knot ToyRatioU1[] = {{0, 2.75625, 1}, {0.5, 2, 1}, {0.75, 1.97, 1}, {1, 2, 1}};
+		const Knot ToyRatioU2[] = {{0, 5.40225, 1}, {0.5, 3, 1}, {0.75, 3.89, 1}, {1, 4, 1}};
+		const Knot ToyRatioU3[] = {{0, 8.93025, 1}, {0.5, 4, 1}, {0.75, 4.67, 1}, {1, 6, 1}};
+		constexpr double ToyRatioU4[3][3] = {{9.609, -19.4526, 9.72405}, {10.68, 0.812, -0.976}, {1.32, 10.328, -2.848}};
+	}
+
+	std::array<int32_t, 128> syToy(const SyToy _t)
+	{
+		// Units 1 to 4's decays, seconds: at entry 127, and the parabola's coefficient (its growth to y = 1)
+		constexpr double DecayFloor[4] = {0.015, 0.0075, 0.003, 0.0015}, DecayGrowth[4] = {3, 1.5, 0.75, 0.36};
+		std::array<int32_t, 128> t{};
+		for(int i = 0; i < 128; ++i)
+		{
+			const double x = i / 128.0, y = (127 - i) / 128.0, v = i / 127.0;
+			switch(_t)
+			{
+			case SyToy::AmpDecay:		// 37.5 ms at 0, 3 s more at 128
+				t[i] = toWord(Unit::T60, 1, 0.0375 + 3 * x * x);
+				break;
+			case SyToy::DecayU1:		// units 1 to 4's: 15, 7.5, 3 and 1.5 ms at 127, 3, 1.5, 0.75, 0.36 s more at y 1
+			case SyToy::DecayU2:
+			case SyToy::DecayU3:
+			case SyToy::DecayU4:
+				{
+					static_assert(static_cast<int>(SyToy::DecayU1) - static_cast<int>(SyToy::DecayU4) == 3);
+					const int k = static_cast<int>(SyToy::DecayU1) - static_cast<int>(_t);
+					t[i] = toWord(Unit::T60, 1, DecayFloor[k] + DecayGrowth[k] * y * y);
+				}
+				break;
+			case SyToy::Target:			// the units' level at rest: 0.1 at 127, 0.9 y^3 more
+				t[i] = clamp((0.1 + 0.9 * y * y * y) * Q31);
+				break;
+			case SyToy::Gain1:			// units 1 to 3's levels in the mix: -32, -35 and -38 dB at 0, 5/32 dB an entry
+			case SyToy::Gain2:
+			case SyToy::Gain3:
+				{
+					static_assert(static_cast<int>(SyToy::Gain1) - static_cast<int>(SyToy::Gain3) == 2);
+					const double at0 = -32 - 3.0 * (static_cast<int>(SyToy::Gain1) - static_cast<int>(_t));
+					t[i] = clamp(std::pow(10.0, (at0 + 5.0 * i / 32) / 20) * Q31);
+				}
+				break;
+			case SyToy::Depth:			// unit 2's modulation by unit 4, cycles per unit: 0.12 x + 0.18 x^2
+				t[i] = clamp((0.12 * x + 0.18 * x * x) * Q31);
+				break;
+			case SyToy::Feedback:		// unit 4's on its sample: 0.025 x + 0.075 x^6, a quarter of its cycles per unit
+				t[i] = clamp((0.025 * x + 0.075 * std::pow(x, 6)) * Q31);
+				break;
+			case SyToy::RatioU1:		// the ratios times the note's factor
+				t[i] = clamp(knots(ToyRatioU1, v) * 67108864);
+				break;
+			case SyToy::RatioU2:
+				t[i] = clamp(knots(ToyRatioU2, v) * 67108864);
+				break;
+			case SyToy::RatioU3:
+				t[i] = clamp(knots(ToyRatioU3, v) * 67108864);
+				break;
+			case SyToy::RatioU4:
+				{
+					const double* p = ToyRatioU4[i < 64 ? 0 : i < 96 ? 1 : 2];
+					t[i] = clamp(std::max(knots(ToyRatioU2, v), (p[0] * v + p[1]) * v + p[2]) * 67108864);
+				}
+				break;
+			default:
+				break;
+			}
+		}
+		return t;
+	}
+
 	std::array<int32_t, 257> wave()
 	{
 		// floor of five harmonics: sines 128 : 22 : 11 : 7 : 3 and cosines ~1e-6 of the fundamental, the generator's

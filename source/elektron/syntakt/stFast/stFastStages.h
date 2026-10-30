@@ -498,7 +498,7 @@ namespace syntakt::fast
 	//	- const Block& renderBlock(): one 48 kHz block of the 16 Tracks, in this order: FlushDenormals,
 	//	  controls.trigs.start(), the block-rate control, the stages, controls.trigs.end()
 	//	- at 48 kHz only, a machine may step its envelopes once per block but in the trig's block rather than on
-	//	  Clock48, whose steps that is (CP VINTAGE, SY TONE and SY CHORD do)
+	//	  Clock48, whose steps that is (CP VINTAGE, SY TONE, SY CHORD and SY TOY do)
 	// Controls holds what the front sets, which the machine converts (its convert(track)) and its control reads
 	struct Controls
 	{

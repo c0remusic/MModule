@@ -1,7 +1,7 @@
 // A diagnostic, by hand, not a test: every value of every sound parameter of a fast machine against the exact port
 // at 48 kHz, through the bench (stFastBench.h).
 //
-//	stFastSweep sweep MACHINE OUT.csv	MACHINE bd, sd, cy, pc, sv, cp, sy or sc
+//	stFastSweep sweep MACHINE OUT.csv	MACHINE bd, sd, cy, pc, sv, cp, sy, sc or ty
 //	stFastSweep ab OUTDIR CASES.txt		A/B WAVs and an ABX page for the cases, one a line: MACHINE PARAM VALUE, or
 //										MACHINE hitN (BD's bench Hits, PC CARBON's Hit 10)
 //
@@ -38,6 +38,7 @@
 #include "stFastSdVintage.h"
 #include "stFastSyChord.h"
 #include "stFastSyTone.h"
+#include "stFastSyToy.h"
 #include "stSection7.h"
 
 namespace
@@ -79,6 +80,8 @@ namespace
 			{"tune", "ratio", "index", "feedback", "moddecay", "drive", "hold", "decay", "note"}},
 		{"sc", 5, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::SyChord::Units, 0,
 			{"tune", "balance", "shape", "wave", "cutoff", "drive", "hold", "decay", "note"}},
+		{"ty", 36, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {1, 2, 3, 5}, fast::SyToy::Units, 0x4003d238,
+			{"tune", "ratios", "depth", "levels", "decays", "drive", "hold", "decay", "note"}},
 	};
 
 	// A machine's type, handed to what withMachine calls
@@ -102,6 +105,7 @@ namespace
 		case 5: return _f(Type<fast::SyChord>{});
 		case 6: return _f(Type<fast::SdVintage>{});
 		case 7: return _f(Type<fast::CpVintage>{});
+		case 36: return _f(Type<fast::SyToy>{});
 		default:
 			std::fprintf(stderr, "no fast machine has the id %d\n", _id);
 			std::abort();

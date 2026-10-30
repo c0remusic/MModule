@@ -59,7 +59,8 @@ namespace syntakt::fast::bench
 				m_block[0x150 + 4 * _t + i] = static_cast<uint8_t>(pitch >> (24 - 8 * i));
 		}
 
-		// The machine the track plays from its next trig (0 BD MODERN, 1 SD BASIC ...)
+		// The machine the track plays from its next trig: the machine's number, which the firmware maps to its engine
+		// (0 BD MODERN, 1 SD BASIC ... as their engines, but 36 SY TOY, engine 8)
 		void setMachine(const int _t, const int _machine) { m_block[20 * _t] = static_cast<uint8_t>(_machine); }
 
 		void trig(const int _t) { m_block[0x180] |= static_cast<uint8_t>(1 << _t); }
