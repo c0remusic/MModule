@@ -198,31 +198,7 @@ namespace
 		});
 
 		// The gated noise (0x400044e2), the generator in integers as the machine's: lane l's seeds from the exact port
-		{
-			Residual r;
-			const auto seeds = exactNoiseSeeds(_s7);
-			int32_t s[Lanes][5];
-			alignas(16) uint32_t w[4][Lanes];
-			for(int l = 0; l < Lanes; ++l)
-			{
-				const int32_t* drawn = seeds[static_cast<size_t>(l)].data();
-				for(int k = 0; k < 4; ++k)
-					w[k][l] = static_cast<uint32_t>(s[l][k] = drawn[2 + k]);	// the noise's words, the last four
-				s[l][4] = 0x2a3d70a4;
-			}
-			fast::Block out;
-			for(int b = 0; b < Blocks; ++b)
-			{
-				int32_t ref[Lanes][BlockSize];
-				for(int l = 0; l < Lanes; ++l)
-					gatedNoise(ref[l], s[l]);
-				fast::gatedNoise(out, w, 0x2a3d70a4);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.add(q31(ref[l][n]), out.s[n][l]);
-			}
-			ok &= r.print("gated noise");
-		}
+		ok &= q2GatedNoise(_s7, 0x2a3d70a4, Blocks);
 		check(ok, "Q2: the linear stages null to <= -100 dBFS RMS, <= -90 dBFS max");
 	}
 

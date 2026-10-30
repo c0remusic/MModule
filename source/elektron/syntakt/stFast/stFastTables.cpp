@@ -931,6 +931,87 @@ namespace syntakt::fast::tables
 		return t;
 	}
 
+	// ---- SY BITS ----
+	//
+	// Laws of the entry i, every word the firmware's: the phase offset in cycles, a line from 64; the bits and the
+	// sample-rate reducer's period in Q16, polynomials of v = i / 127 (and x = i / 128); the crossfade on lines between
+	// knots at 0, 21, 42 and 64; the mix in dB under sin^2 and cos^2 of pi i / 127; the amp's decay CY ALLOY's law. The
+	// waves: saws of K harmonics, K the 48 kHz Nyquist over their band's lowest note, under a raised cosine, sampled
+	// half a sample on, at their peak; the triangle; the sine
+
+	std::array<int32_t, 128> syBits(const SyBits _t)
+	{
+		if(_t == SyBits::AmpDecay)	// CY ALLOY's: 60 dB in 10 s at most
+			return build(curve(DecayLaw, Unit::T60, 10));
+		const double full = std::pow(10.0, -6 / 20.0), noise = std::pow(10.0, -12 / 20.0);
+		const auto riseStep = static_cast<int32_t>(Q31 / 22);	// the crossfade's third stretch, rounded down
+		std::array<int32_t, 128> t{};
+		for(int i = 0; i < 128; ++i)
+		{
+			const double v = i / 127.0, x = i / 128.0, s2 = std::pow(std::sin(Pi * i / 127), 2);
+			switch(_t)
+			{
+			case SyBits::PhaseOffset:	// units 1 and 3's, cycles: 1/2 to 63, then 0.0075 less an entry
+				t[i] = clamp((i <= 63 ? 0.5 : 0.5 - 0.0075 * (i - 63)) * Q31);
+				break;
+			case SyBits::Bits:			// the bits cut, Q16: 15, 14 more at 127, a tenth on a line, the rest a cubic
+				t[i] = clamp((15 + 14 * (0.1 * v + 0.9 * (1 - std::pow(1 - x, 3)))) * 65536);
+				break;
+			case SyBits::SampleRate:	// the period, Q16 samples: 30 v^2
+				t[i] = clamp(30 * v * v * 65536);
+				break;
+			case SyBits::Crossfade:		// up to full at 21, down to 0 at 42, up a step an entry to 64, then full
+				t[i] = i <= 21 ? clamp(i / 21.0 * Q31) : i <= 42 ? clamp((42 - i) / 21.0 * Q31)
+					: i < 64 ? (i - 42) * riseStep : clamp(Q31);
+				break;
+			case SyBits::GainA:			// the pairs at -6 dB, the noise at -12 dB, faded on either half
+				t[i] = clamp(full * (i <= 63 ? s2 : 1) * Q31);
+				break;
+			case SyBits::GainB:
+				t[i] = clamp(full * (i <= 63 ? 0 : 1 - s2) * Q31);
+				break;
+			case SyBits::GainNoise:
+				t[i] = clamp(noise * (i <= 63 ? 1 : s2) * Q31);
+				break;
+			default:
+				break;
+			}
+		}
+		return t;
+	}
+
+	std::array<int32_t, 513> syBitsWave(const int _n)
+	{
+		constexpr int N = 512;
+		double v[N + 1];
+		if(_n < 8)
+		{
+			// The band's lowest note (24 below 36) and its harmonics below 24 kHz, k's 1 / k under (1 + cos(pi (k - 1)
+			// / K)) / 2, at (i + 1/2) / 512 cycles, its peak at full scale
+			const int K = static_cast<int>(24000 / (440 * std::exp2((24 + 12 * _n - 69) / 12.0)));
+			double peak = 0;
+			for(int i = 0; i <= N; ++i)
+			{
+				v[i] = 0;
+				for(int k = 1; k <= K; ++k)
+					v[i] += (1 + std::cos(Pi * (k - 1) / K)) / 2 / k * std::sin(2 * Pi * k * (i + 0.5) / N);
+				if(i < N)
+					peak = std::max(peak, std::abs(v[i]));
+			}
+			for(double& s : v)
+				s /= peak;
+		}
+		else
+		{
+			for(int i = 0; i <= N; ++i)
+				v[i] = _n == 8 ? 1 - std::abs(std::fmod(i / double(N) + 0.25, 1.0) * 4 - 2) : std::sin(2 * Pi * i / N);
+		}
+		std::array<int32_t, 513> t{};
+		for(int i = 0; i <= N; ++i)
+			t[i] = clamp(v[i] * Q31);
+		return t;
+	}
+
 	std::array<int32_t, 257> wave()
 	{
 		// floor of five harmonics: sines 128 : 22 : 11 : 7 : 3 and cosines ~1e-6 of the fundamental, the generator's

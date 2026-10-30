@@ -94,6 +94,19 @@ namespace syntakt
 	{
 		void update(int32_t _pitch, Voice& _v, uint32_t _params, const Rom& _rom);
 		void render(int32_t* _out, Voice& _v, const Rom& _rom);
+
+		// 0x400061a2: unit _k's two waves (0xb0, 0xb4) crossfaded at its 25-bit phase, 32 samples, into its buffers B
+		// (raw) and A (under the unit's level); the weights (0xa8, 0xac) ramp a 64th of the way to their targets a
+		// sample, then take them
+		void crossfadeOscillator(int32_t _k, Voice& _v);
+
+		// 0x40006346: unit _k's wave (0xb0) at its phase plus an offset ramped from 0x74 to 0x70, 32 samples, into its
+		// buffers B (raw) and A (under the unit's level)
+		void offsetOscillator(int32_t _k, Voice& _v);
+
+		// 0x40005f9a: a bit reducer in place, each sample truncated to a multiple of 2^b and of 2^(b + 1),
+		// crossfaded by the fraction; b and the fraction from _c[5], Q16
+		void reduceBits(int32_t* _buf, const int32_t* _c);
 	}
 
 	namespace sySwarm

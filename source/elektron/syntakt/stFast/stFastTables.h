@@ -3,7 +3,7 @@
 #include <array>
 #include <cstdint>
 
-// The tables syntakt::fast::BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage, CpVintage and SyToy read,
+// The tables syntakt::fast::BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage, CpVintage, SyToy and SyBits read,
 // made by formula rather than read from the firmware
 // (ticket 07 of elektron-drums-v1), as the firmware's Q31 words. stFastTablesTest compares each with OS 1.41's
 // section 7; the exact ones were checked with MSVC's runtime, and another libm may round a word 1 LSB apart.
@@ -131,6 +131,22 @@ namespace syntakt::fast::tables
 	constexpr bool exact(SyToy) { return true; }
 
 	std::array<int32_t, 128> syToy(SyToy _t);
+
+	// SY BITS's 128-entry tables, in section 7's order (0x4003de38 to 0x4003ec38): every one exact. AmpDecay
+	// (0x4003ec38) is also SY SWARM's and SP TWINSHOT's
+	enum class SyBits
+	{
+		PhaseOffset, Bits, SampleRate, Crossfade, GainNoise, GainB, GainA, AmpDecay, Count
+	};
+
+	constexpr bool exact(SyBits) { return true; }
+
+	std::array<int32_t, 128> syBits(SyBits _t);
+
+	// SY BITS's waves, 513 words each (a cycle and its first word again): _n 0 to 7 the band-limited saws its notes
+	// take (at or below 35, then by 12 from 36, from 108), 8 the triangle, 9 the sine (section 7's 0x4005c6fc,
+	// 0x4005bef8, 0x40056e68 down by 0x804 to 0x40054654, 0x4005cf00 and 0x4005d704). Exact
+	std::array<int32_t, 513> syBitsWave(int _n);
 
 	// Unit 2's wave (0x4001e7fc): 257 words, 16-bit samples in the top half. Exact
 	std::array<int32_t, 257> wave();

@@ -50,120 +50,119 @@ namespace syntakt::syBits
 			acc.msac(f, _wave[i]);
 			return acc.storeClear();
 		}
+	}
 
-		// 0x400061a2: unit _k's two waves (0xb0, 0xb4) crossfaded, 32 samples at 24 kHz, into its buffers B (raw) and
-		// A (under the unit's level). The weights ramp toward 0x7f000000 - w and w (w: 0xa4) by a 64th of the way
-		// per sample, so they cover only half of it in a block
-		void crossfadeOscillator(const int32_t _k, Voice& _v)
+	// 0x400061a2: unit _k's two waves (0xb0, 0xb4) crossfaded, 32 samples at 24 kHz, into its buffers B (raw) and
+	// A (under the unit's level). The weights ramp toward 0x7f000000 - w and w (w: 0xa4) by a 64th of the way
+	// per sample, so they cover only half of it in a block
+	void crossfadeOscillator(const int32_t _k, Voice& _v)
+	{
+		Sram& sram = _v.sram;
+		const uint32_t u = Voice::UnitStride * static_cast<uint32_t>(_k);
+		int32_t* bufA = sram.ptr(static_cast<uint32_t>(_v.at(u + 0xc8)));
+		int32_t* bufB = sram.ptr(static_cast<uint32_t>(_v.at(u + 0xcc)));
+		const int32_t inc = _v.at(u + 0x78);
+		const uint32_t waveFirst = static_cast<uint32_t>(_v.at(u + 0xb0));
+		const uint32_t waveSecond = static_cast<uint32_t>(_v.at(u + 0xb4));
+
+		int32_t amp = _v.at(u + 0x80);
+		const int32_t ampStep = rampStepSat(_v.at(u + 0x7c), amp);
+
+		const int32_t w = _v.at(u + 0xa4);
+		const int32_t target1 = subWrap(0x7f000000, w);
+		const int32_t weight1 = _v.at(u + 0xa8);
+		const int32_t weight2 = _v.at(u + 0xac);
+		const int32_t step1 = subWrap(target1, weight1) >> 6;
+		const int32_t step2 = subWrap(w, weight2) >> 6;
+		_v.at(u + 0xa8) = target1;
+		_v.at(u + 0xac) = w;
+		_v.at(u + 0xb8) = _v.at(u + 0xb0);
+		_v.at(u + 0xbc) = _v.at(u + 0xb4);
+
+		int32_t* s = sram.ptr(Scratch);
+		s[0] = 15;
+		s[1] = 16;
+		s[2] = static_cast<int32_t>(waveFirst);
+		s[3] = static_cast<int32_t>(waveSecond);
+		s[4] = weight1;
+		s[5] = weight2;
+
+		const int32_t* wave1 = sram.ptr(waveFirst);
+		const int32_t* wave2 = sram.ptr(waveSecond);
+		int32_t phase = _v.at(u + Voice::Phase);
+		for(int n = 0; n < BlockSize; ++n)
 		{
-			Sram& sram = _v.sram;
-			const uint32_t u = Voice::UnitStride * static_cast<uint32_t>(_k);
-			int32_t* bufA = sram.ptr(static_cast<uint32_t>(_v.at(u + 0xc8)));
-			int32_t* bufB = sram.ptr(static_cast<uint32_t>(_v.at(u + 0xcc)));
-			const int32_t inc = _v.at(u + 0x78);
-			const uint32_t waveFirst = static_cast<uint32_t>(_v.at(u + 0xb0));
-			const uint32_t waveSecond = static_cast<uint32_t>(_v.at(u + 0xb4));
-
-			int32_t amp = _v.at(u + 0x80);
-			const int32_t ampStep = rampStepSat(_v.at(u + 0x7c), amp);
-
-			const int32_t w = _v.at(u + 0xa4);
-			const int32_t target1 = subWrap(0x7f000000, w);
-			const int32_t weight1 = _v.at(u + 0xa8);
-			const int32_t weight2 = _v.at(u + 0xac);
-			const int32_t step1 = subWrap(target1, weight1) >> 6;
-			const int32_t step2 = subWrap(w, weight2) >> 6;
-			_v.at(u + 0xa8) = target1;
-			_v.at(u + 0xac) = w;
-			_v.at(u + 0xb8) = _v.at(u + 0xb0);
-			_v.at(u + 0xbc) = _v.at(u + 0xb4);
-
-			int32_t* s = sram.ptr(Scratch);
-			s[0] = 15;
-			s[1] = 16;
-			s[2] = static_cast<int32_t>(waveFirst);
-			s[3] = static_cast<int32_t>(waveSecond);
-			s[4] = weight1;
-			s[5] = weight2;
-
-			const int32_t* wave1 = sram.ptr(waveFirst);
-			const int32_t* wave2 = sram.ptr(waveSecond);
-			int32_t phase = _v.at(u + Voice::Phase);
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				const int32_t s1 = lookup(wave1, phase);
-				const int32_t s2 = lookup(wave2, phase);
-				Emac acc;
-				acc.mac(s[4], s1);
-				acc.mac(s[5], s2);
-				s[4] = addWrap(s[4], step1);
-				s[5] = addWrap(s[5], step2);
-				phase = addWrap(phase, inc) & 0x1ffffff;
-				const int32_t x = acc.storeClear();
-				acc.msac(amp, x);
-				amp = addWrap(amp, ampStep);
-				bufB[n] = x;
-				bufA[n] = acc.storeClear();
-			}
-			_v.at(u + Voice::Phase) = phase;
-			_v.at(u + Voice::EnvLevelPrev) = _v.at(u + Voice::EnvLevel);
+			const int32_t s1 = lookup(wave1, phase);
+			const int32_t s2 = lookup(wave2, phase);
+			Emac acc;
+			acc.mac(s[4], s1);
+			acc.mac(s[5], s2);
+			s[4] = addWrap(s[4], step1);
+			s[5] = addWrap(s[5], step2);
+			phase = addWrap(phase, inc) & 0x1ffffff;
+			const int32_t x = acc.storeClear();
+			acc.msac(amp, x);
+			amp = addWrap(amp, ampStep);
+			bufB[n] = x;
+			bufA[n] = acc.storeClear();
 		}
+		_v.at(u + Voice::Phase) = phase;
+		_v.at(u + Voice::EnvLevelPrev) = _v.at(u + Voice::EnvLevel);
+	}
 
-		// 0x40006346: unit _k's wave (0xb0) read at its phase plus an offset that ramps from 0x74 to 0x70 over the
-		// block, 32 samples at 24 kHz, into its buffers B (raw) and A (under the unit's level)
-		void offsetOscillator(const int32_t _k, Voice& _v)
+	// 0x40006346: unit _k's wave (0xb0) read at its phase plus an offset that ramps from 0x74 to 0x70 over the
+	// block, 32 samples at 24 kHz, into its buffers B (raw) and A (under the unit's level)
+	void offsetOscillator(const int32_t _k, Voice& _v)
+	{
+		Sram& sram = _v.sram;
+		const uint32_t u = Voice::UnitStride * static_cast<uint32_t>(_k);
+		int32_t* bufA = sram.ptr(static_cast<uint32_t>(_v.at(u + 0xc8)));
+		int32_t* bufB = sram.ptr(static_cast<uint32_t>(_v.at(u + 0xcc)));
+		const int32_t* wave = sram.ptr(static_cast<uint32_t>(_v.at(u + 0xb0)));
+		const int32_t inc = _v.at(u + 0x78);
+
+		int32_t offset = _v.at(u + 0x74);
+		const int32_t offsetStep = rampStepSat(_v.at(u + 0x70), offset);
+		int32_t amp = _v.at(u + 0x80);
+		const int32_t ampStep = rampStepSat(_v.at(u + 0x7c), amp);
+
+		int32_t phase = _v.at(u + Voice::Phase);
+		for(int n = 0; n < BlockSize; ++n)
 		{
-			Sram& sram = _v.sram;
-			const uint32_t u = Voice::UnitStride * static_cast<uint32_t>(_k);
-			int32_t* bufA = sram.ptr(static_cast<uint32_t>(_v.at(u + 0xc8)));
-			int32_t* bufB = sram.ptr(static_cast<uint32_t>(_v.at(u + 0xcc)));
-			const int32_t* wave = sram.ptr(static_cast<uint32_t>(_v.at(u + 0xb0)));
-			const int32_t inc = _v.at(u + 0x78);
-
-			int32_t offset = _v.at(u + 0x74);
-			const int32_t offsetStep = rampStepSat(_v.at(u + 0x70), offset);
-			int32_t amp = _v.at(u + 0x80);
-			const int32_t ampStep = rampStepSat(_v.at(u + 0x7c), amp);
-
-			int32_t phase = _v.at(u + Voice::Phase);
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				const int32_t x = lookup(wave, addWrap(phase, offset) & 0x1ffffff);
-				offset = addWrap(offset, offsetStep);
-				phase = addWrap(phase, inc) & 0x1ffffff;
-				Emac acc;
-				acc.msac(amp, x);
-				amp = addWrap(amp, ampStep);
-				bufB[n] = x;
-				bufA[n] = acc.storeClear();
-			}
-			_v.at(u + Voice::Phase) = phase;
-			_v.at(u + 0x74) = _v.at(u + 0x70);
-			_v.at(u + Voice::EnvLevelPrev) = _v.at(u + Voice::EnvLevel);
+			const int32_t x = lookup(wave, addWrap(phase, offset) & 0x1ffffff);
+			offset = addWrap(offset, offsetStep);
+			phase = addWrap(phase, inc) & 0x1ffffff;
+			Emac acc;
+			acc.msac(amp, x);
+			amp = addWrap(amp, ampStep);
+			bufB[n] = x;
+			bufA[n] = acc.storeClear();
 		}
+		_v.at(u + Voice::Phase) = phase;
+		_v.at(u + 0x74) = _v.at(u + 0x70);
+		_v.at(u + Voice::EnvLevelPrev) = _v.at(u + Voice::EnvLevel);
+	}
 
-		// 0x40005f9a: a bit reducer. Each sample is truncated to a multiple of 2^b and of 2^(b + 1), and the two
-		// crossfaded by the fraction; b and the fraction from _c[5], Q16, b clamped to 0..30
-		void reduceBits(int32_t* _buf, const int32_t* _c)
+	// 0x40005f9a: a bit reducer. Each sample is truncated to a multiple of 2^b and of 2^(b + 1), and the two
+	// crossfaded by the fraction; b and the fraction from _c[5], Q16, b clamped to 0..30
+	void reduceBits(int32_t* _buf, const int32_t* _c)
+	{
+		const int32_t word = _c[5];
+		int32_t b = word >> 16;
+		if(b < 0)
+			b = 0;
+		else if(b > 30)
+			b = 30;
+		const int32_t w1 = asl(word & 0xffff, 15);
+		const int32_t w0 = subSat(INT32_MAX, w1);
+		for(int n = 0; n < BlockSize; ++n)
 		{
-			const int32_t word = _c[5];
-			int32_t b = word >> 16;
-			if(b < 0)
-				b = 0;
-			else if(b > 30)
-				b = 30;
-			const int32_t w1 = asl(word & 0xffff, 15);
-			const int32_t w0 = subSat(INT32_MAX, w1);
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				const int32_t x = _buf[n];
-				Emac acc;
-				acc.mac(w0, aslReg(asrReg(x, b), b));
-				acc.mac(w1, aslReg(asrReg(x, b + 1), b + 1));
-				_buf[n] = acc.storeClear();
-			}
+			const int32_t x = _buf[n];
+			Emac acc;
+			acc.mac(w0, aslReg(asrReg(x, b), b));
+			acc.mac(w1, aslReg(asrReg(x, b + 1), b + 1));
+			_buf[n] = acc.storeClear();
 		}
-
 	}
 
 	void update(const int32_t _pitch, Voice& _v, const uint32_t _params, const Rom& _rom)

@@ -1,4 +1,5 @@
-// syntakt::fast::tables, the tables BD MODERN, SD BASIC, CY ALLOY, PC CARBON, SD VINTAGE, CP VINTAGE and SY TOY read
+// syntakt::fast::tables, the tables BD MODERN, SD BASIC, CY ALLOY, PC CARBON, SD VINTAGE, CP VINTAGE, SY TOY and SY
+// BITS read
 // made by formula, against OS 1.41's section 7 word for word: per table, exact or the number of
 // words that differ and the largest error (in LSB of Q31, and of the table's own unit: the time constant of a decay,
 // the share of full scale of a level). A table its header calls exact that differs fails.
@@ -279,6 +280,27 @@ int main()
 		{"AmpDecay", 0x4003dc38, SyToy::AmpDecay, true, 0},
 	};
 	compareAll(s7, "SY TOY", syToy, syntakt::fast::tables::syToy);
+
+	// SY BITS's, every word exact, and its waves at the words the boot copies them from
+	using syntakt::fast::tables::SyBits;
+	const Entry<SyBits> syBits[] = {
+		{"PhaseOffset", 0x4003de38, SyBits::PhaseOffset, false, 0},
+		{"Bits", 0x4003e038, SyBits::Bits, false, 0},
+		{"SampleRate", 0x4003e238, SyBits::SampleRate, false, 0},
+		{"Crossfade", 0x4003e438, SyBits::Crossfade, false, 0},
+		{"GainNoise", 0x4003e638, SyBits::GainNoise, false, 0},
+		{"GainB", 0x4003e838, SyBits::GainB, false, 0},
+		{"GainA", 0x4003ea38, SyBits::GainA, false, 0},
+		{"AmpDecay", 0x4003ec38, SyBits::AmpDecay, true, 0},
+	};
+	compareAll(s7, "SY BITS", syBits, syntakt::fast::tables::syBits);
+	const uint32_t bitsWaves[] = {0x4005c6fc, 0x4005bef8, 0x40056e68, 0x40056664, 0x40055e60, 0x4005565c, 0x40054e58,
+		0x40054654, 0x4005cf00, 0x4005d704};
+	for(int n = 0; n < 10; ++n)
+	{
+		const std::string name = "BitsWave" + std::to_string(n);
+		compare(s7, name.c_str(), bitsWaves[n], syntakt::fast::tables::syBitsWave(n), true, false, 0);
+	}
 
 	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
 	return g_failures ? 1 : 0;

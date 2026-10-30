@@ -694,6 +694,36 @@ namespace syntakt::fast::bench
 		}
 	};
 
+	// Q2 of the gated noise (0x400044e2) at a machine's gate word _gate, over _blocks: the generator in integers as the
+	// machine's, lane l from the exact port's seeds, the noise reading the last four of the six words its machine
+	// change draws. Printed, its verdict returned
+	inline bool q2GatedNoise(const std::vector<int32_t>& _s7, const int32_t _gate, const int _blocks)
+	{
+		Residual r;
+		const auto seeds = exactNoiseSeeds(_s7);
+		int32_t s[Lanes][5];
+		alignas(16) uint32_t w[4][Lanes];
+		for(int l = 0; l < Lanes; ++l)
+		{
+			const int32_t* drawn = seeds[static_cast<size_t>(l)].data();
+			for(int k = 0; k < 4; ++k)
+				w[k][l] = static_cast<uint32_t>(s[l][k] = drawn[2 + k]);
+			s[l][4] = _gate;
+		}
+		fast::Block out;
+		for(int b = 0; b < _blocks; ++b)
+		{
+			int32_t ref[Lanes][BlockSize];
+			for(int l = 0; l < Lanes; ++l)
+				syntakt::gatedNoise(ref[l], s[l]);
+			fast::gatedNoise(out, w, _gate);
+			for(int l = 0; l < Lanes; ++l)
+				for(int n = 0; n < BlockSize; ++n)
+					r.add(q31(ref[l][n]), out.s[n][l]);
+		}
+		return r.print("gated noise");
+	}
+
 	// The increments of a swept Hit, in 24-bit phase units: lane _l's note 24 + 3 l, times _octave
 	inline int32_t sweptIncrement(const int _l, const int _b, const double _octave)
 	{

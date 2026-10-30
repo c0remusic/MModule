@@ -218,38 +218,27 @@ namespace
 		}
 
 		// The two noises (0x400044e2, 0x40003eb4), the generator in integers as the machine's: lane l's seeds from the
-		// exact port, the white noise going on with the crackle's last two words, as CP VINTAGE draws it
+		// exact port, the white noise from the last two of the gated noise's four words
+		ok &= q2GatedNoise(_s7, 0x2a3d70a4, Blocks);
 		{
-			Residual gated, white;
+			Residual white;
 			const auto seeds = exactNoiseSeeds(_s7);
-			int32_t s[Lanes][5];
-			alignas(16) uint32_t words[4][Lanes];
+			int32_t s[Lanes][2];
+			alignas(16) uint32_t words[2][Lanes];
 			for(int l = 0; l < Lanes; ++l)
-			{
-				const int32_t* drawn = seeds[static_cast<size_t>(l)].data();
-				for(int k = 0; k < 4; ++k)
-					words[k][l] = static_cast<uint32_t>(s[l][k] = drawn[2 + k]);	// the noise's words, the last four
-				s[l][4] = 0x2a3d70a4;
-			}
-			fast::Block outGated, outWhite;
+				for(int k = 0; k < 2; ++k)
+					words[k][l] = static_cast<uint32_t>(s[l][k] = seeds[static_cast<size_t>(l)][4 + k]);
+			fast::Block out;
 			for(int b = 0; b < Blocks; ++b)
 			{
-				int32_t refGated[Lanes][BlockSize], refWhite[Lanes][BlockSize];
+				int32_t ref[Lanes][BlockSize];
 				for(int l = 0; l < Lanes; ++l)
-				{
-					gatedNoise(refGated[l], s[l]);
-					drawRandom(refWhite[l], BlockSize, &s[l][2]);
-				}
-				fast::gatedNoise(outGated, words, 0x2a3d70a4);
-				fast::whiteNoise(outWhite, words[2], words[3]);
+					drawRandom(ref[l], BlockSize, s[l]);
+				fast::whiteNoise(out, words[0], words[1]);
 				for(int l = 0; l < Lanes; ++l)
 					for(int n = 0; n < BlockSize; ++n)
-					{
-						gated.add(q31(refGated[l][n]), outGated.s[n][l]);
-						white.add(q31(refWhite[l][n]), outWhite.s[n][l]);
-					}
+						white.add(q31(ref[l][n]), out.s[n][l]);
 			}
-			ok &= gated.print("gated noise");
 			ok &= white.print("white noise");
 		}
 		check(ok, "Q2: the linear stages null to <= -100 dBFS RMS, <= -90 dBFS max");

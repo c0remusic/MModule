@@ -287,15 +287,22 @@ namespace syntakt::fast
 		return static_cast<int64_t>(std::floor((_depth - 67108864.0) * _sweep)) + 67108864;
 	}
 
-	// A unit's increment in 2^-24 cycles per 48 kHz sample: its factor (0x50) under the sweep's word _m, its ratio
-	// (0x64, 0x40000000 the note's), at the pitch word, each product truncated as the machine's, at most 32 times the
-	// note's
-	inline double increment48(const int64_t _m, const int64_t _factor, const int64_t _scale, const int64_t _pitch)
+	// A unit's increment in 2^-25 cycles per 48 kHz sample, for a 25-bit phase (24: the 24 kHz oscillator's,
+	// phaseIncr24k at 0x400060b2): its factor (0x50) under
+	// the sweep's word _m, its ratio (0x64, 0x40000000 the note's), at the pitch word, each product truncated as the
+	// machine's, at most 32 times the note's
+	inline int64_t increment24(const int64_t _m, const int64_t _factor, const int64_t _scale, const int64_t _pitch)
 	{
 		const int64_t t2 = (((_factor >> 6) * _m >> 31) * _scale) >> 31;
 		const auto t3 = static_cast<int32_t>(static_cast<uint32_t>(t2) << 11);
 		const int64_t t4 = std::clamp<int64_t>(2 * int64_t(t3), INT32_MIN, INT32_MAX);
-		return static_cast<double>(((t4 * _pitch >> 31) * 0x57619f10 >> 31) >> 2);
+		return ((t4 * _pitch >> 31) * 0x57619f10 >> 31) >> 1;
+	}
+
+	// The same in 2^-24 cycles, for a 24-bit phase (0x40002596): one more shift, as the machine's
+	inline double increment48(const int64_t _m, const int64_t _factor, const int64_t _scale, const int64_t _pitch)
+	{
+		return static_cast<double>(increment24(_m, _factor, _scale, _pitch) >> 1);
 	}
 
 	// That increment as a 32-bit phase step (Increments')
@@ -498,7 +505,7 @@ namespace syntakt::fast
 	//	- const Block& renderBlock(): one 48 kHz block of the 16 Tracks, in this order: FlushDenormals,
 	//	  controls.trigs.start(), the block-rate control, the stages, controls.trigs.end()
 	//	- at 48 kHz only, a machine may step its envelopes once per block but in the trig's block rather than on
-	//	  Clock48, whose steps that is (CP VINTAGE and SY TOY do)
+	//	  Clock48, whose steps that is (CP VINTAGE, SY TOY and SY BITS do)
 	// Controls holds what the front sets, which the machine converts (its convert(track)) and its control reads
 	struct Controls
 	{
