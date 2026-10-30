@@ -6,8 +6,8 @@ cmake_minimum_required(VERSION 3.15)
 # nothing of the firmware is read.
 add_library(stFast STATIC stFastStages.h stFastStages.cpp stFastBdModern.h stFastBdModern.cpp stFastSdBasic.h
 	stFastSdBasic.cpp stFastCyAlloy.h stFastCyAlloy.cpp stFastPcCarbon.h stFastPcCarbon.cpp stFastSdVintage.h
-	stFastSdVintage.cpp stFastCpVintage.h stFastCpVintage.cpp stFastSyTone.h stFastSyTone.cpp stFastResample.h
-	stFastResample.cpp stFastTables.h stFastTables.cpp)
+	stFastSdVintage.cpp stFastCpVintage.h stFastCpVintage.cpp stFastSyTone.h stFastSyTone.cpp stFastSyChord.h
+	stFastSyChord.cpp stFastResample.h stFastResample.cpp stFastTables.h stFastTables.cpp)
 target_include_directories(stFast PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(TARGET stFast PROPERTY FOLDER "Elektron/syntakt")
 
@@ -68,6 +68,13 @@ if(BUILD_TESTING)
 	set_property(TARGET stFastSyToneTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stFastSyToneTest COMMAND stFastSyToneTest)
 	set_tests_properties(stFastSyToneTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# SY CHORD the same (SYNTAKT_SECTION7: exit 77 without it)
+	add_executable(stFastSyChordTest stFastSyChordTest.cpp stFastBench.h stFastMetrics.h)
+	target_link_libraries(stFastSyChordTest PRIVATE stFast stEngine)
+	set_property(TARGET stFastSyChordTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME stFastSyChordTest COMMAND stFastSyChordTest)
+	set_tests_properties(stFastSyChordTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 	# The resampler that brings the fast Syntakt's 48 kHz to a 44.1 kHz host (Q11): no firmware
 	add_executable(stFastResampleTest stFastResampleTest.cpp stFastBdModernHits.h stFastBench.h stFastMetrics.h)

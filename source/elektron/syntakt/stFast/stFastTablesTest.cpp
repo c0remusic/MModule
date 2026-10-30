@@ -1,7 +1,7 @@
-// syntakt::fast::tables, the tables BD MODERN, SD BASIC, CY ALLOY, PC CARBON, SD VINTAGE, CP VINTAGE and SY TONE read
-// made by formula, against OS 1.41's section 7 word for word: per table, exact or the number of words that differ and
-// the largest error (in LSB of Q31, and of the table's own unit: the time constant of a decay, the share of full scale
-// of a level). A table its header calls exact that differs fails.
+// syntakt::fast::tables, the tables BD MODERN, SD BASIC, CY ALLOY, PC CARBON, SD VINTAGE, CP VINTAGE, SY TONE and SY
+// CHORD read made by formula, against OS 1.41's section 7 word for word: per table, exact or the number of words that
+// differ and the largest error (in LSB of Q31, and of the table's own unit: the time constant of a decay, the share of
+// full scale of a level). A table its header calls exact that differs fails.
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7. Exit 77 without it.
 
@@ -271,6 +271,31 @@ int main()
 		{"AmpDecay", 0x40021e04, SyTone::AmpDecay, true, 0},
 	};
 	compareAll(s7, "SY TONE", syTone, syntakt::fast::tables::syTone);
+
+	// SY CHORD's, every word exact; its waves approximate, each within its law's stated error (stFastTables.cpp:
+	// the generator's own rounding, 8e-6 of full scale, 3.6e-6 for the harmonic lists, 3.1e-5 for 13 and 14 and 5.1e-4
+	// for 8), each at the pointer section 7 gives it
+	using syntakt::fast::tables::SyChord;
+	const Entry<SyChord> syChord[] = {
+		{"AmpDecay", 0x40025e38, SyChord::AmpDecay, true, 0},
+		{"SweepDecay", 0x40025c38, SyChord::SweepDecay, true, 0},
+		{"RatioA", 0x40025208, SyChord::RatioA, false, 0},
+		{"RatioB", 0x40024e08, SyChord::RatioB, false, 0},
+		{"RatioC", 0x40025408, SyChord::RatioC, false, 0},
+		{"RatioD", 0x40025008, SyChord::RatioD, false, 0},
+		{"Cutoff", 0x40025808, SyChord::Cutoff, false, 0},
+		{"Pole", 0x40025608, SyChord::Pole, false, 0},
+	};
+	compareAll(s7, "SY CHORD", syChord, syntakt::fast::tables::syChord);
+	compare(s7, "Attack", 0x40024c08, syntakt::fast::tables::syChordAttack(), true, false, 0);
+	compare(s7, "Chords", 0x40025a08, syntakt::fast::tables::syChordShapes(), true, false, 0);
+	for(int n = 1; n <= 32; ++n)
+	{
+		const auto pointer = static_cast<uint32_t>(s7[(0x40014870 - Base) / 4 + static_cast<uint32_t>(n - 1)]);
+		const int64_t bound = n == 8 ? 1100000 : n == 13 || n == 14 ? 66000 : 17500;
+		const std::string name = "Wave" + std::to_string(n);
+		compare(s7, name.c_str(), pointer, syntakt::fast::tables::syChordWave(n), false, false, bound);
+	}
 
 	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
 	return g_failures ? 1 : 0;

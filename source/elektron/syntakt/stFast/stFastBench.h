@@ -1044,6 +1044,7 @@ namespace syntakt::fast::bench
 				exact.setMachine(t, _hits.machine);
 			std::vector<std::vector<double>> ref(Lanes), test(Lanes);
 			int64_t words = 0, differ = 0;
+			std::vector<int32_t> w(_fields.size());
 			for(int b = 0; b <= 2 * 48000 / BlockSize; ++b)	// 2 s
 			{
 				const auto both = [&](auto&& _f) { _f(exact); _f(*machine); };
@@ -1061,8 +1062,7 @@ namespace syntakt::fast::bench
 				{
 					if(b >= 1 && !_fields.empty())
 					{
-						int32_t w[8];
-						_words(*machine, t, w);
+						_words(*machine, t, w.data());
 						for(size_t k = 0; k < _fields.size(); ++k, ++words)
 							differ += w[k] != exact.field(t, _fields[k]);
 					}

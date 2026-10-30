@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iterator>
+#include <vector>
 
 #include "stFastStages.h"
 
@@ -20,11 +21,12 @@
 // the law of its units 0-2, its amp and its modulator. Its levels with six decimals are 4 times the feedback, 1.1
 // times unit 0's target, unit 1's target itself
 // The rule: laws, round knots carried by a stretch, fitted stretches; no segment of one entry, no word written for an
-// entry of its own. Two exceptions, the user's: a three-constant parabola over three entries where a turn follows no
+// entry of its own. Three exceptions, the user's: a three-constant parabola over three entries where a turn follows no
 // stretch, in four places only: SD BASIC's SweepDepth 63-65, PC CARBON's SweepDepth 63-65 and its FactorU2 29-31 and
-// 47-49; and an exact round knot of its own in a frequency-ratio table where no stretch can hold it and the exact port
+// 47-49; an exact round knot of its own in a frequency-ratio table where no stretch can hold it and the exact port
 // itself moves past its tolerance with that word a little off, in two places only: CY ALLOY's Spread 116 and SY TONE's
-// Ratio 0-7
+// Ratio 0-7; and a wave whose harmonics no designer's values hold, given by its fitted harmonics, in seven places
+// only: SY CHORD's waves 19, 22-25 and 27 (their Fourier lists) and 8 (its fitted rise, then held)
 namespace syntakt::fast::tables
 {
 	namespace
@@ -941,6 +943,217 @@ namespace syntakt::fast::tables
 			default:
 				break;
 			}
+		}
+		return t;
+	}
+
+	// ---- SY CHORD ----
+	//
+	// Laws of the entry i (x = i / 127), every word the firmware's: the decays by SD BASIC's DECAY law (the amp's at 15
+	// s, CY ALLOY's and SY TONE's, the sweep's at 3 s), the units' detunes in semitones growing as x^2, the filter's
+	// cutoff and pole by the bilinear transform without prewarping, K = pi f / fs, its frequency a line in Hz; the
+	// attack in blocks to full; the chords in semitones, the designer's whole intervals. The waves are the designer's
+	// harmonics, approximate (syChordWave)
+
+	namespace
+	{
+		// The units' detune of shapes 0 to 2 at 127, semitones: RatioA and RatioB down and up a tone, RatioC and RatioD
+		// by 0.6667 (four places: 2/3 moves 122 words by up to 134 LSB)
+		constexpr double Detune[4] = {-2, 2, -0.6667, 0.6667};
+
+		// The intervals of chords 3 to 37 above the root, semitones
+		constexpr int Chords[35][3] = {
+			{3, 7, 12}, {4, 7, 12}, {2, 7, 12}, {5, 7, 12}, {3, 7, 10}, {4, 7, 10}, {3, 7, 11}, {4, 7, 11},
+			{5, 7, 10}, {3, 6, 9}, {3, 7, 14}, {4, 7, 14}, {3, 7, 9}, {4, 7, 9}, {3, 6, 12}, {4, 6, 12}, {3, 6, 10},
+			{4, 6, 10}, {4, 8, 12}, {3, 8, 10}, {4, 8, 10}, {3, 7, 8}, {3, 10, 14}, {4, 10, 14}, {4, 6, 14},
+			{4, 6, 11}, {4, 10, 13}, {1, 5, 8}, {5, 7, 8}, {4, 6, 7}, {4, 5, 9}, {4, 9, 11}, {4, 11, 14},
+			{5, 12, 17}, {7, 12, 19},
+		};
+
+		// A wave's harmonics, sines, and how they make its words: Peak, amplitudes relative to the fundamental's,
+		// scaled to a peak of 1 - 2^-15 on the 256 samples; Full, amplitudes of full scale; Held, Full held at
+		// 1 - 2^-15 (by sign) from sample 28 to 100 of each half cycle
+		enum class WaveKind
+		{
+			Peak, Full, Held
+		};
+
+		struct Partial
+		{
+			int k;
+			double a;
+		};
+
+		struct WaveLaw
+		{
+			WaveKind kind;
+			std::vector<Partial> partials;
+		};
+
+		// The designer's step of a relative amplitude: (n + 3/4) / 435.5, on which most of the waves' harmonics fall
+		constexpr double step(const int _n) { return (_n + 0.75) / 435.5; }
+
+		// Waves 1 to 31. Peak: each harmonic a step or a decimal of up to five places; the firmware's words differ from
+		// them by its generator's own rounding, up to 8e-6 of full scale (its waves are not odd to that much), but 13
+		// and 14 (its negative peak saturated, 3.1e-5). Full: the harmonics of 19, 22-25 and 27, which no designer's
+		// values hold, to six places (within 3.6e-6). Held: wave 8's rise, five odd harmonics fitted to its samples
+		// 0-27, then held (5.1e-4 where the firmware's negative half saturates and dips at 192-207). Full and Held are
+		// the rule's third exception (header), the user's
+		const std::vector<WaveLaw>& waveLaws()
+		{
+			using K = WaveKind;
+			constexpr K Peak = K::Peak, Full = K::Full, Held = K::Held;
+			static const std::vector<WaveLaw> laws = {
+			{Peak, {{1, 1}, {2, step(217)}}},
+			{Peak, {{1, 1}, {3, 1}}},
+			{Peak, {{1, 1}, {2, 1}, {3, -1}, {4, 0.358}}},
+			{Peak, {{1, 1}, {2, 1}, {4, 1}}},
+			{Peak, {{1, 1}, {2, step(217)}, {3, -0.2}, {6, 0.07}}},
+			{Peak, {{1, 1}, {3, 1}, {6, step(304)}}},
+			{Peak, {{1, 1}, {3, step(45)}, {4, step(80)}, {7, step(21)}}},
+			{Held, {{1, 1.236016}, {3, 0.32562}, {5, 0.119301}, {7, 0.03758}, {9, 0.007275}}},
+			{Peak, {{1, 1}, {3, -0.099}, {5, 0.0297}, {7, -0.0139}, {9, 0.0068}}},
+			{Peak, {{1, 1}, {2, -0.705}, {3, 0.481}, {4, -0.13}, {6, 0.03}, {8, -0.00574}}},
+			{Peak, {{1, 1}, {2, 0.3752}, {3, 0.1537}, {4, 0.05787}, {5, 0.01893}, {6, 0.0115}, {7, 0.01174},
+				{8, 0.00952}, {9, 0.00706}, {10, 0.00343}}},
+			{Peak, {{1, 1}, {2, 1}, {5, step(35)}, {8, step(87)}}},
+			{Peak, {{1, 1}, {5, step(52)}, {9, step(15)}, {13, step(4)}}},
+			{Peak, {{1, 1}, {5, step(119)}, {9, step(30)}}},
+			{Peak, {{1, 1}, {3, 0.15}, {4, 0.36}, {5, 0.15}, {7, 0.045}, {8, 0.15}, {9, 0.045}}},
+			{Peak, {{1, 1}, {2, step(41)}, {3, step(315)}, {4, step(66)}, {5, step(122)}, {6, step(17)},
+				{7, step(28)}}},
+			{Peak, {{1, 1}, {2, step(61)}, {4, step(87)}, {5, step(223)}, {6, step(151)}, {7, step(62)}}},
+			{Peak, {{1, 1}, {2, 0.54191}, {3, -1}, {4, 0.3031}, {5, 0.56028}, {6, -0.02755}, {7, 0.06429},
+				{8, -0.10103}, {9, 0.02755}, {10, 0.04592}}},
+			{Full, {{1, 0.200517}, {2, 0.443626}, {3, 0.483302}, {4, 0.044989}, {5, 0.008272}, {6, 0.089055},
+				{7, 0.000162}, {8, 0.000018}, {9, 0.010912}, {12, 0.000922}, {15, 0.000057}, {18, 0.000003}}},
+			{Peak, {{1, 1}, {2, 1}, {6, step(120)}, {7, step(61)}, {8, step(29)}, {9, step(13)}, {10, step(9)},
+				{11, step(6)}, {12, step(5)}, {13, step(3)}}},
+			{Peak, {{1, 1}, {2, 1}, {3, step(348)}, {4, step(281)}, {5, step(212)}, {6, step(156)}, {7, step(100)},
+				{8, step(60)}, {9, step(31)}, {10, step(10)}}},
+			{Full, {{1, 0.559038}, {2, 0.210095}, {3, -0.222402}, {4, 0.320352}, {5, 0.187649}, {6, 0.21227},
+				{7, 0.175074}, {8, 0.054847}, {9, 0.013944}, {10, 0.014426}, {11, -0.000512}, {12, 0.000171},
+				{13, 0.001389}, {14, 0.000142}, {15, 0.000001}, {16, 0.000137}, {17, -0.000011}, {19, 0.000011},
+				{20, 0.000001}, {22, 0.000001}}},
+			{Full, {{1, 0.618803}, {2, 0.402843}, {3, 0.099368}, {4, 0.00358}, {5, -0.057134}, {6, 0.068048},
+				{7, 0.015304}, {8, 0.059861}, {9, 0.021791}, {10, 0.020348}, {11, 0.00685}, {12, 0.003867},
+				{13, 0.001153}, {14, 0.000478}, {15, 0.000126}, {16, 0.000042}, {17, 0.00001}, {18, 0.000003},
+				{19, 0.000001}}},
+			{Full, {{1, 0.810141}, {2, 0.328596}, {3, 0.155847}, {4, 0.075626}, {5, 0.01756}, {6, 0.008843},
+				{7, 0.001681}, {8, 0.000337}, {9, 0.000151}, {10, 0.007994}, {11, -0.000064}, {12, 0.004247},
+				{13, -0.000738}, {14, 0.001562}, {15, 0.000739}, {16, 0.000021}, {17, -0.000155}, {18, 0.000711},
+				{19, 0.000154}, {20, 0.000238}, {21, -0.000188}, {22, 0.000102}, {23, 0.000188}, {24, 0.000021},
+				{25, -0.000035}, {26, 0.000039}, {27, 0.000034}, {28, 0.000014}, {29, -0.000019}, {30, 0.000006},
+				{31, 0.00002}, {32, 0.000007}, {33, -0.000003}, {34, 0.000004}, {35, 0.000003}, {36, 0.000002},
+				{37, -0.000001}, {38, 0.000001}, {39, 0.000001}, {40, 0.000001}}},
+			{Full, {{1, 0.569465}, {2, 0.638648}, {3, 0.035946}, {4, 0.180756}, {5, 0.027948}, {6, 0.085557},
+				{7, 0.004505}, {8, 0.055586}, {9, -0.001152}, {10, 0.034774}, {11, 0.005483}, {12, 0.020952},
+				{13, -0.001194}, {14, 0.011612}, {15, 0.005323}, {16, 0.005758}, {17, -0.00083}, {18, 0.003862},
+				{19, 0.00179}, {20, 0.001965}, {21, -0.000179}, {22, 0.001395}, {23, 0.000541}, {24, 0.000714},
+				{25, 0.000027}, {26, 0.00047}, {27, 0.000158}, {28, 0.000252}, {29, 0.000022}, {30, 0.000155},
+				{31, 0.00005}, {32, 0.000088}, {33, 0.00001}, {34, 0.000051}, {35, 0.000017}, {36, 0.00003},
+				{37, 0.000003}, {38, 0.000017}, {39, 0.000005}, {40, 0.00001}, {41, 0.000001}, {42, 0.000005},
+				{43, 0.000002}, {44, 0.000003}, {46, 0.000002}, {48, 0.000001}, {50, 0.000001}}},
+			{Peak, {{1, 1}, {2, step(173)}, {3, 1}, {4, step(109)}, {5, step(348)}, {6, step(67)}, {7, step(140)},
+				{8, step(47)}, {9, step(45)}, {10, step(26)}, {11, step(13)}, {12, step(5)}, {13, step(4)},
+				{14, step(3)}, {15, step(0)}}},
+			{Full, {{1, -0.217536}, {2, 0.782195}, {3, 0.399776}, {4, 0.071599}, {5, 0.038954}, {6, -0.044078},
+				{7, 0.050241}, {8, 0.043651}, {9, 0.054381}, {10, 0.033579}, {11, 0.02035}, {12, 0.009382},
+				{13, 0.004065}, {14, 0.001499}, {15, 0.000517}, {16, 0.000159}, {17, 0.000046}, {18, 0.000012},
+				{19, 0.000003}, {20, 0.000001}}},
+			{Peak, {{1, 1}, {2, step(81)}, {3, step(51)}, {4, step(46)}, {6, step(33)}, {7, step(9)}, {8, step(28)},
+				{10, step(3)}, {11, step(3)}, {12, step(7)}, {13, step(5)}, {14, step(4)}, {15, step(3)}}},
+			{Peak, {{1, 1}, {2, step(225)}, {4, step(91)}, {8, step(98)}, {12, step(32)}, {16, step(19)}}},
+			{Peak, {{1, 1}, {2, step(174)}, {3, step(117)}, {4, step(72)}, {5, step(61)}, {6, step(285)}, {7, step(32)},
+				{8, step(24)}, {9, step(19)}, {10, step(16)}, {11, step(129)}, {12, step(13)}, {13, step(10)},
+				{14, step(7)}, {15, step(7)}, {16, step(26)}}},
+			{Peak, {{1, 1}, {8, 0.037}, {11, 0.224}, {15, 0.15}}},
+			};
+			return laws;
+		}
+	}
+
+	std::array<int32_t, 128> syChord(const SyChord _t)
+	{
+		switch(_t)
+		{
+		case SyChord::AmpDecay:
+			return build(curve(DecayLaw, Unit::T60, 10));
+		case SyChord::SweepDecay:
+			return build(curve(DecayLaw, Unit::T60, 2));
+		default:
+			break;
+		}
+		std::array<int32_t, 128> t{};
+		for(int i = 0; i < 128; ++i)
+		{
+			const double x = i / 127.0;
+			switch(_t)
+			{
+			case SyChord::RatioA:		// the units' factors times the note's (2^26), detuned by Detune x^2 semitones
+			case SyChord::RatioB:
+			case SyChord::RatioC:
+			case SyChord::RatioD:
+				t[i] = clamp(67108864 *
+					std::exp2(Detune[static_cast<int>(_t) - static_cast<int>(SyChord::RatioA)] * (x * x) / 12));
+				break;
+			case SyChord::Cutoff:		// how far the filter follows the note: 1 - e^(-8 x)
+				t[i] = clamp((1 - std::exp(-8 * x)) * Q31);
+				break;
+			case SyChord::Pole:			// the low-pass's pole, -it, from 1 Hz to 22 kHz on a line
+				t[i] = clamp(-bilinearPole(1 + 21999.0 * i / 127) * Q31);
+				break;
+			default:
+				break;
+			}
+		}
+		return t;
+	}
+
+	std::array<int32_t, 40> syChordAttack()
+	{
+		// 1 + 3 i^4 / 1280000 blocks to full, instant below 2 (to 25)
+		std::array<int32_t, 40> t{};
+		for(int i = 0; i < 40; ++i)
+		{
+			const double blocks = 1 + 3.0 * (i * i * i * i) / 1280000;
+			t[i] = blocks < 2 ? INT32_MIN : toWord(Unit::Rate, 1, blocks);
+		}
+		return t;
+	}
+
+	std::array<int32_t, 140> syChordShapes()
+	{
+		std::array<int32_t, 140> t{};
+		for(int c = 0; c < 35; ++c)
+		{
+			t[4 * c] = 67108864;
+			for(int n = 0; n < 3; ++n)
+				t[4 * c + 1 + n] = clamp(67108864 * std::exp2(Chords[c][n] / 12.0));
+		}
+		return t;
+	}
+
+	std::array<int32_t, 257> syChordWave(const int _n)
+	{
+		const WaveLaw& law = waveLaws()[static_cast<size_t>(std::clamp(_n, 1, 31) - 1)];
+		constexpr double Top = 1 - 1 / 32768.0;
+		double v[257], peak = 0;
+		for(int i = 0; i < 257; ++i)
+		{
+			const double x = 2 * Pi * i / 256;
+			v[i] = 0;
+			for(const Partial& p : law.partials)
+				v[i] += p.a * std::sin(p.k * x);
+			if(i < 256)
+				peak = std::max(peak, std::abs(v[i]));
+		}
+		const double gain = law.kind == WaveKind::Peak ? Top / peak : 1;
+		std::array<int32_t, 257> t{};
+		for(int i = 0; i < 257; ++i)
+		{
+			const bool held = law.kind == WaveKind::Held && i % 128 >= 28 && i % 128 <= 100;
+			t[i] = clamp(held ? std::copysign(Top, v[i]) * Q31 : v[i] * gain * Q31);
 		}
 		return t;
 	}

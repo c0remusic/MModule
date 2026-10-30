@@ -143,6 +143,9 @@ namespace syntakt::fast
 
 	inline int32_t wrap(const int64_t _v) { return static_cast<int32_t>(static_cast<uint32_t>(_v)); }
 
+	// The machine's fractional product of two words, truncated as its accumulator stores it
+	inline int32_t frac(const int32_t _y, const int32_t _x) { return store(product(_y, _x)); }
+
 	// 0x40003c0e's decay step of a unit's envelope in its words (negative, INT32_MIN full): toward _target, the
 	// coefficient _c negative, the two products truncated alone and added wrapping, as the machine's
 	inline int32_t envelopeDecay(const int32_t _level, const int32_t _c, const int32_t _target)
@@ -495,7 +498,7 @@ namespace syntakt::fast
 	//	- const Block& renderBlock(): one 48 kHz block of the 16 Tracks, in this order: FlushDenormals,
 	//	  controls.trigs.start(), the block-rate control, the stages, controls.trigs.end()
 	//	- at 48 kHz only, a machine may step its envelopes once per block but in the trig's block rather than on
-	//	  Clock48, whose steps that is (CP VINTAGE and SY TONE do)
+	//	  Clock48, whose steps that is (CP VINTAGE, SY TONE and SY CHORD do)
 	// Controls holds what the front sets, which the machine converts (its convert(track)) and its control reads
 	struct Controls
 	{

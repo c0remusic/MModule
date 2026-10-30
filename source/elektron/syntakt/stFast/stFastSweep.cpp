@@ -1,7 +1,7 @@
 // A diagnostic, by hand, not a test: every value of every sound parameter of a fast machine against the exact port
 // at 48 kHz, through the bench (stFastBench.h).
 //
-//	stFastSweep sweep MACHINE OUT.csv	MACHINE bd, sd, cy, pc, sv, cp or sy
+//	stFastSweep sweep MACHINE OUT.csv	MACHINE bd, sd, cy, pc, sv, cp, sy or sc
 //	stFastSweep ab OUTDIR CASES.txt		A/B WAVs and an ABX page for the cases, one a line: MACHINE PARAM VALUE, or
 //										MACHINE hitN (BD's bench Hits, PC CARBON's Hit 10)
 //
@@ -12,12 +12,14 @@
 // the level there below the peak; the pitch in cents (bench::peakHz); the null (SNR, worst 10 ms, worst residual third
 // octave). A value is chaotic where the exact port, its phases 1 LSB on, fails Q4's measures against itself
 // (bench::chaoticSelf); there both engines are measured again with the machine's feedback table at 0 (none in PC
-// CARBON), the row flagged. A machine with noise (SD VINTAGE, CP VINTAGE) starts it from the exact port's seeds
-// (fastHits).
+// CARBON and SY CHORD), the row flagged. A machine with noise (SD VINTAGE, CP VINTAGE) starts it from the exact port's
+// seeds (fastHits). A value both engines play as exact silence passes, its row flagged "silent" and not measured
+// (SY CHORD's TUNE from 118 at its base note: every unit past 2217 Hz from the trig, none ever sounds).
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7; what is written is derived from it, so it must go outside the
 // repository.
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -34,6 +36,7 @@
 #include "stFastPcCarbon.h"
 #include "stFastSdBasic.h"
 #include "stFastSdVintage.h"
+#include "stFastSyChord.h"
 #include "stFastSyTone.h"
 #include "stSection7.h"
 
@@ -74,6 +77,8 @@ namespace
 			{"tune", "tone", "balance", "period", "tonedecay", "drive", "hold", "decay", "note"}},
 		{"sy", 4, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::SyTone::Units, 0x40021404,
 			{"tune", "ratio", "index", "feedback", "moddecay", "drive", "hold", "decay", "note"}},
+		{"sc", 5, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::SyChord::Units, 0,
+			{"tune", "balance", "shape", "wave", "cutoff", "drive", "hold", "decay", "note"}},
 	};
 
 	// A machine's type, handed to what withMachine calls
@@ -94,6 +99,7 @@ namespace
 		case 2: return _f(Type<fast::CyAlloy>{});
 		case 3: return _f(Type<fast::PcCarbon>{});
 		case 4: return _f(Type<fast::SyTone>{});
+		case 5: return _f(Type<fast::SyChord>{});
 		case 6: return _f(Type<fast::SdVintage>{});
 		case 7: return _f(Type<fast::CpVintage>{});
 		default:
@@ -170,7 +176,7 @@ namespace
 		Worst all, at40, at60;
 		double cents, snr, local, band, envAbs, cells, selfEnvAbs, selfCells;
 		std::vector<PhaseBlind> increments;	// the exact port against its increment nudges, as played
-		bool chaotic;
+		bool chaotic, silent;
 	};
 
 	Row measure(const std::vector<double>& _ref, const std::vector<double>& _test)
@@ -195,6 +201,18 @@ namespace
 		const Renders& _ref, const Renders& _self, const std::vector<Renders>& _increments, const Renders& _test,
 		Renders* _detRef, Renders* _detTest)
 	{
+		// A value both engines play as exact silence passes, unmeasured: Q4's measures read a peak it has not
+		const auto silence = [](const std::vector<double>& _x)
+		{
+			return std::all_of(_x.begin(), _x.end(), [](const double _v) { return _v == 0; });
+		};
+		if(silence(_ref[_l]) && silence(_test[_l]))
+		{
+			Row r{};
+			r.silent = true;
+			r.increments.assign(static_cast<size_t>(incrementNudgeCount(_m.units)), PhaseBlind{});
+			return r;
+		}
 		const auto self = phaseBlind(_ref[_l], _self[_l]);	// what chaoticSelf reads, without the null's FFTs
 		const bool chaotic = chaoticSelf(self);
 		Row r;
@@ -225,7 +243,7 @@ namespace
 	{
 		std::fprintf(_f, "%s,%s,%d,%s,%.4f,%.0f,%.1f,%.4f,%.0f,%.1f,%.4f,%.0f,%.1f,%.3f,%.1f,%.1f,%.1f,%.2f,%.3f,%.2f,"
 			"%.3f", _m.name, _m.params[_param], _value,
-			_r.chaotic ? (_m.feedbackTable ? "feedback0" : "chaotic") : "no", _r.all.db, _r.all.ms, _r.all.level,
+			_r.silent ? "silent" : _r.chaotic ? (_m.feedbackTable ? "feedback0" : "chaotic") : "no", _r.all.db, _r.all.ms, _r.all.level,
 			_r.at40.db, _r.at40.ms, _r.at40.level, _r.at60.db, _r.at60.ms, _r.at60.level, _r.cents, _r.snr, _r.local,
 			_r.band, _r.envAbs, _r.cells, _r.selfEnvAbs, _r.selfCells);
 		for(const auto& n : _r.increments)

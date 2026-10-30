@@ -3,8 +3,8 @@
 #include <array>
 #include <cstdint>
 
-// The tables syntakt::fast::BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage, CpVintage and SyTone read, made by formula
-// rather than read from the firmware
+// The tables syntakt::fast::BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage, CpVintage, SyTone and SyChord read, made by
+// formula rather than read from the firmware
 // (ticket 07 of elektron-drums-v1), as the firmware's Q31 words. stFastTablesTest compares each with OS 1.41's
 // section 7; the exact ones were checked with MSVC's runtime, and another libm may round a word 1 LSB apart.
 namespace syntakt::fast::tables
@@ -130,6 +130,26 @@ namespace syntakt::fast::tables
 	constexpr bool exact(const SyTone _t) { return _t != SyTone::ModDecay; }
 
 	std::array<int32_t, 128> syTone(SyTone _t);
+
+	// SY CHORD's 128-entry tables (section 7 at 0x40024e08 to 0x40025e38): every one exact
+	enum class SyChord
+	{
+		AmpDecay, SweepDecay, RatioA, RatioB, RatioC, RatioD, Cutoff, Pole, Count
+	};
+
+	constexpr bool exact(SyChord) { return true; }
+
+	std::array<int32_t, 128> syChord(SyChord _t);
+
+	// SY CHORD's units' attack at DECAY 0-39 (0x40024c08): 40 words. Exact
+	std::array<int32_t, 40> syChordAttack();
+
+	// SY CHORD's chords 3 to 37 (0x40025a08): four factors each, the root's and its three notes', 140 words. Exact
+	std::array<int32_t, 140> syChordShapes();
+
+	// SY CHORD's wave _n, 1 to 32 (pointed at from 0x40014870, 32 pointers, the last two at wave 31: 32 is 31): 257
+	// words. Approximate
+	std::array<int32_t, 257> syChordWave(int _n);
 
 	// Unit 2's wave (0x4001e7fc): 257 words, 16-bit samples in the top half. Exact
 	std::array<int32_t, 257> wave();

@@ -50,7 +50,6 @@ namespace syntakt::fast
 
 		// ---- the machine's integers, for the coefficients it computes in them ----
 
-		int32_t frac(const int32_t _y, const int32_t _x) { return store(product(_y, _x)); }
 		int32_t neg(const int32_t _v) { return wrap(-static_cast<int64_t>(_v)); }
 
 		int32_t asrReg(const int32_t _v, const int32_t _n)
