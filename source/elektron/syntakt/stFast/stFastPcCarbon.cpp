@@ -119,7 +119,7 @@ namespace syntakt::fast
 
 	void PcCarbon::control()
 	{
-		for(int l = 0; l < Lanes; ++l)
+		for(int l = 0; l < m_lanes; ++l)
 		{
 			Trigs& trigs = m_controls.trigs;
 			const bool now = trigs.now[l];
@@ -202,6 +202,13 @@ namespace syntakt::fast
 		}
 	}
 
+	void PcCarbon::setLanes(const int _lanes)
+	{
+		m_lanes = _lanes;
+		fast::setLanes(_lanes, {&m_gEnv[0], &m_gEnv[1], &m_gEnv[2], &m_gEnv[3], &m_b[0], &m_b[1], &m_b[2], &m_b[3],
+			&m_gAmp, &m_out});
+	}
+
 	const Block& PcCarbon::renderBlock()
 	{
 		const FlushDenormals ftz;
@@ -221,7 +228,7 @@ namespace syntakt::fast
 		pmWave(m_b[3], &m_b[2], m_depth[1], m_depthTarget[1], m_phase[3], m_inc[3], t.sine);
 		gain(m_b[3], m_gEnv[3]);
 		for(int i = 0; i < 2; ++i)
-			std::copy_n(m_depthTarget[i], Lanes, m_depth[i]);
+			std::copy_n(m_depthTarget[i], m_lanes, m_depth[i]);
 
 		// Units 3 and 1 mixed, into the drive and the amp
 		mix(m_b[3], m_b[1], m_out, m_gainU3, m_gainU3, m_gainU1, m_gainU1);

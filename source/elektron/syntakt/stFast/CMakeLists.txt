@@ -91,6 +91,13 @@ if(BUILD_TESTING)
 	add_test(NAME stFastResampleTest COMMAND stFastResampleTest)
 	set_tests_properties(stFastResampleTest PROPERTIES TIMEOUT 10)
 
+	# setLanes on the nine machines: n lanes the samples of 16, the others silent. No firmware
+	add_executable(stFastLanesTest stFastLanesTest.cpp)
+	target_link_libraries(stFastLanesTest PRIVATE stFast)
+	set_property(TARGET stFastLanesTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME stFastLanesTest COMMAND stFastLanesTest)
+	set_tests_properties(stFastLanesTest PROPERTIES TIMEOUT 60)
+
 	# The listening test's WAVs and ABX page (ticket 05), by hand, into a folder outside the repository:
 	# stFastAbRender OUTDIR (SYNTAKT_SECTION7)
 	add_executable(stFastAbRender stFastAbRender.cpp stFastBdModernHits.h stFastBench.h stFastMetrics.h

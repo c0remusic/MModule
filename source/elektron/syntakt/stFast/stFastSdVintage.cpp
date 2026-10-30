@@ -161,7 +161,7 @@ namespace syntakt::fast
 
 	void SdVintage::control()
 	{
-		for(int l = 0; l < Lanes; ++l)
+		for(int l = 0; l < m_lanes; ++l)
 		{
 			Trigs& trigs = m_controls.trigs;
 			const bool now = trigs.now[l];
@@ -260,6 +260,13 @@ namespace syntakt::fast
 		}
 	}
 
+	void SdVintage::setLanes(const int _lanes)
+	{
+		m_lanes = _lanes;
+		fast::setLanes(_lanes, {&m_gEnv[0], &m_gEnv[1], &m_gEnv[2], &m_gEnv[3], &m_b[0], &m_b[1], &m_b[2], &m_b[3],
+			&m_gMod, &m_gAmp, &m_scaled3, &m_noiseOut, &m_out});
+	}
+
 	const Block& SdVintage::renderBlock()
 	{
 		const FlushDenormals ftz;
@@ -275,7 +282,7 @@ namespace syntakt::fast
 		{
 			pmWave(m_b[k], &m_scaled3, m_depth[k], m_depthTarget[k], m_phase[k], m_inc[k], waves[k]);
 			gain(m_b[k], m_gEnv[k]);
-			std::copy_n(m_depthTarget[k], Lanes, m_depth[k]);
+			std::copy_n(m_depthTarget[k], m_lanes, m_depth[k]);
 		}
 
 		// The noise, gated, high-passed into its clip and doubled, low-passed twice, under the modulator's envelope
@@ -290,7 +297,7 @@ namespace syntakt::fast
 		const Block* in[4] = {&m_b[0], &m_b[1], &m_b[2], &m_noiseOut};
 		mix4(in, m_out, m_gain, m_gainTarget);
 		for(int i = 0; i < 4; ++i)
-			std::copy_n(m_gainTarget[i], Lanes, m_gain[i]);
+			std::copy_n(m_gainTarget[i], m_lanes, m_gain[i]);
 		onePole(m_out, OutHp, m_hpX, m_hpY);
 		saturate(m_out, 2);
 		driveClip(m_out, m_drive.from, m_drive.to, m_drive.amount, m_drive.post);

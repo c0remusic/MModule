@@ -22,16 +22,19 @@ namespace syntakt::fast
 
 	void sum(const Block& _a, const Block& _b, Block& _out)
 	{
+		requireLanes(_out, _a);
+		requireLanes(_out, _b);
 		for(int n = 0; n < BlockSize; ++n)
-			for(int g = 0; g < Lanes; g += 4)
+			for(int g = 0; g < _out.lanes; g += 4)
 				_mm_store_ps(_out.s[n] + g, clip(_mm_add_ps(_mm_load_ps(_a.s[n] + g), _mm_load_ps(_b.s[n] + g))));
 	}
 
 	void pmWaveBd(Block& _out, const Block& _src, uint32_t* _phase, const Increments& _inc, const float _depth,
 		const float* _wave)
 	{
+		requireLanes(_out, _src);
 		const V depth = _mm_set1_ps(_depth);
-		for(int g = 0; g < Lanes; g += 4)
+		for(int g = 0; g < _out.lanes; g += 4)
 		{
 			__m128i p = _mm_load_si128(reinterpret_cast<const __m128i*>(_phase + g));
 			for(int n = 0; n < BlockSize; ++n)
@@ -47,7 +50,7 @@ namespace syntakt::fast
 	void click(Block& _out, float* _ramp, const float _dec, const float* _from, const float* _to)
 	{
 		const V dec = _mm_set1_ps(_dec), zero = _mm_setzero_ps();
-		for(int g = 0; g < Lanes; g += 4)
+		for(int g = 0; g < _out.lanes; g += 4)
 		{
 			V r = _mm_load_ps(_ramp + g), v = ramp(_from, g);
 			const V s = stepOf(_from, _to, g);
@@ -137,7 +140,7 @@ namespace syntakt::fast
 	{
 		const float u2Decay = -q31(U2DecayWord);
 
-		for(int l = 0; l < Lanes; ++l)
+		for(int l = 0; l < m_lanes; ++l)
 		{
 			const Trigs& trigs = m_controls.trigs;
 			const bool now = trigs.now[l], pending = trigs.pending[l];
@@ -219,6 +222,12 @@ namespace syntakt::fast
 		}
 	}
 
+	void BdModern::setLanes(const int _lanes)
+	{
+		m_lanes = _lanes;
+		fast::setLanes(_lanes, {&m_b0, &m_b1, &m_a2, &m_mix, &m_b3, &m_click});
+	}
+
 	const Block& BdModern::renderBlock()
 	{
 		const FlushDenormals ftz;
@@ -243,13 +252,13 @@ namespace syntakt::fast
 		rampedGain(m_b3, m_ampPrev, m_ampLevel);
 
 		// The ramps' ends are the next block's starts
-		std::copy_n(m_u2Level, Lanes, m_u2Prev);
-		std::copy_n(m_modLevel, Lanes, m_modPrev);
-		std::copy_n(m_ampLevel, Lanes, m_ampPrev);
+		std::copy_n(m_u2Level, m_lanes, m_u2Prev);
+		std::copy_n(m_modLevel, m_lanes, m_modPrev);
+		std::copy_n(m_ampLevel, m_lanes, m_ampPrev);
 		m_drive.advance();
-		std::copy_n(m_g0, Lanes, m_g0Cur);
-		std::copy_n(m_g1, Lanes, m_g1Cur);
-		std::copy_n(m_clickTarget, Lanes, m_clickCur);
+		std::copy_n(m_g0, m_lanes, m_g0Cur);
+		std::copy_n(m_g1, m_lanes, m_g1Cur);
+		std::copy_n(m_clickTarget, m_lanes, m_clickCur);
 
 		m_controls.trigs.end();
 		return m_b3;

@@ -115,7 +115,7 @@ namespace syntakt::fast
 
 	void CyAlloy::control()
 	{
-		for(int l = 0; l < Lanes; ++l)
+		for(int l = 0; l < m_lanes; ++l)
 		{
 			Trigs& trigs = m_controls.trigs;
 			const bool now = trigs.now[l];
@@ -183,6 +183,13 @@ namespace syntakt::fast
 		}
 	}
 
+	void CyAlloy::setLanes(const int _lanes)
+	{
+		m_lanes = _lanes;
+		fast::setLanes(_lanes, {&m_gEnv[0], &m_gEnv[1], &m_gEnv[2], &m_gEnv[3], &m_gAmp, &m_b[0], &m_b[1], &m_b[2],
+			&m_b[3], &m_out});
+	}
+
 	const Block& CyAlloy::renderBlock()
 	{
 		const FlushDenormals ftz;
@@ -201,7 +208,7 @@ namespace syntakt::fast
 		gain(m_b[2], m_gEnv[2]);
 		pmWave(m_b[3], &m_b[2], m_depth, m_depthTarget, m_phase[3], m_inc[3], t.wave);
 		gain(m_b[3], m_gEnv[3]);
-		std::copy_n(m_depthTarget, Lanes, m_depth);
+		std::copy_n(m_depthTarget, m_lanes, m_depth);
 
 		// Units 1 and 3 at 0.5 each, high-passed, into the drive and the amp
 		alignas(16) static constexpr float Half[Lanes] = {0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f,

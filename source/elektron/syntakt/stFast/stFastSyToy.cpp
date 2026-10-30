@@ -114,7 +114,7 @@ namespace syntakt::fast
 
 	void SyToy::control()
 	{
-		for(int l = 0; l < Lanes; ++l)
+		for(int l = 0; l < m_lanes; ++l)
 		{
 			Trigs& trigs = m_controls.trigs;
 			const bool now = trigs.now[l];
@@ -178,6 +178,12 @@ namespace syntakt::fast
 		}
 	}
 
+	void SyToy::setLanes(const int _lanes)
+	{
+		m_lanes = _lanes;
+		fast::setLanes(_lanes, {&m_gAmp, &m_unit[0], &m_unit[1], &m_unit[2], &m_unit[3], &m_mod, &m_out});
+	}
+
 	const Block& SyToy::renderBlock()
 	{
 		const FlushDenormals ftz;
@@ -194,7 +200,7 @@ namespace syntakt::fast
 		pmWave(m_unit[1], nullptr, Zero, Zero, m_phase[1], m_inc[1], m_tables.sine);
 		pmWave(m_unit[2], &m_mod, m_depth, m_depthTarget, m_phase[2], m_inc[2], m_tables.sine);
 		pmWave(m_unit[3], nullptr, Zero, Zero, m_phase[3], m_inc[3], m_tables.sine);
-		std::copy_n(m_depthTarget, Lanes, m_depth);
+		std::copy_n(m_depthTarget, m_lanes, m_depth);
 		for(int k = 1; k < 4; ++k)
 			rampedGain(m_unit[k], m_gFrom[k - 1], m_gTo[k - 1]);
 
@@ -202,7 +208,7 @@ namespace syntakt::fast
 		const Block* in[4] = {&m_unit[0], &m_unit[1], &m_unit[2], &m_unit[3]};
 		mix4(in, m_out, m_gain, m_gainTarget);
 		for(int k = 0; k < 4; ++k)
-			std::copy_n(m_gainTarget[k], Lanes, m_gain[k]);
+			std::copy_n(m_gainTarget[k], m_lanes, m_gain[k]);
 		gain(m_out, m_gAmp);
 		driveClip(m_out, m_drive.from, m_drive.to, m_drive.amount, m_drive.post);
 

@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <initializer_list>
 #include <type_traits>
 
 #include <emmintrin.h>
@@ -18,14 +20,39 @@ namespace syntakt::fast
 	constexpr int BlockSize = 32;	// samples per block
 	constexpr float MachineRate = 48000.0f;
 
-	// The 16 Tracks' samples of a block, sample-major: s[n] holds sample n of every Track
+	// The 16 Tracks' samples of a block, sample-major: s[n] holds sample n of every Track. A stage computes lanes 0 to
+	// lanes - 1 of the block it writes (a multiple of 4: a vector's) and leaves the others as they are
 	struct alignas(16) Block
 	{
 		float s[BlockSize][Lanes];
+		int lanes = Lanes;
 	};
 
-	// The stages, each over the 16 lanes. A ramp goes linearly over the block from _from to _to (per lane), as the
-	// firmware's per-sample steps of (to - from) / 32 do
+	// A stage that reads a block computes the lanes of the block it writes: both must have the same, else a block its
+	// machine's setLanes left out goes on computing all 16, the narrowing's saving silently lost (stFastLanesTest
+	// narrows every machine). A programming error: it stops the program
+	inline void requireLanes(const Block& _out, const Block& _in)
+	{
+		if(_in.lanes != _out.lanes)
+			std::abort();
+	}
+
+	// A machine's setLanes: lanes 0 to _lanes - 1 of each of its blocks computed from now on, the others zeroed;
+	// _lanes 4, 8, 12 or 16, else the program stops
+	inline void setLanes(const int _lanes, const std::initializer_list<Block*> _blocks)
+	{
+		if(_lanes < 4 || _lanes > Lanes || _lanes % 4)
+			std::abort();
+		for(Block* b : _blocks)
+		{
+			b->lanes = _lanes;
+			for(auto& s : b->s)
+				std::fill(s + _lanes, s + Lanes, 0.0f);
+		}
+	}
+
+	// The stages, each over the lanes of the block it writes. A ramp goes linearly over the block from _from to _to
+	// (per lane), as the firmware's per-sample steps of (to - from) / 32 do
 
 	// _out = gx x + gy y, both gains ramped
 	void mix(const Block& _x, const Block& _y, Block& _out, const float* _gxFrom, const float* _gxTo,
@@ -504,6 +531,10 @@ namespace syntakt::fast
 	//	- testWithoutChaos(): for tests, the voice with its feedback (or depth) table at 0, nothing chaotic left
 	//	- const Block& renderBlock(): one 48 kHz block of the 16 Tracks, in this order: FlushDenormals,
 	//	  controls.trigs.start(), the block-rate control, the stages, controls.trigs.end()
+	//	- setLanes(n), n 4, 8, 12 or 16: from the next block it renders lanes 0 to n - 1 only, the others zero, their
+	//	  voices frozen (a trig or an edit there is lost) until a wider setLanes resumes them where they stopped.
+	//	  Its control loops over m_lanes, its stages over their blocks' lanes, which its setLanes sets on each block.
+	//	  A track here is a lane: the code that plays the machine puts its Tracks on its first lanes (stFastMixCost)
 	//	- at 48 kHz only, a machine may step its envelopes once per block but in the trig's block rather than on
 	//	  Clock48, whose steps that is (CP VINTAGE, SY TOY, SY BITS and SP TWINSHOT do)
 	// Controls holds what the front sets, which the machine converts (its convert(track)) and its control reads

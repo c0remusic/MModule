@@ -51,6 +51,10 @@ namespace syntakt::fast
 		void trig(const int _track) { m_controls.trig(_track); }
 		void gateOff(const int _track) { m_controls.gateOff(_track); }
 
+		// Only Tracks 0 to _lanes - 1 rendered, from the next block (a multiple of 4; 16 at construction): the
+		// others silent, their voices frozen where they are until a wider setLanes renders them again
+		void setLanes(int _lanes);
+
 		// SY BITS has no feedback: nothing to take out
 		void testWithoutChaos() {}
 
@@ -79,6 +83,7 @@ namespace syntakt::fast
 		Tables m_tables;
 
 		Controls m_controls;
+		int m_lanes = Lanes;	// the Tracks rendered (setLanes)
 
 		// What they convert to (convert): the pairs' increments (0x78, 0x178: units 1 and 3 the same), the waves each
 		// unit reads (0xb0, 0xb4 of units 0 and 2, 0xb0 of 1 and 3: SyBitsWaves indices), whether units 1 and 3 take

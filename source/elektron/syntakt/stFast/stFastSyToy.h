@@ -31,6 +31,10 @@ namespace syntakt::fast
 		void trig(const int _track) { m_controls.trig(_track); }
 		void gateOff(const int _track) { m_controls.gateOff(_track); }
 
+		// Only Tracks 0 to _lanes - 1 rendered, from the next block (a multiple of 4; 16 at construction): the
+		// others silent, their voices frozen where they are until a wider setLanes renders them again
+		void setLanes(int _lanes);
+
 		// For tests: unit 4's feedback table at 0
 		void testWithoutChaos();
 
@@ -79,6 +83,7 @@ namespace syntakt::fast
 
 		// Each Track's parameters as words, its note and its trigs
 		Controls m_controls;
+		int m_lanes = Lanes;	// the Tracks rendered (setLanes)
 
 		// What they convert to (convert), every block: the units' increments, as the machine's words too (0x78); unit
 		// 4's feedback word (0x2c); unit 2's modulation (0x18c) and in cycles per unit; units 1 to 4's decays (their

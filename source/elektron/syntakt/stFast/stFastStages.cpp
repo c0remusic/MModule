@@ -7,7 +7,9 @@ namespace syntakt::fast
 	void mix(const Block& _x, const Block& _y, Block& _out, const float* _gxFrom, const float* _gxTo,
 		const float* _gyFrom, const float* _gyTo)
 	{
-		for(int g = 0; g < Lanes; g += 4)
+		requireLanes(_out, _x);
+		requireLanes(_out, _y);
+		for(int g = 0; g < _out.lanes; g += 4)
 		{
 			V gx = ramp(_gxFrom, g), gy = ramp(_gyFrom, g);
 			const V sx = stepOf(_gxFrom, _gxTo, g), sy = stepOf(_gyFrom, _gyTo, g);
@@ -23,7 +25,7 @@ namespace syntakt::fast
 
 	void rampedGain(Block& _buf, const float* _from, const float* _to)
 	{
-		for(int g = 0; g < Lanes; g += 4)
+		for(int g = 0; g < _buf.lanes; g += 4)
 		{
 			V v = ramp(_from, g);
 			const V s = stepOf(_from, _to, g);
@@ -37,15 +39,16 @@ namespace syntakt::fast
 
 	void gain(Block& _buf, const Block& _g)
 	{
+		requireLanes(_buf, _g);
 		for(int n = 0; n < BlockSize; ++n)
-			for(int g = 0; g < Lanes; g += 4)
+			for(int g = 0; g < _buf.lanes; g += 4)
 				_mm_store_ps(_buf.s[n] + g, _mm_mul_ps(_mm_load_ps(_buf.s[n] + g), _mm_load_ps(_g.s[n] + g)));
 	}
 
 	void onePole(Block& _buf, const OnePole& _c, float* _x1, float* _y1)
 	{
 		const V b0 = _mm_set1_ps(_c.b0), b1 = _mm_set1_ps(_c.b1), a1 = _mm_set1_ps(_c.a1);
-		for(int g = 0; g < Lanes; g += 4)
+		for(int g = 0; g < _buf.lanes; g += 4)
 		{
 			V x1 = _mm_load_ps(_x1 + g), y1 = _mm_load_ps(_y1 + g);
 			for(int n = 0; n < BlockSize; ++n)
@@ -62,7 +65,7 @@ namespace syntakt::fast
 
 	void onePoleLanes(Block& _buf, const float* _b, const float* _a, float* _x1, float* _y1)
 	{
-		for(int g = 0; g < Lanes; g += 4)
+		for(int g = 0; g < _buf.lanes; g += 4)
 		{
 			const V b = _mm_load_ps(_b + g), a = _mm_load_ps(_a + g);
 			V x1 = _mm_load_ps(_x1 + g), y1 = _mm_load_ps(_y1 + g);
@@ -82,7 +85,7 @@ namespace syntakt::fast
 	{
 		const V b0 = _mm_set1_ps(_c[0]), b1 = _mm_set1_ps(_c[1]), b2 = _mm_set1_ps(_c[2]);
 		const V a1 = _mm_set1_ps(_c[3]), a2 = _mm_set1_ps(_c[4]);
-		for(int g = 0; g < Lanes; g += 4)
+		for(int g = 0; g < _buf.lanes; g += 4)
 		{
 			V x1 = _mm_load_ps(_s[0] + g), x2 = _mm_load_ps(_s[1] + g);
 			V y1 = _mm_load_ps(_s[2] + g), y2 = _mm_load_ps(_s[3] + g);
@@ -106,7 +109,11 @@ namespace syntakt::fast
 
 	void mix4(const Block* const (&_x)[4], Block& _out, const float (*_from)[Lanes], const float (*_to)[Lanes])
 	{
-		for(int g = 0; g < Lanes; g += 4)
+		requireLanes(_out, *_x[0]);
+		requireLanes(_out, *_x[1]);
+		requireLanes(_out, *_x[2]);
+		requireLanes(_out, *_x[3]);
+		for(int g = 0; g < _out.lanes; g += 4)
 		{
 			V gain[4], step[4];
 			for(int i = 0; i < 4; ++i)
@@ -130,7 +137,7 @@ namespace syntakt::fast
 	{
 		const __m128i gate = _mm_set1_epi32(_gate);
 		const V scale = _mm_set1_ps(1.0f / 2147483648.0f);
-		for(int g = 0; g < Lanes; g += 4)
+		for(int g = 0; g < _out.lanes; g += 4)
 		{
 			__m128i s[4];
 			for(int k = 0; k < 4; ++k)
@@ -154,7 +161,7 @@ namespace syntakt::fast
 	void whiteNoise(Block& _out, uint32_t* _s0, uint32_t* _s1)
 	{
 		const V scale = _mm_set1_ps(1.0f / 2147483648.0f);
-		for(int g = 0; g < Lanes; g += 4)
+		for(int g = 0; g < _out.lanes; g += 4)
 		{
 			__m128i s0 = _mm_load_si128(reinterpret_cast<const __m128i*>(_s0 + g));
 			__m128i s1 = _mm_load_si128(reinterpret_cast<const __m128i*>(_s1 + g));
@@ -172,7 +179,7 @@ namespace syntakt::fast
 	void reduceRate(Block& _buf, const int32_t* _rate, float (*_held)[Lanes], int32_t (*_count)[Lanes])
 	{
 		const __m128i one = _mm_set1_epi32(1);
-		for(int g = 0; g < Lanes; g += 4)
+		for(int g = 0; g < _buf.lanes; g += 4)
 		{
 			const __m128i rate = _mm_load_si128(reinterpret_cast<const __m128i*>(_rate + g));
 			const __m128i p1 = _mm_add_epi32(_mm_srai_epi32(rate, 16), one), p2 = _mm_add_epi32(p1, one);
@@ -205,7 +212,7 @@ namespace syntakt::fast
 	{
 		// Per lane in 64-bit integers, as the machine's accumulator: the target frac(0x04000000, word), the word >> 5;
 		// the amount ramped by (target - start) >> 5 a sample; the sample (feedbackSample) moved by the last one
-		for(int l = 0; l < Lanes; ++l)
+		for(int l = 0; l < _out.lanes; ++l)
 		{
 			const int32_t target = _fbWord[l] >> 5;
 			int64_t phase = _phase[l] >> 8, s = _last[l], fb = _fb[l];
@@ -228,7 +235,7 @@ namespace syntakt::fast
 	{
 		// As feedbackSine, the envelope ramped by its difference >> 5 a sample, the output -(amount s >> 23) >> 8 (at
 		// most full scale: neither saturates), which feeds back
-		for(int l = 0; l < Lanes; ++l)
+		for(int l = 0; l < _scaled.lanes; ++l)
 		{
 			const int32_t target = _fbWord[l] >> 5;
 			int64_t phase = _phase[l] >> 8, y = _last[l], fb = _fb[l], amount = _amountFrom[l];
@@ -254,14 +261,16 @@ namespace syntakt::fast
 	{
 		const V k = _mm_set1_ps(_k);
 		for(int n = 0; n < BlockSize; ++n)
-			for(int g = 0; g < Lanes; g += 4)
+			for(int g = 0; g < _buf.lanes; g += 4)
 				_mm_store_ps(_buf.s[n] + g, clip(_mm_mul_ps(k, _mm_load_ps(_buf.s[n] + g))));
 	}
 
 	void pmSine(Block& _out, const Block* _src, uint32_t* _phase, const Increments& _inc, const float _depth)
 	{
+		if(_src)
+			requireLanes(_out, *_src);
 		const V depth = _mm_set1_ps(_depth);
-		for(int g = 0; g < Lanes; g += 4)
+		for(int g = 0; g < _out.lanes; g += 4)
 		{
 			__m128i p = _mm_load_si128(reinterpret_cast<const __m128i*>(_phase + g));
 			for(int n = 0; n < BlockSize; ++n)
@@ -279,7 +288,9 @@ namespace syntakt::fast
 	void pmWave(Block& _out, const Block* _src, const float* _from, const float* _to, uint32_t* _phase,
 		const Increments& _inc, const float* _wave)
 	{
-		for(int g = 0; g < Lanes; g += 4)
+		if(_src)
+			requireLanes(_out, *_src);
+		for(int g = 0; g < _out.lanes; g += 4)
 		{
 			__m128i p = _mm_load_si128(reinterpret_cast<const __m128i*>(_phase + g));
 			V depth = _mm_load_ps(_from + g);
@@ -300,7 +311,9 @@ namespace syntakt::fast
 	void feedbackWave(Block& _out, Block& _scaled, const Block& _g, float* _last, float* _fb, const float* _fbTo,
 		uint32_t* _phase, const Increments& _inc, const float* _wave)
 	{
-		for(int g = 0; g < Lanes; g += 4)
+		requireLanes(_out, _scaled);
+		requireLanes(_out, _g);
+		for(int g = 0; g < _out.lanes; g += 4)
 		{
 			__m128i p = _mm_load_si128(reinterpret_cast<const __m128i*>(_phase + g));
 			V fb = _mm_load_ps(_fb + g), y = _mm_load_ps(_last + g);
@@ -317,12 +330,12 @@ namespace syntakt::fast
 			_mm_store_si128(reinterpret_cast<__m128i*>(_phase + g), p);
 			_mm_store_ps(_last + g, y);
 		}
-		std::copy_n(_fbTo, Lanes, _fb);
+		std::copy_n(_fbTo, _out.lanes, _fb);
 	}
 
 	void driveClip(Block& _buf, const float* _from, const float* _to, const float* _drive, const float* _post)
 	{
-		for(int g = 0; g < Lanes; g += 4)
+		for(int g = 0; g < _buf.lanes; g += 4)
 		{
 			const V post = _mm_load_ps(_post + g), drive = _mm_load_ps(_drive + g);
 			V v = _mm_mul_ps(ramp(_from, g), post);

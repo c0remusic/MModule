@@ -57,7 +57,7 @@ namespace syntakt::fast
 	void crossfadeWaves(Block& _out, const uint32_t* _phase, const uint32_t* _inc, const float* const* _wave1,
 		const float* const* _wave2, const float* _from, const float* _to)
 	{
-		for(int l = 0; l < Lanes; ++l)
+		for(int l = 0; l < _out.lanes; ++l)
 		{
 			uint32_t p = _phase[l];
 			float g1 = _from[l], g2 = _from[Lanes + l];
@@ -75,7 +75,7 @@ namespace syntakt::fast
 	void addOffsetWave(Block& _out, const uint32_t* _phase, const uint32_t* _inc, const float* const* _wave,
 		const uint32_t* _offsetFrom, const uint32_t* _offsetStep, const float* _from, const float* _to)
 	{
-		for(int l = 0; l < Lanes; ++l)
+		for(int l = 0; l < _out.lanes; ++l)
 		{
 			uint32_t p = _phase[l], o = _offsetFrom[l];
 			float g = _from[l];
@@ -92,7 +92,7 @@ namespace syntakt::fast
 
 	void reduceBits(Block& _buf, const int32_t* _word)
 	{
-		for(int g = 0; g < Lanes; g += 4)
+		for(int g = 0; g < _buf.lanes; g += 4)
 		{
 			alignas(16) float k0[4], k1[4], w1[4];
 			for(int l = 0; l < 4; ++l)
@@ -200,7 +200,7 @@ namespace syntakt::fast
 
 	void SyBits::control()
 	{
-		for(int l = 0; l < Lanes; ++l)
+		for(int l = 0; l < m_lanes; ++l)
 		{
 			Trigs& trigs = m_controls.trigs;
 			const bool now = trigs.now[l];
@@ -283,6 +283,12 @@ namespace syntakt::fast
 		}
 	}
 
+	void SyBits::setLanes(const int _lanes)
+	{
+		m_lanes = _lanes;
+		fast::setLanes(_lanes, {&m_gAmp, &m_pair[0], &m_pair[1], &m_noiseOut, &m_out});
+	}
+
 	const Block& SyBits::renderBlock()
 	{
 		const FlushDenormals ftz;
@@ -297,7 +303,7 @@ namespace syntakt::fast
 			const float* w1[Lanes];
 			const float* w2[Lanes];
 			const float* w3[Lanes];
-			for(int l = 0; l < Lanes; ++l)
+			for(int l = 0; l < m_lanes; ++l)
 			{
 				w1[l] = m_tables.wave[m_wave[3 * p][l]];
 				w2[l] = m_tables.wave[m_wave[3 * p + 1][l]];
@@ -305,7 +311,7 @@ namespace syntakt::fast
 			}
 			crossfadeWaves(m_pair[p], m_phase[p], m_inc[p], w1, w2, m_wFrom[p][0], m_wTo[p][0]);
 			addOffsetWave(m_pair[p], m_phase[p], m_inc[p], w3, m_offsetStart, m_offsetStep, m_lFrom, m_lTo);
-			for(int l = 0; l < Lanes; ++l)
+			for(int l = 0; l < m_lanes; ++l)
 				m_phase[p][l] += BlockSize * m_inc[p][l];
 		}
 

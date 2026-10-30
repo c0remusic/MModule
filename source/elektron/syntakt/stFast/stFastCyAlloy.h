@@ -31,6 +31,10 @@ namespace syntakt::fast
 		void trig(const int _track) { m_controls.trig(_track); }
 		void gateOff(const int _track) { m_controls.gateOff(_track); }
 
+		// Only Tracks 0 to _lanes - 1 rendered, from the next block (a multiple of 4; 16 at construction): the
+		// others silent, their voices frozen where they are until a wider setLanes renders them again
+		void setLanes(int _lanes);
+
 		// For tests: the depth table at 0, as the exact port with that table at 0 plays: no feedback, and units 1 and 3
 		// unmodulated
 		void testWithoutChaos();
@@ -62,6 +66,7 @@ namespace syntakt::fast
 
 		// Each Track's parameters as words, its note and its trigs
 		Controls m_controls;
+		int m_lanes = Lanes;	// the Tracks rendered (setLanes)
 
 		// What they convert to (convert): read every block, or latched at a trig (*Next)
 		int32_t m_pitch[Lanes]{};				// the pitch map's word for the note and TUNE (0x40002596's f)

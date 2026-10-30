@@ -1,19 +1,23 @@
 // A measure, by hand, not a test: what syntakt::fast costs with its 16 Tracks on the nine machines mixed.
 //
-//	stFastMixCost [RUNS]	RUNS 7 by default; each run 10 s of audio, the median printed
+//	stFastMixCost [RUNS] [--wide]	RUNS 7 by default; each run 10 s of audio, the median printed
 //
-// A kit runs one instance per machine it uses, each rendering its 16 lanes (lane t is Track t, silent where Track t is
-// on another machine); the instances' blocks are summed lane by lane and, at 44.1 kHz, go through one resampler
-// (Host over the summed kit, Mix). For comparison, "separate" runs one Host per machine, nine
+// A kit runs one instance per machine it uses, its Tracks on the instance's lanes 0, 1... in their order, the
+// instance rendering the lanes they fill (setLanes, a multiple of 4); --wide puts Track t on lane t of every
+// instance, all 16 lanes rendered, as before setLanes. The Tracks' lanes are summed into the kit's and, at 44.1 kHz,
+// go through one resampler (Host over the summed kit, Mix). For comparison, "separate" runs one Host per machine, nine
 // resamplers. It measures:
-//	- per machine, with 0, 1 and 16 of its lanes sounding: what an idle lane costs against a sounding one
+//	- per machine, with 0, 1 and 16 of its lanes sounding (4, 4 and 16 rendered; --wide: 16): what a group of 4 lanes
+//	  costs (--wide: what an idle lane costs against a sounding one)
 //	- per machine, the dearest of a few parameter sets (all 0, 64, 127, random), and SP TWINSHOT's worst: both players
 //	  at the top rate on 32 distinct slots of 2^19 - 1 samples of near full-scale noise, HOLD on. Retriggered every
 //	  10 ms at about 48x, a player reads some 23k samples from its slot's start, never its end: neither the loop's
 //	  wrap nor the streaming of the whole slot through memory is measured
-//	- the worst case: every machine on one Track at its dearest set, the other 7 Tracks on the machine whose sounding
-//	  lane costs most, all 16 retriggered together every 15 blocks (10 ms: the Syntakt's fastest retrig, 1/80 at
-//	  300 BPM) with their 8 parameters locked at each trig, DECAY and HOLD at 127
+//	- the worst case: every machine on one Track at its dearest set, the other 7 Tracks on the machine whose group of
+//	  4 lanes costs most (its 8 Tracks fill a second group: 10 groups, the most 16 Tracks on nine machines fill;
+//	  --wide: the machine whose sounding lane costs most over an idle one), all 16 retriggered together every 15
+//	  blocks (10 ms: the Syntakt's fastest retrig, 1/80 at 300 BPM) with their 8 parameters locked at each trig, DECAY
+//	  and HOLD at 127
 //	- a realistic kit: the nine machines over the 16 Tracks at ordinary sounds (64s, DECAY 40-90, HOLD off), 16th
 //	  notes at 120 BPM staggered, SP TWINSHOT on 0.5 s samples at the note
 // at 48 and 44.1 kHz, in host blocks of 32, 128 and 512 samples: microseconds per 48 kHz block, percent of a core,
@@ -28,6 +32,7 @@
 #include <cstdlib>
 #include <memory>
 #include <random>
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -58,6 +63,7 @@ namespace
 	const char* const Names[Machines] = {"BD MODERN", "SD BASIC", "CY ALLOY", "PC CARBON", "SD VINTAGE", "CP VINTAGE",
 		"SY TOY", "SY BITS", "SP TWINSHOT"};
 	constexpr double Budget = 15;	// % of a core, the map's
+	bool g_wide = false;			// --wide
 
 	// ---- the samples SP TWINSHOT plays ----
 
@@ -155,6 +161,20 @@ namespace
 				if constexpr(std::is_base_of_v<SpTwinshot, std::remove_reference_t<decltype(_m)>>)
 					_m.setSamples(_s.samples);
 			});
+			// Each machine's Tracks on its lanes 0, 1... in their order, the instance rendering the lanes they fill
+			// (a multiple of 4, 4 at least); g_wide: Track t on lane t, all 16 rendered
+			std::array<int, Machines> count{};
+			for(int t = 0; t < Lanes; ++t)
+			{
+				m_track[t] = _s.track[t].machine;
+				if(m_track[t] >= 0)
+					m_lane[t] = g_wide ? t : count[static_cast<size_t>(m_track[t])]++;
+			}
+			each([&](const int _i, auto& _m)
+			{
+				if(!g_wide)
+					_m.setLanes(std::max(4, (count[static_cast<size_t>(_i)] + 3) / 4 * 4));
+			});
 			for(int t = 0; t < Lanes; ++t)
 				if(_s.track[t].machine >= 0)
 				{
@@ -168,14 +188,17 @@ namespace
 			on(_track.machine, [&](auto& _m)
 			{
 				for(int i = 0; i < 8; ++i)
-					_m.setParameter(_t, i, _track.sound.value[static_cast<size_t>(i)], 0);
-				_m.setNote(_t, _track.sound.note);
+					_m.setParameter(m_lane[_t], i, _track.sound.value[static_cast<size_t>(i)], 0);
+				_m.setNote(m_lane[_t], _track.sound.note);
 			});
 		}
 
-		void trig(const int _t, const int _machine) { on(_machine, [&](auto& _m) { _m.trig(_t); }); }
+		void trig(const int _t, const int _machine) { on(_machine, [&](auto& _m) { _m.trig(m_lane[_t]); }); }
 
 		bool used(const int _i) const { return m_used >> _i & 1; }
+
+		// Each Track's machine (-1: none) and its lane there
+		std::array<int, Lanes> m_track{}, m_lane{};
 
 	protected:
 		std::tuple<std::unique_ptr<W<BdModern>>, std::unique_ptr<W<SdBasic>>, std::unique_ptr<W<CyAlloy>>,
@@ -202,9 +225,10 @@ namespace
 					return;
 				const auto t0 = Clock::now();
 				const Block& b = _m.renderBlock();
-				for(int n = 0; n < BlockSize; ++n)
-					for(int l = 0; l < Lanes; ++l)
-						m_mix.s[n][l] += b.s[n][l];
+				for(int t = 0; t < Lanes; ++t)
+					if(m_track[t] == _i)
+						for(int n = 0; n < BlockSize; ++n)
+							m_mix.s[n][t] += b.s[n][m_lane[t]];
 				machineUs[static_cast<size_t>(_i)] +=
 					std::chrono::duration<double, std::micro>(Clock::now() - t0).count();
 			});
@@ -237,9 +261,10 @@ namespace
 				if(!used(_i))
 					return;
 				_m.render(m_ptr.data());
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						_outputs[l][n] += m_tmp[static_cast<size_t>(l)][static_cast<size_t>(n)];
+				for(int t = 0; t < Lanes; ++t)
+					if(m_track[t] == _i)
+						for(int n = 0; n < BlockSize; ++n)
+							_outputs[t][n] += m_tmp[static_cast<size_t>(m_lane[t])][static_cast<size_t>(n)];
 			});
 		}
 
@@ -538,9 +563,15 @@ namespace
 int main(const int _argc, char** _argv)
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
-	const int runs = _argc > 1 ? std::max(1, std::atoi(_argv[1])) : 7;
+	int runs = 7;
+	for(int i = 1; i < _argc; ++i)
+		if(std::string(_argv[i]) == "--wide")
+			g_wide = true;
+		else
+			runs = std::max(1, std::atoi(_argv[i]));
 	std::printf("stFastMixCost: median of %d runs of 10 s; 16 Tracks, one instance per machine used, summed, one "
-		"resampler at 44.1 kHz (\"separate\": a Host per machine)\n", runs);
+		"resampler at 44.1 kHz (\"separate\": a Host per machine); %s\n", runs,
+		g_wide ? "--wide: Track t on lane t, 16 lanes rendered" : "each machine's Tracks on its first lanes");
 
 	const TwinshotSamples worstSamples = makeSamples(32, MaxLength);
 	const TwinshotSamples shortSamples = makeSamples(32, 24000);
@@ -568,11 +599,12 @@ int main(const int _argc, char** _argv)
 		const int d = dearest[static_cast<size_t>(m)];
 		const double none = run(single(m, 0, d, &worstSamples), 48000, 32, 3, 2).us48;
 		const double one = run(single(m, 1, d, &worstSamples), 48000, 32, 3, 2).us48;
-		lane[static_cast<size_t>(m)] = (best - none) / 16;	// a sounding lane over an idle one
+		// A group of 4 lanes, one sounding; --wide: a sounding lane over an idle one
+		lane[static_cast<size_t>(m)] = g_wide ? (best - none) / 16 : one;
 		std::printf(" dearest %s; lanes sounding 0: %.2f, 1: %.2f, 16: %.2f\n", CandidateNames[d], none, one, best);
 	}
 
-	// The worst case: every machine once at its dearest, the other 7 Tracks on the dearest sounding lane
+	// The worst case: every machine once at its dearest, the other 7 Tracks on the dearest group (--wide: lane)
 	const int dearLane = static_cast<int>(std::max_element(lane.begin(), lane.end()) - lane.begin());
 	Scenario worst;
 	worst.period = 15;
@@ -584,8 +616,8 @@ int main(const int _argc, char** _argv)
 		const auto c = static_cast<size_t>(dearest[static_cast<size_t>(m)]);
 		worst.track[static_cast<size_t>(t)] = {m, candidates(m, t)[c]};
 	}
-	std::printf("\nthe 7 Tracks past the nine on %s (%.3f us a sounding lane over an idle one)\n", Names[dearLane],
-		lane[static_cast<size_t>(dearLane)]);
+	std::printf("\nthe 7 Tracks past the nine on %s (%.3f us %s)\n", Names[dearLane],
+		lane[static_cast<size_t>(dearLane)], g_wide ? "a sounding lane over an idle one" : "a group of 4 lanes");
 	scenario("worst case: 16 Tracks retriggered together every 15 blocks, 8 locks a trig, the dearest sounds", worst,
 		runs);
 	scenario("realistic: a kit of the nine machines, ordinary decays, 16ths at 120 BPM staggered",

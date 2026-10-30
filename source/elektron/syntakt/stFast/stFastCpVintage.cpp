@@ -86,7 +86,7 @@ namespace syntakt::fast
 			float* _z)
 		{
 			const V half = _mm_set1_ps(0.5f);
-			for(int g = 0; g < Lanes; g += 4)
+			for(int g = 0; g < _buf.lanes; g += 4)
 			{
 				V c[8], step[8];
 				for(int k = 0; k < 8; ++k)
@@ -121,7 +121,7 @@ namespace syntakt::fast
 		void rampedHighPass(Block& _buf, const float* _bFrom, const float* _bTo, const float* _aFrom, const float* _aTo,
 			float* _x1, float* _y1)
 		{
-			for(int g = 0; g < Lanes; g += 4)
+			for(int g = 0; g < _buf.lanes; g += 4)
 			{
 				V b = _mm_load_ps(_bFrom + g), a = _mm_load_ps(_aFrom + g);
 				const V sb = stepOf(_bFrom, _bTo, g), sa = stepOf(_aFrom, _aTo, g);
@@ -280,7 +280,7 @@ namespace syntakt::fast
 
 	void CpVintage::control()
 	{
-		for(int l = 0; l < Lanes; ++l)
+		for(int l = 0; l < m_lanes; ++l)
 		{
 			Trigs& trigs = m_controls.trigs;
 			const bool now = trigs.now[l];
@@ -390,6 +390,12 @@ namespace syntakt::fast
 		}
 	}
 
+	void CpVintage::setLanes(const int _lanes)
+	{
+		m_lanes = _lanes;
+		fast::setLanes(_lanes, {&m_scaled, &m_toneOut, &m_crackle, &m_white, &m_out});
+	}
+
 	const Block& CpVintage::renderBlock()
 	{
 		const FlushDenormals ftz;
@@ -402,7 +408,7 @@ namespace syntakt::fast
 		const Tables& t = m_tables;
 		scaledFeedbackSine(m_scaled, m_phase[1], m_inc[1], m_fb, m_fbWord, m_last, m_envFrom, m_env);
 		pmWave(m_toneOut, &m_scaled, m_depth, m_depthTarget, m_phase[0], m_inc[0], t.sine);
-		std::copy_n(m_depthTarget, Lanes, m_depth);
+		std::copy_n(m_depthTarget, m_lanes, m_depth);
 		rampedGain(m_toneOut, m_vcaFrom[2], m_vcaTo[2]);
 
 		// The clap: the crackle and the white noise its generator goes on with, low-passed, under their bursts, mixed
@@ -421,10 +427,10 @@ namespace syntakt::fast
 		// Through the resonator, the high-pass, the rate reducer and the second high-pass, eight times into the clip
 		resonator(m_out, m_resFrom, m_res, m_resY1, m_resY2, m_resZ);
 		for(int k = 0; k < 8; ++k)
-			std::copy_n(m_res[k], Lanes, m_resFrom[k]);
+			std::copy_n(m_res[k], m_lanes, m_resFrom[k]);
 		rampedHighPass(m_out, m_hpBFrom, m_hpB, m_hpAFrom, m_hpA, m_hpX, m_hpY);
-		std::copy_n(m_hpB, Lanes, m_hpBFrom);
-		std::copy_n(m_hpA, Lanes, m_hpAFrom);
+		std::copy_n(m_hpB, m_lanes, m_hpBFrom);
+		std::copy_n(m_hpA, m_lanes, m_hpAFrom);
 		reduceRate(m_out, m_rate, m_held, m_heldCount);
 		onePole(m_out, OutHp, m_hp2X, m_hp2Y);
 		saturate(m_out, 8);
@@ -432,8 +438,8 @@ namespace syntakt::fast
 		// The tone and the clap mixed, clipped, into the drive
 		mix(m_toneOut, m_out, m_out, m_tone, m_toneTarget, m_clap, m_clapTarget);
 		saturate(m_out, 1);
-		std::copy_n(m_toneTarget, Lanes, m_tone);
-		std::copy_n(m_clapTarget, Lanes, m_clap);
+		std::copy_n(m_toneTarget, m_lanes, m_tone);
+		std::copy_n(m_clapTarget, m_lanes, m_clap);
 		driveClip(m_out, m_drive.from, m_drive.to, m_drive.amount, m_drive.post);
 
 		// The drive's ramp's end is the next block's start

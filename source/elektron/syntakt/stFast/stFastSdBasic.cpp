@@ -33,8 +33,10 @@ namespace syntakt::fast
 	void pmSine2(Block& _out, const Block& _src1, const float _depth1, const Block& _src2, float* _depth2,
 		const float* _depth2Target, uint32_t* _phase, const Increments& _inc)
 	{
+		requireLanes(_out, _src1);
+		requireLanes(_out, _src2);
 		const V depth1 = _mm_set1_ps(_depth1);
-		for(int g = 0; g < Lanes; g += 4)
+		for(int g = 0; g < _out.lanes; g += 4)
 		{
 			__m128i p = _mm_load_si128(reinterpret_cast<const __m128i*>(_phase + g));
 			V depth2 = _mm_load_ps(_depth2 + g);
@@ -49,7 +51,7 @@ namespace syntakt::fast
 			}
 			_mm_store_si128(reinterpret_cast<__m128i*>(_phase + g), p);
 		}
-		std::copy_n(_depth2Target, Lanes, _depth2);
+		std::copy_n(_depth2Target, _out.lanes, _depth2);
 	}
 
 	SdBasic::SdBasic() : m_drive(-q31(FallPoleWord), -q31(RisePoleWord), 0.5f, {4.0f, 0.5f}, {1.0f, 1.0f})
@@ -152,7 +154,7 @@ namespace syntakt::fast
 	{
 		const float modAttack = -q31(ModAttackWord);
 
-		for(int l = 0; l < Lanes; ++l)
+		for(int l = 0; l < m_lanes; ++l)
 		{
 			Trigs& trigs = m_controls.trigs;
 			const bool now = trigs.now[l];
@@ -236,6 +238,13 @@ namespace syntakt::fast
 			fadePending(m_gMod, m_mod, m_modEnd, l, pending);
 			fadePending(m_gAmp, m_amp, m_ampEnd, l, pending);
 		}
+	}
+
+	void SdBasic::setLanes(const int _lanes)
+	{
+		m_lanes = _lanes;
+		fast::setLanes(_lanes, {&m_gEnv[0], &m_gEnv[1], &m_gEnv[2], &m_gEnv[3], &m_gMod, &m_gAmp, &m_b[0], &m_b[1],
+			&m_b[2], &m_b[3], &m_out});
 	}
 
 	const Block& SdBasic::renderBlock()

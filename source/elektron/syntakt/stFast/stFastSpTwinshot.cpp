@@ -175,7 +175,7 @@ namespace syntakt::fast
 	void twinshotBandPass(Block& _buf, const float* _c0, const float* _c1, float* _s1, float* _s2)
 	{
 		using namespace simd;
-		for(int g = 0; g < Lanes; g += 4)
+		for(int g = 0; g < _buf.lanes; g += 4)
 		{
 			const V c0 = _mm_load_ps(_c0 + g), c1 = _mm_load_ps(_c1 + g);
 			V s1 = _mm_load_ps(_s1 + g), s2 = _mm_load_ps(_s2 + g);
@@ -250,7 +250,7 @@ namespace syntakt::fast
 	void SpTwinshot::control()
 	{
 		const TwinshotSamples::Slot none;
-		for(int l = 0; l < Lanes; ++l)
+		for(int l = 0; l < m_lanes; ++l)
 		{
 			Trigs& trigs = m_controls.trigs;
 			const bool now = trigs.now[l];
@@ -327,6 +327,12 @@ namespace syntakt::fast
 		}
 	}
 
+	void SpTwinshot::setLanes(const int _lanes)
+	{
+		m_lanes = _lanes;
+		fast::setLanes(_lanes, {&m_gAmp, &m_player[0], &m_player[1], &m_out});
+	}
+
 	const Block& SpTwinshot::renderBlock()
 	{
 		const FlushDenormals ftz;
@@ -336,7 +342,7 @@ namespace syntakt::fast
 
 		// The players; the first band-passed under the amp, then the two mixed
 		for(int p = 0; p < 2; ++p)
-			for(int l = 0; l < Lanes; ++l)
+			for(int l = 0; l < m_lanes; ++l)
 				twinshotPlayer(m_player[p], l, m_record[p][l], m_samples);
 		twinshotBandPass(m_player[0], m_c0, m_c1, m_s1, m_s2);
 		gain(m_player[0], m_gAmp);
