@@ -164,7 +164,7 @@ namespace syntakt::fast
 		return t;
 	}();
 
-	// The sample the feedback oscillators read (0x400035de, 0x40003958, and 0x40003aac at 96 kHz, which halves it),
+	// The sample the feedback oscillators read (0x400035de and 0x40003958),
 	// the RAM sine at the 24-bit _phase moved by _fb (2^-24 cycle per unit) times their feedback _x, in the machine's
 	// integers: the phase sum (phase << 8) + (fb x >> 23), then >> 8; the lookup (T[i] << 8) + (f T[i + 1] >> 23) -
 	// (f T[i] >> 23), then >> 8. Neither saturates nor wraps where the machine's accumulator would: the phase sum stays
@@ -498,7 +498,7 @@ namespace syntakt::fast
 	//	- const Block& renderBlock(): one 48 kHz block of the 16 Tracks, in this order: FlushDenormals,
 	//	  controls.trigs.start(), the block-rate control, the stages, controls.trigs.end()
 	//	- at 48 kHz only, a machine may step its envelopes once per block but in the trig's block rather than on
-	//	  Clock48, whose steps that is (CP VINTAGE, SY TONE, SY CHORD and SY TOY do)
+	//	  Clock48, whose steps that is (CP VINTAGE and SY TOY do)
 	// Controls holds what the front sets, which the machine converts (its convert(track)) and its control reads
 	struct Controls
 	{

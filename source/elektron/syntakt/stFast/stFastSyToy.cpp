@@ -12,8 +12,8 @@ namespace syntakt::fast
 		// The machine's constants by their laws, each against the firmware's word (measured by hand, the word kept out
 		// of the source; the tests drive the exact port with it)
 
-		// The drive's gain envelope, one-pole per 48 kHz block: falling by half in 25 ms (37.5 blocks, SY TONE's: 1.4e-8
-		// of the pole over the word), recovering with a time constant of 0.8 ln 2 s (554.5 ms: 1.9e-9 under); its
+		// The drive's gain envelope, one-pole per 48 kHz block: falling by half in 25 ms (37.5 blocks: 1.4e-8 of
+		// the pole over the word), recovering with a time constant of 0.8 ln 2 s (554.5 ms: 1.9e-9 under); its
 		// floor 0.25, the clip's pre-gain 1.12 (4 times 0.28) with the drive on, 1 off, the gain after it 1 on, 0.5 off
 		// (round values, the words)
 		const float FallPole = static_cast<float>(std::pow(0.5, 1 / 37.5));

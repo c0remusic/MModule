@@ -1,7 +1,7 @@
 // A diagnostic, by hand, not a test: every value of every sound parameter of a fast machine against the exact port
 // at 48 kHz, through the bench (stFastBench.h).
 //
-//	stFastSweep sweep MACHINE OUT.csv	MACHINE bd, sd, cy, pc, sv, cp, sy, sc or ty
+//	stFastSweep sweep MACHINE OUT.csv	MACHINE bd, sd, cy, pc, sv, cp or ty
 //	stFastSweep ab OUTDIR CASES.txt		A/B WAVs and an ABX page for the cases, one a line: MACHINE PARAM VALUE, or
 //										MACHINE hitN (BD's bench Hits, PC CARBON's Hit 10)
 //
@@ -12,9 +12,8 @@
 // the level there below the peak; the pitch in cents (bench::peakHz); the null (SNR, worst 10 ms, worst residual third
 // octave). A value is chaotic where the exact port, its phases 1 LSB on, fails Q4's measures against itself
 // (bench::chaoticSelf); there both engines are measured again with the machine's feedback table at 0 (none in PC
-// CARBON and SY CHORD), the row flagged. A machine with noise (SD VINTAGE, CP VINTAGE) starts it from the exact port's
-// seeds (fastHits). A value both engines play as exact silence passes, its row flagged "silent" and not measured
-// (SY CHORD's TUNE from 118 at its base note: every unit past 2217 Hz from the trig, none ever sounds).
+// CARBON), the row flagged. A machine with noise (SD VINTAGE, CP VINTAGE) starts it from the exact port's
+// seeds (fastHits). A value both engines play as exact silence passes, its row flagged "silent" and not measured.
 //
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7; what is written is derived from it, so it must go outside the
 // repository.
@@ -36,8 +35,6 @@
 #include "stFastPcCarbon.h"
 #include "stFastSdBasic.h"
 #include "stFastSdVintage.h"
-#include "stFastSyChord.h"
-#include "stFastSyTone.h"
 #include "stFastSyToy.h"
 #include "stSection7.h"
 
@@ -76,10 +73,6 @@ namespace
 			{"tune", "ratios", "balance", "sweep", "u3decay", "drive", "hold", "decay", "note"}},
 		{"cp", 7, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::CpVintage::Units, 0x4003b438,
 			{"tune", "tone", "balance", "period", "tonedecay", "drive", "hold", "decay", "note"}},
-		{"sy", 4, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::SyTone::Units, 0x40021404,
-			{"tune", "ratio", "index", "feedback", "moddecay", "drive", "hold", "decay", "note"}},
-		{"sc", 5, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::SyChord::Units, 0,
-			{"tune", "balance", "shape", "wave", "cutoff", "drive", "hold", "decay", "note"}},
 		{"ty", 36, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {1, 2, 3, 5}, fast::SyToy::Units, 0x4003d238,
 			{"tune", "ratios", "depth", "levels", "decays", "drive", "hold", "decay", "note"}},
 	};
@@ -101,8 +94,6 @@ namespace
 		case 1: return _f(Type<fast::SdBasic>{});
 		case 2: return _f(Type<fast::CyAlloy>{});
 		case 3: return _f(Type<fast::PcCarbon>{});
-		case 4: return _f(Type<fast::SyTone>{});
-		case 5: return _f(Type<fast::SyChord>{});
 		case 6: return _f(Type<fast::SdVintage>{});
 		case 7: return _f(Type<fast::CpVintage>{});
 		case 36: return _f(Type<fast::SyToy>{});
