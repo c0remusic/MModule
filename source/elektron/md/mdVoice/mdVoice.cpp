@@ -79,12 +79,14 @@ namespace md::voice
 		};
 
 		// Indexed by type (machine id + 1); type 0, never assigned, renders silence as the harness's idle voices do
-		constexpr std::array<Routines, 5> kPorted = {{
+		constexpr std::array<Routines, 18> kPorted = {{
 			{none, none, renderSilence},		// 0
 			{none, none, renderSilence},		// 1 GND--
 			{nullptr, nullptr, nullptr},		// 2 GND-SN
 			{nullptr, nullptr, nullptr},		// 3 GND-NS
 			{none, updateGndIm, renderGndIm},	// 4 GND-IM
+			{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},	// 5-16
+			{trxBd::init, trxBd::update, trxBd::render},	// 17 TRX-BD
 		}};
 
 		// ROM-01 to -32 (types 129-160) and ROM-33 to -48 (177-192) share one init, update and render

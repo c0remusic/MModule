@@ -63,3 +63,42 @@ Reste ouvert :
 - La fonction de coefficients 68k des ROM tourne encore dans Musashi.
 - « Sonne pareil » 44,1/48 n'est pas vérifié.
 - Les TRX restent à porter.
+
+## 2026-10-31 : formes d'onde des TRX, TRX-BD porté
+
+Décision d'Antoine : les formes d'onde échantillonnées de TRX-BD, TRX-SD, TRX-XT, TRX-RS et TRX-XC viennent de la
+flash image que son propriétaire importe, comme la banque UW (spécification §11.4 amendée). Ce sont des mots du
+programme voix ; `md::fw::dspWords` les lit dans ses enregistrements de chargement, et l'appelant les copie dans
+`md::voice::TrxTables`. Le sinus de 32 768 mots vient de la récurrence du boot, que le constructeur de `TrxTables`
+calcule.
+
+TRX-BD (type 17 : init $1003DA, update $1003E1, render $100408) est porté dans `mdVoiceTrx.cpp`. `mdVoicePortTest`
+vérifie d'abord que le sinus calculé et les deux ondes lues dans le programme sont, mot pour mot, la mémoire du DSP
+après son init. Puis TRX-BD joue dans la première phase, avec les paquets des fonctions 68k de l'OS : 235 990
+échantillons non nuls, 0 échantillon différent et 0 mot d'état différent. Chaque branche du render est atteinte : le
+fondu du bloc qui suit un Hit, l'attaque échantillonnée, le clipper au-dessus et au-dessous, le façonneur au-dessus et
+au-dessous, et le niveau limité par un Hit qui l'ajoute au-delà de la pleine échelle. Deux mutations sont attrapées :
+le gain de la seconde onde, et le niveau que le clipper reprend. Une troisième (`>=` en `>` au seuil haut du
+façonneur) passe, parce qu'elle est équivalente : à égalité, les deux chemins donnent le seuil.
+
+Le render écrit la mémoire de travail commune (Y:$00-$3F, X:$06-$07, X:$20-$5F), qu'un render ROM peut lire ensuite.
+Il faut donc rendre toute voix ROM ou TRX à chaque bloc, dans l'ordre des pistes.
+
+Coût mesuré (release, médiane de 9 passes, charge 19 %) : 0,47 µs par voix et par bloc de 32, soit 0,065 % d'un cœur
+par voix et 1,0 % pour 16 voix, sous les 0,07-0,3 % estimés.
+
+Reste ouvert pour les TRX :
+- TRX-SD, XT, CP, RS, CB, CH, OH, CY, MA, CL, XC, B2 et S2.
+- Ce que joue une TRX dont la forme d'onde manque, sans flash image. Dans TRX-BD, l'attaque n'est alors plus que du
+  bruit, et le reste sonne.
+- Leurs fonctions de coefficients 68k tournent encore dans Musashi.
+
+Revue d'architecture du 2026-10-31, reporté à TRX-SD, qui touche le même dispatch :
+- `kPorted` rempli par indice (une fonction `constexpr` qui écrit `a[17] = ...`), au lieu des `{}` comptés à la main.
+- Une entrée par famille (`trx::routines(type)`), au lieu de trois déclarations par machine dans
+  `mdVoiceInternal.h`.
+- Les noms des sondes à côté de leur `enum`, que le test lit, au lieu d'une seconde liste dans le test.
+
+Reporté à l'intégration au produit : une fonction de `md::fw` qui remplit `TrxTables` depuis la flash image, appelée
+par le test et par le produit, au lieu de la copie que fait le test. Sans flash image, le produit garde ses
+`TrxTables` (ondes à zéro) : `Shared::trx` nul reste une erreur de programmation.

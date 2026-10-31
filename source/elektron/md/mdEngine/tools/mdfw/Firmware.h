@@ -57,6 +57,10 @@ struct DspImage {
 // 24-bit little-endian words: [space][addr][count] + count words; 3 = start marker, 4 = Machinedrum marker (2 words each)
 DspImage parseDspRecords(const std::vector<uint8_t>& section);
 
+// md-drums: the count words a program's load records put from addr on, whatever their space (the external memory is
+// one for X, Y and P), a later record over an earlier one; throws FirmwareError where none puts a word
+std::vector<uint32_t> dspWords(const DspImage& img, uint32_t addr, uint32_t count);
+
 struct Firmware {
     DspImage dspA, dspB;             // sections 1 and 2
     std::string version;

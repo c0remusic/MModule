@@ -34,11 +34,24 @@ namespace md::voice
 		size_t dataWords = 0;
 	};
 
-	// The voice DSP's internal memory that the ROM machines use as scratch, X:$000-$1FF and Y:$000-$0FF, one for all
-	// the voices as the DSP has one. Every ROM voice must render every block, Track 1 to 16 in turn: a render may read
-	// a word the last one left (a reversed voice retriggered with the part before the retrigger of odd length keeps
-	// that part's last pointer from the last render that wrote it, whatever its voice). A caller that skips voices or
-	// renders one alone (a preview) loses exactness on that edge only. mdVoicePortTest starts it from what the DSP's
+	// The voice DSP's tables the TRX machines read. The sine is the boot's own recurrence, which the constructor runs;
+	// the sampled waveforms are words of the voice program in the flash image (spec 11.4: its owner imports it), which
+	// the caller copies in (md::fw::dspWords)
+	struct TrxTables
+	{
+		static constexpr uint32_t SineAddr = 0x148000, BdWaveAAddr = 0x10050c, BdWaveBAddr = 0x10062c;
+		std::array<uint32_t, 0x8000> sine{};		// X:$148000, one period
+		std::array<uint32_t, 288> bdWaveA{};		// P:$10050C, TRX-BD's attack
+		std::array<uint32_t, 288> bdWaveB{};		// P:$10062C, the same for a second packet word
+
+		TrxTables();
+	};
+
+	// The voice DSP's internal memory that the ROM and TRX machines use as scratch, X:$000-$1FF and Y:$000-$0FF, one for
+	// all the voices as the DSP has one. Every ROM or TRX voice must render every block, Track 1 to 16 in turn, whatever
+	// its family: a ROM render may read a word the last render left (a reversed voice retriggered with the part before
+	// the retrigger of odd length keeps that part's last pointer from the last render that wrote it, whatever its
+	// voice). A caller that skips voices or renders one alone (a preview) loses exactness on that edge only. mdVoicePortTest starts it from what the DSP's
 	// own init left in it; a product starts from zeros.
 	struct Scratch
 	{
@@ -48,12 +61,13 @@ namespace md::voice
 
 	// What the 16 voices of one engine share, owned by the caller: the ROM machines' tables (nullptr: a ROM machine
 	// throws std::logic_error when it renders) and bank (nullptr: none, which plays silence), changed between blocks
-	// only, and the scratch
+	// only, the scratch, and the TRX machines' tables (nullptr: a TRX machine throws when it renders)
 	struct Shared
 	{
 		const RomTables* tables = nullptr;
 		const RomBank* bank = nullptr;
 		Scratch scratch;
+		const TrxTables* trx = nullptr;
 	};
 
 	class Voice
@@ -66,7 +80,7 @@ namespace md::voice
 
 		explicit Voice(Shared& _shared) : m_shared(&_shared) {}
 
-		// The types (machine id + 1) whose code is ported: 0 (never assigned), GND--, GND-IM, ROM-01 to -48
+		// The types (machine id + 1) whose code is ported: 0 (never assigned), GND--, GND-IM, TRX-BD, ROM-01 to -48
 		static bool ported(uint32_t _type);
 
 		// As VoiceEngine::setSlot: word 0 the trigger (the type, non-zero only on the block the voice is triggered),

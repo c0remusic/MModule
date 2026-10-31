@@ -22,12 +22,27 @@ namespace md::voice
 		void render(Context& _c, Voice::Block& _out);
 	}
 
+	// TRX-BD's routines (mdVoiceTrx.cpp): init ($1003DA), update ($1003E1) and render ($100408)
+	namespace trxBd
+	{
+		void init(Context& _c);
+		void update(Context& _c);
+		void render(Context& _c, Voice::Block& _out);
+	}
+
 	// What mdVoicePortTest sees inside the port; a product leaves them empty
 	namespace testHooks
 	{
-		// The ROM render's branches the test must reach
+		// The ROM and TRX-BD renders' branches the test must reach
 		enum Probe
 		{
+			BdFade,					// TRX-BD's block after a Hit: the last sample faded out
+			BdAttack,				// TRX-BD's attack, the sampled waveforms
+			BdClipAbove,			// TRX-BD's clipper past its upper threshold
+			BdClipBelow,			// ... past its lower
+			BdShapeAbove,			// TRX-BD's shaper past X0
+			BdShapeBelow,			// ... past X1
+			BdLevelLimited,			// a Hit that adds the level past full scale
 			ForwardOdd,				// fillForward's first sample alone (the position in a word's second half)
 			ReverseEven,			// fillReverse's first sample alone (the position in a word's first half)
 			HeldLastSample,			// the forward window padded with the last pointer (no loop, past the end)
@@ -48,5 +63,11 @@ namespace md::voice
 		};
 
 		Hooks& hooks();
+
+		inline void probe(const Probe _p)
+		{
+			if(auto* probes = hooks().probes)
+				++(*probes)[_p];
+		}
 	}
 }

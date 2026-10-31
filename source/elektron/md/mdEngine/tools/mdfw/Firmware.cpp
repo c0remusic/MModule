@@ -153,6 +153,20 @@ DspImage parseDspRecords(const std::vector<uint8_t>& sec)
     return img;
 }
 
+std::vector<uint32_t> dspWords(const DspImage& img, const uint32_t addr, const uint32_t count)
+{
+    std::vector<uint32_t> out(count);
+    std::vector<bool> found(count, false);
+    for (const auto& r : img.records)
+        for (size_t k = 0; k < r.words.size(); ++k) {
+            const uint32_t i = r.addr + uint32_t(k) - addr;
+            if (i < count) { out[i] = r.words[k] & 0xffffff; found[i] = true; }
+        }
+    for (uint32_t i = 0; i < count; ++i)
+        if (!found[i]) throw FirmwareError("dsp records: no word loaded at address " + std::to_string(addr + i));
+    return out;
+}
+
 Firmware loadFirmware(const std::filesystem::path& syxPath)
 {
     const auto c = parseContainer(parseSysex(readFile(syxPath)));

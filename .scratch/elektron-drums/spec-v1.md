@@ -251,7 +251,9 @@ Ticket « Qualité audio » : ne corriger que les ajouts, jamais un étage port�
 
 Aucun firmware n'est nécessaire chez l'utilisateur, et le plug-in livré n'a pas de dossier `roms`. Les firmwares
 servent aux tests ; toutes les tables viennent de formules testées contre le firmware. Une flash image du MD importée
-par son propriétaire sert seulement à extraire la banque UW, jamais son code ni ses tables.
+par son propriétaire sert seulement à en extraire des échantillons : la banque UW, et les formes d'onde échantillonnées
+de TRX-BD, TRX-SD, TRX-XT, TRX-RS et TRX-XC (mots du programme voix, amendé le 2026-10-31), jamais son code ni ses
+tables.
 
 ## 12. Critères d'acceptation
 

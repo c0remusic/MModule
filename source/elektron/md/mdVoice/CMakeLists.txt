@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 # The voice DSP's machines ported to C++, without an emulator (ticket 02 of .scratch/elektron-drums-v1)
-add_library(mdVoice STATIC mdVoice.h mdVoiceInternal.h mdVoice.cpp mdVoiceRom.cpp)
+add_library(mdVoice STATIC mdVoice.h mdVoiceDsp.h mdVoiceInternal.h mdVoice.cpp mdVoiceRom.cpp mdVoiceTrx.cpp)
 target_include_directories(mdVoice PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(TARGET mdVoice PROPERTY FOLDER "Elektron")
 
