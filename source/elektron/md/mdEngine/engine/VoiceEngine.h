@@ -40,6 +40,10 @@ namespace md::engine
 		// Render one 32-sample block of all 16 voices. Returns false on a fault.
 		bool renderBlock(Block& _out);
 
+		// md-drums: run the DSP on the emulator's interpreter instead of its JIT. The JIT corrupts X1:X0 at TRX-SD's
+		// DO #$1F ($100792), the interpreter does not (ticket 08 of .scratch/elektron-drums-v1)
+		void setInterpreter(const bool _interpreter) { m_interpreter = _interpreter; }
+
 		// Write words into P memory (e.g. the ROM machines' sample memory, which the MD copies from its sample flash at
 		// boot - not part of the OS file). reset() reloads the program's own records, the ROM sample directory among them,
 		// so write again after a reset.
@@ -108,6 +112,7 @@ namespace md::engine
 		std::unique_ptr<dsp56k::PeripheralsNop> m_periphY;
 		std::unique_ptr<dsp56k::DSP> m_dsp;
 		std::string m_fault;
+		bool m_interpreter = false;
 		std::array<std::shared_ptr<const md::mds::Package>, kUserMachines> m_userMachines{};
 		std::shared_ptr<const fw::DspImage> m_x20Voice;
 		uint32_t m_x20Builtins = 0;

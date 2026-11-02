@@ -22,20 +22,31 @@ namespace md::voice
 		void render(Context& _c, Voice::Block& _out);
 	}
 
-	// TRX-BD's routines (mdVoiceTrx.cpp): init ($1003DA), update ($1003E1) and render ($100408)
-	namespace trxBd
+	// A type's three entries, as the dispatch tables at Y:$145AF5, $145BB6 and $145C77 give them
+	struct Routines
 	{
-		void init(Context& _c);
-		void update(Context& _c);
-		void render(Context& _c, Voice::Block& _out);
+		void (*init)(Context&);
+		void (*update)(Context&);
+		void (*render)(Context&, Voice::Block&);
+	};
+
+	// The TRX machines' routines (mdVoiceTrx.cpp), by type (TRX-BD 17 to TRX-S2 30): nullptr for a type not ported
+	namespace trx
+	{
+		const Routines* routines(uint32_t _type);
 	}
 
 	// What mdVoicePortTest sees inside the port; a product leaves them empty
 	namespace testHooks
 	{
-		// The ROM and TRX-BD renders' branches the test must reach
+		// The ROM and TRX renders' branches the test must reach
 		enum Probe
 		{
+			SdPitchRise,			// TRX-SD's pitch envelope while it rises
+			SdPitchDecay,			// ... once it decays
+			SdWave,					// TRX-SD's sampled waveform added
+			SdTail,					// ... past its end
+			SdLevelLimited,			// a Hit that adds TRX-SD's level past full scale
 			BdFade,					// TRX-BD's block after a Hit: the last sample faded out
 			BdAttack,				// TRX-BD's attack, the sampled waveforms
 			BdClipAbove,			// TRX-BD's clipper past its upper threshold
@@ -51,6 +62,15 @@ namespace md::voice
 			Stall,					// a fill count past $7FFFFF, where the DSP stalls: the block silent
 			ProbeCount
 		};
+
+		// Their names, in the enum's order, which the test prints
+		constexpr const char* kProbeNames[] = {"TRX-SD's pitch rising",
+			"TRX-SD's pitch decaying", "TRX-SD's waveform", "TRX-SD's tail past the waveform",
+			"TRX-SD's level limited at a Hit", "TRX-BD's fade after a Hit", "TRX-BD's attack", "TRX-BD's clipper above",
+			"TRX-BD's clipper below", "TRX-BD's shaper above", "TRX-BD's shaper below", "TRX-BD's level limited at a Hit",
+			"ROM forward fill's odd first sample", "ROM reverse fill's even first sample", "ROM last sample held",
+			"ROM reversed stop at the start", "ROM reversed retrigger with an odd first part", "ROM stall"};
+		static_assert(std::size(kProbeNames) == ProbeCount, "a probe without its name");
 
 		struct Hooks
 		{

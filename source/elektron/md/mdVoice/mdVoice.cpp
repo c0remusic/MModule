@@ -70,23 +70,14 @@ namespace md::voice
 			_s[7] = limit(b);
 		}
 
-		// A type's three entries, as the dispatch tables at Y:$145AF5, $145BB6 and $145C77 give them
-		struct Routines
-		{
-			void (*init)(Context&);
-			void (*update)(Context&);
-			void (*render)(Context&, Block&);
-		};
-
-		// Indexed by type (machine id + 1); type 0, never assigned, renders silence as the harness's idle voices do
-		constexpr std::array<Routines, 18> kPorted = {{
+		// GND-- to GND-IM, by type (machine id + 1); type 0, never assigned, renders silence as the harness's idle voices
+		// do
+		constexpr std::array<Routines, 5> kGnd = {{
 			{none, none, renderSilence},		// 0
 			{none, none, renderSilence},		// 1 GND--
 			{nullptr, nullptr, nullptr},		// 2 GND-SN
 			{nullptr, nullptr, nullptr},		// 3 GND-NS
 			{none, updateGndIm, renderGndIm},	// 4 GND-IM
-			{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {},	// 5-16
-			{trxBd::init, trxBd::update, trxBd::render},	// 17 TRX-BD
 		}};
 
 		// ROM-01 to -32 (types 129-160) and ROM-33 to -48 (177-192) share one init, update and render
@@ -96,17 +87,27 @@ namespace md::voice
 			return (_type >= 129 && _type <= 160) || (_type >= 177 && _type <= 192);
 		}
 
+		// The type's routines, nullptr when it is not ported
+		const Routines* find(const uint32_t _type)
+		{
+			if(isRom(_type))
+				return &kRom;
+			if(_type < kGnd.size())
+				return kGnd[_type].render ? &kGnd[_type] : nullptr;
+			return trx::routines(_type);
+		}
+
 		const Routines& routines(const uint32_t _type)
 		{
-			if(!Voice::ported(_type))
-				throw std::out_of_range("md::voice: type " + std::to_string(_type) + " is not ported");
-			return isRom(_type) ? kRom : kPorted[_type];
+			if(const auto* r = find(_type))
+				return *r;
+			throw std::out_of_range("md::voice: type " + std::to_string(_type) + " is not ported");
 		}
 	}
 
 	bool Voice::ported(const uint32_t _type)
 	{
-		return (_type < kPorted.size() && kPorted[_type].render) || isRom(_type);
+		return find(_type) != nullptr;
 	}
 
 	void Voice::setSlot(const uint32_t* _words, const int _count)

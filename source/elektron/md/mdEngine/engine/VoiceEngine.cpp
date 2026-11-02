@@ -526,7 +526,10 @@ namespace md::engine
 		uint64_t nextReport = start + 5'000'000;
 		while(hi.txData().size() < _words)
 		{
-			m_dsp->exec();
+			if(m_interpreter)
+				m_dsp->execInterpreter();
+			else
+				m_dsp->exec();
 			if(debug && m_dsp->getInstructionCounter() > nextReport)
 			{
 				std::fprintf(stderr, "  PC=$%06x instr=%llu tx=%zu\n", m_dsp->getPC().toWord(),

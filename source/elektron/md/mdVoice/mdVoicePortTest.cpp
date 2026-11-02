@@ -53,8 +53,8 @@ namespace
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1). ROM-01, -02, -17 and -32 hold
 	// factory samples, ROM-33 and -46 none
-	constexpr std::array<uint8_t, 9> kMachines = {0, 3, 16, 128, 129, 144, 159, 176, 189};	// GND--, GND-IM, TRX-BD, ROM-
-	constexpr uint32_t kGndIm = 4, kTrxBd = 17;
+	constexpr std::array<uint8_t, 10> kMachines = {0, 3, 16, 17, 128, 129, 144, 159, 176, 189};	// GND--, GND-IM, TRX-
+	constexpr uint32_t kGndIm = 4, kTrxBd = 17, kTrxSd = 18;
 	bool isRom(const uint32_t _type)
 	{
 		return (_type >= 129 && _type <= 160) || (_type >= 177 && _type <= 192);
@@ -93,13 +93,6 @@ namespace
 		{0, 1, 0x7f0000},				// no retrigger, one, for ever
 		{1, 0x44, 0x7fffff},			// a retrigger every block
 	}};
-
-	// The probes the run must reach (all but Stall, which the oracle cannot survive)
-	constexpr std::array<const char*, hooks::ProbeCount> kProbeNames = {"TRX-BD's fade after a Hit",
-		"TRX-BD's attack", "TRX-BD's clipper above", "TRX-BD's clipper below", "TRX-BD's shaper above",
-		"TRX-BD's shaper below", "TRX-BD's level limited at a Hit", "ROM forward fill's odd first sample",
-		"ROM reverse fill's even first sample", "ROM last sample held", "ROM reversed stop at the start",
-		"ROM reversed retrigger with an odd first part", "ROM stall"};
 
 	// What both gave, block after block: [block][voice][frame] and [block][voice][word]
 	struct Recording
@@ -154,29 +147,41 @@ namespace
 	{
 		md::voice::TrxTables t;
 		using T = md::voice::TrxTables;
-		const auto a = md::fw::dspWords(_fw.dspA, T::BdWaveAAddr, static_cast<uint32_t>(t.bdWaveA.size()));
-		const auto b = md::fw::dspWords(_fw.dspA, T::BdWaveBAddr, static_cast<uint32_t>(t.bdWaveB.size()));
-		std::copy(a.begin(), a.end(), t.bdWaveA.begin());
-		std::copy(b.begin(), b.end(), t.bdWaveB.begin());
+		const auto copy = [&](auto& _table, const uint32_t _addr)
+		{
+			const auto w = md::fw::dspWords(_fw.dspA, _addr, static_cast<uint32_t>(_table.size()));
+			std::copy(w.begin(), w.end(), _table.begin());
+		};
+		copy(t.bdWaveA, T::BdWaveAAddr);
+		copy(t.bdWaveB, T::BdWaveBAddr);
+		copy(t.sdWave, T::SdWaveAddr);
+		copy(t.filterA, T::FilterAAddr);
+		copy(t.filterB, T::FilterBAddr);
 		return t;
 	}
 
+	// In the space the renders read it from
 	template<size_t N>
 	void checkTable(const char* _name, const std::array<uint32_t, N>& _table, const uint32_t _addr,
-		const dsp56k::Memory& _mem)
+		const dsp56k::Memory& _mem, const dsp56k::EMemArea _area = dsp56k::MemArea_X)
 	{
 		for(uint32_t k = 0; k < N; ++k)
-			if(_table[k] != (_mem.get(dsp56k::MemArea_X, _addr + k) & 0xffffff))
+			if(_table[k] != (_mem.get(_area, _addr + k) & 0xffffff))
 				throw std::runtime_error(std::string(_name) + " differs from the voice DSP's at word "
 					+ std::to_string(k));
 	}
 
 	void checkTrxTables(const md::voice::TrxTables& _t, VoiceEngine& _oracle)
 	{
+		using T = md::voice::TrxTables;
 		const auto& mem = _oracle.dsp().memory();
-		checkTable("the sine", _t.sine, md::voice::TrxTables::SineAddr, mem);
-		checkTable("TRX-BD's wave A", _t.bdWaveA, md::voice::TrxTables::BdWaveAAddr, mem);
-		checkTable("TRX-BD's wave B", _t.bdWaveB, md::voice::TrxTables::BdWaveBAddr, mem);
+		checkTable("the sine", _t.sine, T::SineAddr, mem);
+		checkTable("the sine in Y", _t.sine, T::SineAddr, mem, dsp56k::MemArea_Y);
+		checkTable("TRX-BD's wave A", _t.bdWaveA, T::BdWaveAAddr, mem);
+		checkTable("TRX-BD's wave B", _t.bdWaveB, T::BdWaveBAddr, mem);
+		checkTable("TRX-SD's wave", _t.sdWave, T::SdWaveAddr, mem, dsp56k::MemArea_Y);
+		checkTable("the filters' angles", _t.filterA, T::FilterAAddr, mem);
+		checkTable("the filters' radii", _t.filterB, T::FilterBAddr, mem);
 	}
 
 	// A bank's directory and data, which md::voice::RomBank views
@@ -229,6 +234,8 @@ namespace
 	Recording record(const md::fw::FlashOs& _os, const std::vector<uint8_t>& _flash)
 	{
 		VoiceEngine oracle(_os.firmware);
+		// The DSP program's own semantics: the JIT corrupts X at TRX-SD's DO, the interpreter does not
+		oracle.setInterpreter(true);
 		const auto tables = romTables(oracle);
 		auto bank = makeBank(md::fw::loadRomBankFromFlash(_flash), tables);
 		if(bank.data.size() < 1000)
@@ -236,8 +243,9 @@ namespace
 		loadBank(oracle, bank);
 		const auto bankView = bank.view();
 
-		// The words the port does not hold, a stray pointer's, as the emulator reads them: the address masked to its
-		// 2M words (the oracle's memory after the block, which a stray pointer finds the same: samples or code)
+		// The words the port does not hold, a stray pointer's, as the emulator's interpreter reads them: 0 past its memory
+		// (the JIT masks the address to 2M words instead), else the oracle's memory after the block, which a stray
+		// pointer finds the same: samples or code
 		struct Stray
 		{
 			const dsp56k::Memory* memory;
@@ -249,7 +257,7 @@ namespace
 		{
 			auto& s = *const_cast<Stray*>(static_cast<const Stray*>(_user));
 			++s.reads;
-			return s.memory->get(dsp56k::MemArea_Y, _addr & 0x1fffff);
+			return s.memory->get(dsp56k::MemArea_Y, _addr);
 		};
 		h.strayUser = &stray;
 		h.probes = &rec.probes;
@@ -495,10 +503,10 @@ int main()
 		for(uint32_t t = 0; t < rec.sounding.size(); ++t)
 			rom += isRom(t) ? rec.sounding[t] : 0;
 		std::printf("%d blocks of %d voices, %d Hits; GND-IM sounding samples %lld, below zero %lld, across blocks "
-			"%lld; TRX-BD sounding samples %lld; ROM sounding samples %lld\n", kBlocks, kVoices, rec.hits,
-			static_cast<long long>(rec.sounding[kGndIm]), static_cast<long long>(rec.negative),
+			"%lld; TRX-BD sounding samples %lld; TRX-SD sounding samples %lld; ROM sounding samples %lld\n", kBlocks,
+			kVoices, rec.hits, static_cast<long long>(rec.sounding[kGndIm]), static_cast<long long>(rec.negative),
 			static_cast<long long>(rec.carried), static_cast<long long>(rec.sounding[kTrxBd]),
-			static_cast<long long>(rom));
+			static_cast<long long>(rec.sounding[kTrxSd]), static_cast<long long>(rom));
 		std::printf("words read through a stray pointer: %lld in the OS's phase, %lld in all\n",
 			static_cast<long long>(rec.osStrayReads), static_cast<long long>(rec.strayReads));
 		static const char* const named[] = {"os empty slot silent", "os reversed", "os ended mid-block",
@@ -507,7 +515,7 @@ int main()
 			"edge highest pitch sounding", "edge lowest pitch sounding", "edge full scale",
 			"edge 1 to 3 samples sounding", "edge sample shortened under the voice"};
 		bool missed = rec.sounding[kGndIm] == 0 || rec.negative == 0 || rec.carried == 0 || rom == 0
-			|| rec.sounding[kTrxBd] == 0;
+			|| rec.sounding[kTrxBd] == 0 || rec.sounding[kTrxSd] == 0;
 		for(const char* name : named)
 		{
 			const auto it = rec.edges.find(name);
@@ -517,7 +525,7 @@ int main()
 		}
 		for(int p = 0; p < hooks::ProbeCount; ++p)
 		{
-			std::printf("  probe %s: %lld\n", kProbeNames[static_cast<size_t>(p)],
+			std::printf("  probe %s: %lld\n", hooks::kProbeNames[static_cast<size_t>(p)],
 				static_cast<long long>(rec.probes[static_cast<size_t>(p)]));
 			missed |= p != hooks::Stall && rec.probes[static_cast<size_t>(p)] == 0;
 		}

@@ -102,3 +102,63 @@ Revue d'architecture du 2026-10-31, reporté à TRX-SD, qui touche le même disp
 Reporté à l'intégration au produit : une fonction de `md::fw` qui remplit `TrxTables` depuis la flash image, appelée
 par le test et par le produit, au lieu de la copie que fait le test. Sans flash image, le produit garde ses
 `TrxTables` (ondes à zéro) : `Shared::trx` nul reste une erreur de programmation.
+
+## 2026-11-02 : TRX-SD porté, et un défaut du JIT de l'émulateur
+
+TRX-SD (type 18 : init $10074C, update $10075B, render $100776) est porté dans `mdVoiceTrx.cpp`. Chaque bloc, le render
+calcule deux sinus, qui suivent une enveloppe de hauteur : elle monte pendant onze blocs après un Hit, puis décroît.
+Les deux sinus sont mélangés avec un terme croisé, puis passent par l'enveloppe d'amplitude. Un bruit de Fibonacci traverse
+deux filtres à deux pôles identiques, avec sa propre enveloppe, puis s'ajoute au son. Pendant 128 blocs après un Hit,
+une onde échantillonnée de 4096 mots s'y ajoute encore.
+
+Le render lit quatre tables :
+- le sinus en Y:$148000, identique au sinus X que `TrxTables` calcule déjà ;
+- l'onde, en P:$100881 ;
+- deux tables de coefficients de filtre, en X:$140100 et X:$141100, de 4096 mots chacune. Une valeur du paquet y
+  choisit un angle de pôle et un rayon de pôle.
+
+Ces trois dernières sont chargées par le programme voix. `md::fw::dspWords` les lit dans la flash image, et le test
+vérifie qu'elles sont, mot pour mot, la mémoire du DSP. Pour les coefficients de filtre, cette copie est provisoire,
+comme pour les tables des ROM : il faut leur formule.
+
+Le dispatch suit la revue d'architecture du 2026-10-31 :
+- les types GND sont dans une table de cinq ;
+- les ROM et les TRX sont trouvés par famille, les TRX par `trx::routines(type)` ;
+- les noms des sondes sont à côté de leur `enum`.
+
+Prouvé par `mdVoicePortTest`, contre `VoiceEngine` : 5000 blocs, 199 995 échantillons TRX-SD non nuls, 0 échantillon
+et 0 mot d'état différents. Chaque branche sondée est atteinte : hauteur qui monte, hauteur qui décroît, onde, fin
+après l'onde, niveau limité par un Hit. Quatre mutations sont attrapées : l'index du filtre, le décalage du terme
+croisé, l'index de l'onde et le seuil de l'enveloppe de hauteur.
+
+**Le JIT du dsp56300 corrompt X1:X0 au `DO #$1F` de TRX-SD ($100792).** Juste avant le `DO`, X vaut le pas de phase
+($A5:000000 dans le cas mesuré). Dès la première itération, il vaut $100:000020, quels que soient le paquet et les
+instructions du corps de boucle, toutes remplacées une à une par des `nop`. L'interpréteur de l'émulateur, lui, garde
+X, et le port lui est égal sur 4000 blocs. L'optimiseur du JIT n'y est pour rien : coupé, le défaut reste. Le
+`DO #xx` d'un DSP56300 n'écrit pas X : le défaut vient de l'émulateur, pas de l'OS.
+
+Conséquences :
+- L'oracle du test tourne désormais sur l'interpréteur (`VoiceEngine::setInterpreter`). Le test entier prend 6 s.
+- Le crochet des pointeurs égarés suit l'interpréteur, qui lit 0 au-delà de sa mémoire, alors que le JIT masque
+  l'adresse à 2M mots. Sur un seul cas des paquets faits main (ROM-42, un seul échantillon, hauteur maximale), le JIT
+  sonnait et l'interpréteur se tait. Les deux comportements sont des artefacts de l'émulateur.
+- MoDule fait tourner `VoiceEngine` sur le JIT. Son TRX-SD joue donc probablement ce défaut : le pas des sinus ne
+  dépend plus de PTCH. Mesuré dans `VoiceEngine` seul, pas dans le plug-in. À corriger dans le fork
+  c0remusic/dsp56300-md-mm, comme travail à part.
+
+Coût mesuré (release, médiane de 9 passes, machine à 0,5 cœur sur 16) : 0,62 µs par voix et par bloc de 32, soit
+0,086 % d'un cœur par voix et 1,4 % pour 16 voix. C'est dans les 0,07 à 0,3 % estimés. TRX-BD, mesuré à nouveau dans
+les mêmes conditions : 0,47 µs.
+
+Revue d'architecture du 2026-11-02 : le découpage par famille tient pour les douze TRX à venir. Ce qui est reporté :
+- À l'intégration au produit : la recette des `TrxTables` vit dans le test seul. Chaque table coûte un champ, une
+  adresse, une copie et une vérification. Une fonction qui les remplit, appelée par le test et par le produit.
+- `testHooks::probe` appelle `hooks()`, défini dans `mdVoiceRom.cpp`, à chaque échantillon des boucles sondées. Une
+  variable `inline` dans `mdVoiceInternal.h` en ferait un chargement et un test.
+- Quand une autre famille arrive (EFM, E12) : enchaîner les familles dans `find`, chacune rendant nullptr pour les
+  types qui ne sont pas les siens.
+
+Reste ouvert pour les TRX :
+- TRX-XT, CP, RS, CB, CH, OH, CY, MA, CL, XC, B2 et S2.
+- La formule des deux tables de filtre.
+- Le défaut du JIT au `DO`, et ce qu'il change dans le TRX-SD de MoDule.
