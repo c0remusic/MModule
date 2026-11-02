@@ -1,4 +1,5 @@
 #include "mdVoice.h"
+#include "mdVoiceDsp.h"
 #include "mdVoiceInternal.h"
 
 #include <algorithm>
@@ -12,10 +13,6 @@ namespace md::voice
 		using State = Voice::State;
 		using Block = Voice::Block;
 
-		int64_t signExtend(const uint32_t _word)
-		{
-			return static_cast<int64_t>(static_cast<int32_t>(_word << 8) >> 8);
-		}
 
 		// move a,y:... of an accumulator whose value needs its extension: limited to $7FFFFF or $800000
 		uint32_t limit(const int64_t _a)
@@ -45,10 +42,10 @@ namespace md::voice
 		void renderGndIm(Context& _c, Block& _out)
 		{
 			auto& _s = _c.y;
-			int64_t a = signExtend(_s[5]);
-			int64_t b = signExtend(_s[7]);
-			const int32_t first = static_cast<int32_t>(signExtend(_s[6]));
-			const int32_t second = static_cast<int32_t>(signExtend(_s[8]));
+			int64_t a = dsp::sx(_s[5]);
+			int64_t b = dsp::sx(_s[7]);
+			const int32_t first = dsp::sx(_s[6]);
+			const int32_t second = dsp::sx(_s[8]);
 			for(auto& sample : _out)
 			{
 				if(a != 0)
@@ -82,10 +79,6 @@ namespace md::voice
 
 		// ROM-01 to -32 (types 129-160) and ROM-33 to -48 (177-192) share one init, update and render
 		constexpr Routines kRom = {rom::init, rom::update, rom::render};
-		bool isRom(const uint32_t _type)
-		{
-			return (_type >= 129 && _type <= 160) || (_type >= 177 && _type <= 192);
-		}
 
 		// The type's routines, nullptr when it is not ported
 		const Routines* find(const uint32_t _type)

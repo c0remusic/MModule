@@ -263,6 +263,65 @@ Revues du 2026-11-02 :
     le DSP, au lieu de 0. Les paquets de l'OS n'y vont pas, donc ce cas n'est pas prouvé par le test ;
   - la liste des machines du test se déduit de `kTrx`.
 
+## 2026-11-02 : TRX-RS porté, et /simplify sur tout mdVoice
+
+TRX-RS (type 21 : init $101AB0, update $101AB8, render $101ACD) est porté dans `mdVoiceTrx.cpp`. Chaque bloc, le
+render calcule un sinus au pas PTCH / 32. Il le replie au-delà d'un seuil (Y:$03), dans les deux sens, d'un niveau qui
+grandit de Y:$04 à chaque échantillon passé le seuil, puis le divise par deux. Pendant les 24 blocs qui suivent un
+Hit, il ajoute une onde échantillonnée (X:$101BA0, $300 mots), puis applique l'enveloppe d'amplitude. Viennent ensuite
+deux passe-haut en cascade, en double précision : chaque accumulateur garde la sortie précédente sur 48 bits, et
+chaque sortie est rangée en mot long. C'est le passe-haut de TRX-CP, gardé sur 48 bits. La sortie vaut le double du
+second filtre, avec deux échantillons de retard. L'update fixe les pôles (Y:$06 = $200, Y:$07 = 0) et la demi-échelle
+(Y:$05 = $400000). Le paquet de l'OS ne fait que 5 mots, donc rien d'autre ne les change.
+
+Prouvé par `mdVoicePortTest` : 5000 blocs, 161 081 échantillons TRX-RS non nuls, 0 échantillon et 0 mot d'état
+différents, toutes les sondes atteintes. Sept mutations, six attrapées par les échantillons : l'addition au lieu de la
+soustraction au repli, le mot bas de l'accumulateur oublié, un seul terme a1 au lieu de deux, le pas divisé par 16, une
+onde décalée d'un mot, le retard de deux échantillons ramené à un. La septième (la cellule zéro du second filtre qui
+lit le mot limité au lieu des bits bruts de A1) ne diffère que si l'accumulateur du premier dépasse 48 bits. Un
+paquet fait main au niveau maximal (sans décroissance, seuil près de 0) ne l'y a jamais mené, avec des pôles fixes :
+la mutation est équivalente en pratique, et ce paquet n'a pas été gardé.
+
+Coût mesuré (release, médiane de 9 passes) : 0,53 µs par voix et par bloc, 1,17 % pour 16 voix.
+
+Revues du 2026-11-02 :
+- Revue de code : aucun écart de comportement avec le listing. Lignes trop longues et en-tête corrigés.
+- Revue d'architecture : `Pole` (la lecture des tables) séparé de `poles` (les coefficients), parce que TRX-RS
+  a ses propres coefficients ; le lambda `feedback` renommé pour ne plus masquer `poles` ; un commentaire qui relie
+  le filtre de TRX-RS à celui de TRX-CP ; un autre qui dit pourquoi Y:$13 et Y:$14 survivent à un Hit.
+- Reporté au commit qui suit : découper `mdVoiceTrx.cpp` en un fichier par machine, plus un en-tête interne pour les
+  fonctions partagées. C'est un pur déplacement de code, à faire avant TRX-CB.
+
+`/simplify` (demandé le 2026-11-02, désormais à chaque machine) a tourné sur tout `mdVoice/`, quatre angles. Appliqué :
+- Fonctions partagées :
+  - `sines` (la boucle de sinus de TRX-BD et TRX-RS) ;
+  - `hitLevel` (le niveau ajouté à un Hit, dans TRX-BD, TRX-SD et TRX-RS) ;
+  - `highPassZeros` et `highPassTaps` (TRX-CP et TRX-RS) ;
+  - `mulSU`, `mulUU` et `dmac` dans `mdVoiceDsp.h`, pour le sinus du boot et le render ROM.
+- Doublons supprimés : `sx` et `isRom`, qui existaient en deux exemplaires chacun.
+- Le nom des sondes est un `switch` (`probeName`) au lieu d'une liste parallèle à l'enum : un nom ne peut plus aller
+  à la mauvaise sonde. Le test échoue si une sonde n'a pas de nom.
+- Code mort ou dérivable : deux copies de 0 dans l'update de TRX-BD, une branche dupliquée et une écriture morte dans
+  le décimateur ROM.
+- Coût : variables locales au lieu de relectures mémoire (bruit de Fibonacci, filtres à deux pôles, passe-haut),
+  écritures de X:$42-$43 sorties de la boucle de TRX-RS, demi-échelle de TRX-RS fusionnée au repli. TRX-CP passe de
+  0,95 à 0,77 µs par voix et par bloc ; TRX-RS ne change pas.
+- Test : `firstDifference` générique au lieu de trois copies de 41 Mo, une seule fonction de remplissage depuis la
+  mémoire de l'oracle, `reserve` sur les enregistrements.
+
+`mdVoicePortTest` repasse à l'identique : mêmes comptes d'échantillons pour chaque machine, 0 différence. Le scénario
+des bancs (16 voix aux réglages par défaut) a aussi été comparé à l'oracle pour TRX-CP et TRX-RS : 3000 blocs, 0
+différence.
+
+Non appliqué, noté pour plus tard :
+- Lectures de filtre hors table : le port lit 0 là où le DSP lit la mémoire voisine. Les paquets de l'OS n'y vont pas.
+  La correction passerait par le crochet `stray` des ROM, étendu à la mémoire X.
+- Une table de dispatch par type, au lieu du `switch` de `trx::routines` et des listes répétées : à voir avec la
+  découpe du fichier.
+- Un paquet fait main générique pour tous les TRX (mots au hasard, certains à 0), à la place de `XtOnThreshold`. Il
+  rendrait visibles les lectures hors table ci-dessus.
+- Petits gains : bornes vérifiées une fois par bloc pour les ondes, ordre des tests dans `yRead` (ROM).
+
 Reste ouvert pour les TRX :
-- TRX-RS, CB, CH, OH, CY, MA, CL, XC, B2 et S2.
+- TRX-CB, CH, OH, CY, MA, CL, XC, B2 et S2.
 - La formule des tables de filtre.

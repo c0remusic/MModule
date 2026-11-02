@@ -16,6 +16,7 @@
 // usage: mdVoicePortTest
 
 #include "mdVoice.h"
+#include "mdVoiceDsp.h"
 #include "mdVoiceInternal.h"
 
 #include "Firmware.h"
@@ -58,7 +59,8 @@ namespace
 		uint32_t type;
 		const char* name;
 	};
-	constexpr std::array<Trx, 4> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"}}};
+	constexpr std::array<Trx, 5> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
+		{21, "TRX-RS"}}};
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
 	// whatever the others are: GND--, GND-IM and the TRX machines
@@ -79,10 +81,7 @@ namespace
 		XtOnThreshold,	// TRX-XT silent, its upper threshold 0: the clipper's input on it
 		EdgeKindCount
 	};
-	bool isRom(const uint32_t _type)
-	{
-		return (_type >= 129 && _type <= 160) || (_type >= 177 && _type <= 192);
-	}
+	using md::voice::isRom;
 	// A ROM type's directory entry
 	uint32_t entry(const uint32_t _type)
 	{
@@ -138,8 +137,8 @@ namespace
 		int block = 0, voice = 0, index = 0;
 	};
 
-	std::optional<Location> firstDifference(const std::vector<int32_t>& _a, const std::vector<int32_t>& _b,
-		const int _width)
+	template<typename T>
+	std::optional<Location> firstDifference(const std::vector<T>& _a, const std::vector<T>& _b, const int _width)
 	{
 		const auto [ia, ib] = std::mismatch(_a.begin(), _a.end(), _b.begin());
 		if(ia == _a.end())
@@ -148,22 +147,25 @@ namespace
 		return Location{i / (kVoices * _width), i / _width % kVoices, i % _width};
 	}
 
-	int32_t signExtend(const uint32_t _w)
+	using md::voice::dsp::sx;
+
+	// Words of the oracle's memory from an address on
+	template<size_t N>
+	void fill(std::array<uint32_t, N>& _a, const dsp56k::Memory& _mem, const dsp56k::EMemArea _area,
+		const uint32_t _base)
 	{
-		return static_cast<int32_t>(_w << 8) >> 8;
+		for(uint32_t k = 0; k < N; ++k)
+			_a[k] = _mem.get(_area, _base + k);
 	}
 
 	// The tables the ROM machines read, as the voice DSP holds them after its init
 	md::voice::RomTables romTables(VoiceEngine& _oracle)
 	{
-		auto& mem = _oracle.dsp().memory();
+		const auto& mem = _oracle.dsp().memory();
 		md::voice::RomTables t;
-		for(uint32_t k = 0; k < t.decode.size(); ++k)
-			t.decode[k] = mem.get(dsp56k::MemArea_Y, 0x146000 + k);
-		for(uint32_t k = 0; k < t.interpolator.size(); ++k)
-			t.interpolator[k] = mem.get(dsp56k::MemArea_Y, 0x163 + k);
-		for(uint32_t k = 0; k < t.decimator.size(); ++k)
-			t.decimator[k] = mem.get(dsp56k::MemArea_X, 0x244 + k);
+		fill(t.decode, mem, dsp56k::MemArea_Y, 0x146000);
+		fill(t.interpolator, mem, dsp56k::MemArea_Y, 0x163);
+		fill(t.decimator, mem, dsp56k::MemArea_X, 0x244);
 		return t;
 	}
 
@@ -181,6 +183,7 @@ namespace
 		copy(t.sdWave, T::SdWaveAddr);
 		copy(t.filters, T::FiltersAddr);
 		copy(t.xtWave, T::XtWaveAddr);
+		copy(t.rsWave, T::RsWaveAddr);
 		return t;
 	}
 
@@ -206,6 +209,7 @@ namespace
 		checkTable("TRX-SD's wave", _t.sdWave, T::SdWaveAddr, mem, dsp56k::MemArea_Y);
 		checkTable("the filters' tables", _t.filters, T::FiltersAddr, mem);
 		checkTable("TRX-XT's wave", _t.xtWave, T::XtWaveAddr, mem, dsp56k::MemArea_Y);
+		checkTable("TRX-RS's wave", _t.rsWave, T::RsWaveAddr, mem);
 	}
 
 	// A bank's directory and data, which md::voice::RomBank views
@@ -220,7 +224,7 @@ namespace
 			const uint32_t _loop, const uint32_t _room = 0)
 		{
 			const auto [lo, hi] = std::minmax_element(_tables.decode.begin(), _tables.decode.end(),
-				[](const uint32_t _a, const uint32_t _b) { return signExtend(_a) < signExtend(_b); });
+				[](const uint32_t _a, const uint32_t _b) { return sx(_a) < sx(_b); });
 			const auto top = static_cast<uint32_t>(hi - _tables.decode.begin());
 			const auto bottom = static_cast<uint32_t>(lo - _tables.decode.begin());
 			const auto addr = md::voice::RomBank::DataAddr + static_cast<uint32_t>(data.size());
@@ -293,10 +297,12 @@ namespace
 
 		// What the 16 voices share, its scratch from what the DSP's own init left in it
 		md::voice::Shared shared{&tables, &bankView, {}, &trx};
-		for(uint32_t a = 0; a < shared.scratch.x.size(); ++a)
-			shared.scratch.x[a] = oracle.dsp().memory().get(dsp56k::MemArea_X, a);
-		for(uint32_t a = 0; a < shared.scratch.y.size(); ++a)
-			shared.scratch.y[a] = oracle.dsp().memory().get(dsp56k::MemArea_Y, a);
+		fill(shared.scratch.x, oracle.dsp().memory(), dsp56k::MemArea_X, 0);
+		fill(shared.scratch.y, oracle.dsp().memory(), dsp56k::MemArea_Y, 0);
+		rec.oracle.reserve(static_cast<size_t>(kBlocks) * kVoices * kFrames);
+		rec.port.reserve(rec.oracle.capacity());
+		rec.oracleState.reserve(static_cast<size_t>(kBlocks) * kVoices * 2 * Voice::kStateWords);
+		rec.portState.reserve(rec.oracleState.capacity());
 
 		md::engine::MachineRunner runner(_os.osImage);
 		std::vector<Voice> port(kVoices, Voice(shared));
@@ -437,7 +443,6 @@ namespace
 				auto& prev = before[static_cast<size_t>(v)];
 				if(isRom(type[v]))
 				{
-					const auto sx = signExtend;
 					const auto& p = packet[v];
 					const bool edge = block >= kOsBlocks;
 					const std::string phase = edge ? "edge " : "os ";
@@ -476,11 +481,6 @@ namespace
 		rec.wordMax = wordMax;
 		h = {};
 		return rec;
-	}
-
-	std::vector<int32_t> asSigned(const std::vector<uint32_t>& _words)
-	{
-		return {_words.begin(), _words.end()};
 	}
 
 	// The port alone: a loop shorter than a block's advance at the top step (10 samples, then 0: a loop start at the
@@ -571,9 +571,10 @@ int main()
 		}
 		for(int p = 0; p < hooks::ProbeCount; ++p)
 		{
-			std::printf("  probe %s: %lld\n", hooks::kProbeNames[static_cast<size_t>(p)],
+			const char* name = hooks::probeName(static_cast<hooks::Probe>(p));
+			std::printf("  probe %s: %lld\n", name ? name : "without a name",
 				static_cast<long long>(rec.probes[static_cast<size_t>(p)]));
-			missed |= p != hooks::Stall && rec.probes[static_cast<size_t>(p)] == 0;
+			missed |= !name || (p != hooks::Stall && rec.probes[static_cast<size_t>(p)] == 0);
 		}
 		if(missed)
 		{
@@ -594,8 +595,7 @@ int main()
 			return 1;
 		}
 		constexpr int kStateWidth = 2 * Voice::kStateWords;
-		const auto oracleState = asSigned(rec.oracleState);
-		if(const auto d = firstDifference(oracleState, asSigned(rec.portState), kStateWidth))
+		if(const auto d = firstDifference(rec.oracleState, rec.portState, kStateWidth))
 		{
 			const auto i = static_cast<size_t>((d->block * kVoices + d->voice) * kStateWidth + d->index);
 			std::printf("FAIL: block %d, voice %d, state word %c:S+$%02x: the oracle holds $%06x, the port $%06x\n",
@@ -609,10 +609,10 @@ int main()
 		auto faulty = rec.port;
 		faulty[static_cast<size_t>((corrupt.block * kVoices + corrupt.voice) * kFrames + corrupt.index)] ^= 1;
 		const auto found = firstDifference(rec.oracle, faulty, kFrames);
-		auto faultyState = asSigned(rec.portState);
+		auto faultyState = rec.portState;
 		faultyState[static_cast<size_t>((corrupt.block * kVoices + corrupt.voice) * kStateWidth + Voice::kStateWords
 			+ corrupt.index)] ^= 1;
-		const auto foundState = firstDifference(oracleState, faultyState, kStateWidth);
+		const auto foundState = firstDifference(rec.oracleState, faultyState, kStateWidth);
 		if(!found || found->block != corrupt.block || found->voice != corrupt.voice || found->index != corrupt.index
 			|| !foundState || foundState->block != corrupt.block || foundState->voice != corrupt.voice
 			|| foundState->index != Voice::kStateWords + corrupt.index)

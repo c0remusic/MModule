@@ -60,6 +60,23 @@ namespace md::voice::dsp
 		return static_cast<int64_t>(sx(_s1)) * sx(_s2) * 2;
 	}
 
+	// MPYSU and MPYUU: a signed or unsigned word by an unsigned one
+	inline int64_t mulSU(const uint32_t _s, const uint32_t _u)
+	{
+		return static_cast<int64_t>(sx(_s)) * (_u & 0xffffff) * 2;
+	}
+
+	inline int64_t mulUU(const uint32_t _a, const uint32_t _b)
+	{
+		return static_cast<int64_t>(_a & 0xffffff) * (_b & 0xffffff) * 2;
+	}
+
+	// DMAC: the accumulator shifted down a word, plus the product
+	inline int64_t dmac(const int64_t _d, const int64_t _p)
+	{
+		return wrap56((_d >> 24) + _p);
+	}
+
 	inline int64_t shl(const int64_t _a, const int _n)
 	{
 		return wrap56(static_cast<int64_t>(static_cast<uint64_t>(_a) << _n));

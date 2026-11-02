@@ -290,9 +290,9 @@ namespace md::voice::rom
 			a = mul(x1, y0);
 			y0 = a1;
 			x1 = lo(a);
-			b = static_cast<int64_t>(sx(y0)) * static_cast<int64_t>(x1) * 2;	// MPYSU
+			b = mulSU(y0, x1);
 			x1 = hi(a);
-			b = (b >> 24) + mul(y0, x1);	// DMAC
+			b = dmac(b, mul(y0, x1));
 			b = shl(b, 5);
 			x1 = hi(b);
 			bool done = false;
@@ -762,18 +762,9 @@ namespace md::voice::rom
 				for(int half = 0; half < 2; ++half)
 				{
 					int64_t& d = half ? b : a;
-					if(half)
-					{
-						b = mul(y0, x0);
-						x0 = c[r0++];
-						y0 = iy[r4++];
-					}
-					else
-					{
-						a = mul(y0, x0);
-						x0 = c[r0++];
-						y0 = iy[r4++];
-					}
+					d = mul(y0, x0);
+					x0 = c[r0++];
+					y0 = iy[r4++];
 					for(int j = 0; j < 4; ++j)
 					{
 						d += mul(y0, x0);
@@ -880,7 +871,6 @@ namespace md::voice::rom
 				},
 				[&](const uint32_t _v) { xAt(rr++) = _v; });
 		}
-		a = 0;
 		y[0x15] = 0;
 
 		// $385: the fade a stop or a retrigger runs, into the output from X:$05; a Hit after near silence

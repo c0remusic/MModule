@@ -22,6 +22,12 @@ namespace md::voice
 		void render(Context& _c, Voice::Block& _out);
 	}
 
+	// ROM-01 to -32 (types 129-160) and ROM-33 to -48 (177-192) share them
+	inline bool isRom(const uint32_t _type)
+	{
+		return (_type >= 129 && _type <= 160) || (_type >= 177 && _type <= 192);
+	}
+
 	// A type's three entries, as the dispatch tables at Y:$145AF5, $145BB6 and $145C77 give them
 	struct Routines
 	{
@@ -42,6 +48,11 @@ namespace md::voice
 		// The ROM and TRX renders' branches the test must reach
 		enum Probe
 		{
+			RsFoldAbove,			// TRX-RS's fold past its threshold
+			RsFoldBelow,			// ... past its negative
+			RsWave,					// TRX-RS's sampled waveform added
+			RsTail,					// ... past its end
+			RsLevelLimited,			// a Hit that adds TRX-RS's level past full scale
 			CpBurstA,				// TRX-CP's first burst, its counter running
 			CpBurstB,				// ... its second
 			CpBurstC,				// ... its third
@@ -74,18 +85,49 @@ namespace md::voice
 			ProbeCount
 		};
 
-		// Their names, in the enum's order, which the test prints
-		constexpr const char* kProbeNames[] = {"TRX-CP's first burst", "TRX-CP's second burst",
-			"TRX-CP's third burst", "TRX-CP's last decay", "TRX-CP's level limited at a burst",
-			"TRX-XT's fade after a Hit", "TRX-XT's waveform A",
-			"TRX-XT's waveform B", "TRX-XT's clipper above", "TRX-XT's clipper on its upper threshold",
-			"TRX-XT's clipper below", "TRX-SD's pitch rising", "TRX-SD's pitch decaying", "TRX-SD's waveform",
-			"TRX-SD's tail past the waveform", "TRX-SD's level limited at a Hit", "TRX-BD's fade after a Hit",
-			"TRX-BD's attack", "TRX-BD's clipper above",
-			"TRX-BD's clipper below", "TRX-BD's shaper above", "TRX-BD's shaper below", "TRX-BD's level limited at a Hit",
-			"ROM forward fill's odd first sample", "ROM reverse fill's even first sample", "ROM last sample held",
-			"ROM reversed stop at the start", "ROM reversed retrigger with an odd first part", "ROM stall"};
-		static_assert(std::size(kProbeNames) == ProbeCount, "a probe without its name");
+		// Their names, which the test prints; a switch, so that each name goes with its probe whatever the order
+		constexpr const char* probeName(const Probe _p)
+		{
+			switch(_p)
+			{
+				case RsFoldAbove:			return "TRX-RS's fold above";
+				case RsFoldBelow:			return "TRX-RS's fold below";
+				case RsWave:				return "TRX-RS's waveform";
+				case RsTail:				return "TRX-RS's tail past the waveform";
+				case RsLevelLimited:		return "TRX-RS's level limited at a Hit";
+				case CpBurstA:				return "TRX-CP's first burst";
+				case CpBurstB:				return "TRX-CP's second burst";
+				case CpBurstC:				return "TRX-CP's third burst";
+				case CpDecay:				return "TRX-CP's last decay";
+				case CpLevelLimited:		return "TRX-CP's level limited at a burst";
+				case XtFade:				return "TRX-XT's fade after a Hit";
+				case XtWaveA:				return "TRX-XT's waveform A";
+				case XtWaveB:				return "TRX-XT's waveform B";
+				case XtClipAbove:			return "TRX-XT's clipper above";
+				case XtClipAt:				return "TRX-XT's clipper on its upper threshold";
+				case XtClipBelow:			return "TRX-XT's clipper below";
+				case SdPitchRise:			return "TRX-SD's pitch rising";
+				case SdPitchDecay:			return "TRX-SD's pitch decaying";
+				case SdWave:				return "TRX-SD's waveform";
+				case SdTail:				return "TRX-SD's tail past the waveform";
+				case SdLevelLimited:		return "TRX-SD's level limited at a Hit";
+				case BdFade:				return "TRX-BD's fade after a Hit";
+				case BdAttack:				return "TRX-BD's attack";
+				case BdClipAbove:			return "TRX-BD's clipper above";
+				case BdClipBelow:			return "TRX-BD's clipper below";
+				case BdShapeAbove:			return "TRX-BD's shaper above";
+				case BdShapeBelow:			return "TRX-BD's shaper below";
+				case BdLevelLimited:		return "TRX-BD's level limited at a Hit";
+				case ForwardOdd:			return "ROM forward fill's odd first sample";
+				case ReverseEven:			return "ROM reverse fill's even first sample";
+				case HeldLastSample:		return "ROM last sample held";
+				case BackwardStop:			return "ROM reversed stop at the start";
+				case ReverseOddRetrigger:	return "ROM reversed retrigger with an odd first part";
+				case Stall:					return "ROM stall";
+				case ProbeCount:			break;
+			}
+			return nullptr;
+		}
 
 		struct Hooks
 		{

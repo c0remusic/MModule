@@ -41,7 +41,7 @@ namespace md::voice
 	struct TrxTables
 	{
 		static constexpr uint32_t SineAddr = 0x148000, BdWaveAAddr = 0x10050c, BdWaveBAddr = 0x10062c,
-			SdWaveAddr = 0x100881, FiltersAddr = 0x140000, XtWaveAddr = 0x10190f;
+			SdWaveAddr = 0x100881, FiltersAddr = 0x140000, XtWaveAddr = 0x10190f, RsWaveAddr = 0x101ba0;
 		std::array<uint32_t, 0x8000> sine{};		// X:$148000 and Y:$148000, one period
 		std::array<uint32_t, 288> bdWaveA{};		// P:$10050C, TRX-BD's attack
 		std::array<uint32_t, 288> bdWaveB{};		// P:$10062C, the same for a second packet word
@@ -50,6 +50,7 @@ namespace md::voice
 		// from $140100 and the pole radii from $141100, $1000 each
 		std::array<uint32_t, 0x2100> filters{};
 		std::array<uint32_t, 64> xtWave{};			// P:$10190F, TRX-XT's second and third blocks after a Hit
+		std::array<uint32_t, 0x300> rsWave{};		// P:$101BA0, TRX-RS's, 32 words a block for 24 blocks
 
 		TrxTables();
 	};
@@ -58,8 +59,8 @@ namespace md::voice
 	// all the voices as the DSP has one. Every ROM or TRX voice must render every block, Track 1 to 16 in turn, whatever
 	// its family: a ROM render may read a word the last render left (a reversed voice retriggered with the part before
 	// the retrigger of odd length keeps that part's last pointer from the last render that wrote it, whatever its
-	// voice). A caller that skips voices or renders one alone (a preview) loses exactness on that edge only. mdVoicePortTest starts it from what the DSP's
-	// own init left in it; a product starts from zeros.
+	// voice). A caller that skips voices or renders one alone (a preview) loses exactness on that edge only.
+	// mdVoicePortTest starts it from what the DSP's own init left in it; a product starts from zeros.
 	struct Scratch
 	{
 		std::array<uint32_t, 0x200> x{};
@@ -88,7 +89,7 @@ namespace md::voice
 		explicit Voice(Shared& _shared) : m_shared(&_shared) {}
 
 		// The types (machine id + 1) whose code is ported: 0 (never assigned), GND--, GND-IM, TRX-BD, TRX-SD, TRX-XT,
-		// TRX-CP, ROM-01 to -48
+		// TRX-CP, TRX-RS, ROM-01 to -48
 		static bool ported(uint32_t _type);
 
 		// As VoiceEngine::setSlot: word 0 the trigger (the type, non-zero only on the block the voice is triggered),
