@@ -53,8 +53,9 @@ namespace
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1). ROM-01, -02, -17 and -32 hold
 	// factory samples, ROM-33 and -46 none
-	constexpr std::array<uint8_t, 10> kMachines = {0, 3, 16, 17, 128, 129, 144, 159, 176, 189};	// GND--, GND-IM, TRX-
-	constexpr uint32_t kGndIm = 4, kTrxBd = 17, kTrxSd = 18;
+	// GND--, GND-IM, TRX-BD, -SD, -XT, ROM-01, -02, -17, -32, -33, -46
+	constexpr std::array<uint8_t, 11> kMachines = {0, 3, 16, 17, 18, 128, 129, 144, 159, 176, 189};
+	constexpr uint32_t kGndIm = 4, kTrxBd = 17, kTrxSd = 18, kTrxXt = 19;
 	bool isRom(const uint32_t _type)
 	{
 		return (_type >= 129 && _type <= 160) || (_type >= 177 && _type <= 192);
@@ -157,6 +158,7 @@ namespace
 		copy(t.sdWave, T::SdWaveAddr);
 		copy(t.filterA, T::FilterAAddr);
 		copy(t.filterB, T::FilterBAddr);
+		copy(t.xtWave, T::XtWaveAddr);
 		return t;
 	}
 
@@ -182,6 +184,7 @@ namespace
 		checkTable("TRX-SD's wave", _t.sdWave, T::SdWaveAddr, mem, dsp56k::MemArea_Y);
 		checkTable("the filters' angles", _t.filterA, T::FilterAAddr, mem);
 		checkTable("the filters' radii", _t.filterB, T::FilterBAddr, mem);
+		checkTable("TRX-XT's wave", _t.xtWave, T::XtWaveAddr, mem, dsp56k::MemArea_Y);
 	}
 
 	// A bank's directory and data, which md::voice::RomBank views
@@ -324,6 +327,16 @@ namespace
 							wordMin[w] = std::min(wordMin[w], words[w] & 0xffffff);
 							wordMax[w] = std::max(wordMax[w], words[w] & 0xffffff);
 						}
+				}
+				else if(hit[v] && random() % 16 == 0)
+				{
+					// TRX-XT silent, its upper threshold 0: the clipper's input on it
+					words[0] = kTrxXt;
+					for(int w = 1; w < 10; ++w)
+						words[w] = static_cast<uint32_t>(random()) & 0xffffff;
+					words[4] = 0;
+					words[8] = 0;
+					count = 10;
 				}
 				else if(hit[v] && random() % 2)
 				{
@@ -503,10 +516,11 @@ int main()
 		for(uint32_t t = 0; t < rec.sounding.size(); ++t)
 			rom += isRom(t) ? rec.sounding[t] : 0;
 		std::printf("%d blocks of %d voices, %d Hits; GND-IM sounding samples %lld, below zero %lld, across blocks "
-			"%lld; TRX-BD sounding samples %lld; TRX-SD sounding samples %lld; ROM sounding samples %lld\n", kBlocks,
-			kVoices, rec.hits, static_cast<long long>(rec.sounding[kGndIm]), static_cast<long long>(rec.negative),
-			static_cast<long long>(rec.carried), static_cast<long long>(rec.sounding[kTrxBd]),
-			static_cast<long long>(rec.sounding[kTrxSd]), static_cast<long long>(rom));
+			"%lld; TRX-BD sounding samples %lld; TRX-SD sounding samples %lld; TRX-XT sounding samples %lld; ROM sounding "
+			"samples %lld\n", kBlocks, kVoices, rec.hits, static_cast<long long>(rec.sounding[kGndIm]),
+			static_cast<long long>(rec.negative), static_cast<long long>(rec.carried),
+			static_cast<long long>(rec.sounding[kTrxBd]), static_cast<long long>(rec.sounding[kTrxSd]), static_cast<long long>(rec.sounding[kTrxXt]),
+			static_cast<long long>(rom));
 		std::printf("words read through a stray pointer: %lld in the OS's phase, %lld in all\n",
 			static_cast<long long>(rec.osStrayReads), static_cast<long long>(rec.strayReads));
 		static const char* const named[] = {"os empty slot silent", "os reversed", "os ended mid-block",
@@ -515,7 +529,7 @@ int main()
 			"edge highest pitch sounding", "edge lowest pitch sounding", "edge full scale",
 			"edge 1 to 3 samples sounding", "edge sample shortened under the voice"};
 		bool missed = rec.sounding[kGndIm] == 0 || rec.negative == 0 || rec.carried == 0 || rom == 0
-			|| rec.sounding[kTrxBd] == 0 || rec.sounding[kTrxSd] == 0;
+			|| rec.sounding[kTrxBd] == 0 || rec.sounding[kTrxSd] == 0 || rec.sounding[kTrxXt] == 0;
 		for(const char* name : named)
 		{
 			const auto it = rec.edges.find(name);
