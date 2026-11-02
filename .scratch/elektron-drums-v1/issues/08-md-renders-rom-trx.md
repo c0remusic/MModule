@@ -219,3 +219,50 @@ en 1,9 s au lieu de 6.
 
 MoDule (branche claude/confident-bassi-cfe7b4) prend 60876a47 : son TRX-SD avance ses sinus au pas que PTCH donne,
 au lieu du pas resté dans X.
+
+## 2026-11-02 : scénario du test refait, TRX-CP porté
+
+Le scénario de `mdVoicePortTest`, reporté au port de TRX-XT, est refait avant TRX-CP. Dans la phase de l'OS, un
+changement de machine tire une ROM une fois sur deux, quelles que soient les autres machines portées. Dans la phase
+des paquets faits main, la moitié des Hits va aux ROM ; l'autre moitié tire un genre dans `EdgeKind` (bords de GND-IM,
+TRX-XT sur son seuil). Les types TRX portés sont une seule liste, `kTrx`, dont le test tire les machines et vérifie
+que chacune sonne. Ajouter une machine ne change plus la part des bords ROM. Après la refonte, tous les bords et
+toutes les sondes sont atteints.
+
+TRX-CP (type 20 : init $10194F, update $101966, render $101972) est porté dans `mdVoiceTrx.cpp`. Chaque bloc, le
+render tire un premier bruit de Fibonacci, le passe dans deux filtres à deux pôles en cascade et le garde en Y:$60.
+Il tire ensuite un second bruit, celui du clap. Son niveau monte d'un mot du paquet à chaque bloc où l'un des trois
+compteurs (Y:$0C, puis $0D, puis $0E) court encore, puis décroît au taux de cette salve. Ce second bruit passe dans
+deux passe-haut en cascade, 1/2 - z^-1 + 1/2 z^-2 sur les mêmes pôles. Il passe ensuite dans deux autres filtres à
+deux pôles, avec deux échantillons de retard, car leur entrée commence aux deux derniers mots du bloc précédent. La
+sortie vaut le quart de la somme du clap et du premier bruit filtré, ce dernier à un niveau qui décroît d'un bloc à
+l'autre. Chaque filtre lit ses coefficients dans les tables X:$140000-$1420FF : un mot de base plus un décalage tiré
+de deux tables de $80 mots, puis l'angle et le rayon du pôle.
+
+Prouvé par `mdVoicePortTest`, la phase de l'OS sur le JIT : 5000 blocs, 118 910 échantillons TRX-CP non nuls,
+0 échantillon et 0 mot d'état différents. Toutes les sondes sont atteintes : les trois salves, la décroissance
+finale, et le niveau limité à une salve (80 fois). Six mutations, cinq attrapées par les échantillons : la somme
+divisée par deux au lieu de quatre, histoire du second passe-haut inversée, niveau non limité, mauvaise table de décalage, histoire du
+troisième filtre inversée. La sixième, le taux de la deuxième salve lu en Y:$12 au lieu de Y:$11, est équivalente.
+L'update met Y:$11 à Y:$13 tous à Y:$03, et le paquet de l'OS ne dépasse jamais 15 mots (mesuré sur 2000 jeux de
+boutons au hasard). Les mots de base valent au plus $6DF et les décalages au plus $40 : les tables ne sont jamais
+dépassées.
+
+Coût mesuré (release, médiane de 9 passes) : 0,95 µs par voix et par bloc de 32, soit 0,13 % d'un cœur par voix et
+2,10 % pour 16 voix.
+
+Revues du 2026-11-02 :
+- La revue de code ne trouve aucun écart avec le listing. Elle relève des lignes de plus de 120 colonnes et un
+  en-tête de fichier sans TRX-CP, corrigés.
+- La revue d'architecture a fait appliquer quatre changements :
+  - le bruit de Fibonacci (`fibonacci`) et la paire de filtres à deux pôles (`twoPoles`), identiques dans TRX-SD et
+    TRX-CP, sont partagés ;
+  - le calcul des coefficients (`poles`) aussi : TRX-SD est le même calcul, avec des décalages fixes de -3 et -$241 ;
+  - les trois tables de filtre sont une seule table, `filters`, X:$140000-$1420FF, puisque les décalages de TRX-CP
+    franchissent les bords entre elles. Un index de TRX-SD qui passe sous zéro lit désormais la table voisine, comme
+    le DSP, au lieu de 0. Les paquets de l'OS n'y vont pas, donc ce cas n'est pas prouvé par le test ;
+  - la liste des machines du test se déduit de `kTrx`.
+
+Reste ouvert pour les TRX :
+- TRX-RS, CB, CH, OH, CY, MA, CL, XC, B2 et S2.
+- La formule des tables de filtre.

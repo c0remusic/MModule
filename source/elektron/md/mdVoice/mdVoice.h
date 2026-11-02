@@ -41,13 +41,14 @@ namespace md::voice
 	struct TrxTables
 	{
 		static constexpr uint32_t SineAddr = 0x148000, BdWaveAAddr = 0x10050c, BdWaveBAddr = 0x10062c,
-			SdWaveAddr = 0x100881, FilterAAddr = 0x140100, FilterBAddr = 0x141100, XtWaveAddr = 0x10190f;
+			SdWaveAddr = 0x100881, FiltersAddr = 0x140000, XtWaveAddr = 0x10190f;
 		std::array<uint32_t, 0x8000> sine{};		// X:$148000 and Y:$148000, one period
 		std::array<uint32_t, 288> bdWaveA{};		// P:$10050C, TRX-BD's attack
 		std::array<uint32_t, 288> bdWaveB{};		// P:$10062C, the same for a second packet word
 		std::array<uint32_t, 0x1000> sdWave{};		// P:$100881, TRX-SD's, 32 words a block for 128 blocks
-		std::array<uint32_t, 0x1000> filterA{};		// X:$140100, a two-pole filter's pole angle (its cosine) by a word
-		std::array<uint32_t, 0x1000> filterB{};		// X:$141100, ... its pole radius
+		// X:$140000-$1420FF, the two-pole filters': two tables of $80 offsets, then the pole angles (their cosines)
+		// from $140100 and the pole radii from $141100, $1000 each
+		std::array<uint32_t, 0x2100> filters{};
 		std::array<uint32_t, 64> xtWave{};			// P:$10190F, TRX-XT's second and third blocks after a Hit
 
 		TrxTables();
@@ -87,7 +88,7 @@ namespace md::voice
 		explicit Voice(Shared& _shared) : m_shared(&_shared) {}
 
 		// The types (machine id + 1) whose code is ported: 0 (never assigned), GND--, GND-IM, TRX-BD, TRX-SD, TRX-XT,
-		// ROM-01 to -48
+		// TRX-CP, ROM-01 to -48
 		static bool ported(uint32_t _type);
 
 		// As VoiceEngine::setSlot: word 0 the trigger (the type, non-zero only on the block the voice is triggered),

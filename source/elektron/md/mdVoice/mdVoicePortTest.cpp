@@ -51,11 +51,34 @@ namespace
 	constexpr int kEdgeBlocks = 1000;	// then the hand-made packets
 	constexpr int kBlocks = kOsBlocks + kEdgeBlocks;
 
-	// The machines the first phase plays: those md::voice ports (machine id = type - 1). ROM-01, -02, -17 and -32 hold
-	// factory samples, ROM-33 and -46 none
-	// GND--, GND-IM, TRX-BD, -SD, -XT, ROM-01, -02, -17, -32, -33, -46
-	constexpr std::array<uint8_t, 11> kMachines = {0, 3, 16, 17, 18, 128, 129, 144, 159, 176, 189};
-	constexpr uint32_t kGndIm = 4, kTrxBd = 17, kTrxSd = 18, kTrxXt = 19;
+	constexpr uint32_t kGndIm = 4, kTrxXt = 19;
+	// The TRX types ported, each of which must sound
+	struct Trx
+	{
+		uint32_t type;
+		const char* name;
+	};
+	constexpr std::array<Trx, 4> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"}}};
+
+	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
+	// whatever the others are: GND--, GND-IM and the TRX machines
+	constexpr auto kSynthMachines = []
+	{
+		std::array<uint8_t, 2 + kTrx.size()> m{0, 3};
+		for(size_t i = 0; i < kTrx.size(); ++i)
+			m[2 + i] = static_cast<uint8_t>(kTrx[i].type - 1);
+		return m;
+	}();
+	// ROM-01, -02, -17, -32 (factory samples), -33, -46 (none)
+	constexpr std::array<uint8_t, 6> kRomMachines = {128, 129, 144, 159, 176, 189};
+
+	// The second phase's hand-made packets other than the ROM machines', which take half its Hits whatever these are
+	enum EdgeKind
+	{
+		GndImEdges,		// GND-IM's counts and samples at their edges
+		XtOnThreshold,	// TRX-XT silent, its upper threshold 0: the clipper's input on it
+		EdgeKindCount
+	};
 	bool isRom(const uint32_t _type)
 	{
 		return (_type >= 129 && _type <= 160) || (_type >= 177 && _type <= 192);
@@ -156,8 +179,7 @@ namespace
 		copy(t.bdWaveA, T::BdWaveAAddr);
 		copy(t.bdWaveB, T::BdWaveBAddr);
 		copy(t.sdWave, T::SdWaveAddr);
-		copy(t.filterA, T::FilterAAddr);
-		copy(t.filterB, T::FilterBAddr);
+		copy(t.filters, T::FiltersAddr);
 		copy(t.xtWave, T::XtWaveAddr);
 		return t;
 	}
@@ -182,8 +204,7 @@ namespace
 		checkTable("TRX-BD's wave A", _t.bdWaveA, T::BdWaveAAddr, mem);
 		checkTable("TRX-BD's wave B", _t.bdWaveB, T::BdWaveBAddr, mem);
 		checkTable("TRX-SD's wave", _t.sdWave, T::SdWaveAddr, mem, dsp56k::MemArea_Y);
-		checkTable("the filters' angles", _t.filterA, T::FilterAAddr, mem);
-		checkTable("the filters' radii", _t.filterB, T::FilterBAddr, mem);
+		checkTable("the filters' tables", _t.filters, T::FiltersAddr, mem);
 		checkTable("TRX-XT's wave", _t.xtWave, T::XtWaveAddr, mem, dsp56k::MemArea_Y);
 	}
 
@@ -316,7 +337,8 @@ namespace
 				if(block < kOsBlocks)
 				{
 					if(event == 0)
-						machine[v] = kMachines[random() % kMachines.size()];
+						machine[v] = random() % 2 ? kRomMachines[random() % kRomMachines.size()]
+							: kSynthMachines[random() % kSynthMachines.size()];
 					if(event < 3)
 						for(auto& p : params[v])
 							p = static_cast<uint16_t>((random() % 128) << 7);
@@ -333,24 +355,27 @@ namespace
 							wordMax[w] = std::max(wordMax[w], words[w] & 0xffffff);
 						}
 				}
-				else if(hit[v] && random() % 16 == 0)
-				{
-					// TRX-XT silent, its upper threshold 0: the clipper's input on it
-					words[0] = kTrxXt;
-					for(int w = 1; w < 10; ++w)
-						words[w] = static_cast<uint32_t>(random()) & 0xffffff;
-					words[4] = 0;
-					words[8] = 0;
-					count = 10;
-				}
 				else if(hit[v] && random() % 2)
 				{
-					words[0] = kGndIm;
-					words[1] = kEdgeCounts[random() % kEdgeCounts.size()];
-					words[2] = kEdgeSamples[random() % kEdgeSamples.size()];
-					words[3] = kEdgeCounts[random() % kEdgeCounts.size()];
-					words[4] = kEdgeSamples[random() % kEdgeSamples.size()];
-					count = 5;
+					switch(random() % EdgeKindCount)
+					{
+					case GndImEdges:
+						words[0] = kGndIm;
+						words[1] = kEdgeCounts[random() % kEdgeCounts.size()];
+						words[2] = kEdgeSamples[random() % kEdgeSamples.size()];
+						words[3] = kEdgeCounts[random() % kEdgeCounts.size()];
+						words[4] = kEdgeSamples[random() % kEdgeSamples.size()];
+						count = 5;
+						break;
+					case XtOnThreshold:
+						words[0] = kTrxXt;
+						for(int w = 1; w < 10; ++w)
+							words[w] = static_cast<uint32_t>(random()) & 0xffffff;
+						words[4] = 0;
+						words[8] = 0;
+						count = 10;
+						break;
+					}
 				}
 				else if(hit[v] || (isRom(type[v]) && event == 2))
 				{
@@ -521,11 +546,15 @@ int main()
 		for(uint32_t t = 0; t < rec.sounding.size(); ++t)
 			rom += isRom(t) ? rec.sounding[t] : 0;
 		std::printf("%d blocks of %d voices, %d Hits; GND-IM sounding samples %lld, below zero %lld, across blocks "
-			"%lld; TRX-BD sounding samples %lld; TRX-SD sounding samples %lld; TRX-XT sounding samples %lld; ROM sounding "
-			"samples %lld\n", kBlocks, kVoices, rec.hits, static_cast<long long>(rec.sounding[kGndIm]),
-			static_cast<long long>(rec.negative), static_cast<long long>(rec.carried),
-			static_cast<long long>(rec.sounding[kTrxBd]), static_cast<long long>(rec.sounding[kTrxSd]), static_cast<long long>(rec.sounding[kTrxXt]),
-			static_cast<long long>(rom));
+			"%lld; ROM sounding samples %lld\n", kBlocks, kVoices, rec.hits,
+			static_cast<long long>(rec.sounding[kGndIm]), static_cast<long long>(rec.negative),
+			static_cast<long long>(rec.carried), static_cast<long long>(rom));
+		bool missed = rec.sounding[kGndIm] == 0 || rec.negative == 0 || rec.carried == 0 || rom == 0;
+		for(const auto& trx : kTrx)
+		{
+			std::printf("  %s sounding samples: %lld\n", trx.name, static_cast<long long>(rec.sounding[trx.type]));
+			missed |= rec.sounding[trx.type] == 0;
+		}
 		std::printf("words read through a stray pointer: %lld in the OS's phase, %lld in all\n",
 			static_cast<long long>(rec.osStrayReads), static_cast<long long>(rec.strayReads));
 		static const char* const named[] = {"os empty slot silent", "os reversed", "os ended mid-block",
@@ -533,8 +562,6 @@ int main()
 			"edge ended mid-block", "edge retriggered", "edge looped", "edge started past the end",
 			"edge highest pitch sounding", "edge lowest pitch sounding", "edge full scale",
 			"edge 1 to 3 samples sounding", "edge sample shortened under the voice"};
-		bool missed = rec.sounding[kGndIm] == 0 || rec.negative == 0 || rec.carried == 0 || rom == 0
-			|| rec.sounding[kTrxBd] == 0 || rec.sounding[kTrxSd] == 0 || rec.sounding[kTrxXt] == 0;
 		for(const char* name : named)
 		{
 			const auto it = rec.edges.find(name);

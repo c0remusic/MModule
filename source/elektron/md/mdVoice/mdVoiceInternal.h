@@ -42,6 +42,11 @@ namespace md::voice
 		// The ROM and TRX renders' branches the test must reach
 		enum Probe
 		{
+			CpBurstA,				// TRX-CP's first burst, its counter running
+			CpBurstB,				// ... its second
+			CpBurstC,				// ... its third
+			CpDecay,				// ... the last decay
+			CpLevelLimited,			// a burst that adds TRX-CP's level past full scale
 			XtFade,					// TRX-XT's block after a Hit: the last sample faded out
 			XtWaveA,				// TRX-XT's first sampled block
 			XtWaveB,				// ... its second
@@ -70,7 +75,9 @@ namespace md::voice
 		};
 
 		// Their names, in the enum's order, which the test prints
-		constexpr const char* kProbeNames[] = {"TRX-XT's fade after a Hit", "TRX-XT's waveform A",
+		constexpr const char* kProbeNames[] = {"TRX-CP's first burst", "TRX-CP's second burst",
+			"TRX-CP's third burst", "TRX-CP's last decay", "TRX-CP's level limited at a burst",
+			"TRX-XT's fade after a Hit", "TRX-XT's waveform A",
 			"TRX-XT's waveform B", "TRX-XT's clipper above", "TRX-XT's clipper on its upper threshold",
 			"TRX-XT's clipper below", "TRX-SD's pitch rising", "TRX-SD's pitch decaying", "TRX-SD's waveform",
 			"TRX-SD's tail past the waveform", "TRX-SD's level limited at a Hit", "TRX-BD's fade after a Hit",

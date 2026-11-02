@@ -19,9 +19,14 @@
 // sine word read as its low word, scaled by the amp envelope, then a clipper whose levels move by a step past its two
 // thresholds. The block after a Hit fades the last block's last sample out (x 0.9 a sample), the two after it play a
 // sampled waveform each, scaled by a packet word.
+//
+// TRX-CP ($10194F, $101966, $101972), each block: a noise through two two-pole filters, at a level that decays a
+// block at a time; a second noise, its level raised by a burst while each of three counters runs and decaying after,
+// through two high-pass filters, then two two-pole filters; their sum, a quarter of it.
 #include "mdVoiceDsp.h"
 #include "mdVoiceInternal.h"
 
+#include <algorithm>
 #include <stdexcept>
 
 namespace md::voice
@@ -100,6 +105,53 @@ namespace md::voice::trx
 			if(!_c.shared.trx)
 				throw std::logic_error("md::voice: a TRX machine renders without the voice DSP's tables");
 			return *_c.shared.trx;
+		}
+
+		// A noise of 32 words: two words that add as a Fibonacci pair, B1 only
+		void fibonacci(uint32_t* const _dst, uint32_t& _prev, uint32_t& _cur)
+		{
+			for(int k = 0; k < 32; ++k)
+			{
+				const uint32_t next = (_prev + _cur) & 0xffffff;
+				_dst[k] = next;
+				_prev = _cur;
+				_cur = next;
+			}
+		}
+
+		// A word of the filters' tables by its X address
+		uint32_t filterWord(const TrxTables& _t, const uint32_t _addr)
+		{
+			return word(_t.filters, (_addr - TrxTables::FiltersAddr) & 0xffffff);
+		}
+
+		// A two-pole filter's coefficients: a1 = 2 r c and a2 = -r^2 from the pole's radius and its angle's cosine,
+		// which the two indices pick, and g = 1/2 - a1 - a2
+		struct Poles
+		{
+			uint32_t a1, a2, g;
+		};
+
+		Poles poles(const TrxTables& _t, const uint32_t _angle, const uint32_t _radius)
+		{
+			const uint32_t c = filterWord(_t, (0x140900 + _angle) & 0xffffff);
+			const uint32_t r = filterWord(_t, (0x141900 + _radius) & 0xffffff);
+			const int64_t a = shl(mul(r, c), 1);
+			const uint32_t a2 = lim(-mul(r, r));
+			return {lim(a), a2, lim(wrap56(-(a + acc(a2) - acc(0x400000))))};
+		}
+
+		// Two two-pole filters in turn, the same coefficients: the first on _in[0-31], its last two outputs _h2 and
+		// _h1, the second written over the input, its own last two from _in[-2] and _in[-1]
+		void twoPoles(const Poles& _p, uint32_t* const _in, uint32_t& _h2, uint32_t& _h1)
+		{
+			for(int k = 0; k < 32; ++k)
+			{
+				const uint32_t s = lim(shl(mul(_p.a2, _h2) + mul(_p.a1, _h1) + mul(_in[k], _p.g), 1));
+				_h2 = _h1;
+				_h1 = s;
+				_in[k] = lim(shl(mul(_p.a2, _in[k - 2]) + mul(_p.a1, _in[k - 1]) + mul(s, _p.g), 1));
+			}
 		}
 	}
 }
@@ -390,51 +442,26 @@ namespace md::voice::trx::sd
 		}
 		envelope(tone, y[0xe], y[1]);
 
-		// The noise: two words that add as a Fibonacci pair, B1 only
-		{
-			uint32_t prev = y[0x17], cur = y[0x18];
-			for(int k = 0; k < 32; ++k)
-			{
-				const uint32_t next = (prev + cur) & 0xffffff;
-				noise[k] = next;
-				prev = cur;
-				cur = next;
-			}
-			y[0x17] = prev;
-			y[0x18] = cur;
-		}
+		fibonacci(noise, y[0x17], y[0x18]);
 
-		// Two two-pole filters in turn, the same coefficients: g, the input's gain, a1 and a2 = -r^2 from the tables by
-		// Y:$0B. The first keeps its last two outputs at X:$02-$03, the second reads its own from X:$1E on, in place
-		// over the noise; Y:$00-$01 hold g and a2, as the DSP leaves them
+		// Two two-pole filters in turn by Y:$0B, its angle 3 and its radius $241 below. The first keeps its last two
+		// outputs at X:$02-$03, the second reads its own from X:$1E on, in place over the noise; Y:$00-$01 hold g and
+		// a2, as the DSP leaves them
 		{
 			const uint32_t index = y[0xb];
-			const uint32_t r = word(t.filterB, (index - 0x241 + 0x800) & 0xffffff);
-			const uint32_t c = word(t.filterA, (index - 3 + 0x800) & 0xffffff);
-			int64_t a = shl(mul(r, c), 1);
-			const uint32_t a2 = lim(-mul(r, r));
-			const uint32_t a1 = lim(a);
-			a = wrap56(-(a + acc(a2) - acc(0x400000)));
-			const uint32_t g = lim(a);
-			iy[0] = g;
-			iy[1] = a2;
+			const auto p = poles(t, (index - 3) & 0xffffff, (index - 0x241) & 0xffffff);
+			iy[0] = p.g;
+			iy[1] = p.a2;
 			ix[0x1e] = y[0x1b];
 			ix[0x1f] = y[0x1c];
 			uint32_t h2 = y[0x19], h1 = y[0x1a];
-			uint32_t* const second = &ix[0x1e];
-			for(int k = 0; k < 32; ++k)
-			{
-				const uint32_t s = lim(shl(mul(a2, h2) + mul(a1, h1) + mul(noise[k], g), 1));
-				h2 = h1;
-				h1 = s;
-				second[k + 2] = lim(shl(mul(a2, second[k]) + mul(a1, second[k + 1]) + mul(s, g), 1));
-			}
+			twoPoles(p, noise, h2, h1);
 			ix[3] = h2;
 			ix[2] = h1;
 			y[0x19] = h2;
 			y[0x1a] = h1;
-			y[0x1b] = second[32];
-			y[0x1c] = second[33];
+			y[0x1b] = noise[30];
+			y[0x1c] = noise[31];
 		}
 
 		// The noise's envelope, then the noise added to the tone at its level
@@ -566,11 +593,178 @@ namespace md::voice::trx::xt
 	}
 }
 
+namespace md::voice::trx::cp
+{
+	namespace
+	{
+		using Block = Voice::Block;
+		using testHooks::probe;
+
+		// The poles by a base word, its angle and its radius each that plus an offset the second word picks
+		Poles poles(const TrxTables& _t, const uint32_t _base, const uint32_t _offset)
+		{
+			const uint32_t angle = _base + filterWord(_t, (0x140000 + _offset) & 0xffffff);
+			const uint32_t radius = _base + filterWord(_t, (0x140080 + _offset) & 0xffffff);
+			return trx::poles(_t, angle & 0xffffff, radius & 0xffffff);
+		}
+	}
+
+	void init(Context& _c)
+	{
+		auto& y = _c.y;
+		y[0x15] = 0x29a;
+		y[0x16] = 1;
+		for(uint32_t w = 0x17; w <= 0x24; ++w)
+			y[w] = 0;
+	}
+
+	void update(Context& _c)
+	{
+		auto& y = _c.y;
+		y[0x14] = 0;
+		y[0xf] = y[2];
+		y[0x10] = 0x333333;
+		y[0x11] = y[0x12] = y[0x13] = y[3];
+	}
+
+	void render(Context& _c, Block& _out)
+	{
+		const auto& t = tables(_c);
+		auto& y = _c.y;
+		auto& iy = _c.shared.scratch.y;
+		auto& ix = _c.shared.scratch.x;
+		// The modulo-32 ring X:$60 (R5): a noise, then the clap's noise; Y:$60 the first noise filtered
+		uint32_t* const ring = &ix[0x60];
+
+		// A noise through two two-pole filters by Y:$09 and Y:$0A, kept at Y:$60
+		fibonacci(ring, y[0x15], y[0x16]);
+		{
+			const auto p = poles(t, y[9], y[0xa]);
+			iy[0] = p.a2;
+			iy[1] = p.g;
+			ix[0x5e] = y[0x24];
+			ix[0x5f] = y[0x23];
+			uint32_t h2 = y[0x21], h1 = y[0x22];
+			twoPoles(p, ring, h2, h1);
+			ix[0] = h2;
+			ix[1] = h1;
+			y[0x21] = h2;
+			y[0x22] = h1;
+			y[0x23] = ring[31];
+			y[0x24] = ring[30];
+		}
+		std::copy(ring, ring + 32, &iy[0x60]);
+
+		// The clap's noise, its level raised by a burst each time a counter (Y:$0C, then $0D, then $0E) runs, by a word
+		// the burst then clears, and decaying at the burst's rate; past the three the last word and rate
+		fibonacci(ring, y[0x15], y[0x16]);
+		{
+			int64_t b = acc(y[0x14]);
+			uint32_t rate;
+			const auto burst = [&](const uint32_t _counter, const uint32_t _add, const uint32_t _rate)
+			{
+				y[_counter] = lim(acc(y[_counter]) - acc(1));
+				b += acc(y[_add]);
+				y[_add] = 0;
+				rate = y[_rate];
+			};
+			if(y[0xc] != 0)
+			{
+				probe(testHooks::CpBurstA);
+				burst(0xc, 1, 3);
+			}
+			else if(y[0xd] != 0)
+			{
+				probe(testHooks::CpBurstB);
+				burst(0xd, 2, 0x11);
+			}
+			else if(y[0xe] != 0)
+			{
+				probe(testHooks::CpBurstC);
+				burst(0xe, 0xf, 0x12);
+			}
+			else
+			{
+				probe(testHooks::CpDecay);
+				b += acc(y[0x10]);
+				y[0x10] = 0;
+				rate = y[0x13];
+			}
+			if(b > kMax48 || b < kMin48)
+				probe(testHooks::CpLevelLimited);
+			uint32_t level = lim(b);
+			envelope(ring, level, rate);
+			y[0x14] = level;
+		}
+
+		// The clap's noise through two high-pass filters in turn, 1/2 - z^-1 + 1/2 z^-2 over the poles by Y:$05 and
+		// Y:$06, the first's last two outputs at X:$00-$01, the second's written from X:$22 on after its last two
+		{
+			const auto p = poles(t, y[5], y[6]);
+			iy[0] = p.a2;
+			iy[1] = 0x400000;
+			iy[2] = 0x800000;
+			iy[3] = 0x400000;
+			const auto zeros = [](const uint32_t _x2, const uint32_t _x1, const uint32_t _x0)
+			{
+				return mul(_x2, 0x400000) + mul(_x1, 0x800000) + mul(_x0, 0x400000);
+			};
+			ix[0x5e] = y[0x1c];
+			ix[0x5f] = y[0x1b];
+			ix[0x20] = y[0x1a];
+			ix[0x21] = y[0x19];
+			uint32_t* const out = &ix[0x22];
+			uint32_t h2 = y[0x18], h1 = y[0x17];
+			for(int k = 0; k < 32; ++k)
+			{
+				const int64_t in = zeros(ring[k - 2], ring[k - 1], ring[k]);
+				const uint32_t s = lim(shl(mul(p.a2, h2) + mul(p.a1, h1) + in, 1));
+				out[k] = lim(shl(mul(p.a2, out[k - 2]) + mul(p.a1, out[k - 1]) + zeros(h2, h1, s), 1));
+				h2 = h1;
+				h1 = s;
+			}
+			ix[0] = h2;
+			ix[1] = h1;
+			y[0x17] = h1;
+			y[0x18] = h2;
+			y[0x19] = out[31];
+			y[0x1a] = out[30];
+			y[0x1b] = ring[31];
+			y[0x1c] = ring[30];
+		}
+
+		// Two two-pole filters by Y:$07 and Y:$08 over X:$20-$3F: the high-passed noise two samples late
+		{
+			const auto p = poles(t, y[7], y[8]);
+			iy[0] = p.a2;
+			iy[1] = p.g;
+			uint32_t* const in = &ix[0x20];
+			ix[0x1e] = y[0x20];
+			ix[0x1f] = y[0x1f];
+			uint32_t h2 = y[0x1d], h1 = y[0x1e];
+			twoPoles(p, in, h2, h1);
+			ix[0] = h2;
+			ix[1] = h1;
+			y[0x1d] = h2;
+			y[0x1e] = h1;
+			y[0x1f] = in[31];
+			y[0x20] = in[30];
+		}
+
+		// The output: the clap plus the filtered noise at a level that decays by Y:$04 a block, a quarter of the sum
+		const uint32_t level = y[0xb];
+		y[0xb] = lim(mul(level, y[4]));
+		for(int k = 0; k < 32; ++k)
+			_out[static_cast<size_t>(k)] = sx(lim((acc(ix[0x20 + k]) + mul(level, iy[0x60 + k])) >> 2));
+	}
+}
+
 namespace md::voice::trx
 {
 	namespace
 	{
 		constexpr Routines kBd = {bd::init, bd::update, bd::render};
+		constexpr Routines kCp = {cp::init, cp::update, cp::render};
 		constexpr Routines kSd = {sd::init, sd::update, sd::render};
 		constexpr Routines kXt = {xt::init, xt::update, xt::render};
 	}
@@ -582,6 +776,7 @@ namespace md::voice::trx
 			case 17:	return &kBd;
 			case 18:	return &kSd;
 			case 19:	return &kXt;
+			case 20:	return &kCp;
 			default:	return nullptr;
 		}
 	}
