@@ -42,6 +42,12 @@ namespace md::voice
 		// The ROM and TRX renders' branches the test must reach
 		enum Probe
 		{
+			XtFade,					// TRX-XT's block after a Hit: the last sample faded out
+			XtWaveA,				// TRX-XT's first sampled block
+			XtWaveB,				// ... its second
+			XtClipAbove,			// TRX-XT's clipper past its upper threshold
+			XtClipAt,				// ... on it, which counts as past
+			XtClipBelow,			// ... past its lower
 			SdPitchRise,			// TRX-SD's pitch envelope while it rises
 			SdPitchDecay,			// ... once it decays
 			SdWave,					// TRX-SD's sampled waveform added
@@ -64,9 +70,11 @@ namespace md::voice
 		};
 
 		// Their names, in the enum's order, which the test prints
-		constexpr const char* kProbeNames[] = {"TRX-SD's pitch rising",
-			"TRX-SD's pitch decaying", "TRX-SD's waveform", "TRX-SD's tail past the waveform",
-			"TRX-SD's level limited at a Hit", "TRX-BD's fade after a Hit", "TRX-BD's attack", "TRX-BD's clipper above",
+		constexpr const char* kProbeNames[] = {"TRX-XT's fade after a Hit", "TRX-XT's waveform A",
+			"TRX-XT's waveform B", "TRX-XT's clipper above", "TRX-XT's clipper on its upper threshold",
+			"TRX-XT's clipper below", "TRX-SD's pitch rising", "TRX-SD's pitch decaying", "TRX-SD's waveform",
+			"TRX-SD's tail past the waveform", "TRX-SD's level limited at a Hit", "TRX-BD's fade after a Hit",
+			"TRX-BD's attack", "TRX-BD's clipper above",
 			"TRX-BD's clipper below", "TRX-BD's shaper above", "TRX-BD's shaper below", "TRX-BD's level limited at a Hit",
 			"ROM forward fill's odd first sample", "ROM reverse fill's even first sample", "ROM last sample held",
 			"ROM reversed stop at the start", "ROM reversed retrigger with an odd first part", "ROM stall"};

@@ -158,8 +158,46 @@ Revue d'architecture du 2026-11-02 : le découpage par famille tient pour les do
 - Quand une autre famille arrive (EFM, E12) : enchaîner les familles dans `find`, chacune rendant nullptr pour les
   types qui ne sont pas les siens.
 
+## 2026-11-02 : TRX-XT porté
+
+TRX-XT (type 19 : init $101882, un simple RTS ; update $101883 ; render $101891) est porté dans `mdVoiceTrx.cpp`.
+Chaque bloc, le render calcule un sinus balayé par une enveloppe de hauteur qui décroît, puis applique l'enveloppe
+d'amplitude, puis un écrêteur dont les niveaux bougent d'un pas au-delà de ses deux seuils. Particularité du code de
+l'OS : dans la boucle du sinus, le mot de poids faible du pas est, dès le deuxième échantillon, le dernier mot de
+sinus lu, car la boucle le charge dans X0, que l'addition utilise. Les trois blocs qui suivent un Hit sont à part :
+le premier fait décroître le dernier échantillon (x 0,9 par échantillon), comme celui de TRX-BD ; les deux suivants
+jouent chacun 32 mots d'une onde échantillonnée (P:$10190F, 64 mots), multipliés par un mot du paquet.
+
+L'écrêteur ressemble à celui de TRX-BD sans lui être égal : le signal n'est pas divisé par deux, un seuil atteint
+compte comme dépassé, et les seuils ne bougent pas. Il n'est donc pas partagé.
+
+Prouvé par `mdVoicePortTest`, contre `VoiceEngine` sur l'interpréteur : 5000 blocs, 197 446 échantillons TRX-XT non
+nuls, 0 échantillon et 0 mot d'état différents. Chaque branche sondée est atteinte : fondu, onde A, onde B, écrêtage
+au-dessus, sur le seuil haut, au-dessous. Le cas « sur le seuil » n'arrive pas avec les paquets de l'OS ; un paquet
+fait main (TRX-XT muet, seuil haut à 0) le produit. Quatre mutations sont attrapées par les échantillons : le X0
+gardé constant dans la boucle du sinus, `>=` remplacé par `>` au seuil haut, les deux ondes échangées, et le dernier
+échantillon pris un rang trop tôt.
+
+Le défaut du JIT au `DO` ne touche pas TRX-XT : avec l'oracle sur le JIT et TRX-XT seul joué pendant 4000 blocs,
+aucune différence. Le TRX-XT de MoDule sonne donc comme celui de la machine.
+
+Coût mesuré (release, médiane de 9 passes) : 0,21 µs par voix et par bloc de 32, soit 0,029 % d'un cœur par voix et
+0,46 % pour 16 voix.
+
+Revues du 2026-11-02 :
+- La revue de code ne trouve aucun écart avec le listing du DSP.
+- La revue d'architecture a fait appliquer trois changements. Les deux ondes de TRX-XT, contiguës, sont une seule
+  table. L'enveloppe d'amplitude, trois copies identiques (deux dans TRX-SD, une dans TRX-XT), est la fonction
+  `envelope`. Le fondu après un Hit, identique dans TRX-BD et TRX-XT, est `fadeOut`. Le commentaire de l'écrêteur dit
+  en quoi il diffère de celui de TRX-BD.
+- Reporté à la prochaine machine : le scénario du test. Chaque machine ajoutée à `kMachines`, et chaque paquet fait
+  main tiré avant ceux de GND-IM et des ROM, diminue la part de ces derniers et déplace toute la suite aléatoire. Un
+  commit de machine finira par rendre le test rouge sur un bord ROM sans rapport avec elle. À faire : un seul tirage
+  qui choisit le genre de paquet fait main dans une liste, un poids fixe pour les ROM dans la phase de l'OS, et une
+  boucle sur les types TRX pour le compte des échantillons et le contrôle des bords.
+
 Reste ouvert pour les TRX :
-- TRX-XT, CP, RS, CB, CH, OH, CY, MA, CL, XC, B2 et S2.
+- TRX-CP, RS, CB, CH, OH, CY, MA, CL, XC, B2 et S2.
 - La formule des deux tables de filtre.
 
 ## 2026-11-02 : le défaut du JIT corrigé
