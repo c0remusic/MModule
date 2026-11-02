@@ -161,4 +161,23 @@ Revue d'architecture du 2026-11-02 : le découpage par famille tient pour les do
 Reste ouvert pour les TRX :
 - TRX-XT, CP, RS, CB, CH, OH, CY, MA, CL, XC, B2 et S2.
 - La formule des deux tables de filtre.
-- Le défaut du JIT au `DO`, et ce qu'il change dans le TRX-SD de MoDule.
+
+## 2026-11-02 : le défaut du JIT corrigé
+
+Le `DO` n'y était pour rien. Le JIT perdait une écriture de X1 ou X0 quand le même bloc lisait ensuite X entier. Le pool
+de registres fusionne alors les moitiés dans le registre X entier, puis effaçait leur marque « écrit ». Or ce registre
+entier n'est qu'un cache de lecture, jamais rangé en mémoire. À la fin du bloc, rien ne rangeait X, et le DSP gardait
+la valeur d'avant le bloc. Même chose pour Y. Le render de TRX-SD fait exactement ça : `move a1,x1`, `move a0,x0`,
+`add x,b`, puis le `DO #$1F`, qui termine le bloc. Les `nop` mis dans le corps de boucle ne pouvaient donc rien changer.
+
+Correction dans c0remusic/dsp56300-md-mm (`mmodule`, 60876a47, `JitRegPoolRegPair::get`) : les moitiés restent
+marquées écrites après la fusion. Le test unitaire `xy_partialsThenWhole` de `dsp56kTestRunner` échoue sans la
+correction (sur X1) et passe avec.
+
+`mdVoicePortTest` repasse sur le JIT pour la phase de l'OS (4000 blocs), comme MoDule fait tourner le DSP voix, et sur
+l'interpréteur pour les paquets faits main. Pendant la phase JIT, le crochet des pointeurs égarés masque l'adresse à
+la taille de la mémoire, comme le JIT. Sur le dsp56300 précédent, le test échoue au bloc 67 ; sur 60876a47, il passe,
+en 1,9 s au lieu de 6.
+
+MoDule (branche claude/confident-bassi-cfe7b4) prend 60876a47 : son TRX-SD avance ses sinus au pas que PTCH donne,
+au lieu du pas resté dans X.

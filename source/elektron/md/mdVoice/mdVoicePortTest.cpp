@@ -234,8 +234,6 @@ namespace
 	Recording record(const md::fw::FlashOs& _os, const std::vector<uint8_t>& _flash)
 	{
 		VoiceEngine oracle(_os.firmware);
-		// The DSP program's own semantics: the JIT corrupts X at TRX-SD's DO, the interpreter does not
-		oracle.setInterpreter(true);
 		const auto tables = romTables(oracle);
 		auto bank = makeBank(md::fw::loadRomBankFromFlash(_flash), tables);
 		if(bank.data.size() < 1000)
@@ -243,12 +241,13 @@ namespace
 		loadBank(oracle, bank);
 		const auto bankView = bank.view();
 
-		// The words the port does not hold, a stray pointer's, as the emulator's interpreter reads them: 0 past its memory
-		// (the JIT masks the address to 2M words instead), else the oracle's memory after the block, which a stray
-		// pointer finds the same: samples or code
+		// The words the port does not hold, a stray pointer's, as the oracle reads them: the JIT masks the address to its
+		// memory's size, the interpreter reads 0 past it; else the oracle's memory after the block, which a stray pointer
+		// finds the same: samples or code
 		struct Stray
 		{
 			const dsp56k::Memory* memory;
+			bool jit = true;
 			int64_t reads = 0;
 		} stray{&oracle.dsp().memory()};
 		Recording rec;
@@ -257,7 +256,8 @@ namespace
 		{
 			auto& s = *const_cast<Stray*>(static_cast<const Stray*>(_user));
 			++s.reads;
-			return s.memory->get(dsp56k::MemArea_Y, _addr);
+			const auto mask = s.jit ? s.memory->size(dsp56k::MemArea_Y) - 1 : 0xffffff;
+			return s.memory->get(dsp56k::MemArea_Y, _addr & mask);
 		};
 		h.strayUser = &stray;
 		h.probes = &rec.probes;
@@ -290,7 +290,12 @@ namespace
 		for(int block = 0; block < kBlocks; ++block)
 		{
 			if(block == kOsBlocks)
+			{
 				rec.osStrayReads = stray.reads;
+				// The OS's packets play on the JIT, as MoDule runs the voice DSP; the hand-made ones on the interpreter
+				oracle.setInterpreter(true);
+				stray.jit = false;
+			}
 			// ROM-45's sample replaced by a shorter one and back, under the voices playing it
 			if(block >= kOsBlocks && block % 50 == 0)
 			{

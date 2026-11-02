@@ -40,8 +40,8 @@ namespace md::engine
 		// Render one 32-sample block of all 16 voices. Returns false on a fault.
 		bool renderBlock(Block& _out);
 
-		// md-drums: run the DSP on the emulator's interpreter instead of its JIT. The JIT corrupts X1:X0 at TRX-SD's
-		// DO #$1F ($100792), the interpreter does not (ticket 08 of .scratch/elektron-drums-v1)
+		// md-drums: run the DSP on the emulator's interpreter instead of its JIT. They differ on a pointer past the DSP's
+		// memory, which the interpreter reads as 0 and the JIT masks to 2M words (ticket 08 of .scratch/elektron-drums-v1)
 		void setInterpreter(const bool _interpreter) { m_interpreter = _interpreter; }
 
 		// Write words into P memory (e.g. the ROM machines' sample memory, which the MD copies from its sample flash at
