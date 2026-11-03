@@ -340,6 +340,49 @@ chaque machine a son fichier (`mdVoiceTrxBd.cpp`, `Sd`, `Xt`, `Cp`, `Rs`), et le
 indentation et `inline`. `mdVoicePortTest` donne la même sortie qu'avant, mot pour mot. Le `switch` de
 `trx::routines` reste : cinq cas, une table n'apporterait rien tant qu'il n'y en a pas davantage.
 
+## TRX-CB
+
+TRX-CB (type 22 : init $101EA0, update $101EBB, render $101EC4) est porté dans `mdVoiceTrxCb.cpp`. Chaque bloc, le
+render joue deux sinus : le premier à Y:$03 moins un désaccord, le second à Y:$04 plus ce désaccord, qui décroît de
+Y:$02 à chaque bloc. Les deux phases sont masquées après chaque pas, et donc gardées masquées dans l'état, comme pour
+TRX-SD. Chaque sinus devient un carré au-delà de son seuil, dans un sens comme dans l'autre ($7FFCB9 au-dessus,
+$800347 sous l'opposé, le second test l'emporte). Il est ensuite multiplié par son niveau (Y:$05, Y:$06) fois
+l'enveloppe Y:$0F, qui décroît de Y:$01. Chacun passe ensuite par les deux passe-haut de TRX-CP : c'est la même boucle
+DSP ($101FA7 contre $101A3F), à des registres près. La sortie est le quart de leur somme, deux échantillons en retard.
+L'update ajoute le niveau d'un Hit à Y:$0F, avec limitation, et met Y:$0E à 3. Les trois blocs suivants : un fondu du
+dernier échantillon (x 0,9), puis deux blocs muets.
+
+Le paquet de l'OS fait 11 à 12 mots (Y:$01-$0B) : Y:$0C et Y:$0D, les décalages des filtres, restent à $7F depuis
+l'init, et les seuils sont toujours positifs.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS et un paquet fait main de plus, sinus immobiles et seuils à 0, où
+la voix neuve tombe pile sur le seuil : 111 213 échantillons non nuls, 0 échantillon et 0 mot d'état différents, les
+six probes atteintes. Neuf mutations sur dix sont prises. Celle du seuil (`>=` au lieu de `>`) ne l'était que par le
+paquet fait main, qui la prend au bloc 4009. La dixième, le décalage du second filtre lu en Y:$0C au lieu de Y:$0D, est
+équivalente : les deux valent toujours $7F. Le scénario des bancs (16 voix aux réglages par défaut) a aussi été
+comparé à l'oracle, pour TRX-CB et TRX-CP : 3000 blocs, 0 différence.
+
+Revues du 2026-11-03 :
+- Revue de code : aucun écart avec le listing.
+- Revue d'architecture :
+  - `sinesMaskedAfter` (le sinus masqué après le pas) rejoint `sines` dans `mdVoiceTrx.h`, et TRX-SD l'utilise. C'est
+    une fonction à part plutôt qu'un booléen, puisque la place du masque change l'état comparé.
+  - `highPassStage` porte les deux passe-haut avec leurs adresses et leur état, pour TRX-CP et TRX-CB.
+  - Le compte à rebours de TRX-CB est écrit comme celui de TRX-XT, et `clipSquare` remplace `square`.
+- `/simplify` :
+  - Un seul passage par sinus (carré et niveau dans la fonction qui reçoit chaque mot) au lieu de trois.
+  - Les coefficients et les deux dernières entrées de `highPassStage` en variables locales.
+  - Les paquets faits main de TRX-XT et TRX-CB décrits dans une table (type, nombre de mots, mots à 0).
+- Non appliqué, noté pour plus tard :
+  - Un compte à rebours partagé avec TRX-XT : les blocs qui suivent le fondu diffèrent, et la fonction ne rendrait
+    qu'un numéro.
+  - La table de dispatch par type : six cas maintenant, à faire avec la prochaine machine.
+  - Des adresses nommées pour `highPassStage`, et une probe par bloc plutôt que par échantillon, pour toutes les
+    machines à la fois.
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-CB 0,64 µs, soit 1,42 %
+d'un cœur pour 16 voix. TRX-CP passe de 0,77 à 0,72 µs avec `highPassStage`.
+
 Reste ouvert pour les TRX :
-- TRX-CB, CH, OH, CY, MA, CL, XC, B2 et S2.
+- TRX-CH, OH, CY, MA, CL, XC, B2 et S2.
 - La formule des tables de filtre.

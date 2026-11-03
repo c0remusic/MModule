@@ -48,6 +48,12 @@ namespace md::voice
 		// The ROM and TRX renders' branches the test must reach
 		enum Probe
 		{
+			CbFade,					// TRX-CB's block after a Hit: the last sample faded out
+			CbSilentA,				// ... the next block, silent
+			CbSilentB,				// ... and the one after it
+			CbClipAbove,			// TRX-CB's square past its threshold
+			CbClipBelow,			// ... past its negative
+			CbLevelLimited,			// a Hit that adds TRX-CB's level past full scale
 			RsFoldAbove,			// TRX-RS's fold past its threshold
 			RsFoldBelow,			// ... past its negative
 			RsWave,					// TRX-RS's sampled waveform added
@@ -90,6 +96,12 @@ namespace md::voice
 		{
 			switch(_p)
 			{
+				case CbFade:				return "TRX-CB's fade after a Hit";
+				case CbSilentA:				return "TRX-CB's first silent block";
+				case CbSilentB:				return "TRX-CB's second silent block";
+				case CbClipAbove:			return "TRX-CB's square above";
+				case CbClipBelow:			return "TRX-CB's square below";
+				case CbLevelLimited:		return "TRX-CB's level limited at a Hit";
 				case RsFoldAbove:			return "TRX-RS's fold above";
 				case RsFoldBelow:			return "TRX-RS's fold below";
 				case RsWave:				return "TRX-RS's waveform";

@@ -48,20 +48,9 @@ namespace md::voice::trx::sd
 		// The two sines: each sample the table's word at the phase, then the step added and the phase masked to a
 		// period. The steps from PTCH and the pitch envelope Y:$10, as it was before this block
 		const auto step = [&](const uint32_t _ptch) { return ((acc(_ptch) >> 1) + acc(y[0x10])) >> 4; };
-		const auto sines = [&](const int64_t _step, const uint32_t _amp, const uint32_t _hiAddr, const uint32_t _loAddr,
-			uint32_t* const _dst)
-		{
-			uint64_t b = static_cast<uint64_t>(acc(y[_hiAddr], y[_loAddr])) & 0xffffffffffffull;
-			const int64_t x = acc(hi(_step), lo(_step));
-			for(int k = 0; k < 32; ++k)
-			{
-				_dst[k] = lim(mul(word(t.sine, static_cast<uint32_t>(b >> 24)), _amp));
-				b = add48(b, x) & 0x007fffffffffull;
-			}
-			y[_hiAddr] = static_cast<uint32_t>(b >> 24) & 0xffffff;
-			y[_loAddr] = static_cast<uint32_t>(b) & 0xffffff;
-		};
-		sines(step(y[7]), y[3], 0x12, 0x13, tone);
+		const uint32_t ampA = y[3], ampB = y[4];
+		sinesMaskedAfter(t, y, 0x12, 0x13, step(y[7]),
+			[&](const int _k, const uint32_t _w) { tone[_k] = lim(mul(_w, ampA)); });
 		const int64_t stepB = step(y[8]);
 		if(acc(y[0x11]) > acc(y[0xd]))
 		{
@@ -73,7 +62,8 @@ namespace md::voice::trx::sd
 			probe(testHooks::SdPitchRise);
 			y[0x10] = lim(shl(acc(y[0xa]), 1) + acc(y[0x10]));
 		}
-		sines(stepB, y[4], 0x14, 0x15, noise);
+		sinesMaskedAfter(t, y, 0x14, 0x15, stepB,
+			[&](const int _k, const uint32_t _w) { noise[_k] = lim(mul(_w, ampB)); });
 
 		// Their sum, plus their sum scaled by a decaying cross level, then the amp envelope
 		{

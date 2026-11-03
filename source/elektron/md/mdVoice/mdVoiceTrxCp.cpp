@@ -105,36 +105,7 @@ namespace md::voice::trx::cp
 
 		// The clap's noise through two high-pass filters in turn, 1/2 - z^-1 + 1/2 z^-2 over the poles by Y:$05 and
 		// Y:$06, the first's last two outputs at X:$00-$01, the second's written from X:$22 on after its last two
-		{
-			const auto p = poles(offsetPole(t, y[5], y[6]));
-			iy[0] = p.a2;
-			highPassTaps(iy);
-			ix[0x5e] = y[0x1c];
-			ix[0x5f] = y[0x1b];
-			ix[0x20] = y[0x1a];
-			ix[0x21] = y[0x19];
-			uint32_t* const out = &ix[0x22];
-			uint32_t h2 = y[0x18], h1 = y[0x17], o2 = y[0x1a], o1 = y[0x19];
-			for(int k = 0; k < 32; ++k)
-			{
-				const int64_t in = highPassZeros(ring[k - 2], ring[k - 1], ring[k]);
-				const uint32_t s = lim(shl(mul(p.a2, h2) + mul(p.a1, h1) + in, 1));
-				const uint32_t o = lim(shl(mul(p.a2, o2) + mul(p.a1, o1) + highPassZeros(h2, h1, s), 1));
-				out[k] = o;
-				o2 = o1;
-				o1 = o;
-				h2 = h1;
-				h1 = s;
-			}
-			ix[0] = h2;
-			ix[1] = h1;
-			y[0x17] = h1;
-			y[0x18] = h2;
-			y[0x19] = out[31];
-			y[0x1a] = out[30];
-			y[0x1b] = ring[31];
-			y[0x1c] = ring[30];
-		}
+		highPassStage(_c, poles(offsetPole(t, y[5], y[6])), 0x60, 0x00, 0x20, 0x17);
 
 		// Two two-pole filters by Y:$07 and Y:$08 over X:$20-$3F: the high-passed noise two samples late
 		{

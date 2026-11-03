@@ -52,15 +52,15 @@ namespace
 	constexpr int kEdgeBlocks = 1000;	// then the hand-made packets
 	constexpr int kBlocks = kOsBlocks + kEdgeBlocks;
 
-	constexpr uint32_t kGndIm = 4, kTrxXt = 19;
+	constexpr uint32_t kGndIm = 4;
 	// The TRX types ported, each of which must sound
 	struct Trx
 	{
 		uint32_t type;
 		const char* name;
 	};
-	constexpr std::array<Trx, 5> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
-		{21, "TRX-RS"}}};
+	constexpr std::array<Trx, 6> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
+		{21, "TRX-RS"}, {22, "TRX-CB"}}};
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
 	// whatever the others are: GND--, GND-IM and the TRX machines
@@ -74,13 +74,20 @@ namespace
 	// ROM-01, -02, -17, -32 (factory samples), -33, -46 (none)
 	constexpr std::array<uint8_t, 6> kRomMachines = {128, 129, 144, 159, 176, 189};
 
-	// The second phase's hand-made packets other than the ROM machines', which take half its Hits whatever these are
-	enum EdgeKind
+	// The second phase's hand-made packets other than the ROM machines', which take half its Hits whatever these are:
+	// GND-IM's counts and samples at their edges, or one of these TRX packets, random words but those at 0
+	struct TrxEdge
 	{
-		GndImEdges,		// GND-IM's counts and samples at their edges
-		XtOnThreshold,	// TRX-XT silent, its upper threshold 0: the clipper's input on it
-		EdgeKindCount
+		uint32_t type;
+		int count;
+		uint32_t zeros;		// a bit per word
 	};
+	constexpr std::array<TrxEdge, 2> kTrxEdges = {{
+		// TRX-XT silent, its upper threshold 0: the clipper's input on it
+		{19, 10, 1u << 4 | 1u << 8},
+		// TRX-CB's sines still and its thresholds 0: a fresh voice's sines on them
+		{22, 12, 1u << 3 | 1u << 4 | 1u << 7 | 1u << 8 | 1u << 0xb},
+	}};
 	using md::voice::isRom;
 	// A ROM type's directory entry
 	uint32_t entry(const uint32_t _type)
@@ -363,24 +370,26 @@ namespace
 				}
 				else if(hit[v] && random() % 2)
 				{
-					switch(random() % EdgeKindCount)
+					const auto kind = random() % (1 + kTrxEdges.size());
+					if(kind == 0)
 					{
-					case GndImEdges:
 						words[0] = kGndIm;
 						words[1] = kEdgeCounts[random() % kEdgeCounts.size()];
 						words[2] = kEdgeSamples[random() % kEdgeSamples.size()];
 						words[3] = kEdgeCounts[random() % kEdgeCounts.size()];
 						words[4] = kEdgeSamples[random() % kEdgeSamples.size()];
 						count = 5;
-						break;
-					case XtOnThreshold:
-						words[0] = kTrxXt;
-						for(int w = 1; w < 10; ++w)
-							words[w] = static_cast<uint32_t>(random()) & 0xffffff;
-						words[4] = 0;
-						words[8] = 0;
-						count = 10;
-						break;
+					}
+					else
+					{
+						const auto& e = kTrxEdges[kind - 1];
+						words[0] = e.type;
+						for(int w = 1; w < e.count; ++w)
+						{
+							const auto r = static_cast<uint32_t>(random()) & 0xffffff;
+							words[w] = e.zeros >> w & 1 ? 0 : r;
+						}
+						count = e.count;
 					}
 				}
 				else if(hit[v] || (isRom(type[v]) && event == 2))

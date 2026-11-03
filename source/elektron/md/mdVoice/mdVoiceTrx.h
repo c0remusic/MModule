@@ -2,8 +2,8 @@
 // (mdVoiceRom.cpp): the same integers, 56-bit accumulators, limiting where the DSP stores an accumulator, and the
 // voices' shared scratch memory (md::voice::Scratch), which these renders write as the DSP's do.
 //
-// The helpers the TRX machines share; each machine's routines in a file of its own (mdVoiceTrxBd.cpp, mdVoiceTrxSd.cpp,
-// mdVoiceTrxXt.cpp, mdVoiceTrxCp.cpp, mdVoiceTrxRs.cpp), the tables and the dispatch by type in mdVoiceTrx.cpp.
+// The helpers the TRX machines share, and the routines of each machine, which has a file of its own (mdVoiceTrxBd.cpp
+// for TRX-BD and so on); the tables and the dispatch by type are in mdVoiceTrx.cpp.
 #pragma once
 
 #include "mdVoiceDsp.h"
@@ -70,7 +70,7 @@ namespace md::voice::trx
 	}
 
 	// A sine over a block: the table's word at the phase (two state words, 48 bits), the phase masked to a period
-	// before each step; _store takes each word
+	// before each step and stored unmasked; _store takes each word
 	template<typename Store>
 	void sines(const TrxTables& _t, Voice::State& _y, const uint32_t _hiAddr, const uint32_t _loAddr,
 		const int64_t _step, Store&& _store)
@@ -81,6 +81,22 @@ namespace md::voice::trx
 			b &= 0x007fffffffffull;
 			_store(k, _t.sine[b >> 24]);
 			b = add48(b, _step);
+		}
+		_y[_hiAddr] = static_cast<uint32_t>(b >> 24) & 0xffffff;
+		_y[_loAddr] = static_cast<uint32_t>(b) & 0xffffff;
+	}
+
+	// ... the phase masked to a period after each step instead, and so stored masked; the first word's index is the
+	// state's as it stands, which word() reads as 0 past the table
+	template<typename Store>
+	void sinesMaskedAfter(const TrxTables& _t, Voice::State& _y, const uint32_t _hiAddr, const uint32_t _loAddr,
+		const int64_t _step, Store&& _store)
+	{
+		uint64_t b = static_cast<uint64_t>(acc(_y[_hiAddr], _y[_loAddr])) & 0xffffffffffffull;
+		for(int k = 0; k < 32; ++k)
+		{
+			_store(k, word(_t.sine, static_cast<uint32_t>(b >> 24)));
+			b = add48(b, _step) & 0x007fffffffffull;
 		}
 		_y[_hiAddr] = static_cast<uint32_t>(b >> 24) & 0xffffff;
 		_y[_loAddr] = static_cast<uint32_t>(b) & 0xffffff;
@@ -172,6 +188,51 @@ namespace md::voice::trx
 		_h1 = h1;
 	}
 
+	// Two high-pass filters in turn, 1/2 - z^-1 + 1/2 z^-2 over the same poles, as TRX-CP and TRX-CB run them (the
+	// DSP's loop at $101A3F and $101FA7). The first over the 32 words at X:_in, after its input's last two at X:_in - 2,
+	// its own last two left at X:_ring and _ring + 1; the second's outputs from X:_out + 2 on, after its last two at
+	// X:_out. Their state, six words from Y:_state: the first's last two outputs, the latest first, then the second's,
+	// then the input's. The outputs may overwrite the input: each input word is read before
+	inline void highPassStage(Context& _c, const Poles& _p, const uint32_t _in, const uint32_t _ring,
+		const uint32_t _out, const uint32_t _state)
+	{
+		auto& y = _c.y;
+		auto& iy = _c.shared.scratch.y;
+		auto& ix = _c.shared.scratch.x;
+		iy[0] = _p.a2;
+		highPassTaps(iy);
+		ix[_in - 2] = y[_state + 5];
+		ix[_in - 1] = y[_state + 4];
+		ix[_out] = y[_state + 3];
+		ix[_out + 1] = y[_state + 2];
+		const uint32_t* const in = &ix[_in];
+		uint32_t* const out = &ix[_out + 2];
+		const uint32_t a1 = _p.a1, a2 = _p.a2;
+		uint32_t x2 = y[_state + 5], x1 = y[_state + 4];
+		uint32_t h2 = y[_state + 1], h1 = y[_state], o2 = y[_state + 3], o1 = y[_state + 2];
+		for(int k = 0; k < 32; ++k)
+		{
+			const uint32_t x0 = in[k];
+			const uint32_t s = lim(shl(mul(a2, h2) + mul(a1, h1) + highPassZeros(x2, x1, x0), 1));
+			const uint32_t o = lim(shl(mul(a2, o2) + mul(a1, o1) + highPassZeros(h2, h1, s), 1));
+			out[k] = o;
+			x2 = x1;
+			x1 = x0;
+			o2 = o1;
+			o1 = o;
+			h2 = h1;
+			h1 = s;
+		}
+		ix[_ring] = h2;
+		ix[_ring + 1] = h1;
+		y[_state] = h1;
+		y[_state + 1] = h2;
+		y[_state + 2] = out[31];
+		y[_state + 3] = out[30];
+		y[_state + 4] = in[31];
+		y[_state + 5] = in[30];
+	}
+
 	// Each machine's routines, in its own file
 	namespace bd
 	{
@@ -202,6 +263,13 @@ namespace md::voice::trx
 	}
 
 	namespace rs
+	{
+		void init(Context& _c);
+		void update(Context& _c);
+		void render(Context& _c, Voice::Block& _out);
+	}
+
+	namespace cb
 	{
 		void init(Context& _c);
 		void update(Context& _c);

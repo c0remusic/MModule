@@ -1,5 +1,5 @@
-// The TRX machines' tables and their routines by machine type; the machines are in mdVoiceTrxBd.cpp to
-// mdVoiceTrxRs.cpp, their shared helpers in mdVoiceTrx.h.
+// The TRX machines' tables and their routines by machine type; each machine is in a file of its own (mdVoiceTrxBd.cpp
+// for TRX-BD and so on), their shared helpers in mdVoiceTrx.h.
 #include "mdVoiceTrx.h"
 
 namespace md::voice
@@ -37,6 +37,7 @@ namespace md::voice::trx
 	namespace
 	{
 		constexpr Routines kBd = {bd::init, bd::update, bd::render};
+		constexpr Routines kCb = {cb::init, cb::update, cb::render};
 		constexpr Routines kCp = {cp::init, cp::update, cp::render};
 		constexpr Routines kRs = {rs::init, rs::update, rs::render};
 		constexpr Routines kSd = {sd::init, sd::update, sd::render};
@@ -52,6 +53,7 @@ namespace md::voice::trx
 			case 19:	return &kXt;
 			case 20:	return &kCp;
 			case 21:	return &kRs;
+			case 22:	return &kCb;
 			default:	return nullptr;
 		}
 	}
