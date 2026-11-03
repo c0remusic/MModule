@@ -383,6 +383,49 @@ Revues du 2026-11-03 :
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-CB 0,64 µs, soit 1,42 %
 d'un cœur pour 16 voix. TRX-CP passe de 0,77 à 0,72 µs avec `highPassStage`.
 
+## TRX-CH
+
+TRX-CH (type 23 : init $10201F, update $102034, render $10204D) est porté dans `mdVoiceTrxCh.cpp`. Chaque bloc, le
+render prend un bruit de Fibonacci (Y:$13-$14) multiplié par Y:$05, et y ajoute six ondes. Chacune est lue dans son
+propre tampon modulo, à son gain : Y:$08, puis Y:$0B à Y:$0F, que l'update recopie depuis Y:$08. Les tampons sont en
+X:$102600 ($72 mots), $102700 ($66), $102780 ($56), $102800 ($50), $102880 ($3A) et $1028C0 ($34) ; les positions
+sont en Y:$21-$26. Le tout passe ensuite par un filtre à deux pôles appliqué deux fois (Y:$03, Y:$04), comme ceux de
+TRX-CP, puis par deux biquads passe-haut (Y:$06 et Y:$07, puis Y:$11 et Y:$12, la boucle DSP en $10215E et $1021A1).
+La sortie en prend la moitié, au niveau Y:$10. Un Hit y ajoute $6CCCCD (les autres TRX ajoutent $50C335). Le niveau
+reste fixe tant que Y:$09 décompte, descend de Y:$01 à chaque échantillon tant que Y:$0A décompte, puis décroît par
+Y:$02.
+
+Les six ondes ne sont pas contiguës dans le firmware : `TrxTables::ChWaves` donne leur disposition, et le test les
+copie et les vérifie une à une, par une plage dans `copy` et `checkTable`.
+
+Le paquet de l'OS fait 9 à 11 mots (Y:$01-$0A). Y:$11 et Y:$12, le troisième filtre, restent donc à $30 et 0 depuis
+l'init. Y:$09 vaut au plus 1, et la rampe ne peut pas passer sous -1 : son pas vaut au plus $126.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS : 126 623 échantillons non nuls, 0 échantillon et 0 mot d'état
+différents, les quatre probes atteintes. Les treize mutations sont prises. Douze le sont par les échantillons ; la
+treizième (Y:$09 décompté de 2) l'est par la probe de la rampe, que la voix n'atteint plus. Le scénario des bancs (16
+voix aux réglages par défaut) a aussi été comparé à l'oracle : 3000 blocs, 0 différence.
+
+Revues du 2026-11-03 :
+- Revue de code : aucun écart avec le listing. Elle doutait de la rampe : le DSP limite le niveau comme le port
+  (`move b,y1`, l'accumulateur entier), et la rampe ne descend de toute façon pas sous -1.
+- Revue d'architecture : le découpage tient. Le commentaire du biquad donne l'adresse de sa boucle DSP, pour que TRX-OH
+  et TRX-CY puissent dire s'ils la reprennent ; la note sur $6CCCCD passe de `hitLevel` à l'appel.
+- `/simplify` :
+  - Le bruit et les six ondes en un seul passage par échantillon, au lieu de sept passages sur le bloc.
+  - La décroissance sans accumulateur redondant ; une seule expression de sortie pour les trois phases.
+  - `biquad` renommé `highPassBiquad`.
+  - `copy` et `checkTable` du test prennent une plage, au lieu de deux boucles propres à TRX-CH.
+- Non appliqué, noté pour plus tard :
+  - Le bloc « deux pôles et son état » partagé (quatre copies : TRX-SD, TRX-CP deux fois, TRX-CH). Chaque copie range
+    les mots de scratch et d'état dans son propre ordre, et la fonction aurait besoin d'options d'ordre.
+  - `highPassBiquad` dans `mdVoiceTrx.h` dès que TRX-OH ou TRX-CY reprend la même boucle.
+  - Les deux biquads en un seul passage, et des pôles gardés d'un bloc à l'autre.
+  - La table de dispatch, avec la prochaine machine, après avoir vérifié que les types qui restent se suivent.
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-CH 0,96 µs, soit 2,11 %
+d'un cœur pour 16 voix.
+
 Reste ouvert pour les TRX :
-- TRX-CH, OH, CY, MA, CL, XC, B2 et S2.
+- TRX-OH, CY, MA, CL, XC, B2 et S2.
 - La formule des tables de filtre.

@@ -60,10 +60,10 @@ namespace md::voice::trx
 		return *_c.shared.trx;
 	}
 
-	// A Hit adds its level to the level word, limited
-	inline void hitLevel(uint32_t& _level, const testHooks::Probe _limited)
+	// A Hit adds its level to the level word, limited: $50C335 unless the machine adds another
+	inline void hitLevel(uint32_t& _level, const testHooks::Probe _limited, const uint32_t _add = 0x50c335)
 	{
-		const int64_t level = acc(0x50c335) + acc(_level);
+		const int64_t level = acc(_add) + acc(_level);
 		if(level > kMax48)
 			testHooks::probe(_limited);
 		_level = lim(level);
@@ -270,6 +270,13 @@ namespace md::voice::trx
 	}
 
 	namespace cb
+	{
+		void init(Context& _c);
+		void update(Context& _c);
+		void render(Context& _c, Voice::Block& _out);
+	}
+
+	namespace ch
 	{
 		void init(Context& _c);
 		void update(Context& _c);

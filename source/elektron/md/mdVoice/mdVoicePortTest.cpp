@@ -59,8 +59,8 @@ namespace
 		uint32_t type;
 		const char* name;
 	};
-	constexpr std::array<Trx, 6> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
-		{21, "TRX-RS"}, {22, "TRX-CB"}}};
+	constexpr std::array<Trx, 7> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
+		{21, "TRX-RS"}, {22, "TRX-CB"}, {23, "TRX-CH"}}};
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
 	// whatever the others are: GND--, GND-IM and the TRX machines
@@ -180,10 +180,13 @@ namespace
 	{
 		md::voice::TrxTables t;
 		using T = md::voice::TrxTables;
-		const auto copy = [&](auto& _table, const uint32_t _addr)
+		// The whole table, or its words from _first on (the firmware loads nothing between TRX-CH's waves)
+		const auto copy = [&](auto& _table, const uint32_t _addr, const uint32_t _first = 0, uint32_t _count = 0)
 		{
-			const auto w = md::fw::dspWords(_fw.dspA, _addr, static_cast<uint32_t>(_table.size()));
-			std::copy(w.begin(), w.end(), _table.begin());
+			if(_count == 0)
+				_count = static_cast<uint32_t>(_table.size());
+			const auto w = md::fw::dspWords(_fw.dspA, _addr + _first, _count);
+			std::copy(w.begin(), w.end(), _table.begin() + _first);
 		};
 		copy(t.bdWaveA, T::BdWaveAAddr);
 		copy(t.bdWaveB, T::BdWaveBAddr);
@@ -191,15 +194,18 @@ namespace
 		copy(t.filters, T::FiltersAddr);
 		copy(t.xtWave, T::XtWaveAddr);
 		copy(t.rsWave, T::RsWaveAddr);
+		for(const auto& w : T::ChWaves)
+			copy(t.chWaves, T::ChWavesAddr, w.offset, w.size);
 		return t;
 	}
 
-	// In the space the renders read it from
+	// In the space the renders read it from: the whole table, or its words from _first on
 	template<size_t N>
 	void checkTable(const char* _name, const std::array<uint32_t, N>& _table, const uint32_t _addr,
-		const dsp56k::Memory& _mem, const dsp56k::EMemArea _area = dsp56k::MemArea_X)
+		const dsp56k::Memory& _mem, const dsp56k::EMemArea _area = dsp56k::MemArea_X, const uint32_t _first = 0,
+		const uint32_t _count = N)
 	{
-		for(uint32_t k = 0; k < N; ++k)
+		for(uint32_t k = _first; k < _first + _count; ++k)
 			if(_table[k] != (_mem.get(_area, _addr + k) & 0xffffff))
 				throw std::runtime_error(std::string(_name) + " differs from the voice DSP's at word "
 					+ std::to_string(k));
@@ -217,6 +223,8 @@ namespace
 		checkTable("the filters' tables", _t.filters, T::FiltersAddr, mem);
 		checkTable("TRX-XT's wave", _t.xtWave, T::XtWaveAddr, mem, dsp56k::MemArea_Y);
 		checkTable("TRX-RS's wave", _t.rsWave, T::RsWaveAddr, mem);
+		for(const auto& w : T::ChWaves)
+			checkTable("TRX-CH's waves", _t.chWaves, T::ChWavesAddr, mem, dsp56k::MemArea_X, w.offset, w.size);
 	}
 
 	// A bank's directory and data, which md::voice::RomBank views

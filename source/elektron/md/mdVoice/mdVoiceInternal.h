@@ -48,6 +48,10 @@ namespace md::voice
 		// The ROM and TRX renders' branches the test must reach
 		enum Probe
 		{
+			ChHold,					// TRX-CH's level held while its first counter runs
+			ChRamp,					// ... falling by a step a sample while its second runs
+			ChDecay,				// ... decaying after both
+			ChLevelLimited,			// a Hit that adds TRX-CH's level past full scale
 			CbFade,					// TRX-CB's block after a Hit: the last sample faded out
 			CbSilentA,				// ... the next block, silent
 			CbSilentB,				// ... and the one after it
@@ -96,6 +100,10 @@ namespace md::voice
 		{
 			switch(_p)
 			{
+				case ChHold:				return "TRX-CH's level held";
+				case ChRamp:				return "TRX-CH's level ramping down";
+				case ChDecay:				return "TRX-CH's level decaying";
+				case ChLevelLimited:		return "TRX-CH's level limited at a Hit";
 				case CbFade:				return "TRX-CB's fade after a Hit";
 				case CbSilentA:				return "TRX-CB's first silent block";
 				case CbSilentB:				return "TRX-CB's second silent block";
