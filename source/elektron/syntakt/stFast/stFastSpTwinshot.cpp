@@ -28,20 +28,6 @@ namespace syntakt::fast
 		// A slot's length is clamped to 2^19 - 1 samples
 		constexpr uint32_t MaxLength = 0x7ffff;
 
-		int32_t addSat(const int32_t _a, const int32_t _b)
-		{
-			return static_cast<int32_t>(std::clamp<int64_t>(int64_t(_a) + _b, INT32_MIN, INT32_MAX));
-		}
-
-		int32_t asl(const int32_t _v, const int _n) { return wrap(static_cast<int64_t>(static_cast<uint32_t>(_v)) << _n); }
-
-		// asr.l by a register: the count mod 64, 32 or more shifting everything out
-		int32_t asrReg(const int32_t _v, const int32_t _n)
-		{
-			const int32_t n = _n & 63;
-			return n >= 32 ? (_v < 0 ? -1 : 0) : _v >> n;
-		}
-
 		// 0x40006704: a player's rate from the note and its TUNE word, Q12 samples per output sample
 		int32_t playerRate(const int32_t* _exp2, const int _note, const int32_t _tune)
 		{
@@ -321,8 +307,7 @@ namespace syntakt::fast
 			}
 
 			// The amp's VCA ramps over the block; a pending block fades it out, and leaves it silent until the trig
-			for(int n = 0; n < BlockSize; ++n)
-				m_gAmp.s[n][l] = m_amp.at(l, n / static_cast<double>(BlockSize));
+			m_amp.fill(m_gAmp, l);
 			fadePending(m_gAmp, m_amp, m_ampEnd, l, pending);
 		}
 	}

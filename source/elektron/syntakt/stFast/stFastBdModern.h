@@ -11,11 +11,6 @@ namespace syntakt::fast
 	// _out = a + b, clipped to [-1, 1]
 	void sum(const Block& _a, const Block& _b, Block& _out);
 
-	// A 256-entry wave (257 values, linearly interpolated) phase-modulated by _src at a fixed depth (the shared pmWave
-	// ramps its depth)
-	void pmWaveBd(Block& _out, const Block& _src, uint32_t* _phase, const Increments& _inc, float _depth,
-		const float* _wave);
-
 	// The click: a ramp from 1 down by _dec per sample, held at 0, times a level ramped from _from to _to
 	void click(Block& _out, float* _ramp, float _dec, const float* _from, const float* _to);
 
@@ -86,6 +81,7 @@ namespace syntakt::fast
 		bool m_driveNext[Lanes]{};
 		alignas(16) float m_g0[Lanes]{}, m_g1[Lanes]{}, m_clickTarget[Lanes]{};
 		int32_t m_fbWord[Lanes]{};	// unit 0's feedback word, the machine's 0x2c
+		alignas(16) float m_u2Depth[Lanes]{};	// unit 2's modulation depth, fixed: pmWave's from and to
 		float m_modTarget[Lanes]{}, m_ampDecay[Lanes]{};
 		bool m_hold[Lanes]{};
 

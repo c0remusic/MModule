@@ -39,6 +39,7 @@ namespace syntakt::fast
 		for(int g = 0; g < _out.lanes; g += 4)
 		{
 			__m128i p = _mm_load_si128(reinterpret_cast<const __m128i*>(_phase + g));
+			const __m128i inc = _mm_load_si128(reinterpret_cast<const __m128i*>(_inc.s + g));
 			V depth2 = _mm_load_ps(_depth2 + g);
 			const V step = stepOf(_depth2, _depth2Target, g);
 			for(int n = 0; n < BlockSize; ++n)
@@ -46,7 +47,7 @@ namespace syntakt::fast
 				const V m = _mm_add_ps(_mm_mul_ps(depth1, _mm_load_ps(_src1.s[n] + g)),
 					_mm_mul_ps(depth2, _mm_load_ps(_src2.s[n] + g)));
 				_mm_store_ps(_out.s[n] + g, sin2pi(_mm_add_ps(phaseOf(p), m)));
-				p = _mm_add_epi32(p, _mm_load_si128(reinterpret_cast<const __m128i*>(_inc.s[n] + g)));
+				p = _mm_add_epi32(p, inc);
 				depth2 = _mm_add_ps(depth2, step);
 			}
 			_mm_store_si128(reinterpret_cast<__m128i*>(_phase + g), p);
@@ -220,14 +221,10 @@ namespace syntakt::fast
 				m_amp.stepAmp(l, m_ampDecay[l], m_ampAttack[l], m_hold[l]);
 				m_drive.step(l);
 			}
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				const double f = n / static_cast<double>(BlockSize);
-				for(int k = 0; k < Units; ++k)
-					m_gEnv[k].s[n][l] = m_env[k].at(l, f);
-				m_gMod.s[n][l] = m_mod.at(l, f);
-				m_gAmp.s[n][l] = m_amp.at(l, f);
-			}
+			for(int k = 0; k < Units; ++k)
+				m_env[k].fill(m_gEnv[k], l);
+			m_mod.fill(m_gMod, l);
+			m_amp.fill(m_gAmp, l);
 			if(trigs.releases(l))
 				m_amp.release(l);
 

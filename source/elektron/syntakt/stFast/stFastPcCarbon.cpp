@@ -45,8 +45,7 @@ namespace syntakt::fast
 		copyWords(t.sweepDepth, tables::pcCarbon(PcCarbon::SweepDepth));
 		copyWords(t.sweepDecay, tables::pcCarbon(PcCarbon::SweepDecay));
 		copyWords(t.exp2, tables::exp2());
-		readQ31(t.wave, tables::pcCarbonWave());
-		t.wave[257] = t.wave[256];
+		readWave(t.wave, tables::pcCarbonWave());
 		sineTable(t.sine);
 
 		// The voice before its first trig: silent, the drive's gain at 1 recovering (Drive)
@@ -180,13 +179,9 @@ namespace syntakt::fast
 				m_amp.stepAmp(l, m_ampDecay[l], 0, m_hold[l]);
 				m_drive.step(l);
 			}
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				const double f = n / static_cast<double>(BlockSize);
-				for(int k = 0; k < Units; ++k)
-					m_gEnv[k].s[n][l] = m_env[k].at(l, f);
-				m_gAmp.s[n][l] = m_amp.at(l, f);
-			}
+			for(int k = 0; k < Units; ++k)
+				m_env[k].fill(m_gEnv[k], l);
+			m_amp.fill(m_gAmp, l);
 			if(trigs.releases(l))
 				m_amp.release(l);
 

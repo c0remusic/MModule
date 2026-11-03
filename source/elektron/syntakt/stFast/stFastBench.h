@@ -276,6 +276,11 @@ namespace syntakt::fast::bench
 		return {envelopeAbs(_ref, _test), cellMax(_ref, _test)};
 	}
 
+	inline PhaseBlind phaseBlind(const RefAnalysis& _ref, const std::vector<double>& _test)
+	{
+		return {envelopeAbs(_ref, _test), cellMax(_ref, _test)};
+	}
+
 	// Where one LSB of a frequency word moves the exact port past Q4, a rewrite that is not bit-exact moves as far: a
 	// voice not chaotic passes within max(-39 dB, the worst of the exact port against its increment nudges + 20 log10
 	// _k) and max(1 dB, _k times their worst cells), at most -20 dB and 4 dB: a Hit whose nudges decorrelate it would
@@ -626,11 +631,9 @@ namespace syntakt::fast::bench
 	template<typename Words>
 	std::vector<float> fastWave(const Words& _w)
 	{
-		std::vector<float> f(258);
-		for(size_t i = 0; i < 257; ++i)
-			f[i] = static_cast<float>(q31(_w[i]));
-		f[257] = f[256];
-		return f;
+		float f[258];
+		readWave(f, _w);
+		return std::vector<float>(f, f + 258);
 	}
 
 	// A booted voice CPU's SRAM for the integer stages, 16 voices' fields on two of them
@@ -684,6 +687,15 @@ namespace syntakt::fast::bench
 			++n;
 		}
 
+		// Every lane of a block against the integer stage's words, lane by lane
+		template<size_t N>
+		void add(const int32_t (&_ref)[Lanes][N], const fast::Block& _test)
+		{
+			for(int l = 0; l < Lanes; ++l)
+				for(int n = 0; n < BlockSize; ++n)
+					add(q31(_ref[l][n]), _test.s[n][l]);
+		}
+
 		bool print(const char* _stage)
 		{
 			const double rms = db(sum / static_cast<double>(n)), peak = 20 * std::log10(std::max(max, 1e-300));
@@ -697,6 +709,14 @@ namespace syntakt::fast::bench
 	{
 		std::vector<std::vector<double>> ref = std::vector<std::vector<double>>(Lanes);
 		std::vector<std::vector<double>> test = std::vector<std::vector<double>>(Lanes);
+
+		// A block of the float stage, every lane
+		void addTest(const fast::Block& _test)
+		{
+			for(int l = 0; l < Lanes; ++l)
+				for(int n = 0; n < BlockSize; ++n)
+					test[l].push_back(_test.s[n][l]);
+		}
 
 		bool print(const char* _stage)
 		{
@@ -739,9 +759,7 @@ namespace syntakt::fast::bench
 			for(int l = 0; l < Lanes; ++l)
 				syntakt::gatedNoise(ref[l], s[l]);
 			fast::gatedNoise(out, w, _gate);
-			for(int l = 0; l < Lanes; ++l)
-				for(int n = 0; n < BlockSize; ++n)
-					r.add(q31(ref[l][n]), out.s[n][l]);
+			r.add(ref, out);
 		}
 		return r.print("gated noise");
 	}
@@ -763,7 +781,6 @@ namespace syntakt::fast::bench
 	{
 		constexpr int Blocks = 1500;
 		const Rom& rom = _st.rom;
-		const auto inc24 = sweptIncrement;
 		Runs r;
 		alignas(16) uint32_t phase[Lanes] = {};
 		fast::Increments inc;
@@ -783,18 +800,15 @@ namespace syntakt::fast::bench
 					v.unit(0, Voice::Phase) = 0;
 				}
 				v.at(0x2c) = f;
-				v.unit(0, 0x78) = inc24(l, b, 2);
-				for(auto& s : inc.s)
-					s[l] = static_cast<uint32_t>(v.unit(0, 0x78)) << 8;
+				v.unit(0, 0x78) = sweptIncrement(l, b, 2);
+				inc.s[l] = static_cast<uint32_t>(v.unit(0, 0x78)) << 8;
 				target[l] = f;	// the machine's feedback word, its 0x2c
 				feedbackOscillator(0, v, rom);
 				for(int n = 0; n < BlockSize; ++n)
 					r.ref[l].push_back(q31(v.sram.at(bufferB(0) + 4 * n)));
 			}
 			fast::feedbackSine(out, phase, inc, fb, target, last);
-			for(int l = 0; l < Lanes; ++l)
-				for(int n = 0; n < BlockSize; ++n)
-					r.test[l].push_back(out.s[n][l]);
+			r.addTest(out);
 		}
 		// Where the feedback is strong the oscillator is chaotic: the exact port, its first phase 1 LSB (2^-24 cycle)
 		// on, misses the null against itself. Those lanes are judged by their distributions against the exact port's
@@ -809,7 +823,7 @@ namespace syntakt::fast::bench
 			for(int b = 0; b < Blocks; ++b)
 			{
 				v.at(0x2c) = rom.entry(_table, 8 * _l + 7) >> _shift;
-				v.unit(0, 0x78) = inc24(_l, b, 2);
+				v.unit(0, 0x78) = sweptIncrement(_l, b, 2);
 				feedbackOscillator(0, v, rom);
 				for(int n = 0; n < BlockSize; ++n)
 					out.push_back(q31(v.sram.at(bufferB(0) + 4 * n)));
@@ -900,23 +914,21 @@ namespace syntakt::fast::bench
 				}
 				from[l] = static_cast<float>(on ? q31(v.at(Voice::DriveY1)) : q31(INT32_MAX));
 				drive[l] = static_cast<float>(4 * q31(v.at(Voice::DrivePreGain)));
-				post[l] = static_cast<float>(q31(v.at(Voice::DriveGain)));
+				post[l] = fast::q31(v.at(Voice::DriveGain));
 				for(int n = 0; n < BlockSize; ++n)
 				{
 					const double t = (b * BlockSize + n) / 48000.0;
 					const double decay = std::exp(-t / (0.05 + 0.05 * (l & 7)));
 					ref[l][n] = toQ31(decay * std::sin(2 * Pi * (40 + 10 * l) * t));
-					x.s[n][l] = static_cast<float>(q31(ref[l][n]));
+					x.s[n][l] = fast::q31(ref[l][n]);
 				}
 				syntakt::driveClip(ref[l], v);
-				to[l] = static_cast<float>(q31(v.at(Voice::DriveY1)));
+				to[l] = fast::q31(v.at(Voice::DriveY1));
 				for(int n = 0; n < BlockSize; ++n)
 					r.ref[l].push_back(q31(ref[l][n]));
 			}
 			fast::driveClip(x, from, to, drive, post);
-			for(int l = 0; l < Lanes; ++l)
-				for(int n = 0; n < BlockSize; ++n)
-					r.test[l].push_back(x.s[n][l]);
+			r.addTest(x);
 		}
 		return r.print(_stage);
 	}
@@ -944,10 +956,13 @@ namespace syntakt::fast::bench
 			// The first phase nudge classifies; the other 16 are rendered only for a chaotic Hit's dispersion, the
 			// increment nudges only for the tolerance of a Hit that is not
 			std::vector<std::vector<std::vector<double>>> nudged{_render(phaseNudge(Nudges[0], _units))}, increments;
+			std::vector<RefAnalysis> analysis;	// each Hit's, which every nudge is measured against
+			for(int l = 0; l < Lanes; ++l)
+				analysis.emplace_back(ref[l]);
 			bool anyChaotic = false, anyNot = false;
 			for(int l = 0; l < Lanes; ++l)
 			{
-				const auto self = measureHit(ref[l], nudged[0][l]);
+				const auto self = measureHit(analysis[l], nudged[0][l]);
 				selfSnr[l] = self.snr;
 				selfLocal[l] = self.local;
 				selfEnv[l] = self.env;
@@ -968,7 +983,7 @@ namespace syntakt::fast::bench
 				{
 					std::vector<PhaseBlind> set;
 					for(const auto& n : increments)
-						set.push_back(phaseBlind(ref[l], n[l]));
+						set.push_back(phaseBlind(analysis[l], n[l]));
 					tolerance[l] = worstOf(set);
 					tolerances.push_back(set);
 					continue;
@@ -1203,13 +1218,11 @@ namespace syntakt::fast::bench
 			const int64_t at = m * Up / Phases;
 			const auto p = static_cast<int>(m * Up % Phases);
 			const double* c = &h[static_cast<size_t>(p * 2 * Half)];
+			// The taps whose input lies inside _x, in their order
+			const int64_t first = std::max<int64_t>(-Half + 1, -at), last = std::min<int64_t>(Half, n - 1 - at);
 			double s = 0;
-			for(int k = -Half + 1; k <= Half; ++k)
-			{
-				const int64_t i = at + k;
-				if(i >= 0 && i < n)
-					s += c[k + Half - 1] * _x[static_cast<size_t>(i)];
-			}
+			for(int64_t k = first; k <= last; ++k)
+				s += c[k + Half - 1] * _x[static_cast<size_t>(at + k)];
 			y[static_cast<size_t>(m)] = s;
 		}
 		return y;
@@ -1334,6 +1347,12 @@ namespace syntakt::fast::bench
 
 	// ---- the voice without its chaos ----
 
+	// The machines' tables that make them chaotic in section 7, which testWithoutChaos sets to 0 in a fast machine
+	// and withoutTable in the exact port: unit 0's feedback (CP VINTAGE's tone's, unit 1), CY ALLOY's depth
+	constexpr uint32_t BdModernFeedbackTable = 0x4001fc00, SdBasicFeedbackTable = 0x40026e38,
+		CyAlloyDepthTable = 0x40020c00, SdVintageFeedbackTable = 0x40039a38, CpVintageFeedbackTable = 0x4003b438,
+		SyToyFeedbackTable = 0x4003d238;
+
 	// _s7 with the 128-entry table at _table at 0: unit 0's feedback table, for the exact port's voice without it
 	inline std::vector<int32_t> withoutTable(std::vector<int32_t> _s7, const uint32_t _table)
 	{
@@ -1420,6 +1439,39 @@ namespace syntakt::fast::bench
 		std::printf("  cost, 16 %s voices per 32-sample block: fast %.2f us (%.2f %% of a core at 48 kHz), exact %.2f "
 			"us (%.2f %%), %.1fx; at 44.1 kHz with the resampler %.2f us a host block (%.2f %%)\n", _name, us48,
 			100 * us48 / block48, exactUs, 100 * exactUs / block48, exactUs / us48, us44, 100 * us44 / block44);
+	}
+
+	// ---- a machine's voice, judged ----
+
+	// Machine's _hits as every machine's test judges them, _seconds each: Q4 against the exact port (Exacts, q4); with
+	// its chaos table _chaosTable at 0 in both engines (deterministic, after testWithoutChaos), where it has one (0:
+	// none); Q15; the cost (printCost, as _name)
+	template<typename Machine>
+	void judgeVoice(const std::vector<int32_t>& _s7, const HitSet& _hits, const char* _name, const double _seconds,
+		const uint32_t _chaosTable)
+	{
+		const auto render = [&](const double _fs, const double _s, const bool _noChaos, const bool _fromTrig)
+		{
+			return fastHits<Machine>(_fs, _s, _hits, [&](Machine& _m)
+			{
+				if(_noChaos)
+					_m.testWithoutChaos();
+			}, _fromTrig);
+		};
+		const Exacts exact([&](const Nudge& _n) { return exactHits(_s7, _seconds, _n, _hits); }, Machine::Units);
+		q4(exact, render(48000, _seconds, false, false));
+		if(_chaosTable)
+			deterministic(exactHits(withoutTable(_s7, _chaosTable), _seconds, Nudge{}, _hits),
+				render(48000, _seconds, true, false));
+		q15(render(48000, _seconds + 0.05, false, true), render(44100, _seconds + 0.05, false, true), _seconds);
+		printCost<Machine>(_name, _s7, _hits);
+	}
+
+	// A test's verdict, printed, and its exit code
+	inline int finish()
+	{
+		std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
+		return g_failures ? 1 : 0;
 	}
 
 	// ---- the tests' start ----

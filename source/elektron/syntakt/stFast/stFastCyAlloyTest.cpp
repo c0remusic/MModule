@@ -20,13 +20,11 @@
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7. Exit 77 without it.
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <random>
-#include <string>
 #include <vector>
 
 #include "stEmac.h"
@@ -70,31 +68,13 @@ namespace
 	}, {3, 5}, Machine};
 
 	constexpr double Seconds = 2;
-	constexpr uint32_t DepthTable = 0x40020c00, WaveTable = 0x40021000;
+	constexpr uint32_t DepthTable = CyAlloyDepthTable, WaveTable = 0x40021000;
 
 	// The words the update sets from the depth table's _d: units 1 and 3's modulation depth, unit 2's feedback
 	int32_t depthWord(const int32_t _d) { return frac(0x02000000, _d); }
 
 	// A phase-modulation depth word in cycles per unit of input
 	float cycles(const int32_t _depth) { return static_cast<float>(q31(_depth) * 128); }
-
-	// _seconds of the 16 Hits from the fast engine at _fs (bench::fastHits), the depth table at 0 (_noDepth)
-	std::vector<std::vector<double>> renderFast(const double _fs, const double _seconds, const bool _noDepth = false,
-		const bool _fromTrig = false)
-	{
-		return fastHits<fast::CyAlloy>(_fs, _seconds, Hits, [&](fast::CyAlloy& _e)
-		{
-			if(_noDepth)
-				_e.testWithoutChaos();
-		}, _fromTrig);
-	}
-
-	// The same from the exact port at 48 kHz, every Track on CY ALLOY
-	std::vector<std::vector<double>> renderExact(const std::vector<int32_t>& _s7, const double _seconds,
-		const Nudge& _nudge = {})
-	{
-		return exactHits(_s7, _seconds, _nudge, Hits);
-	}
 
 	// The output's high-pass words at 48 kHz, into the voice fields cyAlloy::biquad reads (b0-b2, x1, x2 at +0x18;
 	// a1, a2, y1, y2 at +0x18), its state cleared
@@ -117,14 +97,13 @@ namespace
 		std::uniform_real_distribution<double> u(-1, 1);
 		constexpr int Blocks = 500;
 		const auto noise = [&](const double _a) { return toQ31(_a * u(rng)); };
-		const auto q = [](const int32_t _v) { return static_cast<float>(q31(_v)); };
 		bool ok = true;
 
 		// The mix (0x400049f4) at CY ALLOY's gains, 0.5 each without a ramp
 		{
 			Residual r;
 			alignas(16) float g[Lanes];
-			std::fill_n(g, Lanes, q(0x40000000));
+			std::fill_n(g, Lanes, fast::q31(0x40000000));
 			fast::Block x, y, out;
 			const uint32_t X = bufferA(3), Y = bufferA(1), Out = 0x80009c58;
 			for(int b = 0; b < Blocks; ++b)
@@ -139,16 +118,14 @@ namespace
 					{
 						v.sram.at(X + 4 * n) = noise(0.95);
 						v.sram.at(Y + 4 * n) = noise(0.95);
-						x.s[n][l] = q(v.sram.at(X + 4 * n));
-						y.s[n][l] = q(v.sram.at(Y + 4 * n));
+						x.s[n][l] = fast::q31(v.sram.at(X + 4 * n));
+						y.s[n][l] = fast::q31(v.sram.at(Y + 4 * n));
 					}
 					mix(v.sram.ptr(X), v.sram.ptr(Y), v.sram.ptr(Out), 0, 1, v);
 					std::copy_n(v.sram.ptr(Out), BlockSize, ref[l]);
 				}
 				fast::mix(x, y, out, g, g, g, g);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.add(q31(ref[l][n]), out.s[n][l]);
+				r.add(ref, out);
 			}
 			ok &= r.print("mix");
 		}
@@ -173,16 +150,15 @@ namespace
 					for(int n = 0; n < BlockSize; ++n)
 					{
 						ref[l][n] = noise(0.95);
-						x.s[n][l] = q(ref[l][n]);
-						g.s[n][l] = -q(prev[l]) + static_cast<float>(n) / BlockSize * (q(prev[l]) - q(level));
+						x.s[n][l] = fast::q31(ref[l][n]);
+						g.s[n][l] = -fast::q31(prev[l]) +
+							static_cast<float>(n) / BlockSize * (fast::q31(prev[l]) - fast::q31(level));
 					}
 					vca(ref[l], v);
 					prev[l] = level;
 				}
 				fast::gain(x, g);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.add(q31(ref[l][n]), x.s[n][l]);
+				r.add(ref, x);
 			}
 			ok &= r.print("ramped gain (VCA)");
 		}
@@ -205,14 +181,12 @@ namespace
 					for(int n = 0; n < BlockSize; ++n)
 					{
 						ref[l][n] = noise(0.2);
-						x.s[n][l] = q(ref[l][n]);
+						x.s[n][l] = fast::q31(ref[l][n]);
 					}
 					cyAlloy::biquad(ref[l], bw[l], aw[l]);
 				}
 				fast::biquad(x, c, s);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.add(q31(ref[l][n]), x.s[n][l]);
+				r.add(ref, x);
 			}
 			ok &= r.print("biquad high-pass");
 		}
@@ -258,15 +232,14 @@ namespace
 					v.unit(1, 0x8c) = d;
 					to[l] = cycles(d);
 					v.unit(1, 0x78) = sweptIncrement(l, b, 1);
-					for(auto& s : inc.s)
-						s[l] = static_cast<uint32_t>(v.unit(1, 0x78)) << 8;
+					inc.s[l] = static_cast<uint32_t>(v.unit(1, 0x78)) << 8;
 					for(int n = 0; n <= BlockSize; ++n)
 					{
 						const double t = (b * BlockSize + n) / 48000.0;
 						const double m = 0.95 * std::exp(-t / (0.02 + 0.02 * l)) * std::sin(2 * Pi * (80 + 37 * l) * t);
 						v.sram.at(bufferA(0) + 4 * n) = toQ31(m);
 						if(n < BlockSize)
-							in.s[n][l] = static_cast<float>(q31(v.sram.at(bufferA(0) + 4 * n)));
+							in.s[n][l] = fast::q31(v.sram.at(bufferA(0) + 4 * n));
 					}
 					pmOscillator(1, v, rom);
 					for(int n = 0; n < BlockSize; ++n)
@@ -274,9 +247,7 @@ namespace
 				}
 				fast::pmWave(out, &in, from, to, phase, inc, wave.data());
 				std::copy_n(to, Lanes, from);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.test[l].push_back(out.s[n][l]);
+				r.addTest(out);
 			}
 			ok &= r.print("PM wave (units 1 and 3)");
 		}
@@ -304,16 +275,14 @@ namespace
 						const double hz = 2000 + 4000 * std::fmod(t * (0.5 + 0.25 * l), 1.0);
 						phase[l] += hz / 48000;
 						ref[l][n] = toQ31(0.95 * std::exp(-t / (0.2 + 0.1 * l)) * std::sin(2 * Pi * phase[l]));
-						x.s[n][l] = static_cast<float>(q31(ref[l][n]));
+						x.s[n][l] = fast::q31(ref[l][n]);
 					}
 					cyAlloy::biquad(ref[l], bw[l], aw[l]);
 					for(int n = 0; n < BlockSize; ++n)
 						r.ref[l].push_back(q31(ref[l][n]));
 				}
 				fast::biquad(x, c, s);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.test[l].push_back(x.s[n][l]);
+				r.addTest(x);
 			}
 			ok &= r.print("biquad into its clip");
 		}
@@ -344,12 +313,6 @@ int main()
 	q3(s7);
 	// Block by block (bench::blockByBlock): its output against the exact port's
 	blockByBlock<fast::CyAlloy>(s7, Hits, "CY ALLOY", [](fast::CyAlloy&) {});
-	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); }, fast::CyAlloy::Units);
-	q4(exact, renderFast(48000, Seconds));
-	deterministic(renderExact(withoutTable(s7, DepthTable), Seconds), renderFast(48000, Seconds, true));
-	q15(renderFast(48000, Seconds + 0.05, false, true), renderFast(44100, Seconds + 0.05, false, true), Seconds);
-	printCost<fast::CyAlloy>("CY ALLOY", s7, Hits);
-
-	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
-	return g_failures ? 1 : 0;
+	judgeVoice<fast::CyAlloy>(s7, Hits, "CY ALLOY", Seconds, DepthTable);
+	return finish();
 }

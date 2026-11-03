@@ -39,10 +39,21 @@ namespace syntakt::fast
 			return _note <= 35 ? 0 : std::min((_note - 24) / 12, 7);
 		}
 
-		// The machine's saturated difference, which its ramps step by
-		int32_t subSat(const int32_t _a, const int32_t _b)
+		// The waves as floats (readQ31), made once for every instance
+		const float (*floatWaves())[SyBitsWaveSize]
 		{
-			return static_cast<int32_t>(std::clamp<int64_t>(int64_t(_a) - _b, INT32_MIN, INT32_MAX));
+			struct Waves
+			{
+				float w[SyBitsWaves][SyBitsWaveSize];
+			};
+			static const Waves waves = []
+			{
+				Waves x;
+				for(int w = 0; w < SyBitsWaves; ++w)
+					readQ31(x.w[w], tables::syBitsWave(w));
+				return x;
+			}();
+			return waves.w;
 		}
 
 		// A wave of SyBitsWaveSize floats at a 32-bit phase: its top 9 bits the entry, the next 23 the fraction
@@ -62,12 +73,15 @@ namespace syntakt::fast
 			uint32_t p = _phase[l];
 			float g1 = _from[l], g2 = _from[Lanes + l];
 			const float s1 = (_to[l] - g1) / BlockSize, s2 = (_to[Lanes + l] - g2) / BlockSize;
+			const float* w1 = _wave1[l];
+			const float* w2 = _wave2[l];
+			const uint32_t inc = _inc[l];
 			for(int n = 0; n < BlockSize; ++n)
 			{
-				_out.s[n][l] = g1 * read(_wave1[l], p) + g2 * read(_wave2[l], p);
+				_out.s[n][l] = g1 * read(w1, p) + g2 * read(w2, p);
 				g1 += s1;
 				g2 += s2;
-				p += _inc[l];
+				p += inc;
 			}
 		}
 	}
@@ -80,12 +94,14 @@ namespace syntakt::fast
 			uint32_t p = _phase[l], o = _offsetFrom[l];
 			float g = _from[l];
 			const float s = (_to[l] - g) / BlockSize;
+			const float* w = _wave[l];
+			const uint32_t inc = _inc[l], step = _offsetStep[l];
 			for(int n = 0; n < BlockSize; ++n)
 			{
-				_out.s[n][l] = std::clamp(_out.s[n][l] - g * read(_wave[l], p + o), -1.0f, 1.0f);
+				_out.s[n][l] = std::clamp(_out.s[n][l] - g * read(w, p + o), -1.0f, 1.0f);
 				g += s;
-				o += _offsetStep[l];
-				p += _inc[l];
+				o += step;
+				p += inc;
 			}
 		}
 	}
@@ -127,8 +143,7 @@ namespace syntakt::fast
 		copyWords(t.gain[2], tables::syBits(SyBits::GainNoise));
 		readQ31(t.ampDecay, tables::syBits(SyBits::AmpDecay));
 		copyWords(t.exp2, tables::exp2());
-		for(int w = 0; w < SyBitsWaves; ++w)
-			readQ31(t.wave[w], tables::syBitsWave(w));
+		t.wave = floatWaves();
 		std::fill_n(m_wavesLevel, Lanes, WavesLevel);
 		for(auto& w : m_wave)
 			std::fill_n(w, Lanes, -1);
@@ -277,8 +292,7 @@ namespace syntakt::fast
 			}
 
 			// The amp's VCA ramps over the block; a pending block fades it out, and leaves it silent until the trig
-			for(int n = 0; n < BlockSize; ++n)
-				m_gAmp.s[n][l] = m_amp.at(l, n / static_cast<double>(BlockSize));
+			m_amp.fill(m_gAmp, l);
 			fadePending(m_gAmp, m_amp, m_ampEnd, l, pending);
 		}
 	}

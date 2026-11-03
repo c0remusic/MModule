@@ -89,17 +89,6 @@ namespace
 			_w[k] = static_cast<int32_t>(_w[k] < 0 ? Sine : WaveAddress[_w[k]]);
 	}
 
-	std::vector<std::vector<double>> renderFast(const double _fs, const double _seconds, const bool _fromTrig = false)
-	{
-		return fastHits<fast::SyBits>(_fs, _seconds, Hits, [](fast::SyBits&) {}, _fromTrig);
-	}
-
-	std::vector<std::vector<double>> renderExact(const std::vector<int32_t>& _s7, const double _seconds,
-		const Nudge& _nudge = {})
-	{
-		return exactHits(_s7, _seconds, _nudge, Hits);
-	}
-
 	Voice updated(Stage& _st, const int _l, const int32_t _pitch, const std::vector<std::pair<int, uint8_t>>& _bytes)
 	{
 		return updatedVoice(_st, _l, _pitch, _bytes, syntakt::syBits::update);
@@ -163,8 +152,8 @@ namespace
 					for(int k = 0; k < 2; ++k)
 					{
 						const int32_t w = v.unit(0, 0xa8 + 4 * static_cast<uint32_t>(k));
-						from[k][l] = static_cast<float>(q31(w));
-						to[k][l] = static_cast<float>(q31(addWrap(w, BlockSize * (subWrap(target[k], w) >> 6))));
+						from[k][l] = fast::q31(w);
+						to[k][l] = fast::q31(addWrap(w, BlockSize * (subWrap(target[k], w) >> 6)));
 					}
 					syBits::crossfadeOscillator(0, v);
 					for(uint32_t n = 0; n < BlockSize; ++n)
@@ -208,9 +197,8 @@ namespace
 					offset[l] = static_cast<uint32_t>(v.unit(1, 0x74)) << 7;
 					step[l] = static_cast<uint32_t>(rampStepSat(v.unit(1, 0x70), v.unit(1, 0x74))) << 7;
 					const int32_t level = v.unit(1, Voice::EnvLevelPrev);
-					from[l] = static_cast<float>(q31(level));
-					to[l] = static_cast<float>(q31(addWrap(level,
-						BlockSize * rampStepSat(v.unit(1, Voice::EnvLevel), level))));
+					from[l] = fast::q31(level);
+					to[l] = fast::q31(addWrap(level, BlockSize * rampStepSat(v.unit(1, Voice::EnvLevel), level)));
 					syBits::offsetOscillator(1, v);
 					for(uint32_t n = 0; n < BlockSize; ++n)
 						r.ref[l].push_back(q31(v.sram.at(bufferA(1) + 4 * n)));
@@ -241,16 +229,14 @@ namespace
 					{
 						const double t = (b * BlockSize + n) / 48000.0;
 						buf[n] = toQ31(0.99 * std::exp(-t / (0.1 + 0.05 * l)) * std::sin(2 * Pi * (55 + 37 * l) * t));
-						x.s[n][l] = static_cast<float>(q31(buf[n]));
+						x.s[n][l] = fast::q31(buf[n]);
 					}
 					syBits::reduceBits(buf, c);
 					for(int n = 0; n < BlockSize; ++n)
 						r.ref[l].push_back(q31(buf[n]));
 				}
 				fast::reduceBits(x, word);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.test[l].push_back(x.s[n][l]);
+				r.addTest(x);
 			}
 			ok &= r.print("bit reducer");
 		}
@@ -384,11 +370,6 @@ int main()
 	blockByBlock<fast::SyBits>(s7, Hits, "SY BITS", [](fast::SyBits&) {}, {std::begin(Fields), std::end(Fields)},
 		words);
 	changesWhileSounding(s7);
-	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); }, fast::SyBits::Units);
-	q4(exact, renderFast(48000, Seconds));
-	q15(renderFast(48000, Seconds + 0.05, true), renderFast(44100, Seconds + 0.05, true), Seconds);
-	printCost<fast::SyBits>("SY BITS", s7, Hits);
-
-	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
-	return g_failures ? 1 : 0;
+	judgeVoice<fast::SyBits>(s7, Hits, "SY BITS", Seconds, 0);
+	return finish();
 }

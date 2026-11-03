@@ -79,19 +79,6 @@ namespace
 		return s;
 	}
 
-	// _seconds of the 16 Hits from the fast engine at _fs (bench::fastHits)
-	std::vector<std::vector<double>> renderFast(const double _fs, const double _seconds, const bool _fromTrig = false)
-	{
-		return fastHits<fast::PcCarbon>(_fs, _seconds, Hits, [](fast::PcCarbon&) {}, _fromTrig);
-	}
-
-	// The same from the exact port at 48 kHz, every Track on PC CARBON
-	std::vector<std::vector<double>> renderExact(const std::vector<int32_t>& _s7, const double _seconds,
-		const Nudge& _nudge = {})
-	{
-		return exactHits(_s7, _seconds, _nudge, Hits);
-	}
-
 	// ---- Q2: the linear stages against their integer originals ----
 
 	void q2(const std::vector<int32_t>& _s7)
@@ -101,7 +88,6 @@ namespace
 		std::uniform_real_distribution<double> u(-1, 1);
 		constexpr int Blocks = 500;
 		const auto noise = [&](const double _a) { return toQ31(_a * u(rng)); };
-		const auto q = [](const int32_t _v) { return static_cast<float>(q31(_v)); };
 		bool ok = true;
 
 		// The mix (0x400049f4) at PC CARBON's gains, drive on (unit 3 at 0.5, unit 1 at 0.25) on lanes 0-7 and off
@@ -111,8 +97,8 @@ namespace
 			alignas(16) float gx[Lanes], gy[Lanes];
 			for(int l = 0; l < Lanes; ++l)
 			{
-				gx[l] = l < 8 ? q(0x40000000) : q(0x20000000);
-				gy[l] = l < 8 ? q(0x20000000) : q(0x10000000);
+				gx[l] = l < 8 ? fast::q31(0x40000000) : fast::q31(0x20000000);
+				gy[l] = l < 8 ? fast::q31(0x20000000) : fast::q31(0x10000000);
 			}
 			fast::Block x, y, out;
 			const uint32_t X = bufferA(3), Y = bufferA(1), Out = 0x80009c58;
@@ -128,16 +114,14 @@ namespace
 					{
 						v.sram.at(X + 4 * n) = noise(0.95);
 						v.sram.at(Y + 4 * n) = noise(0.95);
-						x.s[n][l] = q(v.sram.at(X + 4 * n));
-						y.s[n][l] = q(v.sram.at(Y + 4 * n));
+						x.s[n][l] = fast::q31(v.sram.at(X + 4 * n));
+						y.s[n][l] = fast::q31(v.sram.at(Y + 4 * n));
 					}
 					mix(v.sram.ptr(X), v.sram.ptr(Y), v.sram.ptr(Out), 0, 1, v);
 					std::copy_n(v.sram.ptr(Out), BlockSize, ref[l]);
 				}
 				fast::mix(x, y, out, gx, gx, gy, gy);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.add(q31(ref[l][n]), out.s[n][l]);
+				r.add(ref, out);
 			}
 			ok &= r.print("mix");
 		}
@@ -164,16 +148,15 @@ namespace
 					for(int n = 0; n < BlockSize; ++n)
 					{
 						ref[l][n] = noise(0.95);
-						x.s[n][l] = q(ref[l][n]);
-						g.s[n][l] = -q(prev[l]) + static_cast<float>(n) / BlockSize * (q(prev[l]) - q(level));
+						x.s[n][l] = fast::q31(ref[l][n]);
+						g.s[n][l] = -fast::q31(prev[l]) +
+							static_cast<float>(n) / BlockSize * (fast::q31(prev[l]) - fast::q31(level));
 					}
 					vca(ref[l], v);
 					prev[l] = level;
 				}
 				fast::gain(x, g);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.add(q31(ref[l][n]), x.s[n][l]);
+				r.add(ref, x);
 			}
 			ok &= r.print("ramped gain (VCA)");
 		}
@@ -210,16 +193,13 @@ namespace
 						v.unit(0, 0xb0) = static_cast<int32_t>(WaveTable);
 					}
 					v.unit(0, 0x78) = sweptIncrement(l, b, 1);
-					for(auto& s : inc.s)
-						s[l] = static_cast<uint32_t>(v.unit(0, 0x78)) << 8;
+					inc.s[l] = static_cast<uint32_t>(v.unit(0, 0x78)) << 8;
 					pmOscillator(0, v, rom);
 					for(int n = 0; n < BlockSize; ++n)
 						r.ref[l].push_back(q31(v.sram.at(bufferB(0) + 4 * n)));
 				}
 				fast::pmWave(out, nullptr, Zero, Zero, phase, inc, wave.data());
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.test[l].push_back(out.s[n][l]);
+				r.addTest(out);
 			}
 			ok &= r.print("wave (unit 0)");
 		}
@@ -250,8 +230,7 @@ namespace
 					v.unit(1, 0x8c) = d;
 					to[l] = cycles(d);
 					v.unit(1, 0x78) = sweptIncrement(l, b, 1.5);
-					for(auto& s : inc.s)
-						s[l] = static_cast<uint32_t>(v.unit(1, 0x78)) << 8;
+					inc.s[l] = static_cast<uint32_t>(v.unit(1, 0x78)) << 8;
 					for(int n = 0; n <= BlockSize; ++n)
 					{
 						const double t = (b * BlockSize + n) / 48000.0;
@@ -260,7 +239,7 @@ namespace
 							(0.75 * std::sin(x) + 0.19 * std::sin(5 * x) + 0.06 * std::sin(9 * x));
 						v.sram.at(bufferA(0) + 4 * n) = toQ31(m);
 						if(n < BlockSize)
-							in.s[n][l] = static_cast<float>(q31(v.sram.at(bufferA(0) + 4 * n)));
+							in.s[n][l] = fast::q31(v.sram.at(bufferA(0) + 4 * n));
 					}
 					pmOscillator(1, v, rom);
 					for(int n = 0; n < BlockSize; ++n)
@@ -268,9 +247,7 @@ namespace
 				}
 				fast::pmWave(out, &in, from, to, phase, inc, sineTable.data());
 				std::copy_n(to, Lanes, from);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.test[l].push_back(out.s[n][l]);
+				r.addTest(out);
 			}
 			ok &= r.print("PM sine (units 1 and 3)");
 		}
@@ -299,11 +276,6 @@ int main()
 	q3(s7);
 	// Block by block (bench::blockByBlock): its output against the exact port's
 	blockByBlock<fast::PcCarbon>(s7, Hits, "PC CARBON", [](fast::PcCarbon&) {});
-	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); }, fast::PcCarbon::Units);
-	q4(exact, renderFast(48000, Seconds));
-	q15(renderFast(48000, Seconds + 0.05, true), renderFast(44100, Seconds + 0.05, true), Seconds);
-	printCost<fast::PcCarbon>("PC CARBON", s7, Hits);
-
-	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
-	return g_failures ? 1 : 0;
+	judgeVoice<fast::PcCarbon>(s7, Hits, "PC CARBON", Seconds, 0);
+	return finish();
 }

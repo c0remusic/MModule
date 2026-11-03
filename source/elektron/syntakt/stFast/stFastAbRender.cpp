@@ -41,48 +41,13 @@ namespace
 	// every Track
 	Hit16 renderFast(const double _fs, const int _fine = 0)
 	{
-		fast::Host<fast::BdModern> e(static_cast<float>(_fs));
-		const int samples = static_cast<int>(Seconds * _fs);
-		// The onset, 32 samples after the trig at 48 kHz and 29.4 at 44.1: there from the 29th, 0.4 sample early
-		const int skip = e.latency() + static_cast<int>(fast::BlockSize * _fs / 48000);
-		Hit16 out(Lanes);
-		std::array<std::array<float, fast::BlockSize>, Lanes> buf{};
-		std::array<float*, Lanes> ptr{};
-		for(int t = 0; t < Lanes; ++t)
-			ptr[t] = buf[t].data();
-		for(int b = 0; b < (samples + skip) / fast::BlockSize + 1; ++b)
-		{
-			events(e, b, _fs, BdModernHits);
-			if(b == 0 && _fine)
-				for(int t = 0; t < Lanes; ++t)
-					e.setParameter(t, 0, BdModernHits.hit[t].value[0],
-						static_cast<uint8_t>(BdModernHits.hit[t].fine[0] + _fine));
-			e.render(ptr.data());
-			for(int t = 0; t < Lanes; ++t)
-				out[t].insert(out[t].end(), buf[t].begin(), buf[t].end());
-		}
-		for(auto& o : out)
-			o = std::vector<double>(o.begin() + skip, o.begin() + skip + samples);
-		return out;
+		HitSet hits = BdModernHits;
+		for(auto& h : hits.hit)
+			h.fine[0] = static_cast<uint8_t>(h.fine[0] + _fine);
+		return fastHits<fast::BdModern>(_fs, Seconds, hits, [](fast::BdModern&) {});
 	}
 
-	Hit16 renderExact(const std::vector<int32_t>& _s7)
-	{
-		Exact16 e(_s7);
-		const int samples = static_cast<int>(Seconds * 48000);
-		Hit16 out(Lanes);
-		for(int b = 0; b < samples / BlockSize + 2; ++b)
-		{
-			events(e, b, 48000, BdModernHits);
-			e.render();
-			for(int t = 0; t < Lanes; ++t)
-				for(int n = 0; n < BlockSize; ++n)
-					out[t].push_back(q31(e.out(t)[n]));
-		}
-		for(auto& o : out)
-			o = std::vector<double>(o.begin() + BlockSize, o.begin() + BlockSize + samples);
-		return out;
-	}
+	Hit16 renderExact(const std::vector<int32_t>& _s7) { return exactHits(_s7, Seconds, Nudge{}, BdModernHits); }
 
 	// _x plus white noise at an SNR of _snr dB over the whole Hit
 	std::vector<double> withNoise(const std::vector<double>& _x, const double _snr, const unsigned _seed)

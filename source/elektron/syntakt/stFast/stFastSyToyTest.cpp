@@ -72,29 +72,13 @@ namespace
 	}, {1, 2, 3, 5}, Machine};
 
 	constexpr double Seconds = 2;
-	constexpr uint32_t FeedbackTable = 0x4003d238, DepthTable = 0x4003d038;
+	constexpr uint32_t FeedbackTable = SyToyFeedbackTable, DepthTable = 0x4003d038;
 
 	// The voice's words the fast machine computes in integers (SyToy::testWords): the units' increments and phases,
 	// units 1 to 4's envelope levels, unit 4's last sample, feedback and feedback word, unit 2's modulation, the units'
 	// levels in the mix, the amp's stage and its release latched
 	constexpr uint32_t Fields[] = {0x78, 0xf8, 0x178, 0x1f8, 0x278, 0x6c, 0xec, 0x16c, 0x1ec, 0x26c, 0xfc, 0x17c, 0x1fc,
 		0x27c, 0x28, 0x30, 0x2c, 0x18c, 0x08, 0x0c, 0x10, 0x14, 0x3dc, 0x3e4};
-
-	std::vector<std::vector<double>> renderFast(const double _fs, const double _seconds, const bool _noFeedback = false,
-		const bool _fromTrig = false)
-	{
-		return fastHits<fast::SyToy>(_fs, _seconds, Hits, [&](fast::SyToy& _e)
-		{
-			if(_noFeedback)
-				_e.testWithoutChaos();
-		}, _fromTrig);
-	}
-
-	std::vector<std::vector<double>> renderExact(const std::vector<int32_t>& _s7, const double _seconds,
-		const Nudge& _nudge = {})
-	{
-		return exactHits(_s7, _seconds, _nudge, Hits);
-	}
 
 	Voice updated(Stage& _st, const int _l, const int32_t _pitch, const std::vector<std::pair<int, uint8_t>>& _bytes)
 	{
@@ -143,15 +127,14 @@ namespace
 					v.unit(2, 0x8c) = d;
 					to[l] = static_cast<float>(d / 16777216.0);
 					v.unit(2, 0x78) = sweptIncrement(l, b, 1);
-					for(auto& s : inc.s)
-						s[l] = static_cast<uint32_t>(v.unit(2, 0x78)) << 8;
+					inc.s[l] = static_cast<uint32_t>(v.unit(2, 0x78)) << 8;
 					for(uint32_t n = 0; n <= BlockSize; ++n)
 					{
 						const double t = (b * BlockSize + n) / 48000.0;
 						const double m = 0.95 * std::exp(-t / (0.03 + 0.03 * l)) * std::sin(2 * Pi * (210 + 87 * l) * t);
 						v.sram.at(bufferA(4) + 4 * n) = toQ31(m);
 						if(n < BlockSize)
-							in.s[n][l] = static_cast<float>(q31(v.sram.at(bufferA(4) + 4 * n)));
+							in.s[n][l] = fast::q31(v.sram.at(bufferA(4) + 4 * n));
 					}
 					syntakt::pmOscillator(2, v, rom);
 					for(uint32_t n = 0; n < BlockSize; ++n)
@@ -159,9 +142,7 @@ namespace
 				}
 				fast::pmWave(out, &in, from, to, phase, inc, sine.data());
 				std::copy_n(to, Lanes, from);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.test[l].push_back(out.s[n][l]);
+				r.addTest(out);
 			}
 			ok &= r.print("PM sine (unit 2)");
 		}
@@ -302,12 +283,6 @@ int main()
 	blockByBlock<fast::SyToy>(s7, Hits, "SY TOY", [](fast::SyToy&) {}, {std::begin(Fields), std::end(Fields)},
 		[](const fast::SyToy& _m, const int _t, int32_t* _w) { _m.testWords(_t, _w); });
 	changesWhileSounding(s7);
-	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); }, fast::SyToy::Units);
-	q4(exact, renderFast(48000, Seconds));
-	deterministic(renderExact(withoutTable(s7, FeedbackTable), Seconds), renderFast(48000, Seconds, true));
-	q15(renderFast(48000, Seconds + 0.05, false, true), renderFast(44100, Seconds + 0.05, false, true), Seconds);
-	printCost<fast::SyToy>("SY TOY", s7, Hits);
-
-	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
-	return g_failures ? 1 : 0;
+	judgeVoice<fast::SyToy>(s7, Hits, "SY TOY", Seconds, FeedbackTable);
+	return finish();
 }

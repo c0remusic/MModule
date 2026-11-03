@@ -86,10 +86,8 @@ namespace syntakt::fast
 		readQ31(t.decay01, tables::sdVintage(SdVintage::Decay01));
 		readQ31(t.decay3, tables::sdVintageDecay3());
 		copyWords(t.exp2, tables::exp2());
-		readQ31(t.waveU2, tables::sdVintageWaveU2());
-		readQ31(t.waveU3, tables::sdVintageWaveU3());
-		t.waveU2[257] = t.waveU2[256];
-		t.waveU3[257] = t.waveU3[256];
+		readWave(t.waveU2, tables::sdVintageWaveU2());
+		readWave(t.waveU3, tables::sdVintageWaveU3());
 		sineTable(t.sine);
 
 		for(int l = 0; l < Lanes; ++l)
@@ -240,14 +238,10 @@ namespace syntakt::fast
 				m_amp.stepAmp(l, m_ampDecay[l], 0, m_hold[l]);
 				m_drive.step(l);
 			}
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				const double f = n / static_cast<double>(BlockSize);
-				for(int k = 0; k < Units; ++k)
-					m_gEnv[k].s[n][l] = m_env[k].at(l, f);
-				m_gMod.s[n][l] = m_mod.at(l, f);
-				m_gAmp.s[n][l] = m_amp.at(l, f);
-			}
+			for(int k = 0; k < Units; ++k)
+				m_env[k].fill(m_gEnv[k], l);
+			m_mod.fill(m_gMod, l);
+			m_amp.fill(m_gAmp, l);
 			if(trigs.releases(l))
 				m_amp.release(l);
 

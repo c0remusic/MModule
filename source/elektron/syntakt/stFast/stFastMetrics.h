@@ -105,19 +105,26 @@ namespace syntakt::fast::bench
 	};
 
 	// SNR of _test against _ref, and the residual's loudest third octave (20 Hz to Nyquist at 48 kHz) relative to
-	// _ref's energy
-	inline Null null(const std::vector<double>& _ref, const std::vector<double>& _test, const double _fs)
+	// _ref's energy; _refBands: bands(_ref, _fs, -17, 14)
+	inline Null null(const std::vector<double>& _ref, const std::vector<double>& _test, const double _fs,
+		const std::vector<double>& _refBands)
 	{
 		std::vector<double> res(_ref.size());
 		for(size_t i = 0; i < res.size(); ++i)
 			res[i] = _test[i] - _ref[i];
-		const auto rb = bands(_ref, _fs, -17, 14), eb = bands(res, _fs, -17, 14);	// 20 Hz to Nyquist
+		const auto& rb = _refBands;
+		const auto eb = bands(res, _fs, -17, 14);
 		double total = 0, worst = 0;
 		for(const double v : rb)
 			total += v;
 		for(const double v : eb)
 			worst = std::max(worst, v);
 		return {db(energy(_ref) / energy(res)), db(worst / total)};
+	}
+
+	inline Null null(const std::vector<double>& _ref, const std::vector<double>& _test, const double _fs)
+	{
+		return null(_ref, _test, _fs, bands(_ref, _fs, -17, 14));	// 20 Hz to Nyquist
 	}
 
 	// The worst SNR of _test against _ref over 10 ms rectangular windows, one after the other, among those where _ref
@@ -263,15 +270,13 @@ namespace syntakt::fast::bench
 		return std::isnan(_a) || std::isnan(_b) ? std::nan("") : std::max(_a, _b);
 	}
 
-	// The envelopes' largest difference relative to the exact port's peak, in dB: max |B - A| / max A; +inf where the
-	// renders cannot be compared or the exact port is silent
-	inline double envelopeAbs(const std::vector<double>& _ref, const std::vector<double>& _test)
+	// envelopeAbs from the exact port's Hilbert envelope _a from its onset _on, its render _size samples
+	inline double envelopeAbsOf(const std::vector<double>& _a, const size_t _on, const size_t _size,
+		const std::vector<double>& _test)
 	{
-		if(!comparable(_ref, _test))
-			return HUGE_VAL;
-		const auto on = static_cast<std::ptrdiff_t>(onsetOf(_ref));
-		const auto end = static_cast<std::ptrdiff_t>(_ref.size());
-		const auto a = hilbertEnvelope({_ref.begin() + on, _ref.end()});
+		const auto on = static_cast<std::ptrdiff_t>(_on);
+		const auto end = static_cast<std::ptrdiff_t>(_size);
+		const auto& a = _a;
 		const auto b = hilbertEnvelope({_test.begin() + on, _test.begin() + end});
 		double peak = 0, worst = 0;
 		for(size_t i = 0; i < a.size(); ++i)
@@ -282,6 +287,17 @@ namespace syntakt::fast::bench
 		if(!(peak > 0))
 			return HUGE_VAL;
 		return 20 * std::log10(std::max(worst, 1e-300) / peak);
+	}
+
+	// The envelopes' largest difference relative to the exact port's peak, in dB: max |B - A| / max A; +inf where the
+	// renders cannot be compared or the exact port is silent
+	inline double envelopeAbs(const std::vector<double>& _ref, const std::vector<double>& _test)
+	{
+		if(!comparable(_ref, _test))
+			return HUGE_VAL;
+		const size_t on = onsetOf(_ref);
+		return envelopeAbsOf(hilbertEnvelope({_ref.begin() + static_cast<std::ptrdiff_t>(on), _ref.end()}), on,
+			_ref.size(), _test);
 	}
 
 	// Power per third octave (centres 1000 2^(k/3), k -14 to 13, edges at +-1/6 octave, bands without a bin left out)
@@ -326,15 +342,13 @@ namespace syntakt::fast::bench
 		return s;
 	}
 
-	// The short-time third octaves' largest difference in dB, over the cells where the exact port's is within _range
-	// dB of its loudest cell; +inf where the renders cannot be compared or the exact port is silent
-	inline double cellMax(const std::vector<double>& _ref, const std::vector<double>& _test, const double _range = 30)
+	// cellMax from the exact port's short-time third octaves _a from its onset _on, its render _size samples
+	inline double cellMaxOf(const std::vector<std::vector<double>>& _a, const size_t _on, const size_t _size,
+		const std::vector<double>& _test, const double _range)
 	{
-		if(!comparable(_ref, _test))
-			return HUGE_VAL;
-		const auto on = static_cast<std::ptrdiff_t>(onsetOf(_ref));
-		const auto end = static_cast<std::ptrdiff_t>(_ref.size());
-		const auto a = shortTimeBands({_ref.begin() + on, _ref.end()});
+		const auto on = static_cast<std::ptrdiff_t>(_on);
+		const auto end = static_cast<std::ptrdiff_t>(_size);
+		const auto& a = _a;
 		const auto b = shortTimeBands({_test.begin() + on, _test.begin() + end});
 		double top = 0, worst = 0;
 		for(const auto& row : a)
@@ -347,6 +361,64 @@ namespace syntakt::fast::bench
 				if(a[t][k] > top * std::pow(10.0, -_range / 10))
 					worst = worseOf(worst, std::abs(db(std::max(b[t][k], 1e-30) / a[t][k])));
 		return worst;
+	}
+
+	// The short-time third octaves' largest difference in dB, over the cells where the exact port's is within _range
+	// dB of its loudest cell; +inf where the renders cannot be compared or the exact port is silent
+	inline double cellMax(const std::vector<double>& _ref, const std::vector<double>& _test, const double _range = 30)
+	{
+		if(!comparable(_ref, _test))
+			return HUGE_VAL;
+		const size_t on = onsetOf(_ref);
+		return cellMaxOf(shortTimeBands({_ref.begin() + static_cast<std::ptrdiff_t>(on), _ref.end()}), on,
+			_ref.size(), _test, _range);
+	}
+
+	// What Q4's measures read of an exact port's render, computed once where it is compared with many (the nudges, a
+	// sweep's renders): its onset, its Hilbert envelope and short-time third octaves from there, its third octaves
+	// (the null's) and its spectral peak. It refers to the render, which outlives it
+	struct RefAnalysis
+	{
+		const std::vector<double>& ref;
+		bool finite;
+		size_t onset;
+		std::vector<double> hilbert;
+		std::vector<std::vector<double>> shortTime;
+		std::vector<double> thirdOctaves;	// bands(ref, 48000, -17, 14), 20 Hz to Nyquist
+		double refHz;						// peakHz(ref, 48000)
+
+		explicit RefAnalysis(const std::vector<double>& _ref)
+			: ref(_ref), finite(allFinite(_ref)), onset(onsetOf(_ref)), hilbert(hilbertEnvelope(fromOnset())),
+			shortTime(shortTimeBands(fromOnset())), thirdOctaves(bands(_ref, 48000, -17, 14)), refHz(peakHz(_ref, 48000))
+		{
+		}
+
+		// comparable(ref, _test)
+		bool comparable(const std::vector<double>& _test) const
+		{
+			return _test.size() >= ref.size() && finite && allFinite(_test);
+		}
+
+	private:
+		static bool allFinite(const std::vector<double>& _x)
+		{
+			return std::all_of(_x.begin(), _x.end(), [](const double _v) { return std::isfinite(_v); });
+		}
+
+		std::vector<double> fromOnset() const
+		{
+			return {ref.begin() + static_cast<std::ptrdiff_t>(onset), ref.end()};
+		}
+	};
+
+	inline double envelopeAbs(const RefAnalysis& _ref, const std::vector<double>& _test)
+	{
+		return _ref.comparable(_test) ? envelopeAbsOf(_ref.hilbert, _ref.onset, _ref.ref.size(), _test) : HUGE_VAL;
+	}
+
+	inline double cellMax(const RefAnalysis& _ref, const std::vector<double>& _test, const double _range = 30)
+	{
+		return _ref.comparable(_test) ? cellMaxOf(_ref.shortTime, _ref.onset, _ref.ref.size(), _test, _range) : HUGE_VAL;
 	}
 
 	// What Q4, the deterministic check and stFastSweep measure of a fast render (_test) against the exact port's
@@ -367,6 +439,22 @@ namespace syntakt::fast::bench
 		m.local = localSnr(_ref, _test, 48000);
 		m.env = envelopeDiff(envelope(_ref, 48000), envelope(_test, 48000));
 		m.refHz = peakHz(_ref, 48000);
+		m.cents = 1200 * std::log2(peakHz(_test, 48000) / m.refHz);
+		m.envAbs = envelopeAbs(_ref, _test);
+		m.cells = cellMax(_ref, _test);
+		return m;
+	}
+
+	inline HitMeasures measureHit(const RefAnalysis& _ref, const std::vector<double>& _test)
+	{
+		const std::vector<double>& ref = _ref.ref;
+		HitMeasures m{};
+		const auto n = null(ref, _test, 48000, _ref.thirdOctaves);
+		m.snr = n.snr;
+		m.band = n.worstBand;
+		m.local = localSnr(ref, _test, 48000);
+		m.env = envelopeDiff(envelope(ref, 48000), envelope(_test, 48000));
+		m.refHz = _ref.refHz;
 		m.cents = 1200 * std::log2(peakHz(_test, 48000) / m.refHz);
 		m.envAbs = envelopeAbs(_ref, _test);
 		m.cells = cellMax(_ref, _test);

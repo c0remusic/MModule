@@ -276,6 +276,5 @@ int main()
 	q11();
 	timing();
 	cost();
-	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
-	return g_failures ? 1 : 0;
+	return finish();
 }

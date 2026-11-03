@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iterator>
+#include <vector>
 
 #include "stFastStages.h"
 
@@ -989,12 +990,15 @@ namespace syntakt::fast::tables
 			// The band's lowest note (24 below 36) and its harmonics below 24 kHz, k's 1 / k under (1 + cos(pi (k - 1)
 			// / K)) / 2, at (i + 1/2) / 512 cycles, its peak at full scale
 			const int K = static_cast<int>(24000 / (440 * std::exp2((24 + 12 * _n - 69) / 12.0)));
+			std::vector<double> weight(static_cast<size_t>(K) + 1);	// harmonic k's, the same for every i
+			for(int k = 1; k <= K; ++k)
+				weight[static_cast<size_t>(k)] = (1 + std::cos(Pi * (k - 1) / K)) / 2 / k;
 			double peak = 0;
 			for(int i = 0; i <= N; ++i)
 			{
 				v[i] = 0;
 				for(int k = 1; k <= K; ++k)
-					v[i] += (1 + std::cos(Pi * (k - 1) / K)) / 2 / k * std::sin(2 * Pi * k * (i + 0.5) / N);
+					v[i] += weight[static_cast<size_t>(k)] * std::sin(2 * Pi * k * (i + 0.5) / N);
 				if(i < N)
 					peak = std::max(peak, std::abs(v[i]));
 			}

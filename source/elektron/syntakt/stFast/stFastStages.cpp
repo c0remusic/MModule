@@ -216,12 +216,13 @@ namespace syntakt::fast
 		{
 			const int32_t target = _fbWord[l] >> 5;
 			int64_t phase = _phase[l] >> 8, s = _last[l], fb = _fb[l];
+			const int64_t inc = _inc.s[l] >> 8;
 			const int64_t step = (static_cast<int64_t>(target) - fb) >> 5;
 			for(int n = 0; n < BlockSize; ++n)
 			{
 				s = feedbackSample(phase, fb, s);
 				_out.s[n][l] = static_cast<float>(static_cast<double>(s) / 2147483648.0);
-				phase = (phase + (_inc.s[n][l] >> 8)) & 0xffffff;
+				phase = (phase + inc) & 0xffffff;
 				fb += step;
 			}
 			_phase[l] = static_cast<uint32_t>(phase << 8);
@@ -239,6 +240,7 @@ namespace syntakt::fast
 		{
 			const int32_t target = _fbWord[l] >> 5;
 			int64_t phase = _phase[l] >> 8, y = _last[l], fb = _fb[l], amount = _amountFrom[l];
+			const int64_t inc = _inc.s[l] >> 8;
 			const int64_t step = (static_cast<int64_t>(target) - fb) >> 5;
 			const int64_t amountStep = (static_cast<int64_t>(_amountTo[l]) - amount) >> 5;
 			for(int n = 0; n < BlockSize; ++n)
@@ -246,7 +248,7 @@ namespace syntakt::fast
 				const int64_t s = feedbackSample(phase, fb, y);
 				y = -((amount * s) >> 23) >> 8;
 				_scaled.s[n][l] = static_cast<float>(static_cast<double>(y) / 2147483648.0);
-				phase = (phase + (_inc.s[n][l] >> 8)) & 0xffffff;
+				phase = (phase + inc) & 0xffffff;
 				fb += step;
 				amount += amountStep;
 			}
@@ -273,13 +275,14 @@ namespace syntakt::fast
 		for(int g = 0; g < _out.lanes; g += 4)
 		{
 			__m128i p = _mm_load_si128(reinterpret_cast<const __m128i*>(_phase + g));
+			const __m128i inc = _mm_load_si128(reinterpret_cast<const __m128i*>(_inc.s + g));
 			for(int n = 0; n < BlockSize; ++n)
 			{
 				V u = phaseOf(p);
 				if(_src)
 					u = _mm_add_ps(u, _mm_mul_ps(depth, _mm_load_ps(_src->s[n] + g)));
 				_mm_store_ps(_out.s[n] + g, sin2pi(u));
-				p = _mm_add_epi32(p, _mm_load_si128(reinterpret_cast<const __m128i*>(_inc.s[n] + g)));
+				p = _mm_add_epi32(p, inc);
 			}
 			_mm_store_si128(reinterpret_cast<__m128i*>(_phase + g), p);
 		}
@@ -293,6 +296,7 @@ namespace syntakt::fast
 		for(int g = 0; g < _out.lanes; g += 4)
 		{
 			__m128i p = _mm_load_si128(reinterpret_cast<const __m128i*>(_phase + g));
+			const __m128i inc = _mm_load_si128(reinterpret_cast<const __m128i*>(_inc.s + g));
 			V depth = _mm_load_ps(_from + g);
 			const V step = stepOf(_from, _to, g);
 			for(int n = 0; n < BlockSize; ++n)
@@ -301,7 +305,7 @@ namespace syntakt::fast
 				if(_src)
 					u = _mm_add_ps(u, _mm_mul_ps(depth, _mm_load_ps(_src->s[n] + g)));
 				_mm_store_ps(_out.s[n] + g, lookup(u, _wave));
-				p = _mm_add_epi32(p, _mm_load_si128(reinterpret_cast<const __m128i*>(_inc.s[n] + g)));
+				p = _mm_add_epi32(p, inc);
 				depth = _mm_add_ps(depth, step);
 			}
 			_mm_store_si128(reinterpret_cast<__m128i*>(_phase + g), p);
@@ -316,6 +320,7 @@ namespace syntakt::fast
 		for(int g = 0; g < _out.lanes; g += 4)
 		{
 			__m128i p = _mm_load_si128(reinterpret_cast<const __m128i*>(_phase + g));
+			const __m128i inc = _mm_load_si128(reinterpret_cast<const __m128i*>(_inc.s + g));
 			V fb = _mm_load_ps(_fb + g), y = _mm_load_ps(_last + g);
 			const V step = stepOf(_fb, _fbTo, g);
 			for(int n = 0; n < BlockSize; ++n)
@@ -324,7 +329,7 @@ namespace syntakt::fast
 				y = _mm_mul_ps(s, _mm_load_ps(_g.s[n] + g));
 				_mm_store_ps(_out.s[n] + g, s);
 				_mm_store_ps(_scaled.s[n] + g, y);
-				p = _mm_add_epi32(p, _mm_load_si128(reinterpret_cast<const __m128i*>(_inc.s[n] + g)));
+				p = _mm_add_epi32(p, inc);
 				fb = _mm_add_ps(fb, step);
 			}
 			_mm_store_si128(reinterpret_cast<__m128i*>(_phase + g), p);

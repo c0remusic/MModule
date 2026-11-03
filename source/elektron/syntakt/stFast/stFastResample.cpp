@@ -68,13 +68,18 @@ namespace syntakt::fast
 			const int64_t at = inputOf(m);
 			const float* h = m_h[m * Down % Up];
 			const auto i = static_cast<int>(at - m_base);
-			for(int g = 0; g < Lanes; g += 4)
+			// The taps outer, a sum per group of four lanes: each lane still sums k = 0 to Taps - 1 in order
+			static_assert(Lanes == 16, "four groups of four lanes");
+			__m128 acc[4] = {_mm_setzero_ps(), _mm_setzero_ps(), _mm_setzero_ps(), _mm_setzero_ps()};
+			for(int k = 0; k < Taps; ++k)
 			{
-				__m128 acc = _mm_setzero_ps();
-				for(int k = 0; k < Taps; ++k)
-					acc = _mm_add_ps(acc, _mm_mul_ps(_mm_set1_ps(h[k]), _mm_load_ps(m_x[i - k] + g)));
-				_mm_store_ps(_out.s[n] + g, acc);
+				const __m128 c = _mm_set1_ps(h[k]);
+				const float* x = m_x[i - k];
+				for(int g = 0; g < 4; ++g)
+					acc[g] = _mm_add_ps(acc[g], _mm_mul_ps(c, _mm_load_ps(x + 4 * g)));
 			}
+			for(int g = 0; g < 4; ++g)
+				_mm_store_ps(_out.s[n] + 4 * g, acc[g]);
 		}
 		m_out += BlockSize;
 

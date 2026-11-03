@@ -21,13 +21,11 @@
 // SYNTAKT_SECTION7 names the user's OS 1.41 section 7. Exit 77 without it.
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <random>
-#include <string>
 #include <vector>
 
 #include "stEmac.h"
@@ -69,7 +67,7 @@ namespace
 	}, {3, 5}, Machine};
 
 	constexpr double Seconds = 2;
-	constexpr uint32_t FeedbackTable = 0x40026e38, DepthU3Table = 0x40027438, LowPassTable = 0x40026238;
+	constexpr uint32_t FeedbackTable = SdBasicFeedbackTable, DepthU3Table = 0x40027438, LowPassTable = 0x40026238;
 
 	// The modulation depths the update sets, as words: unit 2's by unit 1, unit 3's by unit 1, and by unit 0 for the
 	// table's word _d
@@ -78,24 +76,6 @@ namespace
 
 	// A phase-modulation depth word in cycles per unit of input
 	float cycles(const int32_t _depth) { return static_cast<float>(q31(_depth) * 128); }
-
-	// _seconds of the 16 Hits from the fast engine at _fs (bench::fastHits), unit 0's feedback at 0 (_noFeedback)
-	std::vector<std::vector<double>> renderFast(const double _fs, const double _seconds, const bool _noFeedback = false,
-		const bool _fromTrig = false)
-	{
-		return fastHits<fast::SdBasic>(_fs, _seconds, Hits, [&](fast::SdBasic& _e)
-		{
-			if(_noFeedback)
-				_e.testWithoutChaos();
-		}, _fromTrig);
-	}
-
-	// The same from the exact port at 48 kHz, every Track on SD BASIC
-	std::vector<std::vector<double>> renderExact(const std::vector<int32_t>& _s7, const double _seconds,
-		const Nudge& _nudge = {})
-	{
-		return exactHits(_s7, _seconds, _nudge, Hits);
-	}
 
 	// ---- Q2: the linear stages against their integer originals ----
 
@@ -106,15 +86,14 @@ namespace
 		std::uniform_real_distribution<double> u(-1, 1);
 		constexpr int Blocks = 500;
 		const auto noise = [&](const double _a) { return toQ31(_a * u(rng)); };
-		const auto q = [](const int32_t _v) { return static_cast<float>(q31(_v)); };
 		bool ok = true;
 
 		// The mix (0x400049f4) at SD BASIC's fixed gains, unit 2 at 1 and unit 3 at 0.5
 		{
 			Residual r;
 			alignas(16) float gx[Lanes], gy[Lanes];
-			std::fill_n(gx, Lanes, q(INT32_MAX));
-			std::fill_n(gy, Lanes, q(0x40000000));
+			std::fill_n(gx, Lanes, fast::q31(INT32_MAX));
+			std::fill_n(gy, Lanes, fast::q31(0x40000000));
 			fast::Block x, y, out;
 			const uint32_t X = bufferA(2), Y = bufferA(3), Out = 0x80009c58;
 			for(int b = 0; b < Blocks; ++b)
@@ -129,16 +108,14 @@ namespace
 					{
 						v.sram.at(X + 4 * n) = noise(0.6);
 						v.sram.at(Y + 4 * n) = noise(0.6);
-						x.s[n][l] = q(v.sram.at(X + 4 * n));
-						y.s[n][l] = q(v.sram.at(Y + 4 * n));
+						x.s[n][l] = fast::q31(v.sram.at(X + 4 * n));
+						y.s[n][l] = fast::q31(v.sram.at(Y + 4 * n));
 					}
 					mix(v.sram.ptr(X), v.sram.ptr(Y), v.sram.ptr(Out), 0, 1, v);
 					std::copy_n(v.sram.ptr(Out), BlockSize, ref[l]);
 				}
 				fast::mix(x, y, out, gx, gx, gy, gy);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.add(q31(ref[l][n]), out.s[n][l]);
+				r.add(ref, out);
 			}
 			ok &= r.print("mix");
 		}
@@ -160,20 +137,18 @@ namespace
 					v.at(Voice::TrigNow) = 0;
 					v.at(0x448) = level;
 					v.at(0x44c) = prev[l];
-					g0[l] = -q(prev[l]);
-					g1[l] = -q(level);
+					g0[l] = -fast::q31(prev[l]);
+					g1[l] = -fast::q31(level);
 					for(int n = 0; n < BlockSize; ++n)
 					{
 						ref[l][n] = noise(0.95);
-						x.s[n][l] = q(ref[l][n]);
+						x.s[n][l] = fast::q31(ref[l][n]);
 					}
 					modulatorVca(ref[l], v);
 					prev[l] = level;
 				}
 				fast::rampedGain(x, g0, g1);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.add(q31(ref[l][n]), x.s[n][l]);
+				r.add(ref, x);
 			}
 			ok &= r.print("ramped gain (VCA)");
 		}
@@ -184,7 +159,7 @@ namespace
 			const int32_t c[3] = {0x4b9047ab, static_cast<int32_t>(0xb46fb855), static_cast<int32_t>(0x841f111a)};
 			int32_t state[Lanes][8] = {};
 			alignas(16) float x1[Lanes] = {}, y1[Lanes] = {};
-			const fast::OnePole f{q(c[0]), q(c[1]), -q(c[2])};
+			const fast::OnePole f{fast::q31(c[0]), fast::q31(c[1]), -fast::q31(c[2])};
 			fast::Block x;
 			for(int b = 0; b < Blocks; ++b)
 			{
@@ -194,14 +169,12 @@ namespace
 					for(int n = 0; n <= BlockSize; ++n)
 						ref[l][n] = noise(0.45);
 					for(int n = 0; n < BlockSize; ++n)
-						x.s[n][l] = q(ref[l][n]);
+						x.s[n][l] = fast::q31(ref[l][n]);
 					std::copy_n(c, 3, state[l]);
 					onePole(ref[l], state[l]);
 				}
 				fast::onePole(x, f, x1, y1);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.add(q31(ref[l][n]), x.s[n][l]);
+				r.add(ref, x);
 			}
 			ok &= r.print("one-pole high-pass");
 		}
@@ -217,8 +190,8 @@ namespace
 				const int32_t c2 = st.rom.entry(LowPassTable, 127 - (l & 1));
 				state[l][2] = c2;
 				state[l][0] = state[l][1] = frac(0x33333333, addWrap(c2 >> 1, 0x40000000));
-				bb[l] = q(state[l][0]);
-				aa[l] = -q(c2);
+				bb[l] = fast::q31(state[l][0]);
+				aa[l] = -fast::q31(c2);
 			}
 			fast::Block x;
 			for(int b = 0; b < Blocks; ++b)
@@ -229,14 +202,12 @@ namespace
 					for(int n = 0; n < BlockSize; ++n)
 					{
 						ref[l][n] = noise(0.45);
-						x.s[n][l] = q(ref[l][n]);
+						x.s[n][l] = fast::q31(ref[l][n]);
 					}
 					sdBasic::firstOrder(ref[l], state[l]);
 				}
 				fast::onePoleLanes(x, bb, aa, x1, y1);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.add(q31(ref[l][n]), x.s[n][l]);
+				r.add(ref, x);
 			}
 			ok &= r.print("one-pole low-pass");
 		}
@@ -264,7 +235,7 @@ namespace
 				const double m = 0.95 * std::exp(-t / (0.02 + 0.02 * _l)) * std::sin(2 * Pi * (_hz + 25 * _l) * t);
 				_v.sram.at(_addr + 4 * n) = toQ31(m);
 				if(n < BlockSize)
-					_in.s[n][_l] = static_cast<float>(q31(_v.sram.at(_addr + 4 * n)));
+					_in.s[n][_l] = fast::q31(_v.sram.at(_addr + 4 * n));
 			}
 		};
 
@@ -288,17 +259,14 @@ namespace
 						v.unit(2, 0xb0) = static_cast<int32_t>(Sine);
 					}
 					v.unit(2, 0x78) = sweptIncrement(l, b, 1);
-					for(auto& s : inc.s)
-						s[l] = static_cast<uint32_t>(v.unit(2, 0x78)) << 8;
+					inc.s[l] = static_cast<uint32_t>(v.unit(2, 0x78)) << 8;
 					modulator(v, bufferA(1), in, l, b, 60);
 					pmOscillator(2, v, rom);
 					for(int n = 0; n < BlockSize; ++n)
 						r.ref[l].push_back(q31(v.sram.at(bufferB(2) + 4 * n)));
 				}
 				fast::pmSine(out, &in, phase, inc, cycles(DepthU2Word));
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.test[l].push_back(out.s[n][l]);
+				r.addTest(out);
 			}
 			ok &= r.print("PM sine (unit 2)");
 		}
@@ -329,8 +297,7 @@ namespace
 					v.unit(3, 0x90) = d;
 					target[l] = cycles(d);
 					v.unit(3, 0x78) = sweptIncrement(l, b, 3);
-					for(auto& s : inc.s)
-						s[l] = static_cast<uint32_t>(v.unit(3, 0x78)) << 8;
+					inc.s[l] = static_cast<uint32_t>(v.unit(3, 0x78)) << 8;
 					modulator(v, bufferA(1), in1, l, b, 60);
 					modulator(v, bufferA(0), in0, l, b, 95);
 					pmOscillator(3, v, rom);
@@ -338,9 +305,7 @@ namespace
 						r.ref[l].push_back(q31(v.sram.at(bufferB(3) + 4 * n)));
 				}
 				fast::pmSine2(out, in1, cycles(DepthU3Word), in0, depth2, target, phase, inc);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.test[l].push_back(out.s[n][l]);
+				r.addTest(out);
 			}
 			ok &= r.print("PM sine, two sources (unit 3)");
 		}
@@ -373,12 +338,6 @@ int main()
 	// (its chaotic Hits drift past Q4's fixed measures)
 	blockByBlock<fast::SdBasic>(withoutTable(s7, FeedbackTable), Hits, "SD BASIC, feedback 0",
 		[](fast::SdBasic& _m) { _m.testWithoutChaos(); });
-	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); }, fast::SdBasic::Units);
-	q4(exact, renderFast(48000, Seconds));
-	deterministic(renderExact(withoutTable(s7, FeedbackTable), Seconds), renderFast(48000, Seconds, true));
-	q15(renderFast(48000, Seconds + 0.05, false, true), renderFast(44100, Seconds + 0.05, false, true), Seconds);
-	printCost<fast::SdBasic>("SD BASIC", s7, Hits);
-
-	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
-	return g_failures ? 1 : 0;
+	judgeVoice<fast::SdBasic>(s7, Hits, "SD BASIC", Seconds, FeedbackTable);
+	return finish();
 }

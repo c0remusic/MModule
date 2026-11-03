@@ -29,24 +29,6 @@ namespace syntakt::fast
 				_mm_store_ps(_out.s[n] + g, clip(_mm_add_ps(_mm_load_ps(_a.s[n] + g), _mm_load_ps(_b.s[n] + g))));
 	}
 
-	void pmWaveBd(Block& _out, const Block& _src, uint32_t* _phase, const Increments& _inc, const float _depth,
-		const float* _wave)
-	{
-		requireLanes(_out, _src);
-		const V depth = _mm_set1_ps(_depth);
-		for(int g = 0; g < _out.lanes; g += 4)
-		{
-			__m128i p = _mm_load_si128(reinterpret_cast<const __m128i*>(_phase + g));
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				const V u = _mm_add_ps(phaseOf(p), _mm_mul_ps(depth, _mm_load_ps(_src.s[n] + g)));
-				_mm_store_ps(_out.s[n] + g, lookup(u, _wave));
-				p = _mm_add_epi32(p, _mm_load_si128(reinterpret_cast<const __m128i*>(_inc.s[n] + g)));
-			}
-			_mm_store_si128(reinterpret_cast<__m128i*>(_phase + g), p);
-		}
-	}
-
 	void click(Block& _out, float* _ramp, const float _dec, const float* _from, const float* _to)
 	{
 		const V dec = _mm_set1_ps(_dec), zero = _mm_setzero_ps();
@@ -77,9 +59,9 @@ namespace syntakt::fast
 		copyWords(m_tables.feedback, tables::parameter(Parameter::Feedback));
 		readQ31(m_tables.levelU0, tables::parameter(Parameter::LevelU0));
 		readQ31(m_tables.levelU2, tables::parameter(Parameter::LevelU2));
-		readQ31(m_tables.wave, tables::wave());
+		readWave(m_tables.wave, tables::wave());
 		copyWords(m_tables.exp2, tables::exp2());
-		m_tables.wave[257] = m_tables.wave[256];
+		std::fill_n(m_u2Depth, Lanes, q31(static_cast<int32_t>(0xffe3d70a)) * 128);
 
 		// The boot's voice: silent, the drive's gain at 1 recovering (Drive)
 		for(int l = 0; l < Lanes; ++l)
@@ -177,13 +159,8 @@ namespace syntakt::fast
 			// 0-2 an octave up, all under the sweep, which the machine steps once per 48 kHz block (a^k over its block
 			// k), at its end
 			const int64_t m = sweepWord(m_sweepDepth[l], m_sweep[l]);
-			const uint32_t inc3 = unitIncrement(m, 0x04000000, 0x40000000, m_pitch[l]);
-			const uint32_t inc012 = unitIncrement(m, 0x08000000, 0x40000000, m_pitch[l]);
-			for(int n = 0; n < BlockSize; ++n)	// one loop for both: faster than two
-			{
-				m_inc3.s[n][l] = inc3;
-				m_inc012.s[n][l] = inc012;
-			}
+			m_inc3.s[l] = unitIncrement(m, 0x04000000, 0x40000000, m_pitch[l]);
+			m_inc012.s[l] = unitIncrement(m, 0x08000000, 0x40000000, m_pitch[l]);
 			m_sweep[l] *= m_sweepDecay[l];
 
 			// The envelopes on the block clock; the block ramps to their levels
@@ -238,7 +215,7 @@ namespace syntakt::fast
 		// Unit 1 (a sine an octave up) modulates unit 2 (the ROM wave), which with unit 0 (a sine an octave up with
 		// self-feedback) makes the modulator; the modulator, enveloped, modulates unit 3, the body at the note
 		pmSine(m_b1, nullptr, m_phase[1], m_inc012, 0);
-		pmWaveBd(m_a2, m_b1, m_phase[2], m_inc012, q31(static_cast<int32_t>(0xffe3d70a)) * 128, m_tables.wave);
+		pmWave(m_a2, &m_b1, m_u2Depth, m_u2Depth, m_phase[2], m_inc012, m_tables.wave);
 		rampedGain(m_a2, m_u2Prev, m_u2Level);
 		feedbackSine(m_b0, m_phase[0], m_inc012, m_fb, m_fbWord, m_last);
 		mix(m_a2, m_b0, m_mix, m_g0Cur, m_g0, m_g1Cur, m_g1);

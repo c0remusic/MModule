@@ -171,8 +171,7 @@ namespace syntakt::fast
 			}
 
 			// The amp's VCA ramps over the block; a pending block fades it out, and leaves it silent until the trig
-			for(int n = 0; n < BlockSize; ++n)
-				m_gAmp.s[n][l] = m_amp.at(l, n / static_cast<double>(BlockSize));
+			m_amp.fill(m_gAmp, l);
 			m_drive.end(l);
 			fadePending(m_gAmp, m_amp, m_ampEnd, l, pending);
 		}

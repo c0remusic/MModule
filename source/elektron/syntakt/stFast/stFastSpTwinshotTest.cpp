@@ -90,17 +90,6 @@ namespace
 
 	void words(const fast::SpTwinshot& _m, const int _t, int32_t* _w) { _m.testWords(_t, _w); }
 
-	std::vector<std::vector<double>> renderFast(const double _fs, const double _seconds, const bool _fromTrig = false)
-	{
-		return fastHits<fast::SpTwinshot>(_fs, _seconds, Hits, [](fast::SpTwinshot&) {}, _fromTrig);
-	}
-
-	std::vector<std::vector<double>> renderExact(const std::vector<int32_t>& _s7, const double _seconds,
-		const Nudge& _nudge = {})
-	{
-		return exactHits(_s7, _seconds, _nudge, Hits);
-	}
-
 	constexpr uint32_t PoleTable = 0x40014980;
 
 	// ---- the player, bit for bit ----
@@ -185,8 +174,8 @@ namespace
 		for(int l = 0; l < Lanes; ++l)
 		{
 			poles(_rom, l, _lowFrom, c[l]);
-			c0[l] = static_cast<float>(q31(c[l][0]));
-			c1[l] = static_cast<float>(q31(c[l][1]));
+			c0[l] = fast::q31(c[l][0]);
+			c1[l] = fast::q31(c[l][1]);
 		}
 		for(int b = 0; b < 1500; ++b)
 		{
@@ -196,7 +185,7 @@ namespace
 				for(int n = 0; n < BlockSize; ++n)
 				{
 					in[l][n] = toQ31(_input(l, b * BlockSize + n));
-					x.s[n][l] = static_cast<float>(q31(in[l][n]));
+					x.s[n][l] = fast::q31(in[l][n]);
 				}
 			for(int l = 0; l < Lanes; ++l)
 			{
@@ -364,11 +353,6 @@ int main()
 	q3(s7);
 	blockByBlock<fast::SpTwinshot>(s7, Hits, "SP TWINSHOT", [](fast::SpTwinshot&) {}, Fields, words);
 	changesWhileSounding(s7);
-	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); }, fast::SpTwinshot::Units);
-	q4(exact, renderFast(48000, Seconds));
-	q15(renderFast(48000, Seconds + 0.05, true), renderFast(44100, Seconds + 0.05, true), Seconds);
-	printCost<fast::SpTwinshot>("SP TWINSHOT", s7, Hits);
-
-	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
-	return g_failures ? 1 : 0;
+	judgeVoice<fast::SpTwinshot>(s7, Hits, "SP TWINSHOT", Seconds, 0);
+	return finish();
 }

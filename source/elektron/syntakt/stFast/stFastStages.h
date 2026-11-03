@@ -151,11 +151,11 @@ namespace syntakt::fast
 	};
 
 	// The oscillators. Phases are 32-bit fractions of a cycle (an integer accumulator, so that a 2 s Hit does not drift
-	// from float rounding), increments the same, one per sample. Phase-modulation depths are in cycles per unit of
-	// input
+	// from float rounding), increments the same, one per lane for the whole block, as the machine updates them once a
+	// block. Phase-modulation depths are in cycles per unit of input
 	struct alignas(16) Increments
 	{
-		uint32_t s[BlockSize][Lanes];
+		uint32_t s[Lanes];
 	};
 
 	// ---- the machine's integers, where a stage computes as its accumulator does ----
@@ -169,6 +169,38 @@ namespace syntakt::fast
 	}
 
 	inline int32_t wrap(const int64_t _v) { return static_cast<int32_t>(static_cast<uint32_t>(_v)); }
+
+	// The machine's saturated sum and difference, its negation wrapping
+	inline int32_t addSat(const int32_t _a, const int32_t _b)
+	{
+		return static_cast<int32_t>(std::clamp<int64_t>(int64_t(_a) + _b, INT32_MIN, INT32_MAX));
+	}
+
+	inline int32_t subSat(const int32_t _a, const int32_t _b)
+	{
+		return static_cast<int32_t>(std::clamp<int64_t>(int64_t(_a) - _b, INT32_MIN, INT32_MAX));
+	}
+
+	inline int32_t neg(const int32_t _v) { return wrap(-static_cast<int64_t>(_v)); }
+
+	// asl.l #n: a constant shift, wrapping
+	inline int32_t asl(const int32_t _v, const int _n)
+	{
+		return wrap(static_cast<int64_t>(static_cast<uint32_t>(_v)) << _n);
+	}
+
+	// asr.l and asl.l by a register: the count mod 64, 32 or more shifting everything out
+	inline int32_t asrReg(const int32_t _v, const int32_t _n)
+	{
+		const int32_t n = _n & 63;
+		return n >= 32 ? (_v < 0 ? -1 : 0) : _v >> n;
+	}
+
+	inline int32_t aslReg(const int32_t _v, const int32_t _n)
+	{
+		const int32_t n = _n & 63;
+		return n >= 32 ? 0 : asl(_v, n);
+	}
 
 	// The machine's fractional product of two words, truncated as its accumulator stores it
 	inline int32_t frac(const int32_t _y, const int32_t _x) { return store(product(_y, _x)); }
@@ -250,6 +282,14 @@ namespace syntakt::fast
 	{
 		for(size_t i = 0; i < _words.size(); ++i)
 			_dst[i] = q31(_words[i]);
+	}
+
+	// A wave's 257 Q31 words (stFastTables) into _dst as floats, and a copy of the last: the 258 values pmWave reads
+	template<typename Words>
+	void readWave(float (&_dst)[258], const Words& _words)
+	{
+		readQ31(_dst, _words);
+		_dst[257] = _dst[256];
 	}
 
 	// A table's words into _dst as they are, for what the machine computes in integers
@@ -338,13 +378,11 @@ namespace syntakt::fast
 		return static_cast<uint32_t>(std::llround(increment48(_m, _factor, _scale, _pitch) * 256));
 	}
 
-	// The same on lane _l of every sample of _inc
+	// The same on lane _l of _inc
 	inline void setIncrement(Increments& _inc, const int _l, const int64_t _m, const int64_t _factor,
 		const int64_t _scale, const int64_t _pitch)
 	{
-		const uint32_t inc = unitIncrement(_m, _factor, _scale, _pitch);
-		for(auto& s : _inc.s)
-			s[_l] = inc;
+		_inc.s[_l] = unitIncrement(_m, _factor, _scale, _pitch);
 	}
 
 	// A block-rate envelope as the machine steps it, once per 48 kHz block: its levels at the ends of 48 kHz blocks
@@ -369,6 +407,13 @@ namespace syntakt::fast
 		float at(const int _l, const double _t) const
 		{
 			return prev[_l] + static_cast<float>(_t) * (level[_l] - prev[_l]);
+		}
+
+		// Lane _l of _g, sample by sample, the ramp over block k
+		void fill(Block& _g, const int _l) const
+		{
+			for(int n = 0; n < BlockSize; ++n)
+				_g.s[n][_l] = at(_l, n / static_cast<double>(BlockSize));
 		}
 	};
 

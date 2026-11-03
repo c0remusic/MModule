@@ -50,31 +50,12 @@ namespace syntakt::fast
 
 		// ---- the machine's integers, for the coefficients it computes in them ----
 
-		int32_t neg(const int32_t _v) { return wrap(-static_cast<int64_t>(_v)); }
-
-		int32_t asrReg(const int32_t _v, const int32_t _n)
-		{
-			const int32_t n = _n & 63;
-			return n >= 32 ? (_v < 0 ? -1 : 0) : _v >> n;
-		}
-
-		int32_t aslReg(const int32_t _v, const int32_t _n)
-		{
-			const int32_t n = _n & 63;
-			return n >= 32 ? 0 : wrap(static_cast<int64_t>(static_cast<uint32_t>(_v) << n));
-		}
-
 		int32_t leadingZeros(const int32_t _v)
 		{
 			int32_t n = 0;
 			for(uint32_t v = static_cast<uint32_t>(_v); v && !(v & 0x80000000u); v <<= 1)
 				++n;
 			return _v ? n : 32;
-		}
-
-		int32_t saturated(const int64_t _v)
-		{
-			return static_cast<int32_t>(std::clamp<int64_t>(_v, INT32_MIN, INT32_MAX));
 		}
 
 		// 0x400054e6: a two-pole resonator and its output stage, the band-pass (1 - A) / 2 of a normalized allpass
@@ -373,7 +354,7 @@ namespace syntakt::fast
 				else if(env == INT32_MIN)
 					m_envRising[l] = false;
 				else
-					env = saturated(static_cast<int64_t>(env) + AttackWord);
+					env = addSat(env, AttackWord);
 				m_drive.step(l);
 			}
 			for(auto& timer : m_timer)

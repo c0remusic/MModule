@@ -26,7 +26,6 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
 #include <random>
 #include <utility>
 #include <vector>
@@ -74,26 +73,7 @@ namespace
 	}, {3, 5}, Machine};
 
 	constexpr double Seconds = 2;
-	constexpr uint32_t FeedbackTable = 0x4003b438, DepthTable = 0x4003b238;
-
-	// _seconds of the 16 Hits from the fast engine at _fs (bench::fastHits, which seeds its noise as the exact
-	// port's), unit 1's feedback at 0 (_noFeedback)
-	std::vector<std::vector<double>> renderFast(const double _fs, const double _seconds, const bool _noFeedback = false,
-		const bool _fromTrig = false)
-	{
-		return fastHits<fast::CpVintage>(_fs, _seconds, Hits, [&](fast::CpVintage& _e)
-		{
-			if(_noFeedback)
-				_e.testWithoutChaos();
-		}, _fromTrig);
-	}
-
-	// The same from the exact port at 48 kHz, every Track on CP VINTAGE
-	std::vector<std::vector<double>> renderExact(const std::vector<int32_t>& _s7, const double _seconds,
-		const Nudge& _nudge = {})
-	{
-		return exactHits(_s7, _seconds, _nudge, Hits);
-	}
+	constexpr uint32_t FeedbackTable = CpVintageFeedbackTable, DepthTable = 0x4003b238;
 
 	// Voice _l of _st after the exact port's CP VINTAGE update at a trig (bench::updatedVoice)
 	Voice updated(Stage& _st, const int _l, const int32_t _pitch, const std::vector<std::pair<int, uint8_t>>& _bytes)
@@ -110,7 +90,6 @@ namespace
 		std::uniform_real_distribution<double> u(-1, 1);
 		constexpr int Blocks = 500;
 		const auto noise = [&](const double _a) { return toQ31(_a * u(rng)); };
-		const auto q = [](const int32_t _v) { return static_cast<float>(q31(_v)); };
 		bool ok = true;
 
 		// The two-way mix (0x400049f4), each gain ramped from the block before's to a new one
@@ -130,11 +109,11 @@ namespace
 						const int32_t g = noise(0.5);
 						v.at(0x18 + 4 * i) = toQ31(from[i][l]);
 						v.at(0x08 + 4 * i) = g;
-						to[i][l] = q(g);
+						to[i][l] = fast::q31(g);
 						for(int n = 0; n < BlockSize; ++n)
 						{
 							v.sram.at(bufferA(i) + 4 * n) = noise(0.95);
-							x[i].s[n][l] = q(v.sram.at(bufferA(i) + 4 * n));
+							x[i].s[n][l] = fast::q31(v.sram.at(bufferA(i) + 4 * n));
 						}
 					}
 					mix(v.sram.ptr(bufferA(0)), v.sram.ptr(bufferA(1)), v.sram.ptr(Out), 0, 1, v);
@@ -143,9 +122,7 @@ namespace
 				fast::mix(x[0], x[1], out, from[0], to[0], from[1], to[1]);
 				for(auto i = 0; i < 2; ++i)
 					std::copy_n(to[i], Lanes, from[i]);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.add(q31(ref[l][n]), out.s[n][l]);
+				r.add(ref, out);
 			}
 			ok &= r.print("mix");
 		}
@@ -162,8 +139,8 @@ namespace
 			alignas(16) float b[Lanes], a[Lanes], x1[Lanes] = {}, y1[Lanes] = {};
 			for(int l = 0; l < Lanes; ++l)
 			{
-				b[l] = q(state[l][0]);
-				a[l] = -q(state[l][2]);
+				b[l] = fast::q31(state[l][0]);
+				a[l] = -fast::q31(state[l][2]);
 			}
 			fast::Block x;
 			for(int blk = 0; blk < Blocks; ++blk)
@@ -174,16 +151,14 @@ namespace
 					for(int n = 0; n <= BlockSize; ++n)
 						ref[l][n] = noise(0.45);
 					for(int n = 0; n < BlockSize; ++n)
-						x.s[n][l] = q(ref[l][n]);
+						x.s[n][l] = fast::q31(ref[l][n]);
 					onePole(ref[l], state[l]);
 				}
 				if(_lowPass)
 					fast::onePoleLanes(x, b, a, x1, y1);
 				else
-					fast::onePole(x, fast::OnePole{b[0], q(state[0][1]), a[0]}, x1, y1);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.add(q31(ref[l][n]), x.s[n][l]);
+					fast::onePole(x, fast::OnePole{b[0], fast::q31(state[0][1]), a[0]}, x1, y1);
+				r.add(ref, x);
 			}
 			ok &= r.print(_name);
 		};
@@ -206,13 +181,11 @@ namespace
 				{
 					c[l][4] = rate[l] = table[static_cast<size_t>(b < 500 / 3 ? 64 + 4 * l : 127 - 4 * l)];
 					for(int n = 0; n < BlockSize; ++n)
-						x.s[n][l] = q(ref[l][n] = noise(0.9));
+						x.s[n][l] = fast::q31(ref[l][n] = noise(0.9));
 					reduceRate(ref[l], c[l]);
 				}
 				fast::reduceRate(x, rate, held, count);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.add(q31(ref[l][n]), x.s[n][l]);
+				r.add(ref, x);
 			}
 			ok &= r.print("rate reducer");
 		}
@@ -235,9 +208,7 @@ namespace
 				for(int l = 0; l < Lanes; ++l)
 					drawRandom(ref[l], BlockSize, s[l]);
 				fast::whiteNoise(out, words[0], words[1]);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						white.add(q31(ref[l][n]), out.s[n][l]);
+				white.add(ref, out);
 			}
 			ok &= white.print("white noise");
 		}
@@ -303,8 +274,7 @@ namespace
 					const double t = (b + 1) * BlockSize / 48000.0;
 					to[l] = v.unit(1, Voice::EnvLevel) = toQ31(-std::exp(-t / (0.1 + 0.07 * l)));
 					v.unit(1, 0x78) = sweptIncrement(l, b, 3);
-					for(auto& s : inc.s)
-						s[l] = static_cast<uint32_t>(v.unit(1, 0x78)) << 8;
+					inc.s[l] = static_cast<uint32_t>(v.unit(1, 0x78)) << 8;
 					scaledFeedbackOscillator(1, v, rom);
 					std::copy_n(v.sram.ptr(bufferA(1)), BlockSize, ref[l]);
 				}
@@ -313,7 +283,7 @@ namespace
 				{
 					differ += last[l] != st.voice(l).at(0x28);
 					for(int n = 0; n < BlockSize; ++n, ++samples)
-						differ += scaled.s[n][l] != static_cast<float>(q31(ref[l][n]));
+						differ += scaled.s[n][l] != fast::q31(ref[l][n]);
 				}
 			}
 			std::printf("  Q3 feedback sine (unit 1)     %lld samples, %lld differ (its last word too)\n",
@@ -348,8 +318,7 @@ namespace
 					v.unit(0, 0x8c) = d;
 					to[l] = static_cast<float>(q31(d) * 128);
 					v.unit(0, 0x78) = sweptIncrement(l, b, 2);
-					for(auto& s : inc.s)
-						s[l] = static_cast<uint32_t>(v.unit(0, 0x78)) << 8;
+					inc.s[l] = static_cast<uint32_t>(v.unit(0, 0x78)) << 8;
 					for(int n = 0; n <= BlockSize; ++n)
 					{
 						const double t = (b * BlockSize + n) / 48000.0;
@@ -357,7 +326,7 @@ namespace
 							std::sin(2 * Pi * (210 + 87 * l) * t);
 						v.sram.at(bufferA(3) + 4 * n) = toQ31(m);
 						if(n < BlockSize)
-							in.s[n][l] = static_cast<float>(q31(v.sram.at(bufferA(3) + 4 * n)));
+							in.s[n][l] = fast::q31(v.sram.at(bufferA(3) + 4 * n));
 					}
 					pmOscillator(0, v, rom);
 					for(int n = 0; n < BlockSize; ++n)
@@ -365,9 +334,7 @@ namespace
 				}
 				fast::pmWave(out, &in, from, to, phase, inc, sine.data());
 				std::copy_n(to, Lanes, from);
-				for(int l = 0; l < Lanes; ++l)
-					for(int n = 0; n < BlockSize; ++n)
-						r.test[l].push_back(out.s[n][l]);
+				r.addTest(out);
 			}
 			ok &= r.print("PM sine (unit 0)");
 		}
@@ -398,13 +365,6 @@ int main()
 	// Block by block (bench::blockByBlock), unit 1's envelope word (0x40003c0e, the voice's 0xfc) the exact port's
 	blockByBlock<fast::CpVintage>(s7, Hits, "CP VINTAGE", [](fast::CpVintage&) {},
 		{0xfc}, [](const fast::CpVintage& _m, const int _t, int32_t* _w) { _w[0] = _m.testEnvelope(_t); });
-	const Exacts exact([&](const Nudge& _p) { return renderExact(s7, Seconds, _p); }, fast::CpVintage::Units);
-	q4(exact, renderFast(48000, Seconds));
-	deterministic(renderExact(withoutTable(s7, FeedbackTable), Seconds), renderFast(48000, Seconds, true));
-	q15(renderFast(48000, Seconds + 0.05, false, true), renderFast(44100, Seconds + 0.05, false, true),
-		Seconds);
-	printCost<fast::CpVintage>("CP VINTAGE", s7, Hits);
-
-	std::printf(g_failures ? "%d FAILED\n" : "all passed\n", g_failures);
-	return g_failures ? 1 : 0;
+	judgeVoice<fast::CpVintage>(s7, Hits, "CP VINTAGE", Seconds, FeedbackTable);
+	return finish();
 }

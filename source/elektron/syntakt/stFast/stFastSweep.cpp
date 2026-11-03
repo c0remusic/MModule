@@ -25,7 +25,6 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <random>
 #include <sstream>
 #include <string>
 
@@ -65,19 +64,25 @@ namespace
 	};
 
 	const Machine Machines[] = {
-		{"bd", 0, {{88, 64, 64, 64, 64, 0, 0, 64}, {}, 36, false, false}, {3, 5}, fast::BdModern::Units, 0x4001fc00,
+		{"bd", 0, {{88, 64, 64, 64, 64, 0, 0, 64}, {}, 36, false, false}, {3, 5}, fast::BdModern::Units,
+			BdModernFeedbackTable,
 			{"tune", "u2level", "transient", "sweep", "contour", "drive", "hold", "decay", "note"}},
-		{"sd", 1, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 60, false, false}, {3, 5}, fast::SdBasic::Units, 0x40026e38,
+		{"sd", 1, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 60, false, false}, {3, 5}, fast::SdBasic::Units,
+			SdBasicFeedbackTable,
 			{"tune", "ratios", "feedback", "sweep", "envelopes", "drive", "hold", "decay", "note"}},
-		{"cy", 2, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::CyAlloy::Units, 0x40020c00,
+		{"cy", 2, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::CyAlloy::Units,
+			CyAlloyDepthTable,
 			{"tune", "spread", "depth", "ratio", "levels", "drive", "hold", "decay", "note"}},
 		{"pc", 3, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::PcCarbon::Units, 0,
 			{"tune", "ratios", "depth", "sweep", "levels", "drive", "hold", "decay", "note"}},
-		{"sv", 6, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::SdVintage::Units, 0x40039a38,
+		{"sv", 6, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::SdVintage::Units,
+			SdVintageFeedbackTable,
 			{"tune", "ratios", "balance", "sweep", "u3decay", "drive", "hold", "decay", "note"}},
-		{"cp", 7, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::CpVintage::Units, 0x4003b438,
+		{"cp", 7, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {3, 5}, fast::CpVintage::Units,
+			CpVintageFeedbackTable,
 			{"tune", "tone", "balance", "period", "tonedecay", "drive", "hold", "decay", "note"}},
-		{"ty", 36, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {1, 2, 3, 5}, fast::SyToy::Units, 0x4003d238,
+		{"ty", 36, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {1, 2, 3, 5}, fast::SyToy::Units,
+			SyToyFeedbackTable,
 			{"tune", "ratios", "depth", "levels", "decays", "drive", "hold", "decay", "note"}},
 		{"sb", 37, {{64, 64, 64, 64, 64, 0, 0, 64}, {}, 48, false, false}, {1, 2, 4}, fast::SyBits::Units, 0,
 			{"tune", "detune", "mix", "srr", "wave", "bits", "hold", "decay", "note"}},
@@ -184,10 +189,10 @@ namespace
 		bool chaotic, silent;
 	};
 
-	Row measure(const std::vector<double>& _ref, const std::vector<double>& _test)
+	Row measure(const RefAnalysis& _ref, const std::vector<double>& _test)
 	{
 		Row r{};
-		const auto er = envelope(_ref, 48000), et = envelope(_test, 48000);
+		const auto er = envelope(_ref.ref, 48000), et = envelope(_test, 48000);
 		r.all = envelopeWorst(er, et, -150);
 		r.at40 = envelopeWorst(er, et, -40);
 		r.at60 = envelopeWorst(er, et, -60);
@@ -201,9 +206,10 @@ namespace
 		return r;
 	}
 
+	// Lane _l of a render: _ref the exact port's (analysed), _self its phaseBlind against its phase nudge
 	template<typename Fast>
 	Row measureCase(const std::vector<int32_t>& _s7, const Machine& _m, const HitSet& _hits, const int _l,
-		const Renders& _ref, const Renders& _self, const std::vector<Renders>& _increments, const Renders& _test,
+		const RefAnalysis& _ref, const PhaseBlind& _self, const std::vector<Renders>& _increments, const Renders& _test,
 		Renders* _detRef, Renders* _detTest)
 	{
 		// A value both engines play as exact silence passes, unmeasured: Q4's measures read a peak it has not
@@ -211,14 +217,14 @@ namespace
 		{
 			return std::all_of(_x.begin(), _x.end(), [](const double _v) { return _v == 0; });
 		};
-		if(silence(_ref[_l]) && silence(_test[_l]))
+		if(silence(_ref.ref) && silence(_test[_l]))
 		{
 			Row r{};
 			r.silent = true;
 			r.increments.assign(static_cast<size_t>(incrementNudgeCount(_m.units)), PhaseBlind{});
 			return r;
 		}
-		const auto self = phaseBlind(_ref[_l], _self[_l]);	// what chaoticSelf reads, without the null's FFTs
+		const PhaseBlind& self = _self;	// what chaoticSelf reads, without the null's FFTs
 		const bool chaotic = chaoticSelf(self);
 		Row r;
 		if(chaotic && _m.feedbackTable)
@@ -228,18 +234,18 @@ namespace
 				*_detRef = renderExact(withoutTable(_s7, _m.feedbackTable), _hits, Nudge{});
 				*_detTest = renderFast<Fast>(_hits, true);
 			}
-			r = measure((*_detRef)[_l], (*_detTest)[_l]);
+			r = measure(RefAnalysis((*_detRef)[_l]), (*_detTest)[_l]);
 		}
 		else
 		{
-			r = measure(_ref[_l], _test[_l]);
+			r = measure(_ref, _test[_l]);
 		}
 		r.selfEnvAbs = self.envAbs;
 		r.selfCells = self.cells;
 		r.increments.assign(static_cast<size_t>(incrementNudgeCount(_m.units)), PhaseBlind{});
 		if(!chaotic)	// a chaotic value is judged with its feedback at 0, not by tolerance
 			for(int i = 0; i < incrementNudgeCount(_m.units); ++i)
-				r.increments[i] = phaseBlind(_ref[_l], _increments[static_cast<size_t>(i)][_l]);
+				r.increments[i] = phaseBlind(_ref, _increments[static_cast<size_t>(i)][_l]);
 		r.chaotic = chaotic;
 		return r;
 	}
@@ -277,17 +283,23 @@ namespace
 				const auto ref = renderExact(_s7, hits, Nudge{});
 				const auto self = renderExact(_s7, hits, phaseNudge(1, _m.units));
 				// The increment nudges only where a value is not chaotic: they give its tolerance
+				std::vector<RefAnalysis> analysis;
+				std::vector<PhaseBlind> selfBlind;
 				bool anyNot = false;
 				for(int l = 0; l < Lanes; ++l)
-					anyNot |= !chaoticSelf(phaseBlind(ref[l], self[l]));
+				{
+					analysis.emplace_back(ref[l]);
+					selfBlind.push_back(phaseBlind(analysis.back(), self[l]));
+					anyNot |= !chaoticSelf(selfBlind.back());
+				}
 				std::vector<Renders> increments;
 				for(int i = 0; anyNot && i < incrementNudgeCount(_m.units); ++i)
 					increments.push_back(renderExact(_s7, hits, incrementNudge(i, _m.units)));
 				const auto test = renderFast<Fast>(hits, false);
 				Renders detRef, detTest;
 				for(int l = 0; l < Lanes; ++l)
-					printRow(f, _m, p, v0 + l,
-						measureCase<Fast>(_s7, _m, hits, l, ref, self, increments, test, &detRef, &detTest));
+					printRow(f, _m, p, v0 + l, measureCase<Fast>(_s7, _m, hits, l, analysis[l], selfBlind[l], increments,
+						test, &detRef, &detTest));
 				std::fflush(f);
 				std::printf("%s %s %d-%d\n", _m.name, _m.params[p], v0, v0 + Lanes - 1);
 			}
@@ -320,7 +332,9 @@ namespace
 			increments.push_back(renderExact(_s7, hits, incrementNudge(i, m.units)));
 		const auto test = renderFast<Fast>(hits, false);
 		Renders detRef, detTest;
-		const Row r = measureCase<Fast>(_s7, m, hits, 0, ref, self, increments, test, &detRef, &detTest);
+		const RefAnalysis analysis(ref[0]);
+		const Row r = measureCase<Fast>(_s7, m, hits, 0, analysis, phaseBlind(analysis, self[0]), increments, test,
+			&detRef, &detTest);
 		std::printf("%-22s chaotic %s; envelope %.3f dB at %.0f ms (%.1f dB below the peak); above -40 dB %.3f dB at "
 			"%.0f ms (%.1f dB); above -60 dB %.3f dB at %.0f ms (%.1f dB); %+.3f cents; null %.1f dB, 10 ms %.1f dB, "
 			"third octave %.1f dB\n", _c.name.c_str(), r.chaotic ? "yes" : "no", r.all.db, r.all.ms, -r.all.level,
@@ -479,7 +493,8 @@ int main(const int _argc, char** _argv)
 				const auto self = renderExact(_s7, hits, phaseNudge(1, m->units));
 				const Renders test = withMachine(m->id,
 					[&](auto _m) { return renderFast<typename decltype(_m)::type>(hits, _noChaos); });
-				const auto s = measureHit(ref[0], self[0]), t = measureHit(ref[0], test[0]);
+				const RefAnalysis a(ref[0]);
+				const auto s = measureHit(a, self[0]), t = measureHit(a, test[0]);
 				std::fprintf(f, "%s %s %s, %s: exact 1 LSB on %.1f dB re peak, cells %.3f dB, SNR %.1f, 10 ms %.1f dB; "
 					"fast %.1f dB re peak, cells %.3f dB, SNR %.1f dB\n", _argv[2], _argv[4], _argv[i], _what, s.envAbs,
 					s.cells, s.snr, s.local, t.envAbs, t.cells, t.snr);

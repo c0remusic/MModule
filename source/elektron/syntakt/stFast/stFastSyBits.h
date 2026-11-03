@@ -78,7 +78,7 @@ namespace syntakt::fast
 			int32_t phaseOffset[128], bits[128], sampleRate[128], crossfade[128], gain[3][128];
 			float ampDecay[128];
 			int32_t exp2[2048];
-			float wave[SyBitsWaves][SyBitsWaveSize];
+			const float (*wave)[SyBitsWaveSize];	// SyBitsWaves of them, made once for every instance
 		};
 		Tables m_tables;
 
