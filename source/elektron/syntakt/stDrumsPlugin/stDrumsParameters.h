@@ -65,9 +65,6 @@ namespace stDrums::parameters
 	// The trig's note when nothing sets it: the firmware's Trig Note default, 60 for every machine
 	constexpr int DefaultNote = 60;
 
-	constexpr int PerTrack = 3 + static_cast<int>(Track.size());
-	constexpr int Count = 16 * PerTrack + static_cast<int>(Fx.size()) + 1;
-
 	inline std::string trackPrefix(const int _track, const bool _id)
 	{
 		char text[8];

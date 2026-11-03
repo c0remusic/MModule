@@ -132,14 +132,11 @@ namespace stDrums
 		takeKit(*engine);
 		if(!m_hasKit)
 		{
-			for(const auto& [parameter, value] : m_kit)
-				setQuietly(*parameter, value);
-			m_hasKit = true;
+			applyKit();
 			updateHostDisplay(ChangeDetails().withProgramChanged(true));
 		}
 		// The engine the audio thread did not take yet is freed here; the one it plays comes back as retired
 		delete m_pending.exchange(engine.release(), std::memory_order_acq_rel);
-		m_firmwareLoaded = true;
 		m_status = "Syntakt OS 1.41 from " + _file.getFileName();
 		return true;
 	}
@@ -150,21 +147,47 @@ namespace stDrums
 		static_cast<juce::AudioProcessorParameter&>(_parameter).setValue(_parameter.convertTo0to1(_value));
 	}
 
+	void Processor::readKit(const syntakt::Syntakt& _module, std::array<Applied, Tracks>& _tracks,
+		std::array<int, parameters::Fx.size()>& _fx)
+	{
+		using namespace parameters;
+		for(int t = 0; t < Tracks; ++t)
+		{
+			auto& a = _tracks[static_cast<size_t>(t)];
+			a.machine = std::max(machineIndex(_module.machine(t)), 0);
+			a.level = valueOf(_module.level(t));
+			for(size_t k = 0; k < Track.size(); ++k)
+				a.values[k] = valueOf(_module.parameter(t, Track[k].id));
+		}
+		for(size_t k = 0; k < Fx.size(); ++k)
+			_fx[k] = valueOf(_module.fxParameter(Fx[k].id));
+	}
+
 	void Processor::takeKit(const Engine& _engine)
 	{
 		using namespace parameters;
-		const auto& module = _engine.module();
+		std::array<Applied, Tracks> tracks{};
+		std::array<int, Fx.size()> fx{};
+		readKit(_engine.module(), tracks, fx);
 		m_kit.clear();
 		for(int t = 0; t < Tracks; ++t)
 		{
-			auto& p = m_tracks[static_cast<size_t>(t)];
-			m_kit.emplace_back(p.machine, static_cast<float>(std::max(machineIndex(module.machine(t)), 0)));
-			m_kit.emplace_back(p.level, static_cast<float>(valueOf(module.level(t))));
+			const auto& p = m_tracks[static_cast<size_t>(t)];
+			const auto& a = tracks[static_cast<size_t>(t)];
+			m_kit.emplace_back(p.machine, static_cast<float>(a.machine));
+			m_kit.emplace_back(p.level, static_cast<float>(a.level));
 			for(size_t k = 0; k < Track.size(); ++k)
-				m_kit.emplace_back(p.values[k], static_cast<float>(valueOf(module.parameter(t, Track[k].id))));
+				m_kit.emplace_back(p.values[k], static_cast<float>(a.values[k]));
 		}
 		for(size_t k = 0; k < Fx.size(); ++k)
-			m_kit.emplace_back(m_fx[k], static_cast<float>(valueOf(module.fxParameter(Fx[k].id))));
+			m_kit.emplace_back(m_fx[k], static_cast<float>(fx[k]));
+	}
+
+	void Processor::applyKit()
+	{
+		for(const auto& [parameter, value] : m_kit)
+			setQuietly(*parameter, value);
+		m_hasKit = true;
 	}
 
 	void Processor::timerCallback()
@@ -218,18 +241,7 @@ namespace stDrums
 		m_player.setEngine(engine);
 
 		// What the new module holds, which the parameters are synced against
-		using namespace parameters;
-		const auto& module = engine->module();
-		for(int t = 0; t < Tracks; ++t)
-		{
-			auto& a = m_applied[static_cast<size_t>(t)];
-			a.machine = std::max(machineIndex(module.machine(t)), 0);
-			a.level = valueOf(module.level(t));
-			for(size_t k = 0; k < Track.size(); ++k)
-				a.values[k] = valueOf(module.parameter(t, Track[k].id));
-		}
-		for(size_t k = 0; k < Fx.size(); ++k)
-			m_fxApplied[k] = valueOf(module.fxParameter(Fx[k].id));
+		readKit(engine->module(), m_applied, m_fxApplied);
 		m_bpm = 0;
 		// The parameters as they are, even a machine changed: they hold a state, or the kit taken from it
 		syncParameters(true);
@@ -399,11 +411,7 @@ namespace stDrums
 		m_hasKit = xml->getBoolAttribute("kit");
 		// A state saved before any firmware holds no kit: the firmware's, when one plays
 		if(!m_hasKit && !m_kit.empty())
-		{
-			for(const auto& [parameter, value] : m_kit)
-				setQuietly(*parameter, value);
-			m_hasKit = true;
-		}
+			applyKit();
 		m_stateSerial.fetch_add(1, std::memory_order_acq_rel);
 		suspendProcessing(false);
 		updateHostDisplay(ChangeDetails().withProgramChanged(true));

@@ -9,6 +9,16 @@ namespace stDrums
 {
 	using syntakt::Syntakt;
 
+	namespace
+	{
+		// _value (0-127, the word's top byte) as a word, held to _range
+		uint16_t word(const Syntakt::Range& _range, const int _value)
+		{
+			return static_cast<uint16_t>(std::clamp(std::clamp(_value, 0, 127) << 8, static_cast<int>(_range.min),
+				static_cast<int>(_range.max)));
+		}
+	}
+
 	int machineIndex(const int _machine)
 	{
 		for(size_t i = 0; i < Machines.size(); ++i)
@@ -48,17 +58,13 @@ namespace stDrums
 	uint16_t Engine::trackWord(const int _machineIndex, const int _id, const int _value) const
 	{
 		const int machine = std::clamp(_machineIndex, 0, static_cast<int>(Machines.size()) - 1);
-		const auto& r = m_ranges[static_cast<size_t>(machine)]
-			[static_cast<size_t>(std::clamp(_id, 0, Syntakt::TrackParameterEnd - 1))];
-		return static_cast<uint16_t>(std::clamp(std::clamp(_value, 0, 127) << 8, static_cast<int>(r.min),
-			static_cast<int>(r.max)));
+		return word(m_ranges[static_cast<size_t>(machine)]
+			[static_cast<size_t>(std::clamp(_id, 0, Syntakt::TrackParameterEnd - 1))], _value);
 	}
 
 	uint16_t Engine::fxWord(const int _id, const int _value) const
 	{
-		const auto& r = m_fxRanges[static_cast<size_t>(std::clamp(_id, 0, Syntakt::FxParameterEnd - 1))];
-		return static_cast<uint16_t>(std::clamp(std::clamp(_value, 0, 127) << 8, static_cast<int>(r.min),
-			static_cast<int>(r.max)));
+		return word(m_fxRanges[static_cast<size_t>(std::clamp(_id, 0, Syntakt::FxParameterEnd - 1))], _value);
 	}
 
 	void Player::prepare(const double _hostRate, const int _maxBlock, const std::array<bool, Channels>& _used)

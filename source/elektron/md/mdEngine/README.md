@@ -17,8 +17,9 @@ later versions can be compared file by file. Their documentation is in `.scratch
 - `engine/VoiceEngine.cpp`: the call to `DSP::setInterpreterEnabled`, which only Machinemodule's `dsp56300` fork
   has, is left out: this repository's `dsp56300` runs the JIT on every target it builds.
 - `engine/VoiceEngine.*`: `setInterpreter` runs the voice DSP on the emulator's interpreter instead of its JIT, for
-  the oracle of the voice code's C++ port (`mdVoice/mdVoicePortTest`): this repository's JIT corrupts X1:X0 at
-  TRX-SD's `DO #$1F` (P:$100792), which the interpreter does not.
+  the oracle of the voice code's C++ port (`mdVoice/mdVoicePortTest`, its hand-made packets; the OS's play on the
+  JIT, as MoDule runs the voice DSP): the two differ on a pointer past the DSP's memory, which the interpreter reads
+  as 0 and the JIT masks to 2M words.
 - `tools/mdfw/Firmware.*`: `loadFirmwareFromFlash` reads the OS from the 8 MB flash image the firmware plug-in
   already uses (it holds the OS file's decoded image from `$4000` on), so no `.syx` is needed.
 - `tools/mdfw/Firmware.*` and `engine/MdEngine.h`: `loadRomBankFromFlash` redoes what OS 1.63's boot does with the

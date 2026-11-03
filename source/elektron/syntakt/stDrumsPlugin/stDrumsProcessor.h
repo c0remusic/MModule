@@ -51,7 +51,7 @@ namespace stDrums
 
 		// The .syx _file read and played from the next block; with _keep, copied into the roms folder. Message thread
 		bool loadFirmware(const juce::File& _file, bool _keep);
-		bool hasFirmware() const { return m_firmwareLoaded; }
+		bool hasFirmware() const { return !m_kit.empty(); }
 		// What the editor says of the firmware
 		const juce::String& status() const { return m_status; }
 
@@ -75,7 +75,12 @@ namespace stDrums
 		static BusesProperties buses();
 		void timerCallback() override;
 		void loadFromDataFolder();
+		// What _module holds, in the parameters' values
+		static void readKit(const syntakt::Syntakt& _module, std::array<Applied, Tracks>& _tracks,
+			std::array<int, parameters::Fx.size()>& _fx);
 		void takeKit(const Engine& _engine);
+		// The firmware's kit into the parameters, without telling the host
+		void applyKit();
 		void takeEngine();
 		void syncParameters(bool _hostIsTruth);
 		static void setQuietly(juce::RangedAudioParameter& _parameter, float _value);
@@ -86,8 +91,7 @@ namespace stDrums
 
 		// Message thread
 		bool m_hasKit = false;			// the parameters hold a kit: the firmware's defaults or a state's
-		std::vector<std::pair<juce::RangedAudioParameter*, float>> m_kit;	// the firmware's defaults
-		bool m_firmwareLoaded = false;
+		std::vector<std::pair<juce::RangedAudioParameter*, float>> m_kit;	// the firmware's defaults, once one loaded
 		juce::String m_status;
 
 		// The engine handed over: made on the message thread (pending), played (active, the audio thread's), handed

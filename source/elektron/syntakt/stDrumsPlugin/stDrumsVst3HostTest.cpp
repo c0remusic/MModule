@@ -29,7 +29,9 @@
 #include <filesystem>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <new>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
@@ -88,7 +90,7 @@ namespace
 		juce::MessageManager::getInstance()->runDispatchLoopUntil(_milliseconds);
 	}
 
-	// A data folder of this run's (GEARMULATOR_DATA_ROOT), never the user's
+	// A data folder of this run's (GEARMULATOR_DATA_ROOT), never the user's; the variable as it was after
 	class DataRoot
 	{
 	public:
@@ -96,12 +98,17 @@ namespace
 			: m_path(std::filesystem::temp_directory_path()
 				/ ("STDrumsVst3HostTest_" + std::to_string(Clock::now().time_since_epoch().count())))
 		{
+			if(const char* previous = std::getenv(Name))
+				m_previous = previous;
 			std::filesystem::create_directories(roms());
 			set(m_path.string().c_str());
 		}
 		~DataRoot()
 		{
-			set("");
+			if(m_previous)
+				set(m_previous->c_str());
+			else
+				unset();
 			std::error_code error;
 			std::filesystem::remove_all(m_path, error);
 		}
@@ -109,17 +116,28 @@ namespace
 		std::filesystem::path roms() const { return m_path / "c0remusic" / "ST Drums" / "roms"; }
 
 	private:
-		// An empty value counts as unset (Processor::dataFolder)
+		static constexpr const char* Name = "GEARMULATOR_DATA_ROOT";
+
 		static void set(const char* _value)
 		{
 #if defined(_WIN32)
-			_putenv_s("GEARMULATOR_DATA_ROOT", _value);
+			_putenv_s(Name, _value);
 #else
-			setenv("GEARMULATOR_DATA_ROOT", _value, 1);
+			setenv(Name, _value, 1);
+#endif
+		}
+
+		static void unset()
+		{
+#if defined(_WIN32)
+			_putenv_s(Name, "");	// an empty value removes it
+#else
+			unsetenv(Name);
 #endif
 		}
 
 		std::filesystem::path m_path;
+		std::optional<std::string> m_previous;
 	};
 
 	// The frozen string IDs in the plug-in's order, written out here: a renumbering in the plug-in fails this test
@@ -295,28 +313,27 @@ namespace
 			position = _end;
 		};
 		size_t a = 0;
-		for(const auto& n : _notes)
+		// The automations not made yet up to sample _until, each at its sample
+		const auto automateUntil = [&](const int64_t _until)
 		{
-			for(; a < _automations.size() && _automations[a].sample <= n.sample; ++a)
+			for(; a < _automations.size() && _automations[a].sample <= _until; ++a)
 			{
 				renderTo(_automations[a].sample);
 				const auto& x = _automations[a];
 				st.setParameter(x.track, x.id, engine.trackWord(std::max(stDrums::machineIndex(st.machine(x.track)), 0),
 					x.id, x.value));
 			}
+		};
+		for(const auto& n : _notes)
+		{
+			automateUntil(n.sample);
 			renderTo(std::min(n.sample, _samples));
 			if(n.off)
 				st.noteOff(n.number - 36);
 			else
 				st.noteOn(n.number - 36, g_note, n.velocity);
 		}
-		for(; a < _automations.size(); ++a)
-		{
-			renderTo(_automations[a].sample);
-			const auto& x = _automations[a];
-			st.setParameter(x.track, x.id, engine.trackWord(std::max(stDrums::machineIndex(st.machine(x.track)), 0),
-				x.id, x.value));
-		}
+		automateUntil(std::numeric_limits<int64_t>::max());
 		renderTo(_samples);
 
 		std::vector<std::vector<float>> out(g_channels, std::vector<float>(static_cast<size_t>(_samples)));

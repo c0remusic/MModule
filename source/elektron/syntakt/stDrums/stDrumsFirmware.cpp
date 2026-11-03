@@ -1,7 +1,6 @@
 #include "stDrumsFirmware.h"
 
 #include <algorithm>
-#include <cstring>
 #include <stdexcept>
 
 #include "stSection7.h"
@@ -172,14 +171,6 @@ namespace stDrums
 			}
 			return {_stream, _stream + _size};
 		}
-
-		uint64_t fnv(const std::vector<uint8_t>& _bytes)
-		{
-			uint64_t h = 0xcbf29ce484222325;
-			for(const uint8_t b : _bytes)
-				h = (h ^ b) * 0x100000001b3;
-			return h;
-		}
 	}
 
 	bool unpack(const std::vector<uint8_t>& _syx, Sections& _sections, std::string& _error)
@@ -234,15 +225,15 @@ namespace stDrums
 		if(!unpack(_syx, sections, _error))
 			return false;
 		if(sections.section3.size() != syntakt::main::Section3Size
-			|| fnv(sections.section3) != syntakt::main::Section3Fnv || sections.section7.size() != syntakt::Section7Size || fnv(sections.section7) != syntakt::Section7Fnv)
+			|| syntakt::fnv1a64(sections.section3) != syntakt::main::Section3Fnv
+			|| sections.section7.size() != syntakt::Section7Size
+			|| syntakt::fnv1a64(sections.section7) != syntakt::Section7Fnv)
 		{
 			_error = "not Syntakt OS 1.41: its sections 3 and 7 are not 1.41's";
 			return false;
 		}
 		_firmware.section3.bytes = std::move(sections.section3);
-		_firmware.section7.resize(sections.section7.size() / 4);
-		for(size_t i = 0; i < _firmware.section7.size(); ++i)
-			_firmware.section7[i] = static_cast<int32_t>(syntakt::be32(sections.section7.data() + 4 * i));
+		_firmware.section7 = syntakt::section7Words(sections.section7);
 		return true;
 	}
 }

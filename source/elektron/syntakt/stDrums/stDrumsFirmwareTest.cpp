@@ -20,14 +20,6 @@
 
 namespace
 {
-	uint64_t fnv(const std::vector<uint8_t>& _bytes)
-	{
-		uint64_t h = 0xcbf29ce484222325;
-		for(const uint8_t b : _bytes)
-			h = (h ^ b) * 0x100000001b3;
-		return h;
-	}
-
 	bool check(const bool _ok, const char* _what)
 	{
 		std::printf("  %-72s %s\n", _what, _ok ? "ok" : "FAILED");
@@ -72,8 +64,10 @@ int main()
 		sections.section3.size(), sections.section7.size(), ms, error.c_str());
 
 	ok &= check(sections.section3.size() == syntakt::main::Section3Size
-		&& fnv(sections.section3) == syntakt::main::Section3Fnv, "section 3: OS 1.41's size and FNV-1a hash");
-	ok &= check(sections.section7.size() == syntakt::Section7Size && fnv(sections.section7) == syntakt::Section7Fnv,
+		&& syntakt::fnv1a64(sections.section3) == syntakt::main::Section3Fnv,
+		"section 3: OS 1.41's size and FNV-1a hash");
+	ok &= check(sections.section7.size() == syntakt::Section7Size
+		&& syntakt::fnv1a64(sections.section7) == syntakt::Section7Fnv,
 		"section 7: OS 1.41's size and FNV-1a hash (loadSection7's)");
 
 	if(const char* section3Path = std::getenv("SYNTAKT_SECTION3"); section3Path && *section3Path)

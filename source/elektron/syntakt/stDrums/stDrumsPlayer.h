@@ -91,7 +91,6 @@ namespace stDrums
 
 		// The engine render plays from now; none plays silence
 		void setEngine(Engine* _engine) { m_engine = _engine; }
-		Engine* engine() const { return m_engine; }
 
 		// A trig of track _track (0-15) at sample _offset of the next render, with note _note and _velocity (1-127);
 		// noteOff ends its gate
@@ -101,9 +100,6 @@ namespace stDrums
 		// _count host samples of each Channel used into _outputs[0] to _outputs[Channels - 1] (null for the others);
 		// _count up to prepare's
 		void render(float* const* _outputs, int _count);
-
-		// The source samples (48 kHz) rendered so far
-		uint64_t sourcePosition() const { return m_source; }
 
 	private:
 		struct Event

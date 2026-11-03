@@ -32,6 +32,15 @@ namespace syntakt
 
 	constexpr uint64_t Section7Fnv = 0x641c4f29887bd511;	// FNV-1a 64 of OS 1.41's section 7
 
+	// Section 7's _bytes as the words a Rom reads: big-endian, four bytes each
+	inline std::vector<int32_t> section7Words(const std::vector<uint8_t>& _bytes)
+	{
+		std::vector<int32_t> words(_bytes.size() / 4);
+		for(size_t i = 0; i < words.size(); ++i)
+			words[i] = static_cast<int32_t>(be32(_bytes.data() + 4 * i));
+		return words;
+	}
+
 	// The user's section 7 as the words a Rom reads; empty when the file is not OS 1.41's section 7
 	inline std::vector<int32_t> loadSection7(const std::string& _path)
 	{
@@ -40,9 +49,6 @@ namespace syntakt
 			return {};
 		if(fnv1a64(bytes) != Section7Fnv)
 			return {};
-		std::vector<int32_t> words(bytes.size() / 4);
-		for(size_t i = 0; i < words.size(); ++i)
-			words[i] = static_cast<int32_t>(be32(bytes.data() + 4 * i));
-		return words;
+		return section7Words(bytes);
 	}
 }
