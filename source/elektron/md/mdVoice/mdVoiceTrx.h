@@ -136,6 +136,30 @@ namespace md::voice::trx
 		return word(_t.filters, (_addr - TrxTables::FiltersAddr) & 0xffffff);
 	}
 
+	// TRX-CH's and TRX-CY's six waves (TrxTables::ChWaves) added to _sig, each at its gain, from its offset in the
+	// state (six words from Y:_offsets), which wraps at its length. A sample at a time: the DSP's six passes over the
+	// block do nothing across samples
+	inline void addChWaves(const TrxTables& _t, Voice::State& _y, const std::array<uint32_t, 6>& _gains,
+		const uint32_t _offsets, uint32_t* const _sig)
+	{
+		uint32_t at[6];
+		for(uint32_t i = 0; i < 6; ++i)
+			at[i] = _y[_offsets + i];
+		for(int k = 0; k < 32; ++k)
+		{
+			uint32_t s = _sig[k];
+			for(uint32_t i = 0; i < 6; ++i)
+			{
+				const auto& wave = TrxTables::ChWaves[i];
+				s = lim(mul(word(_t.chWaves, wave.offset + at[i]), _gains[i]) + acc(s));
+				at[i] = at[i] + 1 == wave.size ? 0 : at[i] + 1;
+			}
+			_sig[k] = s;
+		}
+		for(uint32_t i = 0; i < 6; ++i)
+			_y[_offsets + i] = at[i];
+	}
+
 	// A two-pole filter's pole: its radius and its angle's cosine, which two indices pick in the tables
 	struct Pole
 	{
@@ -188,11 +212,12 @@ namespace md::voice::trx
 		_h1 = h1;
 	}
 
-	// Two high-pass filters in turn, 1/2 - z^-1 + 1/2 z^-2 over the same poles, as TRX-CP and TRX-CB run them (the
-	// DSP's loop at $101A3F and $101FA7). The first over the 32 words at X:_in, after its input's last two at X:_in - 2,
-	// its own last two left at X:_ring and _ring + 1; the second's outputs from X:_out + 2 on, after its last two at
-	// X:_out. Their state, six words from Y:_state: the first's last two outputs, the latest first, then the second's,
-	// then the input's. The outputs may overwrite the input: each input word is read before
+	// Two high-pass filters in turn, 1/2 - z^-1 + 1/2 z^-2 over the same poles, as TRX-CP, TRX-CB and TRX-CY run them
+	// (the DSP's loop at $101A3F, $101FA7, $1024B6 and $102540). The first over the 32 words at X:_in, after its
+	// input's last two at X:_in - 2, its own last two left at X:_ring and _ring + 1; the second's outputs from
+	// X:_out + 2 on, after its last two at X:_out. Their state, six words from Y:_state: the first's last two outputs,
+	// the latest first, then the second's, then the input's. The outputs may overwrite the input: each input word is
+	// read before
 	inline void highPassStage(Context& _c, const Poles& _p, const uint32_t _in, const uint32_t _ring,
 		const uint32_t _out, const uint32_t _state)
 	{
@@ -231,6 +256,30 @@ namespace md::voice::trx
 		y[_state + 3] = out[30];
 		y[_state + 4] = in[31];
 		y[_state + 5] = in[30];
+	}
+
+	// A two-pole filter twice over the poles _p (twoPoles), as TRX-CP and TRX-CY run it, in place over the 32 words at
+	// X:_in: the first's last two outputs left at X:$00-$01, the second's last two at X:_in - 2. Their state, four
+	// words from Y:_state: the first's last two outputs, the oldest first, then the second's, the latest first (TRX-CH
+	// keeps the second's the oldest first, TRX-SD its scratch words the other way round: both write theirs out)
+	inline void twoPoleStage(Context& _c, const Poles& _p, const uint32_t _in, const uint32_t _state)
+	{
+		auto& y = _c.y;
+		auto& iy = _c.shared.scratch.y;
+		auto& ix = _c.shared.scratch.x;
+		iy[0] = _p.a2;
+		iy[1] = _p.g;
+		ix[_in - 2] = y[_state + 3];
+		ix[_in - 1] = y[_state + 2];
+		uint32_t* const in = &ix[_in];
+		uint32_t h2 = y[_state], h1 = y[_state + 1];
+		twoPoles(_p, in, h2, h1);
+		ix[0] = h2;
+		ix[1] = h1;
+		y[_state] = h2;
+		y[_state + 1] = h1;
+		y[_state + 2] = in[31];
+		y[_state + 3] = in[30];
 	}
 
 	// Each machine's routines, in its own file
@@ -277,6 +326,13 @@ namespace md::voice::trx
 	}
 
 	namespace ch
+	{
+		void init(Context& _c);
+		void update(Context& _c);
+		void render(Context& _c, Voice::Block& _out);
+	}
+
+	namespace cy
 	{
 		void init(Context& _c);
 		void update(Context& _c);

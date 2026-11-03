@@ -83,30 +83,12 @@ namespace md::voice::trx::ch
 		// The modulo-32 buffer X:$20 (R5): the noise, the waves added, then the filters' output
 		uint32_t* const sig = &ix[0x20];
 
-		// The noise, scaled by Y:$05, then the six waves added, each at its gain (Y:$08, then Y:$0B to Y:$0F) from its
-		// offset (Y:$21 to Y:$26), which wraps at its length. A sample at a time: the DSP's seven passes over the block
-		// do nothing across samples
+		// The noise, scaled by Y:$05, then the six waves added at their gains, Y:$08 then Y:$0B to Y:$0F
 		fibonacci(sig, y[0x13], y[0x14]);
 		const uint32_t noiseLevel = y[5];
-		uint32_t gain[6], at[6];
-		for(uint32_t i = 0; i < 6; ++i)
-		{
-			gain[i] = y[i == 0 ? 8 : 0xa + i];
-			at[i] = y[0x21 + i];
-		}
 		for(int k = 0; k < 32; ++k)
-		{
-			uint32_t s = lim(mul(sig[k], noiseLevel));
-			for(uint32_t i = 0; i < 6; ++i)
-			{
-				const auto& wave = TrxTables::ChWaves[i];
-				s = lim(mul(word(t.chWaves, wave.offset + at[i]), gain[i]) + acc(s));
-				at[i] = at[i] + 1 == wave.size ? 0 : at[i] + 1;
-			}
-			sig[k] = s;
-		}
-		for(uint32_t i = 0; i < 6; ++i)
-			y[0x21 + i] = at[i];
+			sig[k] = lim(mul(sig[k], noiseLevel));
+		addChWaves(t, y, {y[8], y[0xb], y[0xc], y[0xd], y[0xe], y[0xf]}, 0x21, sig);
 
 		// A two-pole filter twice by Y:$03 and Y:$04, the first's last two outputs at X:$00-$01
 		{

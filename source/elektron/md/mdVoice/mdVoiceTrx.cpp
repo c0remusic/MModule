@@ -40,6 +40,7 @@ namespace md::voice::trx
 		constexpr Routines kCb = {cb::init, cb::update, cb::render};
 		constexpr Routines kCh = {ch::init, ch::update, ch::render};
 		constexpr Routines kCp = {cp::init, cp::update, cp::render};
+		constexpr Routines kCy = {cy::init, cy::update, cy::render};
 		constexpr Routines kRs = {rs::init, rs::update, rs::render};
 		constexpr Routines kSd = {sd::init, sd::update, sd::render};
 		constexpr Routines kXt = {xt::init, xt::update, xt::render};
@@ -56,10 +57,11 @@ namespace md::voice::trx
 			case 21:	return &kRs;
 			case 22:	return &kCb;
 			case 23:	return &kCh;
-			// TRX-OH ($1021F4, $102209, $102222) is TRX-CH's code word for word but for its DO loops' end addresses,
-			// the same waves at X:$102600 included: only the OS's packets tell them apart. Their types differ, so a voice
-			// that goes from one to the other runs init, as on the DSP
+			// TRX-OH ($1021F4, $102209, $102222) is TRX-CH's code word for word but for its DO loops' end
+			// addresses, the same waves at X:$102600 included: only the OS's packets tell them apart. Their types
+			// differ, so a voice that goes from one to the other runs init, as on the DSP
 			case 24:	return &kCh;
+			case 25:	return &kCy;
 			default:	return nullptr;
 		}
 	}

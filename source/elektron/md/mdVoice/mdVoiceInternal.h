@@ -48,6 +48,8 @@ namespace md::voice
 		// The ROM and TRX renders' branches the test must reach
 		enum Probe
 		{
+			CyLevelALimited,		// a Hit that adds TRX-CY's first level past full scale
+			CyLevelBLimited,		// ... its second
 			ChHold,					// TRX-CH's level held while its first counter runs
 			ChRamp,					// ... falling by a step a sample while its second runs
 			ChDecay,				// ... decaying after both
@@ -100,6 +102,8 @@ namespace md::voice
 		{
 			switch(_p)
 			{
+				case CyLevelALimited:		return "TRX-CY's first level limited at a Hit";
+				case CyLevelBLimited:		return "TRX-CY's second level limited at a Hit";
 				case ChHold:				return "TRX-CH's level held";
 				case ChRamp:				return "TRX-CH's level ramping down";
 				case ChDecay:				return "TRX-CH's level decaying";

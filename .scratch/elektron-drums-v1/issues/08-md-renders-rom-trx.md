@@ -442,6 +442,39 @@ donc de 4000 à 6000 blocs, et le test dure 4,6 s, loin de son délai de 120 s.
 Revue du 2026-11-03 (code et architecture ensemble, le changement tenant en quelques lignes) : rien à corriger dans le
 code ; les listes des machines portées (`mdVoice.h`, `CLAUDE.md`) complétées. `/simplify` : rien à simplifier.
 
+## TRX-CY
+
+TRX-CY (type 25 : init $1023C9, update $1023EB, render $1023FA) est porté dans `mdVoiceTrxCy.cpp`. Son code est à lui,
+mais il est fait de trois briques déjà portées. Chaque bloc, le render additionne les six ondes de TRX-CH, sans son
+bruit, à ses propres gains (Y:$02 à Y:$07), ses positions en Y:$15-$1A. Il les fait passer par deux voies :
+- les deux passe-haut de TRX-CP par Y:$11 et Y:$0C, puis le filtre deux pôles appliqué deux fois par Y:$08 et Y:$0E ;
+- les mêmes passe-haut par Y:$09 et Y:$0F, puis les deux pôles par Y:$0A et Y:$10.
+
+Chaque filtre deux pôles prend la sortie des passe-haut deux échantillons en retard. Chaque voie est multipliée par son
+niveau (Y:$13, Y:$14), qu'un Hit relève de $50C335 et qui décroît d'un bloc à l'autre par Y:$0D et Y:$01. La sortie est
+la moitié de leur somme, pondérée par Y:$0B et Y:$12. L'update recopie Y:$0C dans Y:$0E, Y:$0F et Y:$10.
+
+Le paquet de l'OS fait 14 mots (Y:$01-$0D). Y:$11 ($680) et Y:$12 ($400000) ne viennent donc que de l'init.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS : 152 710 échantillons non nuls, 0 échantillon et 0 mot d'état
+différents, les deux probes atteintes (les deux niveaux limités à un Hit). Onze mutations sur douze sont prises. La
+douzième écrit a1 au lieu de g dans Y:$01 de la mémoire partagée. Elle est équivalente en pratique : le test compare
+les blocs d'état de chaque voix, pas la mémoire partagée, et toute routine qui lit Y:$01 l'écrit d'abord. Le
+scénario des bancs a aussi été comparé à l'oracle pour TRX-CY, TRX-CH et TRX-CP : 3000 blocs, 0 différence.
+
+Revues du 2026-11-03 :
+- Revue de code : aucun écart avec le listing.
+- Revue d'architecture :
+  - Les ondes de TRX-CH passent dans `addChWaves` (`mdVoiceTrx.h`), que TRX-CH et TRX-CY appellent ; TRX-CY remplit
+    son tampon de zéros avant, ce qui vaut la première onde du DSP, stockée sans addition.
+  - Les deux blocs deux pôles de TRX-CP rangent leurs mots comme ceux de TRX-CY : `twoPoleStage` passe dans
+    `mdVoiceTrx.h`, et TRX-CP l'appelle deux fois. TRX-CH et TRX-SD gardent le leur, rangé autrement.
+- `/simplify` : le niveau de chaque voie et la sortie en un seul passage ; les commentaires remis à 120 colonnes.
+- Non appliqué : `addChWaves` onde par onde avec le retour au début une fois par bloc (gain non mesuré).
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-CY 1,12 µs, soit 2,47 %
+d'un cœur pour 16 voix ; TRX-CH 0,83 µs et TRX-CP 0,74 µs après le passage à `addChWaves` et `twoPoleStage`.
+
 Reste ouvert pour les TRX :
-- TRX-CY, MA, CL, XC, B2 et S2.
+- TRX-MA, CL, XC, B2 et S2.
 - La formule des tables de filtre.

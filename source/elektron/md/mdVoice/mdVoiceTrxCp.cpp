@@ -44,21 +44,7 @@ namespace md::voice::trx::cp
 
 		// A noise through two two-pole filters by Y:$09 and Y:$0A, kept at Y:$60
 		fibonacci(ring, y[0x15], y[0x16]);
-		{
-			const auto p = poles(offsetPole(t, y[9], y[0xa]));
-			iy[0] = p.a2;
-			iy[1] = p.g;
-			ix[0x5e] = y[0x24];
-			ix[0x5f] = y[0x23];
-			uint32_t h2 = y[0x21], h1 = y[0x22];
-			twoPoles(p, ring, h2, h1);
-			ix[0] = h2;
-			ix[1] = h1;
-			y[0x21] = h2;
-			y[0x22] = h1;
-			y[0x23] = ring[31];
-			y[0x24] = ring[30];
-		}
+		twoPoleStage(_c, poles(offsetPole(t, y[9], y[0xa])), 0x60, 0x21);
 		std::copy(ring, ring + 32, &iy[0x60]);
 
 		// The clap's noise, its level raised by a burst each time a counter (Y:$0C, then $0D, then $0E) runs, by a word
@@ -108,22 +94,7 @@ namespace md::voice::trx::cp
 		highPassStage(_c, poles(offsetPole(t, y[5], y[6])), 0x60, 0x00, 0x20, 0x17);
 
 		// Two two-pole filters by Y:$07 and Y:$08 over X:$20-$3F: the high-passed noise two samples late
-		{
-			const auto p = poles(offsetPole(t, y[7], y[8]));
-			iy[0] = p.a2;
-			iy[1] = p.g;
-			uint32_t* const in = &ix[0x20];
-			ix[0x1e] = y[0x20];
-			ix[0x1f] = y[0x1f];
-			uint32_t h2 = y[0x1d], h1 = y[0x1e];
-			twoPoles(p, in, h2, h1);
-			ix[0] = h2;
-			ix[1] = h1;
-			y[0x1d] = h2;
-			y[0x1e] = h1;
-			y[0x1f] = in[31];
-			y[0x20] = in[30];
-		}
+		twoPoleStage(_c, poles(offsetPole(t, y[7], y[8])), 0x20, 0x1d);
 
 		// The output: the clap plus the filtered noise at a level that decays by Y:$04 a block, a quarter of the sum
 		const uint32_t level = y[0xb];
