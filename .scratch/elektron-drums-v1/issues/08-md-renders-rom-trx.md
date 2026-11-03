@@ -87,6 +87,12 @@ Il faut donc rendre toute voix ROM ou TRX à chaque bloc, dans l'ordre des piste
 Coût mesuré (release, médiane de 9 passes, charge 19 %) : 0,47 µs par voix et par bloc de 32, soit 0,065 % d'un cœur
 par voix et 1,0 % pour 16 voix, sous les 0,07-0,3 % estimés.
 
+Découpe du 2026-11-03, un pur déplacement : `mdVoiceTrx.cpp` ne garde que `TrxTables` et `trx::routines` ;
+chaque machine a son fichier (`mdVoiceTrxBd.cpp`, `Sd`, `Xt`, `Cp`, `Rs`), et les fonctions partagées passent dans
+`mdVoiceTrx.h`, `inline`, avec les déclarations des routines. Le code déplacé est identique à la ligne près, hors
+indentation et `inline`. `mdVoicePortTest` donne la même sortie qu'avant, mot pour mot. Le `switch` de
+`trx::routines` reste : cinq cas, une table n'apporterait rien tant qu'il n'y en a pas davantage.
+
 Reste ouvert pour les TRX :
 - TRX-SD, XT, CP, RS, CB, CH, OH, CY, MA, CL, XC, B2 et S2.
 - Ce que joue une TRX dont la forme d'onde manque, sans flash image. Dans TRX-BD, l'attaque n'est alors plus que du
@@ -195,6 +201,12 @@ Revues du 2026-11-02 :
   commit de machine finira par rendre le test rouge sur un bord ROM sans rapport avec elle. À faire : un seul tirage
   qui choisit le genre de paquet fait main dans une liste, un poids fixe pour les ROM dans la phase de l'OS, et une
   boucle sur les types TRX pour le compte des échantillons et le contrôle des bords.
+
+Découpe du 2026-11-03, un pur déplacement : `mdVoiceTrx.cpp` ne garde que `TrxTables` et `trx::routines` ;
+chaque machine a son fichier (`mdVoiceTrxBd.cpp`, `Sd`, `Xt`, `Cp`, `Rs`), et les fonctions partagées passent dans
+`mdVoiceTrx.h`, `inline`, avec les déclarations des routines. Le code déplacé est identique à la ligne près, hors
+indentation et `inline`. `mdVoicePortTest` donne la même sortie qu'avant, mot pour mot. Le `switch` de
+`trx::routines` reste : cinq cas, une table n'apporterait rien tant qu'il n'y en a pas davantage.
 
 Reste ouvert pour les TRX :
 - TRX-CP, RS, CB, CH, OH, CY, MA, CL, XC, B2 et S2.
@@ -321,6 +333,12 @@ Non appliqué, noté pour plus tard :
 - Un paquet fait main générique pour tous les TRX (mots au hasard, certains à 0), à la place de `XtOnThreshold`. Il
   rendrait visibles les lectures hors table ci-dessus.
 - Petits gains : bornes vérifiées une fois par bloc pour les ondes, ordre des tests dans `yRead` (ROM).
+
+Découpe du 2026-11-03, un pur déplacement : `mdVoiceTrx.cpp` ne garde que `TrxTables` et `trx::routines` ;
+chaque machine a son fichier (`mdVoiceTrxBd.cpp`, `Sd`, `Xt`, `Cp`, `Rs`), et les fonctions partagées passent dans
+`mdVoiceTrx.h`, `inline`, avec les déclarations des routines. Le code déplacé est identique à la ligne près, hors
+indentation et `inline`. `mdVoicePortTest` donne la même sortie qu'avant, mot pour mot. Le `switch` de
+`trx::routines` reste : cinq cas, une table n'apporterait rien tant qu'il n'y en a pas davantage.
 
 Reste ouvert pour les TRX :
 - TRX-CB, CH, OH, CY, MA, CL, XC, B2 et S2.
