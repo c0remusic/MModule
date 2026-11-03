@@ -419,13 +419,29 @@ Revues du 2026-11-03 :
 - Non appliqué, noté pour plus tard :
   - Le bloc « deux pôles et son état » partagé (quatre copies : TRX-SD, TRX-CP deux fois, TRX-CH). Chaque copie range
     les mots de scratch et d'état dans son propre ordre, et la fonction aurait besoin d'options d'ordre.
-  - `highPassBiquad` dans `mdVoiceTrx.h` dès que TRX-OH ou TRX-CY reprend la même boucle.
+  - `highPassBiquad` dans `mdVoiceTrx.h` dès que TRX-CY reprend la même boucle (TRX-OH joue le code de TRX-CH lui-même).
   - Les deux biquads en un seul passage, et des pôles gardés d'un bloc à l'autre.
   - La table de dispatch, avec la prochaine machine, après avoir vérifié que les types qui restent se suivent.
 
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-CH 0,96 µs, soit 2,11 %
 d'un cœur pour 16 voix.
 
+## TRX-OH
+
+Le code de TRX-OH (type 24 : init $1021F4, update $102209, render $102222) est celui de TRX-CH, mot pour mot. Sur les
+469 mots, seuls 14 diffèrent, et ce sont les adresses de fin de ses boucles `DO`, puisque le code est ailleurs. Il lit
+les mêmes ondes en X:$102600 ; seuls les paquets de l'OS le distinguent de TRX-CH. `trx::routines` donne donc au type
+24 les routines de TRX-CH. Les deux types diffèrent : une voix qui passe de l'un à l'autre lance l'init, comme sur le
+DSP.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS : 141 312 échantillons non nuls, 0 échantillon et 0 mot d'état
+différents. Donner au type 24 les routines de TRX-CB fait échouer le test au bloc 154. Avec une machine de plus dans le
+tirage, la fin de l'onde de TRX-SD (128 blocs sans autre Hit) n'était plus atteinte. La première phase du test passe
+donc de 4000 à 6000 blocs, et le test dure 4,6 s, loin de son délai de 120 s.
+
+Revue du 2026-11-03 (code et architecture ensemble, le changement tenant en quelques lignes) : rien à corriger dans le
+code ; les listes des machines portées (`mdVoice.h`, `CLAUDE.md`) complétées. `/simplify` : rien à simplifier.
+
 Reste ouvert pour les TRX :
-- TRX-OH, CY, MA, CL, XC, B2 et S2.
+- TRX-CY, MA, CL, XC, B2 et S2.
 - La formule des tables de filtre.
