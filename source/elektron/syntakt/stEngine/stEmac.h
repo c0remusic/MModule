@@ -261,6 +261,14 @@ namespace syntakt
 		return e.storeClear();
 	}
 
+	// `msac` into a cleared accumulator then `movclr`, MACSR 0x20: the product negated
+	inline int32_t negFracWrap(const int32_t _y, const int32_t _x)
+	{
+		EmacWrap e;
+		e.msac(_y, _x);
+		return e.storeClear();
+	}
+
 	// add.l then sats.l: the 32-bit sum, saturated where it overflows
 	inline int32_t addSat(const int32_t _a, const int32_t _b)
 	{
@@ -284,6 +292,12 @@ namespace syntakt
 	inline int32_t subWrap(const int32_t _a, const int32_t _b)
 	{
 		return static_cast<int32_t>(static_cast<uint32_t>(_a) - static_cast<uint32_t>(_b));
+	}
+
+	// mulu.l or muls.l: the low 32 bits of the product
+	inline int32_t mulWrap(const int32_t _a, const int32_t _b)
+	{
+		return static_cast<int32_t>(static_cast<uint32_t>(_a) * static_cast<uint32_t>(_b));
 	}
 
 	inline int32_t neg(const int32_t _v) { return subWrap(0, _v); }

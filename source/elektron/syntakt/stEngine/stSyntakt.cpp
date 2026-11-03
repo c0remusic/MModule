@@ -2,9 +2,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <chrono>
 #include <cmath>
-#include <cstring>
 #include <utility>
 
 #include "stBoot.h"
@@ -33,6 +33,7 @@ namespace syntakt
 		constexpr uint32_t DescriptorBytes = 52;
 		constexpr uint32_t DefaultMachines = 0x4022c8d8;
 		constexpr int TrackLevelDescriptor = 10;	// "Track Level", the engine copy's word t
+		constexpr int IndexGroups = 64;				// the groups the index holds: the machines' and the tracks'
 
 		// The descriptor groups a track's parameters belong to, besides its machine's own (whose group is its id):
 		// the amp, the filter, the glide, the two LFOs; the FX track's: the reverb, the delay, the external input,
@@ -41,8 +42,7 @@ namespace syntakt
 		constexpr int FxGroups[] = {49, 50, 52, 53, 54, 59, 60};
 
 		// Memory the OS's start leaves as it is, which the module sets for a digital track to sound as on the machine
-		constexpr uint32_t KitPointer = 0x800030b8;		// the kit, 0x123 bytes per track; byte 205: velocity curve
-		constexpr uint32_t KitBytes = 0x41b9c000;		// a page of the port's memory the pointer can aim at
+		constexpr uint32_t KitBytes = 0x41b9c000;		// a page of the port's memory main::KitPointer can aim at
 		constexpr uint32_t LevelToStems = 0x80003145;	// non-zero: LEV scales the stems as it scales the buses
 		constexpr uint32_t TrackSettings = 124;
 
@@ -78,6 +78,8 @@ namespace syntakt
 			uint32_t nextGateOffs = 0;	// the next block's: notes that ended in the block they started in
 			uint32_t held = 0;			// notes whose gate is open
 			std::array<int32_t, Voices * BlockSize> voices{};	// the voice CPU's last block, which the mix takes next
+			// The first descriptor of each group below IndexGroups and id below FxParameterEnd, -1 for none
+			std::array<std::array<int16_t, Syntakt::FxParameterEnd>, IndexGroups> descriptorIndex{};
 
 			Machine(const main::Section3& _section3, const std::vector<int32_t>& _section7, const bool _effects)
 				: mem(_section3), rom{_section7.data()}
@@ -88,74 +90,78 @@ namespace syntakt
 					mem.reserveLines();
 				for(auto& l : locks)
 					l.reserve(MaxLocks);
+				indexDescriptors();
 				boot(sram, globals, rom);
 				initialize(_effects);
 			}
 
-			// The default of internal id _id in descriptor group _group (the first descriptor naming it); false if none
-			bool descriptorDefault(const int _group, const int _id, uint16_t& _value) const
+			// Each (group, id) of the index's range: the first descriptor naming it, read once from section 3, so
+			// that a lookup (setMachine, on the audio thread) does not scan the 505
+			void indexDescriptors()
 			{
-				for(int i = 0; i < DescriptorCount; ++i)
+				for(auto& ids : descriptorIndex)
+					ids.fill(-1);
+				for(int i = DescriptorCount - 1; i >= 0; --i)
 				{
 					const uint32_t d = Descriptors + DescriptorBytes * static_cast<uint32_t>(i);
-					if(mem.word(d) != _group || mem.word(d + 4) != _id)
-						continue;
-					_value = static_cast<uint16_t>(mem.word(d + 16));
-					return true;
+					const int32_t group = mem.word(d), id = mem.word(d + 4);
+					if(group >= 0 && group < IndexGroups && id >= 0 && id < Syntakt::FxParameterEnd)
+						descriptorIndex[static_cast<size_t>(group)][static_cast<size_t>(id)] = static_cast<int16_t>(i);
 				}
-				return false;
 			}
 
-			// The range of internal id _id in descriptor group _group (the first descriptor naming it); false if none
-			bool descriptorRange(const int _group, const int _id, Syntakt::Range& _range) const
+			// The address of internal id _id's descriptor in group _group (the first naming it); 0 if none
+			uint32_t descriptor(const int _group, const int _id) const
 			{
+				if(_group >= 0 && _group < IndexGroups && _id >= 0 && _id < Syntakt::FxParameterEnd)
+				{
+					const int16_t i = descriptorIndex[static_cast<size_t>(_group)][static_cast<size_t>(_id)];
+					return i < 0 ? 0 : Descriptors + DescriptorBytes * static_cast<uint32_t>(i);
+				}
 				for(int i = 0; i < DescriptorCount; ++i)
 				{
 					const uint32_t d = Descriptors + DescriptorBytes * static_cast<uint32_t>(i);
-					if(mem.word(d) != _group || mem.word(d + 4) != _id)
-						continue;
-					_range.min = static_cast<uint16_t>(mem.word(d + 8));
-					_range.max = static_cast<uint16_t>(mem.word(d + 12));
-					return true;
+					if(mem.word(d) == _group && mem.word(d + 4) == _id)
+						return d;
 				}
-				return false;
+				return 0;
+			}
+
+			// The descriptor of track _t's internal id _id under machine _machine: the FX track's in its groups, else
+			// the machine's own group's, then the track groups'; 0 if none
+			uint32_t descriptorOf(const int _machine, const int _t, const int _id) const
+			{
+				if(_t == FxTrack)
+				{
+					for(const int g : FxGroups)
+						if(const uint32_t d = descriptor(g, _id))
+							return d;
+					return 0;
+				}
+				if(const uint32_t d = descriptor(_machine, _id))
+					return d;
+				for(const int g : TrackGroups)
+					if(const uint32_t d = descriptor(g, _id))
+						return d;
+				return 0;
 			}
 
 			// As defaultOf, the range
 			Syntakt::Range rangeOf(const int _machine, const int _t, const int _id) const
 			{
-				Syntakt::Range r;
-				if(_t == FxTrack)
-				{
-					for(const int g : FxGroups)
-						if(descriptorRange(g, _id, r))
-							return r;
+				const uint32_t d = descriptorOf(_machine, _t, _id);
+				if(!d)
 					return {};
-				}
-				if(descriptorRange(_machine, _id, r))
-					return r;
-				for(const int g : TrackGroups)
-					if(descriptorRange(g, _id, r))
-						return r;
-				return {};
+				Syntakt::Range r;
+				r.min = static_cast<uint16_t>(mem.word(d + 8));
+				r.max = static_cast<uint16_t>(mem.word(d + 12));
+				return r;
 			}
 
 			uint16_t defaultOf(const int _machine, const int _t, const int _id) const
 			{
-				uint16_t v = 0;
-				if(_t == FxTrack)
-				{
-					for(const int g : FxGroups)
-						if(descriptorDefault(g, _id, v))
-							return v;
-					return 0;
-				}
-				if(descriptorDefault(_machine, _id, v))
-					return v;
-				for(const int g : TrackGroups)
-					if(descriptorDefault(g, _id, v))
-						return v;
-				return 0;
+				const uint32_t d = descriptorOf(_machine, _t, _id);
+				return d ? static_cast<uint16_t>(mem.word(d + 16)) : 0;
 			}
 
 			void setKit(const int _t, const int _id, const uint16_t _value)
@@ -190,7 +196,7 @@ namespace syntakt
 				for(uint32_t i = 0; i < main::EngineWords; ++i)
 					mem.setWord(main::SmoothState + 4 * i, mem.half(main::Engine + 2 * i) * 65536);
 
-				mem.setWord(KitPointer, static_cast<int32_t>(KitBytes));
+				mem.setWord(main::KitPointer, static_cast<int32_t>(KitBytes));
 				mem.setByte(LevelToStems, 1);
 				mem.setWord(main::VoiceOutputDma, 1);
 				mem.setWord(main::Tempo, 120 * 120);
@@ -204,7 +210,8 @@ namespace syntakt
 
 			// The block's outputs from the Overbridge frames and the two buses: the stems from _stems on, the buses at
 			// _direct and _fx (each L then R), the returns when _returns
-			template<typename Run>
+			using Run = main::BytesRun<const uint8_t>;
+
 			void takeOutputs(int32_t* _out, const Run& _frames, const Run& _directBus, const Run& _fxBus,
 				const int _stems, const int _direct, const int _fx, const bool _returns) const
 			{
@@ -252,29 +259,20 @@ namespace syntakt
 				main::Emac4 acc;
 				main::mixOutput(mem, acc, main::Smoothed, _join, _sends);
 
-				// The Overbridge frames and the buses in SRAM, on the bytes the memory gives whole, else through it
-				const bool returns = !_sends;
+				// The Overbridge frames and the buses in SRAM, whose bytes the memory always gives whole
 				const uint8_t* frames = mem.bytesAt(main::Overbridge, 0x50 * BlockSize);
 				const uint8_t* direct = mem.bytesAt(main::DirectBus, 8 * BlockSize);
 				const uint8_t* fx = mem.bytesAt(main::FxBus, 8 * BlockSize);
-				if(frames && direct && fx)
-					takeOutputs(_out, main::BytesRun<const uint8_t>{frames}, main::BytesRun<const uint8_t>{direct},
-						main::BytesRun<const uint8_t>{fx}, _stems, _direct, _fx, returns);
-				else
-					takeOutputs(_out, main::MemoryRun{mem, main::Overbridge}, main::MemoryRun{mem, main::DirectBus},
-						main::MemoryRun{mem, main::FxBus}, _stems, _direct, _fx, returns);
+				assert(frames && direct && fx);
+				takeOutputs(_out, Run{frames}, Run{direct}, Run{fx}, _stems, _direct, _fx, !_sends);
 			}
 
-			// The voice CPU's turn
+			// The voice CPU's turn, on the block in CPU #1's SRAM, which runBlock only reads
 			void renderVoices()
 			{
-				uint8_t bytes[main::BlockBytes];
-				if(const uint8_t* block = mem.bytesAt(main::Block, main::BlockBytes))
-					std::memcpy(bytes, block, main::BlockBytes);
-				else
-					for(uint32_t i = 0; i < main::BlockBytes; ++i)
-						bytes[i] = mem.byte(main::Block + i);
-				runBlock(sram, globals, rom, bytes);
+				const uint8_t* block = mem.bytesAt(main::Block, main::BlockBytes);
+				assert(block);
+				runBlock(sram, globals, rom, block);
 				std::copy_n(sram.ptr(VoiceOut), voices.size(), voices.data());
 			}
 		};
@@ -361,13 +359,9 @@ namespace syntakt
 
 	bool Syntakt::isPorted(const int _machine) const
 	{
-		// As VoiceCpu::isPorted: the voice CPU's map sends every analog machine to engine 0, BD MODERN's
 		if(_machine < 0 || _machine > 44)
 			return false;
-		const int32_t id = engineOf(m_state->a->rom, _machine);
-		if(id == 0 && _machine != 0)
-			return false;
-		return engine(static_cast<uint32_t>(id)) != nullptr;
+		return isPortedMachine(m_state->a->rom, _machine);
 	}
 
 	bool Syntakt::setMachine(const int _track, const int _machine)

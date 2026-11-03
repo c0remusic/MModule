@@ -38,7 +38,6 @@ namespace syntakt::spTwinshot
 		// Tables of section 7
 		constexpr uint32_t AmpDecay = 0x4003ec38;	// 128 entries
 		constexpr uint32_t Pole = 0x40014980;		// 128 entries: the band-pass's one-pole coefficients
-		constexpr uint32_t Exp2 = 0x8000a888;		// the RAM exp2 table, 2048 entries
 
 		// Entry _i of the sample directory at 0x4404f754, outside SRAM and section 7: the caller's samples, or as the
 		// voice CPU's boot leaves it without them, every length 0 and entry i pointing at 0x4004f754 + 4 i

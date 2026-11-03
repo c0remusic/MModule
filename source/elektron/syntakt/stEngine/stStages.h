@@ -2,10 +2,29 @@
 
 #include <cstdint>
 
+#include "stEmac.h"
 #include "stVoice.h"
 
 namespace syntakt
 {
+	// A wave read at index _i and fraction _f, linearly interpolated: move.l t[i], mac.l f,t[i+1], msac.l f,t[i],
+	// movclr.l (saturating)
+	inline int32_t lookup(const int32_t* _table, const int32_t _i, const int32_t _f)
+	{
+		// load, mac, msac at once (EmacT::loadMacs)
+		Emac acc;
+		acc.loadMacs(_table[_i], Mac{_f, _table[_i + 1]}, Msac{_f, _table[_i]});
+		return acc.storeClear();
+	}
+
+	// The lookup at a phase sum, which it clears: index from bits 16-23, fraction from bits 0-15
+	template<typename Phase>
+	int32_t lookup(const int32_t* _table, Phase& _phase)
+	{
+		const int32_t p = _phase.storeClear();
+		return lookup(_table, (p & 0xffffff) >> 16, asl(p & 0xffff, 15));
+	}
+
 	// ff1.l: leading zeros, 32 for 0
 	int32_t ff1(int32_t _v);
 

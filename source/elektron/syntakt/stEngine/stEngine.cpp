@@ -32,6 +32,14 @@ namespace syntakt
 		return static_cast<int8_t>(_rom.byte(MachineToEngine + static_cast<uint32_t>(_machine)));
 	}
 
+	bool isPortedMachine(const Rom& _rom, const int _machine)
+	{
+		const int32_t id = engineOf(_rom, _machine);
+		if(id == 0 && _machine != 0)
+			return false;
+		return engine(static_cast<uint32_t>(id)) != nullptr;
+	}
+
 	void renderVoices(Sram& _sram, Globals& _g, const Rom& _rom, const uint32_t _out, const uint32_t _params,
 		const int32_t _trig, const int32_t _gateOff, const AfterUpdate _afterUpdate, void* _ctx)
 	{

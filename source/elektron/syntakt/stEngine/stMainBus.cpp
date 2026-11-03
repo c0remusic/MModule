@@ -9,6 +9,18 @@ namespace syntakt::main
 	{
 		constexpr uint32_t AnalogLevels = 0x401e08e0;	// a long per machine id
 
+		// A mix of the bus routines' msac.l: on big-endian bytes, negated, saturated as MACSR's OMC says
+		simd::RampMix busMix(const Emac4& _acc, const uint32_t _srcStride, const uint32_t _dstStride)
+		{
+			simd::RampMix m{};
+			m.srcStride = _srcStride;
+			m.dstStride = _dstStride;
+			m.negate = true;
+			m.saturate = (_acc.macsr() & Emac4::Omc) != 0;
+			m.bigEndian = true;
+			return m;
+		}
+
 		// sumChannels' frames from _first on, from a clear accumulator in fractional mode (each frame's movclr
 		// leaves it clear for the next), on the buffers' and the bus side's bytes: a frame's Channels products sum
 		// in 64 bits at once (Emac4::sumRun, at most MaxRunTerms). Read and written in the steps' order, the bytes
@@ -66,7 +78,7 @@ namespace syntakt::main
 		}
 		if(i < BlockFrames && simd::avx2())
 		{
-			simd::RampMix m{};
+			simd::RampMix m = busMix(acc, 4, 8);
 			for(int k = 0; k < _channels; ++k)
 			{
 				m.src[k] = src[k];
@@ -75,13 +87,8 @@ namespace syntakt::main
 				gains[k] = simd::ramped(gains[k], _steps[k], BlockFrames - i);
 			}
 			m.channels = _channels;
-			m.srcStride = 4;
 			m.dst = dst;
-			m.dstStride = 8;
 			m.first = i;
-			m.negate = true;
-			m.saturate = (acc.macsr() & Emac4::Omc) != 0;
-			m.bigEndian = true;
 			simd::rampMixAvx2(m);
 		}
 		else if(i < BlockFrames)
@@ -119,18 +126,13 @@ namespace syntakt::main
 		{
 			if(vector && _acc.fractional() && _acc.clear(0) && _acc.clear(1))
 			{
-				simd::RampMix m{};
+				simd::RampMix m = busMix(_acc, 8, 8);
 				m.gains[0] = _gains[0];
 				m.gains[1] = _gains[1];
 				m.steps[0] = _steps[0];
 				m.steps[1] = _steps[1];
 				m.channels = 2;
-				m.srcStride = 8;
-				m.dstStride = 8;
 				m.first = i;
-				m.negate = true;
-				m.saturate = (_acc.macsr() & Emac4::Omc) != 0;
-				m.bigEndian = true;
 				for(uint32_t side = 0; side < 8; side += 4)
 				{
 					m.src[0] = src + side;
@@ -207,18 +209,13 @@ namespace syntakt::main
 			{
 				if(simd::avx2())
 				{
-					simd::RampMix m{};
+					simd::RampMix m = busMix(acc, 4, 4);
 					m.src[0] = buffer;
 					m.gains[0] = gain;
 					m.steps[0] = step;
 					m.channels = 1;
-					m.srcStride = 4;
 					m.dst = buffer;
-					m.dstStride = 4;
 					m.first = i;
-					m.negate = true;
-					m.saturate = (acc.macsr() & Emac4::Omc) != 0;
-					m.bigEndian = true;
 					simd::rampMixAvx2(m);
 					break;
 				}

@@ -51,37 +51,6 @@ namespace
 		return text;
 	}
 
-	// The scenario through the interface: between calls, renders of uneven lengths, as a host's blocks
-	std::vector<int32_t> play(Syntakt& _st, const std::vector<Call>& _calls)
-	{
-		std::vector<int32_t> out(Channels * Total);
-		std::vector<int32_t> chunk(Channels * 128);
-		int32_t* outputs[Channels];
-		size_t position = 0, next = 0;
-		uint32_t lcg = 1;
-		auto renderTo = [&](const size_t _end)
-		{
-			while(position < _end)
-			{
-				lcg = lcg * 1664525u + 1013904223u;
-				const size_t n = std::min<size_t>(_end - position, 1 + (lcg >> 24) % 100);
-				for(int c = 0; c < Channels; ++c)
-					outputs[c] = chunk.data() + 128 * c;
-				_st.render(outputs, n);
-				for(int c = 0; c < Channels; ++c)
-					std::copy_n(outputs[c], n, out.data() + Total * c + position);
-				position += n;
-			}
-		};
-		for(; next < _calls.size(); ++next)
-		{
-			renderTo(_calls[next].at);
-			apply(_st, _calls[next]);
-		}
-		renderTo(Total);
-		return out;
-	}
-
 	// syntakt3.py's "ST1E": u32 blocks, u32 channels, then per block each channel's 32 samples, little-endian
 	bool readExpected(const std::string& _path, std::vector<int32_t>& _out)
 	{
@@ -216,7 +185,7 @@ int main(const int _argc, char** _argv)
 
 	Syntakt st(section3, section7);
 	st.setSamples(&samples);
-	const auto out = play(st, calls);
+	const auto out = play(st, calls).samples;
 	if(!rawPath.empty())
 	{
 		std::ofstream f(rawPath, std::ios::binary);

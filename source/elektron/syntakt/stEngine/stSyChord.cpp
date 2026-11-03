@@ -11,9 +11,6 @@ namespace syntakt::syChord
 {
 	namespace
 	{
-		// Scratch in SRAM: the oscillator's two waves and gains, which it leaves there
-		constexpr uint32_t OscillatorScratch = 0x8000a064;
-
 		// Tables of section 7 (128 entries unless said)
 		constexpr uint32_t AmpDecay = 0x40025e38;
 		constexpr uint32_t EnvAttack = 0x40024c08;	// 40 entries
@@ -26,7 +23,6 @@ namespace syntakt::syChord
 		constexpr uint32_t Cutoff = 0x40025808;
 		constexpr uint32_t Pole = 0x40025608;
 		constexpr uint32_t Waves = 0x40014870;		// 32 wave pointers
-		constexpr uint32_t Exp2 = 0x8000a888;
 
 		// 0x40002770: wave _n of the wavetable, 1 to 32, else the RAM sine
 		uint32_t wave(const int32_t _n, const Rom& _rom)
@@ -111,16 +107,6 @@ namespace syntakt::syChord
 				_v.at(0x14) = 0;
 		}
 
-		// One wave read at the phase, linearly interpolated
-		int32_t lookup(const int32_t* _table, const int32_t _i, const int32_t _f)
-		{
-			Emac acc;
-			acc.load(_table[_i]);
-			acc.mac(_f, _table[_i + 1]);
-			acc.msac(_f, _table[_i]);
-			return acc.storeClear();
-		}
-
 		// 0x400032b4: unit _k's oscillator, 32 samples at 48 kHz, two waves crossfaded with gains ramped over the
 		// block, into its buffers A (scaled by the unit's envelope) and B (raw). The gains of the low and high wave
 		// (0xa8, 0xac) ramp to 1 - position and position; when the wave index moved by one the ramps carry on from
@@ -189,7 +175,7 @@ namespace syntakt::syChord
 			const int32_t* t2 = table(sram, _rom, static_cast<uint32_t>(wave2));
 			const int32_t inc = _v.unit(_k, 0x78);
 			int32_t amount = _v.unit(_k, Voice::EnvLevelPrev);
-			const int32_t amountStep = subSat(_v.unit(_k, Voice::EnvLevel), amount) >> 5;
+			const int32_t amountStep = rampStepSat(_v.unit(_k, Voice::EnvLevel), amount);
 			int32_t phase = _v.unit(_k, Voice::Phase);
 
 			for(int n = 0; n < BlockSize; ++n)

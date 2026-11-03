@@ -175,7 +175,7 @@ namespace syntakt::cpVintage
 
 			const int32_t target = _v.at(e + 0x5a4);
 			int32_t g = _v.at(e + 0x5a8);
-			const int32_t step = subSat(target, g) >> 5;
+			const int32_t step = rampStepSat(target, g);
 			for(int n = 0; n < BlockSize; ++n)
 			{
 				Emac acc;

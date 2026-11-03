@@ -32,6 +32,7 @@
 #include "stMainMemory.h"
 #include "stSection7.h"
 #include "stSyntakt.h"
+#include "stSyntaktScenario.h"
 #include "stVoice.h"
 
 namespace
@@ -42,22 +43,6 @@ namespace
 	constexpr int Block = syntakt::BlockSize;
 	constexpr double Period = static_cast<double>(Block) / Syntakt::SampleRate;	// 667 us
 	constexpr int StepSamples = Syntakt::SampleRate / 8;							// 1/16 at 120 BPM
-
-	bool readSamples(const std::string& _path, syntakt::Samples& _samples)
-	{
-		const std::vector<uint8_t> blob = syntakt::readFile(_path);
-		constexpr size_t header = 4 + 8 * 64 + 8;
-		if(blob.size() < header || std::string(blob.begin(), blob.begin() + 4) != "STS1")
-			return false;
-		for(size_t i = 0; i < _samples.directory.size(); ++i)
-			_samples.directory[i] = {syntakt::be32(&blob[4 + 8 * i]), syntakt::be32(&blob[8 + 8 * i])};
-		_samples.base = syntakt::be32(&blob[4 + 8 * 64]);
-		const uint32_t size = syntakt::be32(&blob[8 + 8 * 64]);
-		if(blob.size() != header + size)
-			return false;
-		_samples.data.assign(blob.begin() + header, blob.end());
-		return true;
-	}
 
 	// The process's private bytes
 	double privateBytes()
@@ -168,7 +153,7 @@ int main(const int _argc, char** _argv)
 	const auto section3 = syntakt::main::loadSection3(section3Path);
 	const auto section7 = syntakt::loadSection7(section7Path);
 	syntakt::Samples samples;
-	if(section3.bytes.empty() || section7.empty() || !readSamples(samplesPath, samples))
+	if(section3.bytes.empty() || section7.empty() || !syntakt::test::readSamples(samplesPath, samples))
 	{
 		std::printf("FAIL: cannot read OS 1.41's sections 3 and 7 or the samples\n");
 		return 1;

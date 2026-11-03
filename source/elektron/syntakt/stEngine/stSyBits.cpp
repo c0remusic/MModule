@@ -13,7 +13,6 @@ namespace syntakt::syBits
 	{
 		// Scratch buffers in SRAM, as the original lays them out for this engine
 		constexpr uint32_t Noise = bufferB(3);
-		constexpr uint32_t Scratch = 0x8000a064;	// the crossfading oscillator's working words
 
 		// The band-limited waves the update starts from
 		constexpr uint32_t WaveFirst = 0x8000e094;
@@ -40,15 +39,9 @@ namespace syntakt::syBits
 		}
 
 		// Linear interpolation in a 513-entry wave at a 25-bit phase: index from bits 16-24, fraction from 0-15
-		int32_t lookup(const int32_t* _wave, const int32_t _phase)
+		int32_t waveAt(const int32_t* _wave, const int32_t _phase)
 		{
-			const int32_t i = _phase >> 16;
-			const int32_t f = asl(_phase & 0xffff, 15);
-			Emac acc;
-			acc.load(_wave[i]);
-			acc.mac(f, _wave[i + 1]);
-			acc.msac(f, _wave[i]);
-			return acc.storeClear();
+			return lookup(_wave, _phase >> 16, asl(_phase & 0xffff, 15));
 		}
 	}
 
@@ -79,7 +72,7 @@ namespace syntakt::syBits
 		_v.at(u + 0xb8) = _v.at(u + 0xb0);
 		_v.at(u + 0xbc) = _v.at(u + 0xb4);
 
-		int32_t* s = sram.ptr(Scratch);
+		int32_t* s = sram.ptr(OscillatorScratch);
 		s[0] = 15;
 		s[1] = 16;
 		s[2] = static_cast<int32_t>(waveFirst);
@@ -92,8 +85,8 @@ namespace syntakt::syBits
 		int32_t phase = _v.at(u + Voice::Phase);
 		for(int n = 0; n < BlockSize; ++n)
 		{
-			const int32_t s1 = lookup(wave1, phase);
-			const int32_t s2 = lookup(wave2, phase);
+			const int32_t s1 = waveAt(wave1, phase);
+			const int32_t s2 = waveAt(wave2, phase);
 			Emac acc;
 			acc.mac(s[4], s1);
 			acc.mac(s[5], s2);
@@ -129,7 +122,7 @@ namespace syntakt::syBits
 		int32_t phase = _v.at(u + Voice::Phase);
 		for(int n = 0; n < BlockSize; ++n)
 		{
-			const int32_t x = lookup(wave, addWrap(phase, offset) & 0x1ffffff);
+			const int32_t x = waveAt(wave, addWrap(phase, offset) & 0x1ffffff);
 			offset = addWrap(offset, offsetStep);
 			phase = addWrap(phase, inc) & 0x1ffffff;
 			Emac acc;
@@ -266,7 +259,7 @@ namespace syntakt::syBits
 			const int32_t oct = frac(addWrap(p, static_cast<int32_t>(0xffbb0000)), 0x0aaaaaab);
 			const int32_t i = (oct & 0xffff) >> 5;
 			const int32_t shift = subWrap(5, oct >> 16);
-			const int32_t e = asrReg(frac(0x6e000000, sram.at(0x8000a888 + 4 * static_cast<uint32_t>(i))), shift);
+			const int32_t e = asrReg(frac(0x6e000000, sram.at(Exp2 + 4 * static_cast<uint32_t>(i))), shift);
 			const int32_t base = addSat(_v.at(0x168), e);
 			int32_t sweep = frac(addWrap(_v.at(0x3f8), static_cast<int32_t>(0xfc000000)), _v.at(0x400));
 			sweep = addWrap(sweep, 0x04000000);

@@ -9,16 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "stEmac.h"
 #include "stSection7.h"
-
-// Inlined whatever the compiler's heuristics say: the mix's and the memory's hottest calls, which MSVC leaves as calls
-#ifndef ST_FORCE_INLINE
-#	ifdef _MSC_VER
-#		define ST_FORCE_INLINE __forceinline
-#	else
-#		define ST_FORCE_INLINE inline __attribute__((always_inline))
-#	endif
-#endif
 
 // The Syntakt's main CPU (CPU #1, OS 1.41's section 3) where the port's routines read and write it. The addresses are
 // the firmware's: the routines rely on the layout (.scratch/elektron-engines/cpu1.md).
@@ -30,6 +22,10 @@ namespace syntakt::main
 	constexpr uint32_t Settings = 0x80002904;		// 13 tracks' settings, 124 bytes each, right after the engine copy
 	constexpr uint32_t SettingsBytes = 0x64c;
 	constexpr uint32_t Machines = 0x80002f50;		// a machine id byte per track
+	constexpr int32_t SpTwinshot = 44;				// SP TWINSHOT's machine id
+	constexpr uint32_t KitPointer = 0x800030b8;		// a long: the kit, 0x123 bytes per track; byte 205 velocity curve
+	constexpr uint32_t Poles = 0x4029bffc;			// 512 one-pole coefficients, Q31
+	constexpr uint32_t DelayWrite = 0x8000dac8;		// the delay ring's write position, frames
 	constexpr uint32_t Smoothed = 0x80006348;		// the smoothed copy, same layout as the engine copy
 	constexpr uint32_t SettingsCopy = 0x80006a9c;	// the settings, copied unsmoothed after it
 	constexpr uint32_t SmoothState = 0x8000e9b0;	// a long per engine word: the smoothing's state, Q31
@@ -55,10 +51,7 @@ namespace syntakt::main
 	inline Section3 loadSection3(const std::string& _path)
 	{
 		Section3 s{readFile(_path)};
-		uint64_t h = 0xcbf29ce484222325;
-		for(const uint8_t b : s.bytes)
-			h = (h ^ b) * 0x100000001b3;
-		if(s.bytes.size() != Section3Size || h != Section3Fnv)
+		if(s.bytes.size() != Section3Size || fnv1a64(s.bytes) != Section3Fnv)
 			s.bytes.clear();
 		return s;
 	}

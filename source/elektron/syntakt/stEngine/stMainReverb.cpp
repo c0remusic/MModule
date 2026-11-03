@@ -10,7 +10,6 @@ namespace syntakt::main
 	namespace
 	{
 		constexpr uint32_t Frames = 32;
-		constexpr uint32_t Poles = 0x4029bffc;
 		constexpr uint32_t Shelves = 0x4029b7fc;		// FREQ's coefficient, by its high byte
 		constexpr uint32_t Decays = 0x4029b6fc;			// DEC's diffusion gain, by its high byte, 64 of them
 		constexpr uint32_t Interpolation = 0x4029b9fc;	// 32 sets of 8 taps

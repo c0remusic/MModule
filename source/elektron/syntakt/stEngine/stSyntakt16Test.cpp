@@ -31,48 +31,6 @@ namespace
 	using syntakt::Syntakt;
 	using namespace syntakt::test;
 
-	// A module's outputs over the Total samples, channel after channel
-	struct Rendered
-	{
-		int channels = 0;
-		std::vector<int32_t> samples;
-
-		const int32_t* channel(const int _c) const { return samples.data() + Total * static_cast<size_t>(_c); }
-	};
-
-	// The calls through the interface: between calls, renders of uneven lengths, as a host's blocks
-	Rendered play(Syntakt& _st, const std::vector<Call>& _calls)
-	{
-		Rendered out;
-		out.channels = _st.outputs();
-		out.samples.assign(Total * static_cast<size_t>(out.channels), 0);
-		std::vector<int32_t> chunk(128 * static_cast<size_t>(out.channels));
-		std::vector<int32_t*> outputs(static_cast<size_t>(out.channels));
-		size_t position = 0;
-		uint32_t lcg = 1;
-		auto renderTo = [&](const size_t _end)
-		{
-			while(position < _end)
-			{
-				lcg = lcg * 1664525u + 1013904223u;
-				const size_t n = std::min<size_t>(_end - position, 1 + (lcg >> 24) % 100);
-				for(int c = 0; c < out.channels; ++c)
-					outputs[static_cast<size_t>(c)] = chunk.data() + 128 * c;
-				_st.render(outputs.data(), n);
-				for(int c = 0; c < out.channels; ++c)
-					std::copy_n(outputs[static_cast<size_t>(c)], n, out.samples.data() + Total * c + position);
-				position += n;
-			}
-		};
-		for(const auto& c : _calls)
-		{
-			renderTo(c.at);
-			apply(_st, c);
-		}
-		renderTo(Total);
-		return out;
-	}
-
 	bool trackCall(const Call& _c)
 	{
 		return _c.kind != Kind::Tempo && _c.kind != Kind::Fx;

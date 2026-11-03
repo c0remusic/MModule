@@ -8,7 +8,6 @@ namespace syntakt::main
 	namespace
 	{
 		constexpr uint32_t Frames = 32;
-		constexpr uint32_t Poles = 0x4029bffc;
 		constexpr uint32_t Fade = 0x8000d908;			// the new tap's full weight, which fades out next block
 		constexpr uint32_t Level = 0x8000d90c;			// the 1/32 the clipped signal is scaled by, ramped
 		constexpr uint32_t HighPole = 0x8000d910;
@@ -18,14 +17,8 @@ namespace syntakt::main
 		constexpr uint32_t Filters = 0x8000da1c;		// the low-pass L, R, then the high-pass L, R
 		constexpr uint32_t Widths = 0x8000c300;			// the four input gains, ramped
 		constexpr uint32_t Buffer = 0x8000d6b0;			// a long: the taps' buffer, the ring's next input
-		constexpr uint32_t DelayWrite = 0x8000dac8;
 
 		uint32_t pole(const int32_t _index) { return Poles + 4 * static_cast<uint32_t>(_index); }
-
-		int32_t mul32(const int32_t _a, const int32_t _b)
-		{
-			return static_cast<int32_t>(static_cast<uint32_t>(static_cast<int64_t>(_a) * _b));
-		}
 
 		template<typename Ram, typename Acc>
 		void delayWith(Memory& _mem, Ram& _ram, Acc& _acc, const uint32_t _out, const uint32_t _in,
@@ -35,7 +28,7 @@ namespace syntakt::main
 			int32_t fdbk = _mem.half(_params + 6);
 			if(fdbk > 0x7f00)
 				fdbk = 0x7f00;
-			const int32_t feedback = subSat(mul32(-66052, fdbk), fdbk);
+			const int32_t feedback = subSat(mulWrap(-66052, fdbk), fdbk);
 			const int32_t hpf = _mem.half(_params + 8);
 			const int32_t lastFeedback = _ram.word(Feedback);
 			int32_t level = _ram.word(Level);

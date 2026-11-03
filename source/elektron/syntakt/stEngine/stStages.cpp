@@ -406,7 +406,6 @@ namespace syntakt
 		void phaseIncrements(const int32_t _pitch, Voice& _v, const uint32_t _params, const int32_t _units,
 			const int32_t _rate, const int _shift)
 		{
-			constexpr uint32_t Exp2 = 0x8000a888;
 			const Sram& sram = _v.sram;
 
 			// The note plus the tune word, in semitones Q16, clamped to notes 0-127
@@ -425,10 +424,10 @@ namespace syntakt
 			int32_t f = frac(0x6e000000, sram.at(Exp2 + 4 * static_cast<uint32_t>(fraction)));
 			f = asrReg(f, 5 - octave);
 
+			const int32_t m = addWrap(frac(addWrap(_v.at(0x3f8), static_cast<int32_t>(0xfc000000)), _v.at(0x400)),
+				0x04000000);
 			for(int32_t k = 0; k < _units; ++k)
 			{
-				const int32_t m = addWrap(frac(addWrap(_v.at(0x3f8), static_cast<int32_t>(0xfc000000)), _v.at(0x400)),
-					0x04000000);
 				int32_t t = frac(_v.unit(k, 0x50) >> 6, m);
 				t = frac(t, _v.unit(k, 0x64));
 				t = static_cast<int32_t>(static_cast<uint32_t>(t) << 11);
@@ -496,59 +495,62 @@ namespace syntakt
 
 	namespace
 	{
-		// The table lookup both oscillators share: index and fraction from the phase sum, linear interpolation
-		template<typename Phase>
-		int32_t lookup(const int32_t* _table, Phase& _phase)
+		// 0x400035de and 0x40003958, which differ only in the sample that feeds back: the raw one, or the one scaled
+		// by the unit's envelope (ScaledFeedsBack)
+		template<bool ScaledFeedsBack>
+		void feedbackOscillatorWith(const int32_t _k, Voice& _v, const Rom& _rom)
 		{
-			const int32_t p = _phase.storeClear();
-			const int32_t i = (p & 0xffffff) >> 16;
-			const int32_t f = static_cast<int32_t>((static_cast<uint32_t>(p) & 0xffff) << 15);
-			// load, mac, msac at once (EmacT::loadMacs)
-			Emac acc;
-			acc.loadMacs(_table[i], Mac{f, _table[i + 1]}, Msac{f, _table[i]});
-			return acc.storeClear();
+			const auto k = static_cast<uint32_t>(_k);
+			Sram& sram = _v.sram;
+			int32_t* a = sram.ptr(static_cast<uint32_t>(_v.unit(k, 0xc8)));
+			int32_t* b = sram.ptr(static_cast<uint32_t>(_v.unit(k, 0xcc)));
+			const int32_t* wave = table(sram, _rom, static_cast<uint32_t>(_v.unit(k, 0xb0)));
+
+			const int32_t target = frac(0x04000000, _v.at(0x2c));
+			int32_t fb = _v.at(0x30);
+			const int32_t fbStep = subWrap(target, fb) >> 5;
+			const int32_t inc = _v.unit(k, 0x78);
+			const int32_t level = _v.unit(k, Voice::EnvLevel);
+			int32_t amount = _v.unit(k, Voice::EnvLevelPrev);
+			const int32_t amountStep = rampStepSat(level, amount);
+			int32_t phase = _v.unit(k, Voice::Phase);
+			int32_t y = _v.at(0x28);	// the sample that feeds back
+
+			ProvedEmac acc1;	// a load and at most two products before each movclr, as acc0's
+			acc1.load(phase);
+			acc1.mac(fb, y);
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				fb = addWrap(fb, fbStep);
+				const int32_t p = acc1.storeClear();
+				const int32_t i = (p & 0xffffff) >> 16;
+				const int32_t f = static_cast<int32_t>((static_cast<uint32_t>(p) & 0xffff) << 15);
+				ProvedEmac acc0;
+				acc0.load(wave[i]);
+				acc0.mac(f, wave[i + 1]);
+				acc0.msac(f, wave[i]);
+				phase = addWrap(phase, inc) & 0xffffff;
+				const int32_t s = acc0.storeClear();
+				acc0.msac(amount, s);
+				amount = addWrap(amount, amountStep);
+				acc1.load(phase);
+				b[n] = s;
+				const int32_t scaled = acc0.storeClear();
+				y = ScaledFeedsBack ? scaled : s;
+				acc1.mac(fb, y);
+				a[n] = scaled;
+			}
+
+			_v.at(0x28) = y;
+			_v.unit(k, Voice::Phase) = phase;
+			_v.unit(k, Voice::EnvLevelPrev) = level;
+			_v.at(0x30) = target;
 		}
 	}
 
 	void feedbackOscillator(const int32_t _k, Voice& _v, const Rom& _rom)
 	{
-		const auto k = static_cast<uint32_t>(_k);
-		Sram& sram = _v.sram;
-		int32_t* a = sram.ptr(static_cast<uint32_t>(_v.unit(k, 0xc8)));
-		int32_t* b = sram.ptr(static_cast<uint32_t>(_v.unit(k, 0xcc)));
-		const int32_t* wave = table(sram, _rom, static_cast<uint32_t>(_v.unit(k, 0xb0)));
-
-		const int32_t target = frac(0x04000000, _v.at(0x2c));
-		int32_t fb = _v.at(0x30);
-		const int32_t fbStep = subWrap(target, fb) >> 5;
-		const int32_t inc = _v.unit(k, 0x78);
-		const int32_t level = _v.unit(k, Voice::EnvLevel);
-		int32_t amount = _v.unit(k, Voice::EnvLevelPrev);
-		const int32_t amountStep = subSat(level, amount) >> 5;
-		int32_t phase = _v.unit(k, Voice::Phase);
-		int32_t s = _v.at(0x28);
-
-		ProvedEmac acc1;	// a load and at most two products before each movclr, as acc0's
-		acc1.load(phase);
-		acc1.mac(fb, s);
-		for(int n = 0; n < BlockSize; ++n)
-		{
-			fb = addWrap(fb, fbStep);
-			s = lookup(wave, acc1);
-			phase = addWrap(phase, inc) & 0xffffff;
-			ProvedEmac acc0;
-			acc0.msac(amount, s);
-			amount = addWrap(amount, amountStep);
-			acc1.load(phase);
-			b[n] = s;
-			a[n] = acc0.storeClear();
-			acc1.mac(fb, s);	// the raw sample feeds back
-		}
-
-		_v.at(0x28) = s;
-		_v.unit(k, Voice::Phase) = phase;
-		_v.unit(k, Voice::EnvLevelPrev) = level;
-		_v.at(0x30) = target;
+		feedbackOscillatorWith<false>(_k, _v, _rom);
 	}
 
 	void pmOscillator(const int32_t _k, Voice& _v, const Rom& _rom)
@@ -596,55 +598,12 @@ namespace syntakt
 		_v.unit(k, 0x98) = _v.unit(k, 0x90);
 	}
 
-void scaledFeedbackOscillator(const int32_t _k, Voice& _v, const Rom& _rom)
+	void scaledFeedbackOscillator(const int32_t _k, Voice& _v, const Rom& _rom)
 	{
-		const auto k = static_cast<uint32_t>(_k);
-		Sram& sram = _v.sram;
-		int32_t* a = sram.ptr(static_cast<uint32_t>(_v.unit(k, 0xc8)));
-		int32_t* b = sram.ptr(static_cast<uint32_t>(_v.unit(k, 0xcc)));
-		const int32_t* wave = table(sram, _rom, static_cast<uint32_t>(_v.unit(k, 0xb0)));
-
-		const int32_t target = frac(0x04000000, _v.at(0x2c));
-		int32_t fb = _v.at(0x30);
-		const int32_t fbStep = subWrap(target, fb) >> 5;
-		const int32_t inc = _v.unit(k, 0x78);
-		const int32_t level = _v.unit(k, Voice::EnvLevel);
-		int32_t amount = _v.unit(k, Voice::EnvLevelPrev);
-		const int32_t amountStep = subSat(level, amount) >> 5;
-		int32_t phase = _v.unit(k, Voice::Phase);
-		int32_t y = _v.at(0x28);
-
-		ProvedEmac acc1;	// a load and at most two products before each movclr, as acc0's
-		acc1.load(phase);
-		acc1.mac(fb, y);
-		for(int n = 0; n < BlockSize; ++n)
-		{
-			fb = addWrap(fb, fbStep);
-			const int32_t p = acc1.storeClear();
-			const int32_t i = (p & 0xffffff) >> 16;
-			const int32_t f = static_cast<int32_t>((static_cast<uint32_t>(p) & 0xffff) << 15);
-			ProvedEmac acc0;
-			acc0.load(wave[i]);
-			acc0.mac(f, wave[i + 1]);
-			acc0.msac(f, wave[i]);
-			phase = addWrap(phase, inc) & 0xffffff;
-			const int32_t s = acc0.storeClear();
-			acc0.msac(amount, s);
-			amount = addWrap(amount, amountStep);
-			acc1.load(phase);
-			b[n] = s;
-			y = acc0.storeClear();
-			acc1.mac(fb, y);
-			a[n] = y;
-		}
-
-		_v.at(0x28) = y;
-		_v.unit(k, Voice::Phase) = phase;
-		_v.unit(k, Voice::EnvLevelPrev) = level;
-		_v.at(0x30) = target;
+		feedbackOscillatorWith<true>(_k, _v, _rom);
 	}
 
-void gatedNoise(int32_t* _out, int32_t* _s)
+	void gatedNoise(int32_t* _out, int32_t* _s)
 	{
 		for(int n = 0; n < BlockSize; ++n)
 		{
@@ -684,8 +643,6 @@ void gatedNoise(int32_t* _out, int32_t* _s)
 		_c[8] = y2;
 	}
 
-	// 0x40004cd6: four buffers mixed into _out with gains ramped over the block: targets at 0x08 + 4 i, current
-	// values at 0x18 + 4 i. _x[3] may be _out itself
 	void mix4(const int32_t* const* _x, int32_t* _out, Voice& _v)
 	{
 		int32_t g[4], step[4];
@@ -707,7 +664,6 @@ void gatedNoise(int32_t* _out, int32_t* _s)
 			_v.at(0x18 + 4 * i) = _v.at(0x08 + 4 * i);
 	}
 
-	// 0x4000569a: two sample-and-holds at periods p + 1 and p + 2 samples, crossfaded by p's fraction (_c[4], Q16)
 	void reduceRate(int32_t* _buf, int32_t* _c)
 	{
 		const int32_t rate = _c[4];

@@ -26,6 +26,10 @@ namespace syntakt
 	// 0x40014950: the engine machine _machine plays, the machine clamped to 0-45 as the voice CPU clamps it
 	int32_t engineOf(const Rom& _rom, int32_t _machine);
 
+	// Machine _machine plays an engine ported. The voice CPU's map sends every machine of the analog tracks (CPU #1
+	// drives their circuits) to engine 0, as BD MODERN's own id: only BD MODERN itself plays engine 0
+	bool isPortedMachine(const Rom& _rom, int _machine);
+
 	// 0x40004324: one block of the eight voices. _out receives 8 x 32 samples, voice v at _out + 128 v; _params is the
 	// per-track parameter array (0x80003c40, 0x8e bytes per track); _trig and _gateOff hold one bit per voice. A trig is
 	// seen in its block as pending (the voice fades out) and starts the voice in the next block; an engine changes only

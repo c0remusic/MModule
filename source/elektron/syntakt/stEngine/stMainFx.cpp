@@ -9,14 +9,12 @@ namespace syntakt::main
 {
 	namespace
 	{
-		constexpr uint32_t Poles = 0x4029bffc;			// 512 one-pole coefficients, Q31
-		constexpr uint32_t PolesEnd = 0x4029cff8;		// the last one
+		constexpr uint32_t PolesEnd = 0x4029cff8;		// the last of the coefficients at Poles
 		constexpr uint32_t DelayTaps = 0x8000d6d0;		// tap A (the new time), 34 frames; tap B 0x110 after it
 		constexpr uint32_t DelayTapB = 0x8000d7e0;
 		constexpr uint32_t DelayTapBDesc = 0x8000daa0;	// tap B's descriptor, then the reverb's reads
 		constexpr uint32_t DelayTime = 0x8000dac0;		// the smoothed time, frames << 12
 		constexpr uint32_t DelayLast = 0x8000dac4;		// the last block's time, frames
-		constexpr uint32_t DelayWrite = 0x8000dac8;		// the ring's write position, frames
 		constexpr uint32_t DiffuserWrite = 0x8000d690;	// 8 longs: write positions, bytes
 		constexpr uint32_t DiffuserLength = 0x8000d670;	// 8 longs: lengths, bytes (the SRAM image's)
 		constexpr uint32_t DiffuserRead = 0x8000d610;	// 8 longs: the read addresses

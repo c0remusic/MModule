@@ -13,7 +13,6 @@
 #include <cstdlib>
 #include <fstream>
 #include <functional>
-#include <iterator>
 #include <map>
 #include <memory>
 #include <sstream>
@@ -24,6 +23,7 @@
 #include "stEngine.h"
 #include "stEngines.h"
 #include "stStages.h"
+#include "stSyntaktScenario.h"
 #include "stTrack.h"
 #include "stVoice.h"
 
@@ -86,25 +86,6 @@ namespace
 				return false;
 			_cases.push_back(std::move(c));
 		}
-		return true;
-	}
-
-	// A sample set as twinshot_samples.py writes it and vectors.py --samples loads it into the original's DDR, big-endian:
-	// "STS1", the 64 directory entries (u32 length, u32 pointer), u32 base, u32 size, size bytes of data
-	bool readSamples(const std::string& _path, syntakt::Samples& _samples)
-	{
-		std::ifstream f(_path, std::ios::binary);
-		std::vector<uint8_t> blob((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-		constexpr size_t header = 4 + 8 * 64 + 8;
-		if(blob.size() < header || std::string(blob.begin(), blob.begin() + 4) != "STS1")
-			return false;
-		for(size_t i = 0; i < _samples.directory.size(); ++i)
-			_samples.directory[i] = {be32(&blob[4 + 8 * i]), be32(&blob[8 + 8 * i])};
-		_samples.base = be32(&blob[4 + 8 * 64]);
-		const uint32_t size = be32(&blob[8 + 8 * 64]);
-		if(blob.size() != header + size)
-			return false;
-		_samples.data.assign(blob.begin() + header, blob.end());
 		return true;
 	}
 
@@ -304,7 +285,7 @@ int main()
 	syntakt::Samples samples;
 	const char* samplesPath = std::getenv("SYNTAKT_SAMPLES");
 	const bool haveSamples = samplesPath && *samplesPath;
-	if(haveSamples && !readSamples(samplesPath, samples))
+	if(haveSamples && !syntakt::test::readSamples(samplesPath, samples))
 	{
 		std::printf("FAIL: %s is not a sample set\n", samplesPath);
 		return 1;
@@ -349,7 +330,6 @@ int main()
 		std::printf("skipped %5d cases of %08x, not ported\n", count, routine);
 
 	auto sram = std::make_unique<Sram>();
-	auto expected = std::make_unique<Sram>();
 	std::map<uint32_t, int> passed, failed;
 	for(const auto& c : cases)
 	{
@@ -357,7 +337,6 @@ int main()
 		if(it == ported().end())
 			continue;
 		load(*sram, c.before);
-		load(*expected, c.after);
 		syntakt::Globals globals;
 		globals.rng = {static_cast<int32_t>(c.rngBefore[0]), static_cast<int32_t>(c.rngBefore[1])};
 		Context ctx{*sram, globals, rom, c.args};
@@ -377,11 +356,12 @@ int main()
 				differ("generator", static_cast<uint32_t>(globals.rng[i]), c.rngAfter[i]);
 		for(size_t i = 0; i < sram->words.size(); ++i)
 		{
-			if(sram->words[i] == expected->words[i])
+			const uint32_t want = be32(c.after.data() + 4 * i);
+			if(static_cast<uint32_t>(sram->words[i]) == want)
 				continue;
 			char where[16];
 			std::snprintf(where, sizeof where, "%08x", Sram::Base + 4 * static_cast<uint32_t>(i));
-			differ(where, static_cast<uint32_t>(sram->words[i]), static_cast<uint32_t>(expected->words[i]));
+			differ(where, static_cast<uint32_t>(sram->words[i]), want);
 		}
 		if(diffs)
 		{
@@ -417,11 +397,9 @@ int main()
 		for(size_t i = 0; i < end - first; ++i)
 		{
 			const Case& c = cases[first + i];
-			load(*sram, c.before);
-			load(*expected, c.after);
 			if(i == 0)
 			{
-				*carried = *sram;
+				load(*carried, c.before);
 				carriedGlobals.rng = {static_cast<int32_t>(c.rngBefore[0]), static_cast<int32_t>(c.rngBefore[1])};
 			}
 			// The voice states and the histories are the port's own; everything else is this block's input
@@ -432,19 +410,19 @@ int main()
 			{
 				const bool owned = a < ownedEnd || (a >= histories && a < historiesEnd);
 				if(!owned)
-					carried->at(a) = sram->at(a);
+					carried->at(a) = static_cast<int32_t>(be32(c.before.data() + (a - Sram::Base)));
 			}
 			syntakt::renderVoices(*carried, carriedGlobals, rom, c.args[0], c.args[1],
 				static_cast<int32_t>(c.args[2]), static_cast<int32_t>(c.args[3]));
 			++continuous;
 			for(size_t w = 0; w < carried->words.size(); ++w)
 			{
-				if(carried->words[w] == expected->words[w])
+				const uint32_t want = be32(c.after.data() + 4 * w);
+				if(static_cast<uint32_t>(carried->words[w]) == want)
 					continue;
 				if(continuousFailed++ < 3)
 					std::printf("continuous block %zu: %08x: %08x, original %08x\n", i,
-						Sram::Base + 4 * static_cast<uint32_t>(w), static_cast<uint32_t>(carried->words[w]),
-						static_cast<uint32_t>(expected->words[w]));
+						Sram::Base + 4 * static_cast<uint32_t>(w), static_cast<uint32_t>(carried->words[w]), want);
 				break;
 			}
 		}

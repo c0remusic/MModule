@@ -18,6 +18,8 @@ namespace syntakt
 	constexpr uint32_t Histories = 0x80008a60;		// the decimators' histories, 12 longs per voice
 	constexpr uint32_t HistoryStride = 0x30;
 	constexpr uint32_t ClockStep = 0x8000a07c;		// the block's word at + 0x184, copied there as it arrives
+	constexpr uint32_t Exp2 = 0x8000a888;			// the RAM exp2 table, 2048 entries
+	constexpr uint32_t OscillatorScratch = 0x8000a064;	// SY CHORD's and SY BITS's oscillators' working words
 
 	// Unit k's output buffers, 32 samples each, 0x124 bytes apart: A the scaled output, B the raw one. Engines also
 	// use them as scratch for their own stages

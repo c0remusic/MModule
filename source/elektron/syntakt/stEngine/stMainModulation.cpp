@@ -11,9 +11,7 @@ namespace syntakt::main
 		// The product of a list's pair: msac.w then movclr, so its negation
 		int32_t negatedProduct(const int32_t _source, const int32_t _pair)
 		{
-			EmacWrap acc;
-			acc.msac(asl(_source, 16), static_cast<int32_t>(static_cast<uint32_t>(_pair) & 0xffff0000));
-			return acc.storeClear();
+			return negFracWrap(asl(_source, 16), static_cast<int32_t>(static_cast<uint32_t>(_pair) & 0xffff0000));
 		}
 
 		// The word _params[id] minus _negated, saturated: the word less 0x4000 in the high half, then the bias back

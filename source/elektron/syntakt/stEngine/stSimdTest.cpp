@@ -96,22 +96,23 @@ namespace
 	};
 
 	// One case of a routine of CPU #1: _setup fills a memory and the EMAC, _run runs the routine on them; the run
-	// with the kernels and the run without must agree
+	// with the kernels and the run without must agree. _mem and _memScalar are built once: the routines use SRAM alone,
+	// which each case starts from zeros, as a fresh memory holds them
 	template<typename Setup, typename Run>
-	void compare(Result& _r, const syntakt::main::Section3& _rom, const Setup& _setup, const Run& _run)
+	void compare(Result& _r, Memory& _mem, Memory& _memScalar, const Setup& _setup, const Run& _run)
 	{
-		Memory mem(_rom);
+		uint8_t* sram = _mem.writableBytesAt(Memory::SramBase, Memory::SramSize);
+		uint8_t* sramScalar = _memScalar.writableBytesAt(Memory::SramBase, Memory::SramSize);
+		std::memset(sram, 0, Memory::SramSize);
 		Emac4 acc = randomEmac();
-		_setup(mem);
-		Memory memScalar = mem;
+		_setup(_mem);
+		std::memcpy(sramScalar, sram, Memory::SramSize);
 		Emac4 accScalar = acc;
-		const std::vector<int32_t> extra = _run(mem, acc, true);
-		const std::vector<int32_t> extraScalar = _run(memScalar, accScalar, false);
+		const std::vector<int32_t> extra = _run(_mem, acc, true);
+		const std::vector<int32_t> extraScalar = _run(_memScalar, accScalar, false);
 		++_r.cases;
-		const auto& a = mem.regions().front().bytes;
-		const auto& b = memScalar.regions().front().bytes;
-		if(std::memcmp(a.data(), b.data(), a.size()) || stateOf(acc) != stateOf(accScalar) || extra != extraScalar ||
-			mem.fault() != memScalar.fault())
+		if(std::memcmp(sram, sramScalar, Memory::SramSize) || stateOf(acc) != stateOf(accScalar) ||
+			extra != extraScalar || _mem.fault() != _memScalar.fault())
 			++_r.differ;
 	}
 
@@ -134,6 +135,7 @@ int main()
 	}
 
 	const syntakt::main::Section3 rom{};
+	Memory mem(rom), memScalar(rom);
 	constexpr uint32_t Src = 0x80002000, Dst = 0x80001000, Gains = 0x80003000, Buffer = 0x80004000;
 	std::vector<Result> results;
 
@@ -144,7 +146,7 @@ int main()
 		{
 			const auto steps = randomSteps(channels);
 			const uint32_t side = 4 * below(2);
-			compare(r, rom, [&](Memory& _m)
+			compare(r, mem, memScalar, [&](Memory& _m)
 			{
 				fill(_m, Src, 128 * 10 / 4);
 				fill(_m, Dst, 2 * Frames);
@@ -164,7 +166,8 @@ int main()
 		for(int c = 0; c < Cases; ++c)
 		{
 			const int32_t from = randomWord(), to = randomWord();
-			compare(r, rom, [&](Memory& _m) { fill(_m, Buffer, Frames); }, [&](Memory& _m, Emac4& _a, const bool _avx2)
+			compare(r, mem, memScalar, [&](Memory& _m) { fill(_m, Buffer, Frames); },
+				[&](Memory& _m, Emac4& _a, const bool _avx2)
 			{
 				syntakt::simd::setAvx2(_avx2);
 				syntakt::main::rampBuffer(_m, _a, Buffer, from, to);
@@ -180,7 +183,7 @@ int main()
 		{
 			static const int32_t edges[] = {128, -128, 129, -129, 0, 1, -1, 1000, INT32_MIN, INT32_MAX};
 			const int32_t gain = below(3) ? static_cast<int32_t>(below(257)) - 128 : edges[below(10)];
-			compare(r, rom, [&](Memory& _m) { fill(_m, Buffer, 2 * Frames); },
+			compare(r, mem, memScalar, [&](Memory& _m) { fill(_m, Buffer, 2 * Frames); },
 				[&](Memory& _m, Emac4& _a, const bool _avx2)
 			{
 				syntakt::simd::setAvx2(_avx2);
@@ -198,7 +201,7 @@ int main()
 			const auto gains = randomSteps(2), steps = randomSteps(2);
 			// In place, apart, or overlapping (the scalar steps then)
 			const uint32_t dst = below(3) == 0 ? Src : below(2) ? Dst : Src + 8;
-			compare(r, rom, [&](Memory& _m)
+			compare(r, mem, memScalar, [&](Memory& _m)
 			{
 				fill(_m, Src, 4 * Frames);
 				fill(_m, Dst, 2 * Frames);

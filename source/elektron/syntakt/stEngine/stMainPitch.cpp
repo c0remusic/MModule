@@ -14,19 +14,6 @@ namespace syntakt::main
 
 		bool bit(const int32_t _v, const int32_t _n) { return (static_cast<uint32_t>(_v) >> (_n & 31) & 1) != 0; }
 
-		int32_t mulWrap(const int32_t _a, const int32_t _b)
-		{
-			return static_cast<int32_t>(static_cast<uint32_t>(_a) * static_cast<uint32_t>(_b));
-		}
-
-		// msac then movclr: the product negated
-		int32_t negFrac(const int32_t _y, const int32_t _x)
-		{
-			EmacWrap acc;
-			acc.msac(_y, _x);
-			return acc.storeClear();
-		}
-
 		// swap then ext.l: the high word, signed
 		int32_t highWord(const int32_t _v) { return static_cast<int16_t>(static_cast<uint32_t>(_v) >> 16); }
 
@@ -63,12 +50,12 @@ namespace syntakt::main
 			if(semitones == 0)
 				return Done;
 			const int32_t span = _mem.word(Spans + 4 * static_cast<uint32_t>(semitones));
-			const int32_t d3 = negFrac(rate, span);
+			const int32_t d3 = negFracWrap(rate, span);
 			if(d3 < static_cast<int32_t>(0xfc71c71d))
 				return Done;
 			int32_t d4 = subWrap(rate, mulWrap(d3, semitones));
 			d4 = addWrap(asl(d4, 21), asl(d4, 18));
-			d4 = highWord(addWrap(negFrac(d4, span), 0x8000));
+			d4 = highWord(addWrap(negFracWrap(d4, span), 0x8000));
 			const int32_t s = addWrap(addWrap(asl(d3, 5), asl(d3, 2)), d4);
 			return s > 0 ? Done : s;
 		}
@@ -87,9 +74,9 @@ namespace syntakt::main
 		{
 			_mem.setWord(glide, 0);
 			_mem.setWord(glide + 4, startDistance(_mem, _t, _source, _target, settings));
-			int32_t scale = negFrac(Percent, asl(static_cast<int8_t>(_mem.byte(settings + 0x64)), 24));
+			int32_t scale = negFracWrap(Percent, asl(static_cast<int8_t>(_mem.byte(settings + 0x64)), 24));
 			scale = addSat(scale, scale);
-			_mem.setWord(glide + 4, negFrac(_mem.word(glide + 4), scale));
+			_mem.setWord(glide + 4, negFracWrap(_mem.word(glide + 4), scale));
 		}
 		if(_mem.half(track + 0x86) <= 0x3fff)
 			_mem.setWord(glide, Done);
@@ -103,7 +90,7 @@ namespace syntakt::main
 			distance = static_cast<int32_t>(static_cast<uint32_t>(distance) & 0xffff0000);
 		}
 		const int32_t progress = _mem.word(glide);
-		int32_t pitch = addWrap(negFrac(subWrap(Done, progress), distance), _target);
+		int32_t pitch = addWrap(negFracWrap(subWrap(Done, progress), distance), _target);
 		if(semitones)
 		{
 			pitch = addWrap(pitch, distance > 0 ? 0xffff : 0);

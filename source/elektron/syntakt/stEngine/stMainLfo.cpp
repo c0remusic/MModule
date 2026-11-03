@@ -28,11 +28,6 @@ namespace syntakt::main
 
 		constexpr int32_t Rnd = 6;
 
-		int32_t mulWrap(const int32_t _a, const int32_t _b)
-		{
-			return static_cast<int32_t>(static_cast<uint32_t>(_a) * static_cast<uint32_t>(_b));
-		}
-
 		// lsr.l Dn: a register's count is taken mod 64, and 32 or more shifts everything out
 		int32_t lsrReg(const int32_t _v, const int32_t _n)
 		{

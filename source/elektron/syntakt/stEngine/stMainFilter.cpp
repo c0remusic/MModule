@@ -24,14 +24,6 @@ namespace syntakt::main
 		{
 			return _table + 4 * static_cast<uint32_t>(_index);
 		}
-
-		// msac then movclr, MACSR 0x20
-		int32_t negFrac(const int32_t _y, const int32_t _x)
-		{
-			EmacWrap acc;
-			acc.msac(_y, _x);
-			return acc.storeClear();
-		}
 	}
 
 	void filterEnvelopes(Memory& _mem, const uint32_t _p, const int32_t _trigs, const int32_t _gateOffs,
@@ -78,7 +70,7 @@ namespace syntakt::main
 			case Decay:
 			{
 				const int32_t c = _mem.word(entry(Coefficients, static_cast<int8_t>(_mem.byte(params + 2))));
-				int32_t sustain = negFrac(Unit, asl(_mem.half(params + 4), 16));
+				int32_t sustain = negFracWrap(Unit, asl(_mem.half(params + 4), 16));
 				sustain = addSat(sustain, sustain);
 				EmacWrap acc;
 				acc.msac(c, _mem.word(value));
@@ -89,7 +81,7 @@ namespace syntakt::main
 			default:
 			{
 				const int32_t c = _mem.word(entry(Coefficients, static_cast<int8_t>(_mem.byte(params + 6))));
-				_mem.setWord(value, negFrac(c, _mem.word(value)));
+				_mem.setWord(value, negFracWrap(c, _mem.word(value)));
 				break;
 			}
 			}

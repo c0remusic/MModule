@@ -8,7 +8,6 @@ namespace syntakt::main
 {
 	namespace
 	{
-		constexpr uint8_t SpTwinshot = 44;
 		constexpr uint8_t SyRaw = 39;
 		constexpr uint32_t FxLockBits = LockBits + 12 * LockStride;	// 0x4550e25c
 		constexpr uint32_t FxWord = 0x362;								// the FX track's word of internal id 0

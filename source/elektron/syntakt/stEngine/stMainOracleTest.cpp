@@ -42,6 +42,7 @@
 #include "stMainPitch.h"
 #include "stMainReverb.h"
 #include "stMemoryMap.h"
+#include "stSyntaktScenario.h"
 
 namespace
 {
@@ -303,24 +304,6 @@ namespace
 		return routines;
 	}
 
-	// A sample set as twinshot_samples.py writes it (as stEngineOracleTest reads it): "STS1", the 64 directory entries
-	// (u32 length, u32 pointer), u32 base, u32 size, size bytes of data, big-endian
-	bool readSamples(const std::string& _path, syntakt::Samples& _samples)
-	{
-		const std::vector<uint8_t> blob = syntakt::readFile(_path);
-		constexpr size_t header = 4 + 8 * 64 + 8;
-		if(blob.size() < header || std::string(blob.begin(), blob.begin() + 4) != "STS1")
-			return false;
-		for(size_t i = 0; i < _samples.directory.size(); ++i)
-			_samples.directory[i] = {syntakt::be32(&blob[4 + 8 * i]), syntakt::be32(&blob[8 + 8 * i])};
-		_samples.base = syntakt::be32(&blob[4 + 8 * 64]);
-		const uint32_t size = syntakt::be32(&blob[8 + 8 * 64]);
-		if(blob.size() != header + size)
-			return false;
-		_samples.data.assign(blob.begin() + header, blob.end());
-		return true;
-	}
-
 	// block3.py's ST1O: u32 count, then per block the original voice CPU's 8 x 32 samples, little-endian
 	bool readOutputs(const std::string& _path, std::vector<int32_t>& _samples)
 	{
@@ -331,6 +314,7 @@ namespace
 		constexpr size_t perBlock = 4 * syntakt::Voices * syntakt::BlockSize;
 		if(blob.size() != 8 + perBlock * count)
 			return false;
+		_samples.reserve(_samples.size() + blob.size() / 4 - 2);
 		for(size_t i = 0; i < blob.size() / 4 - 2; ++i)
 		{
 			const uint8_t* p = &blob[8 + 4 * i];
@@ -398,7 +382,7 @@ int main()
 		}
 		section7 = syntakt::loadSection7(section7Path);
 		// Several files (';'-separated) follow each other, in the order of their sequences in the vector files
-		bool read = !section7.empty() && readSamples(samplesPath, samples);
+		bool read = !section7.empty() && syntakt::test::readSamples(samplesPath, samples);
 		std::stringstream outputPaths(outputsPath);
 		for(std::string path; read && std::getline(outputPaths, path, ';');)
 			read = readOutputs(path, outputs);
@@ -460,7 +444,8 @@ int main()
 			++skipped[c.routine];
 			continue;
 		}
-		Memory mem = c.sequence && carried ? *carried : Memory(rom);
+		// A sequence's memory moves in and out of carried rather than being copied: Memory's move keeps its table
+		Memory mem = c.sequence && carried ? std::move(*carried) : Memory(rom);
 		int drift = 0;
 		uint32_t driftAt = 0;
 		for(const auto& r : c.reads)
@@ -508,8 +493,8 @@ int main()
 		{
 			for(size_t i = 0; i < _got.size(); i += 4)
 			{
-				const uint32_t g = uint32_t(_got[i]) << 24 | _got[i + 1] << 16 | _got[i + 2] << 8 | _got[i + 3];
-				const uint32_t w = uint32_t(_want[i]) << 24 | _want[i + 1] << 16 | _want[i + 2] << 8 | _want[i + 3];
+				const uint32_t g = syntakt::be32(&_got[i]);
+				const uint32_t w = syntakt::be32(&_want[i]);
 				if(g == w)
 					continue;
 				char where[16];
@@ -531,7 +516,7 @@ int main()
 				compare(zeros, page, base);
 		if(c.sequence)
 		{
-			*carried = mem;
+			*carried = std::move(mem);
 			for(const auto& r : c.writes)
 				for(size_t i = 0; i < r.bytes.size(); ++i)
 					owned.insert(r.address + static_cast<uint32_t>(i));
@@ -547,7 +532,7 @@ int main()
 				}
 				uint8_t block[syntakt::main::BlockBytes];
 				for(uint32_t i = 0; i < syntakt::main::BlockBytes; ++i)
-					block[i] = mem.byte(syntakt::main::Block + i);
+					block[i] = carried->byte(syntakt::main::Block + i);
 				syntakt::runBlock(*voiceSram, voiceGlobals, voiceRom, block);
 				int differ = 0;
 				for(size_t i = 0; i < blockSamples; ++i)

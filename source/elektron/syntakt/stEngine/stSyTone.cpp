@@ -26,20 +26,6 @@ namespace syntakt::syTone
 		constexpr uint32_t ModTarget = 0x40021a04;
 		constexpr uint32_t ModDecay = 0x40021c04;
 		constexpr uint32_t AmpDecay = 0x40021e04;
-
-		// The table lookup both operators share: index and fraction from the phase sum, linear interpolation, then
-		// halved
-		int32_t lookup(const int32_t* _table, Emac& _phase)
-		{
-			const int32_t p = _phase.storeClear();
-			const int32_t i = (p & 0xffffff) >> 16;
-			const int32_t f = asl(p & 0xffff, 15);
-			Emac acc;
-			acc.load(_table[i]);
-			acc.mac(f, _table[i + 1]);
-			acc.msac(f, _table[i]);
-			return acc.storeClear() >> 1;
-		}
 	}
 
 	// 0x40003aac: unit _k's sine with feedback from its scaled output, 64 samples at 96 kHz, into its buffers A
@@ -68,7 +54,7 @@ namespace syntakt::syTone
 		for(int n = 0; n < Oversampled; ++n)
 		{
 			fb = addWrap(fb, fbStep);
-			const int32_t s = lookup(wave, acc1);
+			const int32_t s = lookup(wave, acc1) >> 1;	// halved
 			phase = addWrap(phase, inc) & 0xffffff;
 			Emac acc0;
 			acc0.msac(amount, s);
@@ -117,7 +103,7 @@ namespace syntakt::syTone
 			acc1.mac(depth2, src2[n]);
 			depth1 = addWrap(depth1, step1);
 			depth2 = addWrap(depth2, step2);
-			const int32_t s = lookup(wave, acc1);
+			const int32_t s = lookup(wave, acc1) >> 1;	// halved
 			phase = addWrap(phase, inc) & 0xffffff;
 			acc1.load(phase);
 			Emac acc0;

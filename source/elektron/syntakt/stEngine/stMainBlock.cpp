@@ -14,8 +14,7 @@ namespace syntakt::main
 		constexpr int32_t Legato = 3;			// settings +0x60 whose trigs leave an open gate alone [INFER]
 		constexpr int32_t Full = 0x7f00;
 		constexpr uint32_t FxTrack = 12;
-		constexpr int32_t SyBits = 37;			// the machines whose word +0x48 the voice CPU reads uninverted
-		constexpr int32_t SpTwinshot = 44;
+		constexpr int32_t SyBits = 37;			// and SpTwinshot: the machines whose word +0x48 is read uninverted
 
 		bool bit(const int32_t _mask, const uint32_t _t) { return (static_cast<uint32_t>(_mask) >> _t & 1) != 0; }
 
