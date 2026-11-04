@@ -23,15 +23,14 @@ namespace md::voice::efm::bd
 		y[0xe] = 0x7fffff;
 	}
 
-	void pair(Context& _c, const uint32_t _state, uint32_t* const _out)
+	void sines(Context& _c, const uint32_t _state, uint32_t* const _out)
 	{
 		const auto& t = tables(_c);
 		auto& y = _c.y;
 		auto& ix = _c.shared.scratch.x;
 
-		// The packet's words, which the DSP copies to X:$01-$06 and X:$08 and reads from there
+		// The packet's words, which the DSP copies to X:$01, X:$03-$06 and X:$08 and reads from there
 		ix[1] = y[1];
-		ix[2] = y[2];
 		ix[3] = y[3];
 		ix[4] = y[4];
 		ix[5] = y[5];
@@ -40,7 +39,7 @@ namespace md::voice::efm::bd
 
 		uint64_t mod = static_cast<uint64_t>(acc(y[_state], y[_state + 1]));
 		uint64_t car = static_cast<uint64_t>(acc(y[_state + 2], y[_state + 3])) & 0xffffffffffffull;
-		uint32_t pitchLevel = y[_state + 4], modLevel = y[_state + 5], amp = y[_state + 6];
+		uint32_t pitchLevel = y[_state + 4], modLevel = y[_state + 5];
 		int64_t feedback = acc(y[_state + 7], y[_state + 8]);
 		for(size_t k = 0; k < 32; ++k)
 		{
@@ -51,17 +50,29 @@ namespace md::voice::efm::bd
 			const uint32_t modOut = hi(round(mul(modLevel, modSine)));
 			modLevel = hi(mul(y[5], modLevel));
 
-			const uint32_t carSine = sineStep(t, car, fmStep(modOut, pitch, y[4]));
-			_out[k] = hi(round(mul(amp, carSine)));
-			amp = hi(mul(y[2], amp));
+			_out[k] = sineStep(t, car, fmStep(modOut, pitch, y[4]));
 		}
 
 		storeL(_c, _state, static_cast<int64_t>(mod));
 		storeL(_c, _state + 2, static_cast<int64_t>(car));
 		y[_state + 4] = ix[_state + 4] = pitchLevel;
 		y[_state + 5] = ix[_state + 5] = modLevel;
-		y[_state + 6] = ix[_state + 6] = amp;
 		storeL(_c, _state + 7, feedback);
+	}
+
+	void pair(Context& _c, const uint32_t _state, uint32_t* const _out)
+	{
+		auto& y = _c.y;
+		auto& ix = _c.shared.scratch.x;
+		ix[2] = y[2];
+		sines(_c, _state, _out);
+		uint32_t amp = y[_state + 6];
+		for(size_t k = 0; k < 32; ++k)
+		{
+			_out[k] = hi(round(mul(amp, _out[k])));
+			amp = hi(mul(y[2], amp));
+		}
+		y[_state + 6] = ix[_state + 6] = amp;
 	}
 
 	void render(Context& _c, Voice::Block& _out)

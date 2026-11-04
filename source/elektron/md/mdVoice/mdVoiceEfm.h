@@ -68,9 +68,11 @@ namespace md::voice::efm
 		void init(Context& _c);
 		void update(Context& _c);
 		void render(Context& _c, Voice::Block& _out);
-		// The render's two sines into 32 words, as EFM-XT plays them too. Their state, nine words from Y:_state: the
-		// first's phase, the second's, the pitch's level, the first's, the amp, and the feedback. The packet's words
-		// stay at Y:$01-$06 and Y:$08
+		// The render's two sines into 32 words, before their amp: pair's, and EFM-CP's. Their state, nine words from
+		// Y:_state: the first's phase, the second's, the pitch's level, the first's, the caller's word that sines leave
+		// alone with its X: mirror, and the feedback. The packet's words stay at Y:$01, Y:$03-$06 and Y:$08
+		void sines(Context& _c, uint32_t _state, uint32_t* _out);
+		// sines at the amp level, the caller's word of their state, which Y:$02 decays: EFM-BD's and EFM-XT's
 		void pair(Context& _c, uint32_t _state, uint32_t* _out);
 	}
 
@@ -82,6 +84,13 @@ namespace md::voice::efm
 	}
 
 	namespace xt
+	{
+		void init(Context& _c);
+		void update(Context& _c);
+		void render(Context& _c, Voice::Block& _out);
+	}
+
+	namespace cp
 	{
 		void init(Context& _c);
 		void update(Context& _c);

@@ -63,10 +63,10 @@ namespace
 		uint32_t type;
 		const char* name;
 	};
-	constexpr std::array<Ported, 17> kPorted = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
+	constexpr std::array<Ported, 18> kPorted = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
 		{21, "TRX-RS"}, {22, "TRX-CB"}, {23, "TRX-CH"},
 		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}, {27, "TRX-CL"}, {28, "TRX-XC"}, {29, "TRX-B2"},
-		{30, "TRX-S2"}, {33, "EFM-BD"}, {34, "EFM-SD"}, {35, "EFM-XT"}}};
+		{30, "TRX-S2"}, {33, "EFM-BD"}, {34, "EFM-SD"}, {35, "EFM-XT"}, {36, "EFM-CP"}}};
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
 	// whatever the others are: GND--, GND-IM and those
@@ -93,7 +93,11 @@ namespace
 	// TRX-MA without its rise and hold, which the OS's up to 519 blocks hide from the Hits, its filters' words 0,
 	// inside their tables
 	constexpr uint32_t kMaZeros = 1u << 1 | 1u << 3 | 1u << 7 | 1u << 8 | 1u << 9 | 1u << 0xa;
-	constexpr std::array<TrxEdge, 9> kTrxEdges = {{
+	constexpr std::array<TrxEdge, 11> kTrxEdges = {{
+		// EFM-CP with a pitch envelope, which the OS's words 7 and 8 at 0 hide, and a level below zero
+		{36, 12, 0},
+		// ... and a decay that takes a Hit's level to $66666 exactly, the lowest word that does not clap
+		{36, 12, 0, 0xb, 0xa24b0},
 		{26, 12, kMaZeros},
 		// ... nor its fall
 		{26, 12, kMaZeros | 1u << 4},

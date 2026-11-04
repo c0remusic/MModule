@@ -54,6 +54,8 @@ namespace md::voice
 		// The ported renders' branches the test must reach
 		enum Probe
 		{
+			EfmCpClap,				// EFM-CP's level jumping back up, a clap
+			EfmCpLastClap,			// EFM-CP's last clap, its decay Y:$02 from there
 			EfmXtLevelLimited,		// a Hit that adds EFM-XT's level past full scale
 			EfmSdLevelLimited,		// a Hit that adds EFM-SD's level past full scale
 			EfmBdLevelLimited,		// a Hit that adds EFM-BD's level past full scale
@@ -139,6 +141,8 @@ namespace md::voice
 		{
 			switch(_p)
 			{
+				case EfmCpClap:				return "EFM-CP's clap";
+				case EfmCpLastClap:			return "EFM-CP's last clap";
 				case EfmXtLevelLimited:		return "EFM-XT's level limited at a Hit";
 				case EfmSdLevelLimited:		return "EFM-SD's level limited at a Hit";
 				case EfmBdLevelLimited:		return "EFM-BD's level limited at a Hit";

@@ -89,3 +89,33 @@ Revues du 2026-11-04 :
   seulement.
 
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-XT 0,53 µs, soit 1,17 à 1,18 % d'un cœur pour 16 voix.
+
+## 2026-11-05 : EFM-CP
+
+EFM-CP (type 36 : init $1030EC, update $1030F0, render $103104) est porté dans `mdVoiceEfmCp.cpp`. Sa boucle sort le sinus
+d'EFM-BD avant l'ampli, son état trois mots plus haut : `bd::sines` donne ce sinus, et `bd::pair` lui ajoute l'ampli pour
+EFM-BD et EFM-XT. EFM-CP applique son propre niveau : un Hit le pose à $50C335 avec un compte de claps (Y:$0A). Tant qu'il
+reste des claps, le niveau décroît par Y:$0B, et chaque passage sous $66666 le ramène à $50C335 ; après le dernier, il
+décroît par Y:$02. Le résultat traverse le filtre à un pôle (Y:$09), sans arrondi.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS et deux paquets faits main : 150 513 échantillons non nuls,
+0 échantillon et 0 mot d'état différents, les deux probes atteintes. Le premier paquet donne une enveloppe de hauteur, que
+les mots 7 et 8 de l'OS, toujours à 0, cachent, et un niveau négatif. Le second amène le niveau à $66666 exactement, le
+plus bas mot qui ne déclenche pas de clap. Le scénario des bancs a aussi été comparé à l'oracle : 3000 blocs, 0 différence.
+
+Sur 23 mutations, 21 sont prises. Deux passent, et elles ne changent rien :
+- L'init à 1 au lieu de 0 : l'update suit toujours l'init et récrit ce mot.
+- `hi` au lieu de `lim` sur le niveau : le niveau part de $50C335 ou de 0, et un produit ne dépasse donc jamais la pleine
+  échelle. `lim` reste pour suivre le listing.
+
+Revues du 2026-11-05 :
+- Revue de code : aucun écart avec le listing, y compris les écritures en mémoire de travail. EFM-CP n'écrit ni X:$02 ni
+  X:$12, contrairement à EFM-BD.
+- Revue d'architecture : `sines` et `pair` gardés, le trou de l'état laissé à l'appelant décrit dans `mdVoiceEfm.h`. Un
+  étage d'ampli commun est refusé : EFM-BD ne limite pas, EFM-CP limite et compte.
+- `/simplify` : `decay` et la variable du niveau suivant retirés ; le choix de Y:$0B ou Y:$02 se déduit de `claps`. La
+  boucle `sx`, en quatre copies, reste : un helper sortirait de ce changement. `trx::countDown` n'est pas repris : il
+  limite, là où le DSP range B1 sans limiter (un compte de $800000).
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-CP 0,50 µs, soit 1,11 % d'un cœur pour 16 voix. EFM-BD reste à
+0,39 à 0,41 µs avec ses deux boucles.

@@ -17,6 +17,8 @@ fourni (banque UW importée, sample de l'utilisateur ou maison), jamais la flash
 - « Sonne pareil » 44,1/48.
 - Coût par voix mesuré, comparé aux ~0,07-0,3 % estimés.
 
+Mesuré le 2026-11-05 pour « Sonne pareil » sous une lecture : voir la section du même jour, en fin de ticket.
+
 ## Références
 
 Spécification §3.2. Ticket « Port du Machinedrum en C++ ».
@@ -641,3 +643,31 @@ Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 écha
 
 Toutes les TRX sont portées. Reste ouvert :
 - La formule des tables de filtre.
+
+## 2026-11-05 : 44,1 et 48 kHz
+
+Le port ne rend qu'à 44,1 kHz : il n'a aucun paramètre de fréquence. Le critère ne peut donc se mesurer que sur le chemin
+réel de MoDule à 48 kHz, le rendu à 44,1 kHz puis le rééchantillonneur Legacy de la pile (libresample). Le ticket
+« Une fréquence commune » laisse ouverte la décision pour le MD (« Le MD et le DT2 se décident à leur tour ») : ce résultat
+ne vaut pas pour un moteur adapté à 48 kHz, qui n'existe pas.
+
+Mesuré en Q15 sur les 17 machines synthétiques portées alors et ROM-01 à -32 : un Hit de 2 s aux valeurs par défaut et à
+trois réglages tirés au hasard, 196 Hits, voix brute avant le mixeur, paquets de l'OS.
+
+| Mesure, pire cas | Résultat | Seuil |
+|---|---|---|
+| Enveloppe sous 18 kHz | 0,118 dB (TRX-MA) | 0,2 dB |
+| Tiers d'octave sous 10 kHz | 0,349 dB (TRX-CH) | 0,5 dB |
+| Tiers d'octave 10-18 kHz, non jugés | 0,996 dB (TRX-SD) | aucun |
+
+Les 196 Hits passent. Le témoin, les mêmes échantillons joués à 48 kHz sans rééchantillonnage, sort des seuils sur les
+196 Hits : la mesure voit donc l'écart de 8,8 %.
+
+Deux pièges de mesure :
+- Le délai estimé sur les 0,3 premières secondes tombait sur du silence pour un START tardif (ROM-32) : il part maintenant
+  du premier échantillon qui sonne.
+- `bands` calcule 2^20 points à chaque fréquence, donc deux grilles. ROM-27 tient un ton à 27,8 Hz sur un bord de bande, qui
+  tombait de part et d'autre : 0,61 dB à 31 Hz, contre 0,004 dB sur une grille commune de 1/24 Hz. La mesure retenue
+  utilise cette grille commune. `stFastMetrics.h` garde le même défaut pour Q15.
+
+Cette mesure ne remplace pas l'écoute, qui reste à faire. Les outils (`ratecmp`) sont restés hors du dépôt.
