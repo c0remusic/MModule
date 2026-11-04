@@ -48,6 +48,14 @@ namespace md::voice
 		// The ROM and TRX renders' branches the test must reach
 		enum Probe
 		{
+			B2QuarterA,				// TRX-B2's phase in its first quarter
+			B2QuarterB,				// ... second
+			B2QuarterC,				// ... third
+			B2QuarterD,				// ... fourth
+			B2SineWrapped,			// ... its offset wrapped at the sine's period
+			B2SineOutside,			// ... its offset outside the sine
+			B2RateLow,				// ... its slower level run out
+			B2RiseEnd,				// ... its amp envelope past one half
 			XcSilent,				// TRX-XC's second block after a Hit, silent
 			XcWave,					// ... the third, its waveform
 			ClSine,					// TRX-CL's first sine, a whole block
@@ -115,6 +123,14 @@ namespace md::voice
 		{
 			switch(_p)
 			{
+				case B2QuarterA:			return "TRX-B2's first quarter";
+				case B2QuarterB:			return "TRX-B2's second quarter";
+				case B2QuarterC:			return "TRX-B2's third quarter";
+				case B2QuarterD:			return "TRX-B2's fourth quarter";
+				case B2SineWrapped:			return "TRX-B2's offset wrapped";
+				case B2SineOutside:			return "TRX-B2's offset outside the sine";
+				case B2RateLow:				return "TRX-B2's rate after its slower level";
+				case B2RiseEnd:				return "TRX-B2's rise ended";
 				case XcSilent:				return "TRX-XC's silent block";
 				case XcWave:				return "TRX-XC's waveform";
 				case ClSine:				return "TRX-CL's first sine";
@@ -182,8 +198,8 @@ namespace md::voice
 		struct Hooks
 		{
 			// A Y word the voice holds nowhere else, which the render reads through the pointer a reversed odd
-			// retrigger leaves unwritten (a sample read as an address) and through the decoding ring's last two
-			// words; nullptr reads 0. The test reads its oracle's memory there, the emulator's
+			// retrigger leaves unwritten (a sample read as an address), through the decoding ring's last two words
+			// and outside TRX-B2's sine; nullptr reads 0. The test reads its oracle's memory there, the emulator's
 			uint32_t (*stray)(const void* _user, uint32_t _addr) = nullptr;
 			const void* strayUser = nullptr;
 			std::array<int64_t, ProbeCount>* probes = nullptr;
@@ -202,5 +218,19 @@ namespace md::voice
 			if(auto* probes = hooks().probes)
 				++(*probes)[_p];
 		}
+	}
+
+	// The external memory, which X and Y share: the decoding table, the bank's directory and samples
+	inline uint32_t external(const Context& _c, const uint32_t _addr)
+	{
+		if(_addr - 0x146000 < 0x1000 && _c.shared.tables)
+			return _c.shared.tables->decode[_addr - 0x146000] & 0xffffff;
+		const auto* bank = _c.shared.bank;
+		if(bank && _addr - RomBank::DirectoryAddr < RomBank::DirectoryWords)
+			return bank->directory[_addr - RomBank::DirectoryAddr] & 0xffffff;
+		if(bank && _addr - RomBank::DataAddr < bank->dataWords)
+			return bank->data[_addr - RomBank::DataAddr] & 0xffffff;
+		const auto& hooks = testHooks::hooks();
+		return hooks.stray ? hooks.stray(hooks.strayUser, _addr) & 0xffffff : 0;
 	}
 }

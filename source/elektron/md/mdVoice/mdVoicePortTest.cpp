@@ -4,7 +4,8 @@
 // millions of them, only the word).
 // Two phases, the same each run. First the slots as HostModel's tick writes them: every voice's packet from the OS's
 // own coefficient functions (MachineRunner, Musashi) on every block, with Hits, knob changes and machine changes on
-// the ported machines, the ROM ones playing the flash image's UW bank. Then hand-made packets at the edges the OS's
+// the ported machines, the ROM ones playing the flash image's UW bank, and at its end every voice hit once on a TRX
+// machine and left to ring. Then hand-made packets at the edges the OS's
 // functions never give or rarely reach: counts across blocks, negative, $800000, samples at full scale, and the ROM
 // machines' pitch at its extremes, reversed, started past the end, retriggered, ended mid-block and looped, on samples
 // added to the bank: two of full-scale codes, four of 0 to 3 samples, and one that gets shorter under the voices
@@ -49,8 +50,11 @@ namespace
 	constexpr int kVoices = VoiceEngine::kVoices;
 	constexpr int kFrames = Voice::kBlockFrames;
 	constexpr int kOsBlocks = 6000;		// 4.4 s at 44.1 kHz from the OS's functions
-	constexpr int kEdgeBlocks = 1000;	// then the hand-made packets
+	constexpr int kEdgeBlocks = 2000;	// then the hand-made packets
 	constexpr int kBlocks = kOsBlocks + kEdgeBlocks;
+	// The OS's last blocks: every voice hit once on a TRX machine, then nothing, for what only sounds long after a Hit
+	// (TRX-SD's tail)
+	constexpr int kSweepBlock = kOsBlocks - 200;
 
 	constexpr uint32_t kGndIm = 4;
 	// The TRX types ported, each of which must sound
@@ -59,9 +63,9 @@ namespace
 		uint32_t type;
 		const char* name;
 	};
-	constexpr std::array<Trx, 12> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
+	constexpr std::array<Trx, 13> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
 		{21, "TRX-RS"}, {22, "TRX-CB"}, {23, "TRX-CH"},
-		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}, {27, "TRX-CL"}, {28, "TRX-XC"}}};
+		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}, {27, "TRX-CL"}, {28, "TRX-XC"}, {29, "TRX-B2"}}};
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
 	// whatever the others are: GND--, GND-IM and the TRX machines
@@ -88,7 +92,7 @@ namespace
 	// TRX-MA without its rise and hold, which the OS's up to 519 blocks hide from the Hits, its filters' words 0,
 	// inside their tables
 	constexpr uint32_t kMaZeros = 1u << 1 | 1u << 3 | 1u << 7 | 1u << 8 | 1u << 9 | 1u << 0xa;
-	constexpr std::array<TrxEdge, 6> kTrxEdges = {{
+	constexpr std::array<TrxEdge, 8> kTrxEdges = {{
 		{26, 12, kMaZeros},
 		// ... nor its fall
 		{26, 12, kMaZeros | 1u << 4},
@@ -101,6 +105,11 @@ namespace
 		{22, 12, 1u << 3 | 1u << 4 | 1u << 7 | 1u << 8 | 1u << 0xb},
 		// TRX-CL's click ending with its block, a DO of no words after it; its filter's words 0, inside their tables
 		{27, 9, 1u << 5 | 1u << 6, 2, 32},
+		// TRX-B2's offsets wrapping below the sine, and one its period past it, the other quarters' words and its shift
+		// 0
+		{29, 13, 1u << 6 | 1u << 7 | 1u << 8 | 1u << 9, 5, 0x010000},
+		// ... and wrapping above it
+		{29, 13, 1u << 5 | 1u << 6 | 1u << 7 | 1u << 9, 8, 0xff0000},
 	}};
 	using md::voice::isRom;
 	// A ROM type's directory entry
@@ -364,11 +373,14 @@ namespace
 				bank.directory[at] = block / 50 % 2 ? kShrunkLength : kShrinkLength;
 				oracle.writeP(md::voice::RomBank::DirectoryAddr + at, &bank.directory[at], 1);
 			}
+			const bool sweep = block == kSweepBlock;
+			const bool rest = block > kSweepBlock && block < kOsBlocks;
 			std::array<bool, kVoices> hit{};
 			for(int v = 0; v < kVoices; ++v)
 			{
-				const auto event = random() % 64;
-				hit[v] = event < 2;	// 0: a machine change, which only its Hit makes heard; 1: a Hit; 2: a knob turned
+				const auto event = sweep ? 1 : rest ? 63 : random() % 64;
+				// 0: a machine change, which only its Hit makes heard; 1: a Hit; 2: a knob turned; else nothing
+				hit[v] = event < 2;
 				uint32_t words[VoiceEngine::kSlotWords] = {};
 				int count = 0;
 				if(block < kOsBlocks)
@@ -376,6 +388,8 @@ namespace
 					if(event == 0)
 						machine[v] = random() % 2 ? kRomMachines[random() % kRomMachines.size()]
 							: kSynthMachines[random() % kSynthMachines.size()];
+					if(sweep)
+						machine[v] = static_cast<uint8_t>(kTrx[static_cast<size_t>(v) % kTrx.size()].type - 1);
 					if(event < 3)
 						for(auto& p : params[v])
 							p = static_cast<uint16_t>((random() % 128) << 7);

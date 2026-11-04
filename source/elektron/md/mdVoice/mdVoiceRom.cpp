@@ -22,20 +22,6 @@ namespace md::voice::rom
 		using namespace dsp;
 		using testHooks::probe;
 
-		// The external memory the routines read: the decoding table, the bank's directory and samples
-		uint32_t external(const Context& _c, const uint32_t _addr)
-		{
-			if(_addr - 0x146000 < 0x1000)
-				return _c.shared.tables->decode[_addr - 0x146000] & 0xffffff;
-			const auto* bank = _c.shared.bank;
-			if(bank && _addr - RomBank::DirectoryAddr < RomBank::DirectoryWords)
-				return bank->directory[_addr - RomBank::DirectoryAddr] & 0xffffff;
-			if(bank && _addr - RomBank::DataAddr < bank->dataWords)
-				return bank->data[_addr - RomBank::DataAddr] & 0xffffff;
-			const auto& hooks = testHooks::hooks();
-			return hooks.stray ? hooks.stray(hooks.strayUser, _addr) & 0xffffff : 0;
-		}
-
 		// The registers that live across the routines
 		struct Regs
 		{

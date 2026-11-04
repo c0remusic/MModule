@@ -383,4 +383,11 @@ namespace md::voice::trx
 	{
 		void render(Context& _c, Voice::Block& _out);
 	}
+
+	namespace b2
+	{
+		void init(Context& _c);
+		void update(Context& _c);
+		void render(Context& _c, Voice::Block& _out);
+	}
 }

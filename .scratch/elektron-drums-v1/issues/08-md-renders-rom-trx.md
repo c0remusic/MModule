@@ -565,6 +565,48 @@ Revues du 2026-11-04 :
 
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-XC 0,22 à 0,23 µs, soit 0,49 à 0,51 % d'un cœur pour 16 voix.
 
+## TRX-B2
+
+TRX-B2 (type 29 : init $102C31, update $102C4A, render $102C5A) est porté dans `mdVoiceTrxB2.cpp`. Une phase de 23 bits
+avance de Y:$01 plus une enveloppe de hauteur que Y:$0D fait décroître. Elle lit le sinus à travers une forme : chaque
+quart de phase est plié par son propre mot (Y:$05 à Y:$08), et MAX tient le résultat à -$1FFF. Le signal perd ses bits
+bas (Y:$09, après ajout de Y:$0A), puis passe par une enveloppe qui monte de Y:$10 jusqu'à un demi et descend à un taux
+qui change quand un niveau plus lent (Y:$18) est épuisé. S'y ajoutent un bruit creux, un mot sur quatre, et un clic qui
+décroît de 0,9 par échantillon.
+
+L'adresse du sinus passe par l'adressage modulo du DSP, M2 = $7FFF, et ce n'est pas un index masqué : l'offset revient
+une fois au plus dans la table, et pas du tout s'il est multiple de la période. Avec Y:$08 à 0, le dernier quart donne
+l'offset $8000 et lit X:$150000, le premier mot de la banque de samples. Le port lit la même mémoire : `external` passe
+de `mdVoiceRom.cpp` à `mdVoiceInternal.h`, et rend 0 ailleurs que dans ce que le port détient. Le test y lit la mémoire
+de l'oracle ; hors de la banque, le port et le DSP diffèrent donc en produit. Dans les 6000 blocs de paquets de l'OS,
+aucun offset ne sort de la table et aucun ne revient : ces deux cas ne viennent que des paquets faits main.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS et deux paquets faits main, pour les offsets qui reviennent par le bas
+et par le haut, et celui d'une période : 193 482 échantillons non nuls, 0 échantillon et 0 mot d'état différents, les
+huit probes atteintes. Quarante-six mutations ont été essayées et sept survivent. Deux ne changent rien : `r > $8000`
+après le test du multiple, et le bit 0 de B0 que `asl` ne ramène pas dans A1. Les cinq autres visent une égalité exacte
+ou un seul bit bas : l'offset -1, le plancher $FFE000 au lieu de $FFE001, les deux seuils à un LSB, et 1 au lieu de 0
+dans Y:$10. Refaites plus fortes (seuils à $247AE et $440000, plancher à $FFC001, `acc(1)`), quatre d'entre elles sont
+prises ; l'offset -1 a été vérifié à la lecture de `agu.h`. Les branches réécrites par `/simplify` ont été remutées :
+huit sur huit prises. Le scénario des bancs a aussi été comparé à l'oracle : 3000 blocs, 0 différence.
+
+Le scénario change avec cette machine. Chaque machine ajoutée rebat les tirages, et la queue de TRX-SD, qui demande 128
+blocs sans Hit, est tombée à 0. Les 200 derniers blocs de l'OS frappent donc chaque voix une fois sur une TRX, puis
+plus rien : le cas ne dépend plus du tirage. La phase des paquets faits main passe de 1000 à 2000 blocs, car « sample
+raccourci sous la voix » est aussi tombé à 0.
+
+Revues du 2026-11-04 :
+- Revue de code : aucun écart avec le listing. Hors listing, l'interpréteur compare `r` sans signe et le JIT avec signe
+  pour un offset sous -$148000 ; il faut Y:$05 positif au-delà de $520000, que l'OS ne donne pas.
+- Revue d'architecture : le balayage remplace une première version à silences réguliers, qui coûtait 20 % des Hits et
+  restait un tirage. `external` garde son test de `tables` pour une voix TRX sans les tables ROM. Rejeté : un bruit
+  partagé avec TRX-BD (les trous ne sont pas les mêmes), un changement d'`envelope`.
+- `/simplify` : `sineAt` passe à un seul test sur le chemin courant ; `shl` remplace le décalage écrit à la main ;
+  l'init ne touche plus les mots que l'update écrase ; plus de variable locale pour Y:$10. Le fichier garde la phase en
+  X:$40-$5F avant que le signal l'écrase, comme le DSP.
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-B2 0,44 à 0,45 µs, soit 0,96 à 0,98 % d'un cœur pour 16 voix.
+
 Reste ouvert pour les TRX :
-- TRX-B2 et S2.
+- TRX-S2.
 - La formule des tables de filtre.

@@ -36,6 +36,7 @@ namespace md::voice::trx
 {
 	namespace
 	{
+		constexpr Routines kB2 = {b2::init, b2::update, b2::render};
 		constexpr Routines kBd = {bd::init, bd::update, bd::render};
 		constexpr Routines kCb = {cb::init, cb::update, cb::render};
 		constexpr Routines kCh = {ch::init, ch::update, ch::render};
@@ -68,6 +69,7 @@ namespace md::voice::trx
 			case 26:	return &kMa;
 			case 27:	return &kCl;
 			case 28:	return &kXc;
+			case 29:	return &kB2;
 			default:	return nullptr;
 		}
 	}
