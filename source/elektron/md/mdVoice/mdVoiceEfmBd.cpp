@@ -28,7 +28,6 @@ namespace md::voice::efm::bd
 		const auto& t = tables(_c);
 		auto& y = _c.y;
 		auto& ix = _c.shared.scratch.x;
-		auto& iy = _c.shared.scratch.y;
 
 		// The packet's words, which the DSP copies to X:$01-$06 and X:$08 and reads from there
 		ix[1] = y[1];
@@ -40,40 +39,28 @@ namespace md::voice::efm::bd
 		ix[8] = y[8];
 
 		uint32_t pitchLevel = y[0xd], modLevel = y[0xe], amp = y[0xf];
-		// Both phases keep 48 bits, B2 never read; the feedback, an L word, adds to the first for its read only
 		uint64_t mod = static_cast<uint64_t>(acc(y[9], y[0xa]));
 		uint64_t car = static_cast<uint64_t>(acc(y[0xb], y[0xc])) & 0xffffffffffffull;
-		uint32_t feedbackHi = y[0x10], feedbackLo = y[0x11];
+		int64_t feedback = acc(y[0x10], y[0x11]);
 		for(size_t k = 0; k < 32; ++k)
 		{
 			const uint32_t pitch = hi(shl(mul(pitchLevel, y[1]), 3) + acc(y[1]));
 			pitchLevel = hi(mul(y[8], pitchLevel));
 
-			const int64_t feedback = acc(feedbackHi, feedbackLo);
-			const uint64_t read = add48(mod, feedback) & 0x007fffffffffull;
-			const uint32_t modSine = t.sine[read >> 24];
-			mod = add48(add48(read, -feedback), mul(pitch, y[3]) >> 5);
-			limL(mul(modSine, y[6]) >> 8, feedbackHi, feedbackLo);
-
+			const uint32_t modSine = sineFedBack(t, mod, feedback, mul(pitch, y[3]) >> 5, y[6]);
 			const uint32_t modOut = hi(round(mul(modLevel, modSine)));
 			modLevel = hi(mul(y[5], modLevel));
 
-			const uint32_t bend = hi(round(mul(modOut, pitch)));
-			const uint32_t carSine = word(t.sine, static_cast<uint32_t>(car >> 24));
-			car = add48(car, (shl(mul(bend, y[4]), 3) + acc(pitch)) >> 8) & 0x007fffffffffull;
-
+			const uint32_t carSine = sineStep(t, car, fmStep(modOut, pitch, y[4]));
 			_out[k] = sx(hi(round(mul(amp, carSine))));
 			amp = hi(mul(y[2], amp));
 		}
 
-		y[9] = ix[9] = hi(static_cast<int64_t>(mod));
-		y[0xa] = iy[9] = lo(static_cast<int64_t>(mod));
-		y[0xb] = ix[0xb] = hi(static_cast<int64_t>(car));
-		y[0xc] = iy[0xb] = lo(static_cast<int64_t>(car));
+		storeL(_c, 9, static_cast<int64_t>(mod));
+		storeL(_c, 0xb, static_cast<int64_t>(car));
 		y[0xd] = ix[0xd] = pitchLevel;
 		y[0xe] = ix[0xe] = modLevel;
 		y[0xf] = ix[0xf] = amp;
-		y[0x10] = ix[0x10] = feedbackHi;
-		y[0x11] = iy[0x10] = feedbackLo;
+		storeL(_c, 0x10, feedback);
 	}
 }

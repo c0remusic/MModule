@@ -54,6 +54,7 @@ namespace md::voice
 		// The ported renders' branches the test must reach
 		enum Probe
 		{
+			EfmSdLevelLimited,		// a Hit that adds EFM-SD's level past full scale
 			EfmBdLevelLimited,		// a Hit that adds EFM-BD's level past full scale
 			S2First,				// TRX-S2's first block, the ramp alone
 			S2SweepRise,			// ... a sine's sweep rising
@@ -137,6 +138,7 @@ namespace md::voice
 		{
 			switch(_p)
 			{
+				case EfmSdLevelLimited:		return "EFM-SD's level limited at a Hit";
 				case EfmBdLevelLimited:		return "EFM-BD's level limited at a Hit";
 				case S2First:				return "TRX-S2's first block";
 				case S2SweepRise:			return "TRX-S2's sweep rising";

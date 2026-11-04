@@ -39,9 +39,34 @@ suivent le listing, sans contrôle direct.
 Revues du 2026-11-04 :
 - Revue de code : aucun écart avec le listing.
 - Revue d'architecture : l'en-tête EFM, plutôt que des namespaces `trx::efmBd`. Les aides de modulation (`sineFedBack`,
-  `sineStep`, `fmStep`) viennent avec EFM-SD, leur deuxième appelant. L'étage de filtre de fin de EFM-SD a deux variantes
-  d'arrondi selon la machine : `mac` ou `macr`.
+  `sineStep`, `fmStep`) viennent avec EFM-SD, leur deuxième appelant.
 - `/simplify` : commentaires élargis aux machines EFM ; `kTrx` devient `kPorted` dans le test.
 
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-BD 0,43 à 0,44 µs, soit 0,95
 à 0,96 % d'un cœur pour 16 voix.
+
+## 2026-11-04 : EFM-SD
+
+EFM-SD (type 34 : init $102F68, update $102F6F, render $102F85) est porté dans `mdVoiceEfmSd.cpp`. Un bruit passe par un
+filtre à un pôle (Y:$09). Puis, échantillon par échantillon, les deux sinus d'EFM-BD jouent à la hauteur Y:$01, sans
+enveloppe, et le second sort au niveau d'ampli, plus le bruit à Y:$07, à un niveau que Y:$08 fait décroître. Le résultat
+passe par un second filtre à un pôle (Y:$0A). EFM-SD limite sa sortie, là où EFM-BD écrit A1 tel quel.
+
+Les aides de modulation passent dans `mdVoiceEfm.h`, avec EFM-BD et EFM-SD pour appelants : `sineFedBack`, `sineStep`,
+`fmStep`, et `storeL`, qui range un mot L et son miroir. Le coût d'EFM-BD baisse, voir plus bas.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS : 83 390 échantillons non nuls, 0 échantillon et 0 mot d'état
+différents, la probe atteinte. Vingt mutations sur vingt sont prises. Le scénario des bancs a aussi été comparé à
+l'oracle : 3000 blocs, 0 différence.
+
+Revues du 2026-11-04 :
+- Revue de code : aucun écart avec le listing.
+- Revue d'architecture : `onePole` passe dans `mdVoiceEfm.h` avec EFM-XT, avec un nombre de mots arrondis : EFM-SD et
+  EFM-CP utilisent `mac` partout, EFM-XT, EFM-HH et EFM-CY `macr` partout, et EFM-RS `macr` sur ses deux premiers
+  mots seulement. La paire d'opérateurs reste écrite machine par machine : quatre machines sur huit seulement la
+  répètent, et un repli demanderait dix paramètres.
+- `/simplify` : le retour d'action passe d'un couple de mots à un entier, car un produit descendu d'un octet n'atteint
+  jamais la limite des mots L.
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-SD 0,62 à 0,63 µs, soit 1,36 à 1,38
+% d'un cœur pour 16 voix. EFM-BD passe à 0,39 à 0,40 µs, soit 0,87 à 0,89 %.
