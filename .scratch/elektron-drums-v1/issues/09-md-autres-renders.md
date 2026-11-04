@@ -70,3 +70,22 @@ Revues du 2026-11-04 :
 
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-SD 0,62 à 0,63 µs, soit 1,36 à 1,38
 % d'un cœur pour 16 voix. EFM-BD passe à 0,39 à 0,40 µs, soit 0,87 à 0,89 %.
+
+## 2026-11-04 : EFM-XT
+
+EFM-XT (type 35 : init $10304E, update $103052, render $103065) est porté dans `mdVoiceEfmXt.cpp`. Sa boucle est celle
+d'EFM-BD, mot pour mot, avec son état deux mots plus haut : `bd::pair` sort cette boucle d'EFM-BD, avec l'adresse de
+l'état en paramètre, et EFM-BD passe par un tampon de mots. Le résultat traverse le filtre à un pôle d'EFM-SD (Y:$09), qui
+passe dans `mdVoiceEfm.h`, tous ses mots arrondis. Un Hit met les deux phases à Y:$0A et ajoute $400000 au niveau.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS : 104 603 échantillons non nuls, 0 échantillon et 0 mot d'état
+différents, la probe atteinte. Onze mutations sur onze sont prises. Le scénario des bancs a aussi été comparé à
+l'oracle : 3000 blocs, 0 différence.
+
+Revues du 2026-11-04 :
+- Revue de code : aucun écart avec le listing.
+- Revue d'architecture : `pair` reste dans `bd`, EFM-SD ne pouvant pas l'appeler. EFM-CP n'y touchera qu'à son tour.
+- `/simplify` : le compteur de `onePole` reste un entier, car le listing d'EFM-RS arrondit ses deux premiers mots
+  seulement.
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-XT 0,53 µs, soit 1,17 à 1,18 % d'un cœur pour 16 voix.

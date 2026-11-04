@@ -43,14 +43,45 @@ namespace md::voice::efm
 		_c.y[_n + 1] = _c.shared.scratch.y[_n] = lo(_l);
 	}
 
+	// A one-pole filter in place over 32 words, by a coefficient word: (1 + c) / 2 (1 - z^-1) over 1 - c z^-1. Its state
+	// from Y:_state: the last input scaled by the gain, which the scratch keeps too, and the last output. The DSP
+	// rounds the first _rounded words (MACR), the rest not (MAC): none or all but in EFM-RS, which rounds two
+	inline void onePole(Context& _c, uint32_t* const _io, const uint32_t _coef, const uint32_t _state,
+		const int _rounded)
+	{
+		const uint32_t gain = hi((acc(_coef) >> 1) + acc(0x400000));
+		uint32_t scaled = _c.y[_state], output = _c.y[_state + 1];
+		for(int k = 0; k < 32; ++k)
+		{
+			const int64_t a = mul(_io[k], gain);
+			const int64_t sum = a - acc(scaled) + mul(output, _coef);
+			output = lim(k < _rounded ? round(sum) : sum);
+			scaled = hi(a);
+			_io[k] = output;
+		}
+		_c.y[_state] = _c.shared.scratch.x[_state] = scaled;
+		_c.y[_state + 1] = output;
+	}
+
 	namespace bd
+	{
+		void init(Context& _c);
+		void update(Context& _c);
+		void render(Context& _c, Voice::Block& _out);
+		// The render's two sines into 32 words, as EFM-XT plays them too. Their state, nine words from Y:_state: the
+		// first's phase, the second's, the pitch's level, the first's, the amp, and the feedback. The packet's words
+		// stay at Y:$01-$06 and Y:$08
+		void pair(Context& _c, uint32_t _state, uint32_t* _out);
+	}
+
+	namespace sd
 	{
 		void init(Context& _c);
 		void update(Context& _c);
 		void render(Context& _c, Voice::Block& _out);
 	}
 
-	namespace sd
+	namespace xt
 	{
 		void init(Context& _c);
 		void update(Context& _c);

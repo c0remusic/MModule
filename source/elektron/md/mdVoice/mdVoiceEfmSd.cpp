@@ -7,26 +7,6 @@
 
 namespace md::voice::efm::sd
 {
-	namespace
-	{
-		// A one-pole filter in place over 32 words, by a coefficient word: (1 + c) / 2 (1 - z^-1) over 1 - c z^-1. Its
-		// state from Y:_state: the last input scaled by the gain, which the scratch keeps too, and the last output
-		void onePole(Context& _c, uint32_t* const _io, const uint32_t _coef, const uint32_t _state)
-		{
-			const uint32_t gain = hi((acc(_coef) >> 1) + acc(0x400000));
-			uint32_t scaled = _c.y[_state], output = _c.y[_state + 1];
-			for(int k = 0; k < 32; ++k)
-			{
-				const int64_t a = mul(_io[k], gain);
-				output = lim(a - acc(scaled) + mul(output, _coef));
-				scaled = hi(a);
-				_io[k] = output;
-			}
-			_c.y[_state] = _c.shared.scratch.x[_state] = scaled;
-			_c.y[_state + 1] = output;
-		}
-	}
-
 	void init(Context& _c)
 	{
 		auto& y = _c.y;
@@ -56,7 +36,7 @@ namespace md::voice::efm::sd
 		// The noise, X:$1A-$39, filtered
 		uint32_t* const noise = &ix[0x1a];
 		fibonacci(noise, y[0x14], y[0x15]);
-		onePole(_c, noise, y[9], 0x16);
+		onePole(_c, noise, y[9], 0x16, 0);
 
 		uint32_t modLevel = y[0xf], amp = y[0x10], noiseLevel = y[0x11];
 		uint64_t mod = static_cast<uint64_t>(acc(y[0xb], y[0xc]));
@@ -80,7 +60,7 @@ namespace md::voice::efm::sd
 			out[k] = lim(round(mul(hiss, y[7])) + acc(tone));
 		}
 
-		onePole(_c, out, y[0xa], 0x18);
+		onePole(_c, out, y[0xa], 0x18, 0);
 		for(size_t k = 0; k < 32; ++k)
 			_out[k] = sx(out[k]);
 

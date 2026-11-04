@@ -63,10 +63,10 @@ namespace
 		uint32_t type;
 		const char* name;
 	};
-	constexpr std::array<Ported, 16> kPorted = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
+	constexpr std::array<Ported, 17> kPorted = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
 		{21, "TRX-RS"}, {22, "TRX-CB"}, {23, "TRX-CH"},
 		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}, {27, "TRX-CL"}, {28, "TRX-XC"}, {29, "TRX-B2"},
-		{30, "TRX-S2"}, {33, "EFM-BD"}, {34, "EFM-SD"}}};
+		{30, "TRX-S2"}, {33, "EFM-BD"}, {34, "EFM-SD"}, {35, "EFM-XT"}}};
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
 	// whatever the others are: GND--, GND-IM and those

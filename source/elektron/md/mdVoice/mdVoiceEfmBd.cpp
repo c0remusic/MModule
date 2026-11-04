@@ -23,7 +23,7 @@ namespace md::voice::efm::bd
 		y[0xe] = 0x7fffff;
 	}
 
-	void render(Context& _c, Voice::Block& _out)
+	void pair(Context& _c, const uint32_t _state, uint32_t* const _out)
 	{
 		const auto& t = tables(_c);
 		auto& y = _c.y;
@@ -38,10 +38,10 @@ namespace md::voice::efm::bd
 		ix[6] = y[6];
 		ix[8] = y[8];
 
-		uint32_t pitchLevel = y[0xd], modLevel = y[0xe], amp = y[0xf];
-		uint64_t mod = static_cast<uint64_t>(acc(y[9], y[0xa]));
-		uint64_t car = static_cast<uint64_t>(acc(y[0xb], y[0xc])) & 0xffffffffffffull;
-		int64_t feedback = acc(y[0x10], y[0x11]);
+		uint64_t mod = static_cast<uint64_t>(acc(y[_state], y[_state + 1]));
+		uint64_t car = static_cast<uint64_t>(acc(y[_state + 2], y[_state + 3])) & 0xffffffffffffull;
+		uint32_t pitchLevel = y[_state + 4], modLevel = y[_state + 5], amp = y[_state + 6];
+		int64_t feedback = acc(y[_state + 7], y[_state + 8]);
 		for(size_t k = 0; k < 32; ++k)
 		{
 			const uint32_t pitch = hi(shl(mul(pitchLevel, y[1]), 3) + acc(y[1]));
@@ -52,15 +52,23 @@ namespace md::voice::efm::bd
 			modLevel = hi(mul(y[5], modLevel));
 
 			const uint32_t carSine = sineStep(t, car, fmStep(modOut, pitch, y[4]));
-			_out[k] = sx(hi(round(mul(amp, carSine))));
+			_out[k] = hi(round(mul(amp, carSine)));
 			amp = hi(mul(y[2], amp));
 		}
 
-		storeL(_c, 9, static_cast<int64_t>(mod));
-		storeL(_c, 0xb, static_cast<int64_t>(car));
-		y[0xd] = ix[0xd] = pitchLevel;
-		y[0xe] = ix[0xe] = modLevel;
-		y[0xf] = ix[0xf] = amp;
-		storeL(_c, 0x10, feedback);
+		storeL(_c, _state, static_cast<int64_t>(mod));
+		storeL(_c, _state + 2, static_cast<int64_t>(car));
+		y[_state + 4] = ix[_state + 4] = pitchLevel;
+		y[_state + 5] = ix[_state + 5] = modLevel;
+		y[_state + 6] = ix[_state + 6] = amp;
+		storeL(_c, _state + 7, feedback);
+	}
+
+	void render(Context& _c, Voice::Block& _out)
+	{
+		uint32_t out[32];
+		pair(_c, 9, out);
+		for(size_t k = 0; k < 32; ++k)
+			_out[k] = sx(out[k]);
 	}
 }
