@@ -22,6 +22,15 @@ namespace md::voice::trx
 		return (_b + static_cast<uint64_t>(_x)) & 0xffffffffffffull;
 	}
 
+	// A counter of blocks: false at 0, else one less
+	inline bool countDown(uint32_t& _count)
+	{
+		if(_count == 0)
+			return false;
+		_count = lim(acc(_count) - acc(1));
+		return true;
+	}
+
 	// A word of a table; the port reads 0 outside what it holds, as an index from a packet word could reach
 	template<size_t N>
 	uint32_t word(const std::array<uint32_t, N>& _w, const uint32_t _index)
@@ -212,12 +221,11 @@ namespace md::voice::trx
 		_h1 = h1;
 	}
 
-	// Two high-pass filters in turn, 1/2 - z^-1 + 1/2 z^-2 over the same poles, as TRX-CP, TRX-CB and TRX-CY run them
-	// (the DSP's loop at $101A3F, $101FA7, $1024B6 and $102540). The first over the 32 words at X:_in, after its
-	// input's last two at X:_in - 2, its own last two left at X:_ring and _ring + 1; the second's outputs from
-	// X:_out + 2 on, after its last two at X:_out. Their state, six words from Y:_state: the first's last two outputs,
-	// the latest first, then the second's, then the input's. The outputs may overwrite the input: each input word is
-	// read before
+	// Two high-pass filters in turn, 1/2 - z^-1 + 1/2 z^-2 over the same poles, the same loop in each machine that runs
+	// them. The first over the 32 words at X:_in, after its input's last two at X:_in - 2, its own last two left at
+	// X:_ring and _ring + 1; the second's outputs from X:_out + 2 on, after its last two at X:_out. Their state, six
+	// words from Y:_state: the first's last two outputs, the latest first, then the second's, then the input's. The
+	// outputs may overwrite the input: each input word is read before
 	inline void highPassStage(Context& _c, const Poles& _p, const uint32_t _in, const uint32_t _ring,
 		const uint32_t _out, const uint32_t _state)
 	{
@@ -333,6 +341,13 @@ namespace md::voice::trx
 	}
 
 	namespace cy
+	{
+		void init(Context& _c);
+		void update(Context& _c);
+		void render(Context& _c, Voice::Block& _out);
+	}
+
+	namespace ma
 	{
 		void init(Context& _c);
 		void update(Context& _c);

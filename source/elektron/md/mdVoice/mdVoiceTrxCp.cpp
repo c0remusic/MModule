@@ -53,27 +53,26 @@ namespace md::voice::trx::cp
 		{
 			int64_t b = acc(y[0x14]);
 			uint32_t rate;
-			const auto burst = [&](const uint32_t _counter, const uint32_t _add, const uint32_t _rate)
+			const auto burst = [&](const uint32_t _add, const uint32_t _rate)
 			{
-				y[_counter] = lim(acc(y[_counter]) - acc(1));
 				b += acc(y[_add]);
 				y[_add] = 0;
 				rate = y[_rate];
 			};
-			if(y[0xc] != 0)
+			if(countDown(y[0xc]))
 			{
 				probe(testHooks::CpBurstA);
-				burst(0xc, 1, 3);
+				burst(1, 3);
 			}
-			else if(y[0xd] != 0)
+			else if(countDown(y[0xd]))
 			{
 				probe(testHooks::CpBurstB);
-				burst(0xd, 2, 0x11);
+				burst(2, 0x11);
 			}
-			else if(y[0xe] != 0)
+			else if(countDown(y[0xe]))
 			{
 				probe(testHooks::CpBurstC);
-				burst(0xe, 0xf, 0x12);
+				burst(0xf, 0x12);
 			}
 			else
 			{

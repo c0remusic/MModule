@@ -475,6 +475,41 @@ Revues du 2026-11-03 :
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-CY 1,12 µs, soit 2,47 %
 d'un cœur pour 16 voix ; TRX-CH 0,83 µs et TRX-CP 0,74 µs après le passage à `addChWaves` et `twoPoleStage`.
 
+## TRX-MA
+
+TRX-MA (type 26 : init $1028F4, update $102914, render $10291F) est porté dans `mdVoiceTrxMa.cpp`. Le bruit de TRX-CH
+passe par trois étages passe-haut de TRX-CP. Le premier (Y:$0A, Y:$10) garde le haut du bruit. Le bruit commande aussi
+un suiveur de niveau, lu à l'envers dans le bloc : un mot au-delà du seuil Y:$06 relance une montée vers sa taille, puis
+le niveau retombe par Y:$0C. Le deuxième étage (Y:$07, Y:$08) filtre ce suiveur, et le huitième du résultat passe par le
+troisième (Y:$09, Y:$0F). La sortie du premier étage s'y ajoute à un niveau qui monte de Y:$0B par bloc depuis le Hit.
+L'enveloppe du Hit monte pendant Y:$01 blocs, tient pendant Y:$03, descend pendant Y:$04, puis la voix se tait. La chaîne
+tourne même muette : l'update ne remet ni le bruit ni les filtres à zéro.
+
+Le DSP a ici un défaut qu'il faut garder. L'historique d'entrée du deuxième étage tombe sur les deux premiers mots du
+suiveur, X:$22-$23, et l'étage lit donc ses 32 mots de X:$24 à X:$43. Le suiveur s'arrête à X:$41 : X:$42 et X:$43
+gardent ce que la dernière voix y a écrit, TRX-MA ou une autre. La mémoire partagée compte donc pour le son de cette
+machine. Le port lit la même mémoire, et le test le prouve : mettre ces deux mots à zéro fait échouer `mdVoicePortTest`.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS et trois paquets faits main : 196 105 échantillons non nuls, 0
+échantillon et 0 mot d'état différents, les six probes atteintes. Les paquets de l'OS ne vont que rarement au bout de
+l'enveloppe, jusqu'à 519 blocs quand un Hit arrive tous les 32 blocs en moyenne : deux paquets la raccourcissent. Le
+troisième met le seuil et le bruit à zéro sur une voix déjà TRX-MA, ce qui donne un mot exactement au seuil. Vingt-quatre
+mutations sur vingt-cinq sont prises. La dernière remplace `a <= b` par `a < b` dans le suiveur : il faudrait une
+égalité exacte sur 48 bits, que le scénario n'atteint pas. La condition a été vérifiée à la lecture du listing. Le
+scénario des bancs a aussi été comparé à l'oracle : 3000 blocs, 0 différence.
+
+Revues du 2026-11-04 :
+- Revue de code : aucun écart avec le listing.
+- Revue d'architecture : `countDown` passe dans `mdVoiceTrx.h`, et TRX-CH et TRX-CP l'appellent aussi ; le commentaire
+  de `highPassStage` ne liste plus les machines. Rejeté : fusionner le `ramp` de TRX-MA et celui de TRX-CH (ordre du pas,
+  décalage et limitation diffèrent), mettre les adresses de `highPassStage` dans une structure.
+- `/simplify` : `follow` a un niveau d'imbrication de moins ; les écritures de X:$66-$67, que le deuxième étage écrase
+  sans qu'on les lise, sont retirées ; `hooks()` passe en ligne, car le suiveur appelle une probe à chaque échantillon.
+- À trancher après CL et S2 : une enveloppe montée, tenue, descente commune, si l'une d'elles la reprend.
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-MA 0,93 à 0,99 µs, soit 2,04
+à 2,19 % d'un cœur pour 16 voix.
+
 Reste ouvert pour les TRX :
-- TRX-MA, CL, XC, B2 et S2.
+- TRX-CL, XC, B2 et S2.
 - La formule des tables de filtre.

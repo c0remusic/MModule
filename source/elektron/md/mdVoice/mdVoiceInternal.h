@@ -48,6 +48,12 @@ namespace md::voice
 		// The ROM and TRX renders' branches the test must reach
 		enum Probe
 		{
+			MaRise,					// TRX-MA's level rising
+			MaHold,					// ... held
+			MaDecay,				// ... falling
+			MaSilent,				// ... silent after all three
+			MaPeak,					// TRX-MA's follower reaching its peak
+			MaFall,					// ... falling from it
 			CyLevelALimited,		// a Hit that adds TRX-CY's first level past full scale
 			CyLevelBLimited,		// ... its second
 			ChHold,					// TRX-CH's level held while its first counter runs
@@ -102,6 +108,12 @@ namespace md::voice
 		{
 			switch(_p)
 			{
+				case MaRise:				return "TRX-MA's level rising";
+				case MaHold:				return "TRX-MA's level held";
+				case MaDecay:				return "TRX-MA's level falling";
+				case MaSilent:				return "TRX-MA silent";
+				case MaPeak:				return "TRX-MA's follower at its peak";
+				case MaFall:				return "TRX-MA's follower falling";
 				case CyLevelALimited:		return "TRX-CY's first level limited at a Hit";
 				case CyLevelBLimited:		return "TRX-CY's second level limited at a Hit";
 				case ChHold:				return "TRX-CH's level held";
@@ -163,7 +175,13 @@ namespace md::voice
 			std::array<int64_t, ProbeCount>* probes = nullptr;
 		};
 
-		Hooks& hooks();
+		// Inline: a probe sits on some render's path for every sample
+		inline Hooks g_hooks;
+
+		inline Hooks& hooks()
+		{
+			return g_hooks;
+		}
 
 		inline void probe(const Probe _p)
 		{

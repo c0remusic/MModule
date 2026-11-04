@@ -118,19 +118,17 @@ namespace md::voice::trx::ch
 			_out[static_cast<size_t>(_k)] = sx(lim(mul(_level, sig[_k]) >> 1));
 		};
 		uint32_t level = y[0x10];
-		if(y[9] != 0)
+		if(countDown(y[9]))
 		{
 			probe(testHooks::ChHold);
-			y[9] = lim(acc(y[9]) - acc(1));
 			for(int k = 0; k < 32; ++k)
 				put(k, level);
 			return;
 		}
-		if(y[0xa] != 0)
+		if(countDown(y[0xa]))
 		{
 			// The level kept unlimited, each sample's the limited word
 			probe(testHooks::ChRamp);
-			y[0xa] = lim(acc(y[0xa]) - acc(1));
 			const int64_t step = acc(y[1]);
 			int64_t b = acc(level);
 			for(int k = 0; k < 32; ++k)

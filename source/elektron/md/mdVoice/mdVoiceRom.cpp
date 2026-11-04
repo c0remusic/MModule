@@ -14,15 +14,6 @@
 
 #include <stdexcept>
 
-namespace md::voice::testHooks
-{
-	Hooks& hooks()
-	{
-		static Hooks h;
-		return h;
-	}
-}
-
 namespace md::voice::rom
 {
 	namespace

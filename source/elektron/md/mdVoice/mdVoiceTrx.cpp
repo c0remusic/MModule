@@ -41,6 +41,7 @@ namespace md::voice::trx
 		constexpr Routines kCh = {ch::init, ch::update, ch::render};
 		constexpr Routines kCp = {cp::init, cp::update, cp::render};
 		constexpr Routines kCy = {cy::init, cy::update, cy::render};
+		constexpr Routines kMa = {ma::init, ma::update, ma::render};
 		constexpr Routines kRs = {rs::init, rs::update, rs::render};
 		constexpr Routines kSd = {sd::init, sd::update, sd::render};
 		constexpr Routines kXt = {xt::init, xt::update, xt::render};
@@ -62,6 +63,7 @@ namespace md::voice::trx
 			// differ, so a voice that goes from one to the other runs init, as on the DSP
 			case 24:	return &kCh;
 			case 25:	return &kCy;
+			case 26:	return &kMa;
 			default:	return nullptr;
 		}
 	}
