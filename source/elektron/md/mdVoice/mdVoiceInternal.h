@@ -48,6 +48,11 @@ namespace md::voice
 		// The ROM and TRX renders' branches the test must reach
 		enum Probe
 		{
+			ClSine,					// TRX-CL's first sine, a whole block
+			ClClick,				// ... its click, a whole block with more to come
+			ClClickRest,			// ... the click's last words, then the sine
+			ClClickEnd,				// ... the click ending with the block, no word of the sine
+			ClLevelLimited,			// a Hit that adds TRX-CL's level past full scale
 			MaRise,					// TRX-MA's level rising
 			MaHold,					// ... held
 			MaDecay,				// ... falling
@@ -108,6 +113,11 @@ namespace md::voice
 		{
 			switch(_p)
 			{
+				case ClSine:				return "TRX-CL's first sine";
+				case ClClick:				return "TRX-CL's click";
+				case ClClickRest:			return "TRX-CL's click ending in a block";
+				case ClClickEnd:			return "TRX-CL's click ending with a block";
+				case ClLevelLimited:		return "TRX-CL's level limited at a Hit";
 				case MaRise:				return "TRX-MA's level rising";
 				case MaHold:				return "TRX-MA's level held";
 				case MaDecay:				return "TRX-MA's level falling";

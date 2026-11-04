@@ -510,6 +510,38 @@ Revues du 2026-11-04 :
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-MA 0,93 à 0,99 µs, soit 2,04
 à 2,19 % d'un cœur pour 16 voix.
 
+## TRX-CL
+
+TRX-CL (type 27 : init $102AA9, update $102AB3, render $102ABF) est porté dans `mdVoiceTrxCl.cpp`. Un Hit écrit un clic
+de Y:$02 mots à la valeur Y:$08 à la place du premier sinus, qui reprend après lui à la hauteur Y:$03. Le second sinus,
+à la hauteur Y:$04, passe par le niveau Y:$07. Le huitième de leur somme suit le niveau Y:$09, qu'un Hit monte et que
+Y:$01 fait décroître, puis un étage passe-haut de TRX-CP (Y:$05, Y:$06). La sortie part des deux mots d'historique de
+l'étage, donc deux échantillons plus tard.
+
+Deux comportements du DSP sont gardés. Le bloc qui finit le clic avance le premier sinus du nombre de mots restants, pas
+de Y:$03. Et la boucle des sinus charge chaque mot lu dans X0, qui est le mot bas du pas : à partir du deuxième
+échantillon, le mot bas du pas est le dernier mot du sinus. TRX-XT fait de même, et sa boucle était déjà dans
+`mdVoiceTrxXt.cpp` : elle passe dans `mdVoiceTrx.h` sous le nom `sinesFedBack`, que les deux appellent.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS et un paquet fait main : 148 893 échantillons non nuls, 0 échantillon
+et 0 mot d'état différents, les cinq probes atteintes. Le paquet fait main met Y:$02 à 32 : le clic finit avec le bloc,
+et le DO qui suit a zéro mot. Vingt-quatre mutations sur vingt-cinq sont prises. La dernière déplace le mot d'historique
+X:$00-$01 du premier filtre vers X:$70 : aucune voix portée ne relit ces mots, le changement ne s'entend pas. Le scénario des
+bancs a aussi été comparé à l'oracle : 3000 blocs, 0 différence.
+
+Revues du 2026-11-04 :
+- Revue de code : aucun écart avec le listing. Le port compare Y:$02 sans signe et le DSP avec signe : un mot au bit 23
+  lancerait un DO de plusieurs millions de mots sur le DSP. L'OS n'en donne pas ($20B au plus dans le scénario), le port
+  ne reproduit pas ce blocage.
+- Revue d'architecture : `sinesFedBack` partagée avec TRX-XT, voir plus haut. Rejeté : un cœur commun aux trois boucles
+  de sinus (le mot lu change le pas après l'addition, ce qu'un `Store` ne peut pas faire), un décalage sur `envelope`,
+  qui n'aurait qu'un appelant.
+- `/simplify` : `sinesFedBack` passe par `acc` et `hi` au lieu d'un masque écrit à la main ; TRX-XT lui donne le pas
+  directement, sans variable ni `wrap56`, qui ne changeait rien sous `add48`. Gardés : les trois branches du clic et les
+  deux passes de mise à niveau, qui suivent le listing.
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-CL 0,38 à 0,43 µs, soit 0,83 à 0,94 % d'un cœur pour 16 voix.
+
 Reste ouvert pour les TRX :
-- TRX-CL, XC, B2 et S2.
+- TRX-XC, B2 et S2.
 - La formule des tables de filtre.

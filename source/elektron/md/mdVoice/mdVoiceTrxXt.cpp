@@ -52,25 +52,9 @@ namespace md::voice::trx::xt
 			return;
 		}
 
-		// The sine, its step from PTCH and the pitch envelope. Past the first sample the step's low word is the last
-		// sine word read: the loop loads it into X0, which the add uses
-		{
-			const int64_t step = wrap56((acc(y[2]) >> 6) + mul(y[0xa], y[3]));
-			y[0xa] = lim(mul(y[0xa], y[7]));
-			uint64_t b = static_cast<uint64_t>(acc(y[0xe], y[0xf])) & 0xffffffffffffull;
-			const uint32_t x1 = hi(step);
-			uint32_t x0 = lo(step);
-			for(int k = 0; k < 32; ++k)
-			{
-				b &= 0x007fffffffffull;
-				const uint32_t index = static_cast<uint32_t>(b >> 24);
-				b = add48(b, acc(x1, x0));
-				x0 = t.sine[index];
-				sig[k] = x0;
-			}
-			y[0xe] = static_cast<uint32_t>(b >> 24) & 0xffffff;
-			y[0xf] = static_cast<uint32_t>(b) & 0xffffff;
-		}
+		// The sine, its step from PTCH and the pitch envelope
+		sinesFedBack(t, y, 0xe, 0xf, (acc(y[2]) >> 6) + mul(y[0xa], y[3]), sig, 32);
+		y[0xa] = lim(mul(y[0xa], y[7]));
 
 		envelope(sig, y[8], y[1]);
 

@@ -59,9 +59,9 @@ namespace
 		uint32_t type;
 		const char* name;
 	};
-	constexpr std::array<Trx, 10> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
+	constexpr std::array<Trx, 11> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
 		{21, "TRX-RS"}, {22, "TRX-CB"}, {23, "TRX-CH"},
-		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}}};
+		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}, {27, "TRX-CL"}}};
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
 	// whatever the others are: GND--, GND-IM and the TRX machines
@@ -76,17 +76,19 @@ namespace
 	constexpr std::array<uint8_t, 6> kRomMachines = {128, 129, 144, 159, 176, 189};
 
 	// The second phase's hand-made packets other than the ROM machines', which take half its Hits whatever these are:
-	// GND-IM's counts and samples at their edges, or one of these TRX packets, random words but those at 0
+	// GND-IM's counts and samples at their edges, or one of these TRX packets, random words but those at 0 or set
 	struct TrxEdge
 	{
 		uint32_t type;
 		int count;
 		uint32_t zeros;		// a bit per word
+		int set = 0;		// a word that holds value, if not 0
+		uint32_t value = 0;
 	};
 	// TRX-MA without its rise and hold, which the OS's up to 519 blocks hide from the Hits, its filters' words 0,
 	// inside their tables
 	constexpr uint32_t kMaZeros = 1u << 1 | 1u << 3 | 1u << 7 | 1u << 8 | 1u << 9 | 1u << 0xa;
-	constexpr std::array<TrxEdge, 5> kTrxEdges = {{
+	constexpr std::array<TrxEdge, 6> kTrxEdges = {{
 		{26, 12, kMaZeros},
 		// ... nor its fall
 		{26, 12, kMaZeros | 1u << 4},
@@ -97,6 +99,8 @@ namespace
 		{19, 10, 1u << 4 | 1u << 8},
 		// TRX-CB's sines still and its thresholds 0: a fresh voice's sines on them
 		{22, 12, 1u << 3 | 1u << 4 | 1u << 7 | 1u << 8 | 1u << 0xb},
+		// TRX-CL's click ending with its block, a DO of no words after it; its filter's words 0, inside their tables
+		{27, 9, 1u << 5 | 1u << 6, 2, 32},
 	}};
 	using md::voice::isRom;
 	// A ROM type's directory entry
@@ -407,6 +411,8 @@ namespace
 							const auto r = static_cast<uint32_t>(random()) & 0xffffff;
 							words[w] = e.zeros >> w & 1 ? 0 : r;
 						}
+						if(e.set != 0)
+							words[e.set] = e.value;
 						count = e.count;
 					}
 				}

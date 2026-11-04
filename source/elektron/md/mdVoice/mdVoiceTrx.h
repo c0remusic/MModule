@@ -111,6 +111,24 @@ namespace md::voice::trx
 		_y[_loAddr] = static_cast<uint32_t>(b) & 0xffffff;
 	}
 
+	// As sines, _count words into _dst, but each word read lands in X0, the step's low word: past the first word, that
+	// low word is the last word read
+	inline void sinesFedBack(const TrxTables& _t, Voice::State& _y, const uint32_t _hiAddr, const uint32_t _loAddr,
+		int64_t _step, uint32_t* const _dst, const uint32_t _count)
+	{
+		uint64_t b = static_cast<uint64_t>(acc(_y[_hiAddr], _y[_loAddr])) & 0xffffffffffffull;
+		for(uint32_t k = 0; k < _count; ++k)
+		{
+			b &= 0x007fffffffffull;
+			const uint32_t w = _t.sine[b >> 24];
+			b = add48(b, _step);
+			_step = acc(hi(_step), w);
+			_dst[k] = w;
+		}
+		_y[_hiAddr] = static_cast<uint32_t>(b >> 24) & 0xffffff;
+		_y[_loAddr] = static_cast<uint32_t>(b) & 0xffffff;
+	}
+
 	// A noise of 32 words: two words that add as a Fibonacci pair, B1 only
 	inline void fibonacci(uint32_t* const _dst, uint32_t& _prev, uint32_t& _cur)
 	{
@@ -348,6 +366,13 @@ namespace md::voice::trx
 	}
 
 	namespace ma
+	{
+		void init(Context& _c);
+		void update(Context& _c);
+		void render(Context& _c, Voice::Block& _out);
+	}
+
+	namespace cl
 	{
 		void init(Context& _c);
 		void update(Context& _c);

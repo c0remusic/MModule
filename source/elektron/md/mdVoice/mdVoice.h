@@ -99,7 +99,7 @@ namespace md::voice
 		explicit Voice(Shared& _shared) : m_shared(&_shared) {}
 
 		// The types (machine id + 1) whose code is ported: 0 (never assigned), GND--, GND-IM, TRX-BD, TRX-SD, TRX-XT,
-		// TRX-CP, TRX-RS, TRX-CB, TRX-CH, TRX-OH, TRX-CY, TRX-MA, ROM-01 to -48
+		// TRX-CP, TRX-RS, TRX-CB, TRX-CH, TRX-OH, TRX-CY, TRX-MA, TRX-CL, ROM-01 to -48
 		static bool ported(uint32_t _type);
 
 		// As VoiceEngine::setSlot: word 0 the trigger (the type, non-zero only on the block the voice is triggered),
