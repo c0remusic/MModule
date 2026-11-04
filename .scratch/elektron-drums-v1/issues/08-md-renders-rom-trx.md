@@ -542,6 +542,29 @@ Revues du 2026-11-04 :
 
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-CL 0,38 à 0,43 µs, soit 0,83 à 0,94 % d'un cœur pour 16 voix.
 
+## TRX-XC
+
+TRX-XC (type 28 : init $102B87, update $102B88, render $102B96) est porté dans `mdVoiceTrxXc.cpp`. Sa routine est celle
+de TRX-XT : un script a comparé les mots du listing, l'init et l'update sont identiques, et le rendu après les blocs du
+Hit aussi, sauf les trois adresses de fin de DO. Seuls les deuxième et troisième blocs après un Hit changent : un bloc
+silencieux, puis une forme d'onde de 32 mots à P:$102C0F, là où TRX-XT joue ses deux formes d'onde. `xc::render` prend
+donc ces deux blocs et passe tout le reste à `xt::render` ; le dispatch prend l'init et l'update de TRX-XT.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS : 120 689 échantillons non nuls, 0 échantillon et 0 mot d'état
+différents, les deux probes atteintes, 118 blocs silencieux et 112 formes d'onde. Six mutations sur six sont prises. Le
+scénario des bancs a aussi été comparé à l'oracle : 3000 blocs, 0 différence.
+
+Revues du 2026-11-04 :
+- Revue de code : aucun écart avec le listing, pour toute valeur de Y:$0B sur 24 bits.
+- Revue d'architecture : une première version sortait `xt::sweep` et réécrivait le compteur de TRX-XT et TRX-CB. La
+  délégation à `xt::render` retire `sweep`, la probe de fondu et ces deux réécritures. Le fondu de TRX-XC passe par la
+  probe de TRX-XT et reste comparé au DSP. Rejeté : un rendu commun avec drapeau ou table, un helper pour le compteur
+  à trois voies, un helper pour les deux lignes de forme d'onde.
+- `/simplify` : rien à changer. La table de dispatch, repoussée machine après machine, est abandonnée : il ne reste que
+  deux machines, et le `switch` porte le commentaire de TRX-OH.
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-XC 0,22 à 0,23 µs, soit 0,49 à 0,51 % d'un cœur pour 16 voix.
+
 Reste ouvert pour les TRX :
-- TRX-XC, B2 et S2.
+- TRX-B2 et S2.
 - La formule des tables de filtre.

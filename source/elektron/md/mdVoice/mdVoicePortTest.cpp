@@ -59,9 +59,9 @@ namespace
 		uint32_t type;
 		const char* name;
 	};
-	constexpr std::array<Trx, 11> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
+	constexpr std::array<Trx, 12> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
 		{21, "TRX-RS"}, {22, "TRX-CB"}, {23, "TRX-CH"},
-		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}, {27, "TRX-CL"}}};
+		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}, {27, "TRX-CL"}, {28, "TRX-XC"}}};
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
 	// whatever the others are: GND--, GND-IM and the TRX machines
@@ -207,6 +207,7 @@ namespace
 		copy(t.sdWave, T::SdWaveAddr);
 		copy(t.filters, T::FiltersAddr);
 		copy(t.xtWave, T::XtWaveAddr);
+		copy(t.xcWave, T::XcWaveAddr);
 		copy(t.rsWave, T::RsWaveAddr);
 		for(const auto& w : T::ChWaves)
 			copy(t.chWaves, T::ChWavesAddr, w.offset, w.size);
@@ -236,6 +237,7 @@ namespace
 		checkTable("TRX-SD's wave", _t.sdWave, T::SdWaveAddr, mem, dsp56k::MemArea_Y);
 		checkTable("the filters' tables", _t.filters, T::FiltersAddr, mem);
 		checkTable("TRX-XT's wave", _t.xtWave, T::XtWaveAddr, mem, dsp56k::MemArea_Y);
+		checkTable("TRX-XC's wave", _t.xcWave, T::XcWaveAddr, mem, dsp56k::MemArea_Y);
 		checkTable("TRX-RS's wave", _t.rsWave, T::RsWaveAddr, mem);
 		for(const auto& w : T::ChWaves)
 			checkTable("TRX-CH's waves", _t.chWaves, T::ChWavesAddr, mem, dsp56k::MemArea_X, w.offset, w.size);

@@ -378,4 +378,9 @@ namespace md::voice::trx
 		void update(Context& _c);
 		void render(Context& _c, Voice::Block& _out);
 	}
+
+	namespace xc
+	{
+		void render(Context& _c, Voice::Block& _out);
+	}
 }

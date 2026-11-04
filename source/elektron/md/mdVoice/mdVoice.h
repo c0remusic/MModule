@@ -42,7 +42,7 @@ namespace md::voice
 	{
 		static constexpr uint32_t SineAddr = 0x148000, BdWaveAAddr = 0x10050c, BdWaveBAddr = 0x10062c,
 			SdWaveAddr = 0x100881, FiltersAddr = 0x140000, XtWaveAddr = 0x10190f, RsWaveAddr = 0x101ba0,
-			ChWavesAddr = 0x102600;
+			ChWavesAddr = 0x102600, XcWaveAddr = 0x102c0f;
 		std::array<uint32_t, 0x8000> sine{};		// X:$148000 and Y:$148000, one period
 		std::array<uint32_t, 288> bdWaveA{};		// P:$10050C, TRX-BD's attack
 		std::array<uint32_t, 288> bdWaveB{};		// P:$10062C, the same for a second packet word
@@ -52,6 +52,7 @@ namespace md::voice
 		std::array<uint32_t, 0x2100> filters{};
 		std::array<uint32_t, 64> xtWave{};			// P:$10190F, TRX-XT's second and third blocks after a Hit
 		std::array<uint32_t, 0x300> rsWave{};		// P:$101BA0, TRX-RS's, 32 words a block for 24 blocks
+		std::array<uint32_t, 32> xcWave{};			// P:$102C0F, TRX-XC's third block after a Hit
 		// X:$102600-$1028FF, TRX-CH's six waves, each a modulo buffer at its offset from $102600, the words between
 		// them not loaded
 		struct ChWave
@@ -99,7 +100,7 @@ namespace md::voice
 		explicit Voice(Shared& _shared) : m_shared(&_shared) {}
 
 		// The types (machine id + 1) whose code is ported: 0 (never assigned), GND--, GND-IM, TRX-BD, TRX-SD, TRX-XT,
-		// TRX-CP, TRX-RS, TRX-CB, TRX-CH, TRX-OH, TRX-CY, TRX-MA, TRX-CL, ROM-01 to -48
+		// TRX-CP, TRX-RS, TRX-CB, TRX-CH, TRX-OH, TRX-CY, TRX-MA, TRX-CL, TRX-XC, ROM-01 to -48
 		static bool ported(uint32_t _type);
 
 		// As VoiceEngine::setSlot: word 0 the trigger (the type, non-zero only on the block the voice is triggered),

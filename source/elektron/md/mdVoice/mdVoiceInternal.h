@@ -48,6 +48,8 @@ namespace md::voice
 		// The ROM and TRX renders' branches the test must reach
 		enum Probe
 		{
+			XcSilent,				// TRX-XC's second block after a Hit, silent
+			XcWave,					// ... the third, its waveform
 			ClSine,					// TRX-CL's first sine, a whole block
 			ClClick,				// ... its click, a whole block with more to come
 			ClClickRest,			// ... the click's last words, then the sine
@@ -113,6 +115,8 @@ namespace md::voice
 		{
 			switch(_p)
 			{
+				case XcSilent:				return "TRX-XC's silent block";
+				case XcWave:				return "TRX-XC's waveform";
 				case ClSine:				return "TRX-CL's first sine";
 				case ClClick:				return "TRX-CL's click";
 				case ClClickRest:			return "TRX-CL's click ending in a block";
