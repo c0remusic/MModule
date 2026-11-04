@@ -78,7 +78,6 @@ namespace md::voice::trx::ch
 	{
 		const auto& t = tables(_c);
 		auto& y = _c.y;
-		auto& iy = _c.shared.scratch.y;
 		auto& ix = _c.shared.scratch.x;
 		// The modulo-32 buffer X:$20 (R5): the noise, the waves added, then the filters' output
 		uint32_t* const sig = &ix[0x20];
@@ -91,21 +90,7 @@ namespace md::voice::trx::ch
 		addChWaves(t, y, {y[8], y[0xb], y[0xc], y[0xd], y[0xe], y[0xf]}, 0x21, sig);
 
 		// A two-pole filter twice by Y:$03 and Y:$04, the first's last two outputs at X:$00-$01
-		{
-			const auto p = poles(offsetPole(t, y[3], y[4]));
-			iy[0] = p.a2;
-			iy[1] = p.g;
-			ix[0x1e] = y[0x17];
-			ix[0x1f] = y[0x18];
-			uint32_t h2 = y[0x15], h1 = y[0x16];
-			twoPoles(p, sig, h2, h1);
-			ix[0] = h2;
-			ix[1] = h1;
-			y[0x15] = h2;
-			y[0x16] = h1;
-			y[0x17] = sig[30];
-			y[0x18] = sig[31];
-		}
+		twoPoleStage(_c, poles(offsetPole(t, y[3], y[4])), 0x20, 0x15, true);
 
 		// The two high-pass biquads: into X:$60, then back into X:$20
 		highPassBiquad(_c, poles(offsetPole(t, y[6], y[7])), 0x20, 0x60, 0x19, 0x1b);

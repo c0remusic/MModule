@@ -607,6 +607,37 @@ Revues du 2026-11-04 :
 
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-B2 0,44 à 0,45 µs, soit 0,96 à 0,98 % d'un cœur pour 16 voix.
 
-Reste ouvert pour les TRX :
-- TRX-S2.
+## TRX-S2
+
+TRX-S2 (type 30 : init $102D06, update $102D31, render $102D49) est porté dans `mdVoiceTrxS2.cpp`. Le premier bloc après
+un Hit ne calcule qu'une rampe : X:$A0-$BF gardent ce que la dernière voix y a laissé, et ces mots passent quand même à
+la sortie, comme sur le DSP. Ensuite, chaque bloc joue deux sinus dont la hauteur monte pendant Y:$34 blocs puis décroît,
+et une rafale : un niveau que les mots de bruit au-delà de Y:$12 relèvent, mis à l'échelle par le bruit, tenu deux
+échantillons sur deux, passé dans deux passe-haut et deux deux-pôles. La rafale monte pendant Y:$3C blocs puis décroît.
+L'update ne fait pas monter Y:$35 comme les autres machines : il l'écrit. Le bruit range ses deux mots d'état inversés
+à chaque bloc.
+
+Deux écarts de lecture ont été pris par le test. `twoPoleStage` rangeait les deux derniers mots de sortie dans l'autre
+ordre : aucun échantillon ne changeait, seul le mot d'état Y:$31 différait. TRX-CH les range comme TRX-S2 : le paramètre
+`_oldestFirst` remplace sa copie écrite à la main. Et les paquets de l'OS mettent Y:$0E et Y:$0F à 0 : une mutation qui
+confondait ces deux mots passait. Un paquet fait main les rend aléatoires, et elle est prise.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS et ce paquet fait main : 114 354 échantillons non nuls, 0 échantillon
+et 0 mot d'état différents, les sept probes atteintes. Cinquante et une mutations ont été essayées, toutes prises. Le
+scénario des bancs a aussi été comparé à l'oracle : 3000 blocs, 0 différence.
+
+Revues du 2026-11-04 :
+- Revue de code : aucun écart avec le listing, et l'appel de TRX-CH à `twoPoleStage` fait ce que faisait sa copie.
+- Revue d'architecture : l'enveloppe montée, tenue, descente commune est abandonnée. Ni TRX-CL ni TRX-S2 ne reprennent
+  celle de TRX-MA. Rejeté : un morceau partagé avec les sinus de TRX-SD (une montée pour deux sinus là-bas, une par sinus
+  ici), deux fonctions pour `twoPoleStage`. `sine` prend le numéro du sinus au lieu de six numéros de mots.
+- `/simplify` : les deux boucles de la rafale fusionnent, 16 produits en moins par bloc, car les mots impairs étaient
+  écrasés sans être lus. Non fait : retirer la branche sur le bruit, que le prédicteur ne peut pas apprendre, parce que
+  la probe devrait en sortir, pour un gain que personne n'a mesuré. Hors périmètre : `using Block` et `using probe`,
+  répétés dans treize fichiers, qui pourraient passer dans `mdVoiceTrx.h`.
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : TRX-S2 0,94 à 0,97 µs, soit 2,06
+à 2,13 % d'un cœur pour 16 voix.
+
+Toutes les TRX sont portées. Reste ouvert :
 - La formule des tables de filtre.

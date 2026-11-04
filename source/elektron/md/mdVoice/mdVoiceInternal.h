@@ -36,7 +36,7 @@ namespace md::voice
 		void (*render)(Context&, Voice::Block&);
 	};
 
-	// The TRX machines' routines (mdVoiceTrx.cpp), by type (TRX-BD 17 to TRX-S2 30): nullptr for a type not ported
+	// The TRX machines' routines (mdVoiceTrx.cpp), by type (TRX-BD 17 to TRX-S2 30): nullptr for any other type
 	namespace trx
 	{
 		const Routines* routines(uint32_t _type);
@@ -48,6 +48,13 @@ namespace md::voice
 		// The ROM and TRX renders' branches the test must reach
 		enum Probe
 		{
+			S2First,				// TRX-S2's first block, the ramp alone
+			S2SweepRise,			// ... a sine's sweep rising
+			S2SweepDecay,			// ... decaying
+			S2Burst,				// ... a noise word past its threshold
+			S2BurstBuild,			// ... its burst's level building
+			S2BurstRateLate,		// ... its burst's second rate
+			S2RateEarly,			// ... its amp envelope's first rate
 			B2QuarterA,				// TRX-B2's phase in its first quarter
 			B2QuarterB,				// ... second
 			B2QuarterC,				// ... third
@@ -123,6 +130,13 @@ namespace md::voice
 		{
 			switch(_p)
 			{
+				case S2First:				return "TRX-S2's first block";
+				case S2SweepRise:			return "TRX-S2's sweep rising";
+				case S2SweepDecay:			return "TRX-S2's sweep decaying";
+				case S2Burst:				return "TRX-S2's noise past its threshold";
+				case S2BurstBuild:			return "TRX-S2's burst building";
+				case S2BurstRateLate:		return "TRX-S2's burst's second rate";
+				case S2RateEarly:			return "TRX-S2's first amp rate";
 				case B2QuarterA:			return "TRX-B2's first quarter";
 				case B2QuarterB:			return "TRX-B2's second quarter";
 				case B2QuarterC:			return "TRX-B2's third quarter";

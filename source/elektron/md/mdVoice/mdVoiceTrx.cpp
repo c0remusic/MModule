@@ -45,6 +45,7 @@ namespace md::voice::trx
 		constexpr Routines kCy = {cy::init, cy::update, cy::render};
 		constexpr Routines kMa = {ma::init, ma::update, ma::render};
 		constexpr Routines kRs = {rs::init, rs::update, rs::render};
+		constexpr Routines kS2 = {s2::init, s2::update, s2::render};
 		constexpr Routines kSd = {sd::init, sd::update, sd::render};
 		constexpr Routines kXc = {xt::init, xt::update, xc::render};
 		constexpr Routines kXt = {xt::init, xt::update, xt::render};
@@ -70,6 +71,7 @@ namespace md::voice::trx
 			case 27:	return &kCl;
 			case 28:	return &kXc;
 			case 29:	return &kB2;
+			case 30:	return &kS2;
 			default:	return nullptr;
 		}
 	}

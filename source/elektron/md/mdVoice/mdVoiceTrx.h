@@ -284,19 +284,22 @@ namespace md::voice::trx
 		y[_state + 5] = in[30];
 	}
 
-	// A two-pole filter twice over the poles _p (twoPoles), as TRX-CP and TRX-CY run it, in place over the 32 words at
-	// X:_in: the first's last two outputs left at X:$00-$01, the second's last two at X:_in - 2. Their state, four
-	// words from Y:_state: the first's last two outputs, the oldest first, then the second's, the latest first (TRX-CH
-	// keeps the second's the oldest first, TRX-SD its scratch words the other way round: both write theirs out)
-	inline void twoPoleStage(Context& _c, const Poles& _p, const uint32_t _in, const uint32_t _state)
+	// A two-pole filter twice over the poles _p (twoPoles), in place over the 32 words at X:_in: the first's last two
+	// outputs left at X:$00-$01, the second's last two at X:_in - 2. Their state, four
+	// words from Y:_state: the first's last two outputs, the oldest first, then the second's, the latest first, or the
+	// oldest first with _oldestFirst, as TRX-CH and TRX-S2 keep them (TRX-SD its scratch words the other way round:
+	// it writes its own out)
+	inline void twoPoleStage(Context& _c, const Poles& _p, const uint32_t _in, const uint32_t _state,
+		const bool _oldestFirst = false)
 	{
 		auto& y = _c.y;
 		auto& iy = _c.shared.scratch.y;
 		auto& ix = _c.shared.scratch.x;
 		iy[0] = _p.a2;
 		iy[1] = _p.g;
-		ix[_in - 2] = y[_state + 3];
-		ix[_in - 1] = y[_state + 2];
+		const uint32_t latest = _state + (_oldestFirst ? 3 : 2), oldest = _state + (_oldestFirst ? 2 : 3);
+		ix[_in - 2] = y[oldest];
+		ix[_in - 1] = y[latest];
 		uint32_t* const in = &ix[_in];
 		uint32_t h2 = y[_state], h1 = y[_state + 1];
 		twoPoles(_p, in, h2, h1);
@@ -304,8 +307,8 @@ namespace md::voice::trx
 		ix[1] = h1;
 		y[_state] = h2;
 		y[_state + 1] = h1;
-		y[_state + 2] = in[31];
-		y[_state + 3] = in[30];
+		y[latest] = in[31];
+		y[oldest] = in[30];
 	}
 
 	// Each machine's routines, in its own file
@@ -385,6 +388,13 @@ namespace md::voice::trx
 	}
 
 	namespace b2
+	{
+		void init(Context& _c);
+		void update(Context& _c);
+		void render(Context& _c, Voice::Block& _out);
+	}
+
+	namespace s2
 	{
 		void init(Context& _c);
 		void update(Context& _c);

@@ -63,9 +63,10 @@ namespace
 		uint32_t type;
 		const char* name;
 	};
-	constexpr std::array<Trx, 13> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
+	constexpr std::array<Trx, 14> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
 		{21, "TRX-RS"}, {22, "TRX-CB"}, {23, "TRX-CH"},
-		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}, {27, "TRX-CL"}, {28, "TRX-XC"}, {29, "TRX-B2"}}};
+		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}, {27, "TRX-CL"}, {28, "TRX-XC"}, {29, "TRX-B2"},
+		{30, "TRX-S2"}}};
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
 	// whatever the others are: GND--, GND-IM and the TRX machines
@@ -92,7 +93,7 @@ namespace
 	// TRX-MA without its rise and hold, which the OS's up to 519 blocks hide from the Hits, its filters' words 0,
 	// inside their tables
 	constexpr uint32_t kMaZeros = 1u << 1 | 1u << 3 | 1u << 7 | 1u << 8 | 1u << 9 | 1u << 0xa;
-	constexpr std::array<TrxEdge, 8> kTrxEdges = {{
+	constexpr std::array<TrxEdge, 9> kTrxEdges = {{
 		{26, 12, kMaZeros},
 		// ... nor its fall
 		{26, 12, kMaZeros | 1u << 4},
@@ -110,6 +111,9 @@ namespace
 		{29, 13, 1u << 6 | 1u << 7 | 1u << 8 | 1u << 9, 5, 0x010000},
 		// ... and wrapping above it
 		{29, 13, 1u << 5 | 1u << 6 | 1u << 7 | 1u << 9, 8, 0xff0000},
+		// TRX-S2's words that the OS sets to 0 random, its sweeps' decays among them; its filters' words 0, inside their
+		// tables
+		{30, 21, 1u << 1 | 1u << 0x10 | 1u << 0x11 | 1u << 0x13},
 	}};
 	using md::voice::isRom;
 	// A ROM type's directory entry
