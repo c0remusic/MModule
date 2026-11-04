@@ -42,12 +42,19 @@ namespace md::voice
 		const Routines* routines(uint32_t _type);
 	}
 
+	// The EFM machines' routines (mdVoiceEfm.cpp), by type (EFM-BD 33 to EFM-CY 40): nullptr for one not ported
+	namespace efm
+	{
+		const Routines* routines(uint32_t _type);
+	}
+
 	// What mdVoicePortTest sees inside the port; a product leaves them empty
 	namespace testHooks
 	{
-		// The ROM and TRX renders' branches the test must reach
+		// The ported renders' branches the test must reach
 		enum Probe
 		{
+			EfmBdLevelLimited,		// a Hit that adds EFM-BD's level past full scale
 			S2First,				// TRX-S2's first block, the ramp alone
 			S2SweepRise,			// ... a sine's sweep rising
 			S2SweepDecay,			// ... decaying
@@ -130,6 +137,7 @@ namespace md::voice
 		{
 			switch(_p)
 			{
+				case EfmBdLevelLimited:		return "EFM-BD's level limited at a Hit";
 				case S2First:				return "TRX-S2's first block";
 				case S2SweepRise:			return "TRX-S2's sweep rising";
 				case S2SweepDecay:			return "TRX-S2's sweep decaying";

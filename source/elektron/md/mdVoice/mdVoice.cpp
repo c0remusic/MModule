@@ -87,7 +87,9 @@ namespace md::voice
 				return &kRom;
 			if(_type < kGnd.size())
 				return kGnd[_type].render ? &kGnd[_type] : nullptr;
-			return trx::routines(_type);
+			if(const auto* r = trx::routines(_type))
+				return r;
+			return efm::routines(_type);
 		}
 
 		const Routines& routines(const uint32_t _type)

@@ -34,7 +34,7 @@ namespace md::voice
 		size_t dataWords = 0;
 	};
 
-	// The voice DSP's tables the TRX machines read. The sine is the boot's own recurrence, which the constructor runs;
+	// The voice DSP's tables the TRX and EFM machines read. The sine is the boot's own recurrence, which the constructor runs;
 	// the sampled waveforms are words of the voice program in the flash image (spec 11.4: its owner imports it), which
 	// the caller copies in (md::fw::dspWords). So are the filters' coefficients for now, as the ROM machines' tables
 	// are, until their formula is known
@@ -66,8 +66,8 @@ namespace md::voice
 		TrxTables();
 	};
 
-	// The voice DSP's internal memory that the ROM and TRX machines use as scratch, X:$000-$1FF and Y:$000-$0FF, one for
-	// all the voices as the DSP has one. Every ROM or TRX voice must render every block, Track 1 to 16 in turn, whatever
+	// The voice DSP's internal memory that the ported machines use as scratch, X:$000-$1FF and Y:$000-$0FF, one for
+	// all the voices as the DSP has one. Every ported voice must render every block, Track 1 to 16 in turn, whatever
 	// its family: a ROM render may read a word the last render left (a reversed voice retriggered with the part before
 	// the retrigger of odd length keeps that part's last pointer from the last render that wrote it, whatever its
 	// voice). A caller that skips voices or renders one alone (a preview) loses exactness on that edge only.
@@ -80,7 +80,7 @@ namespace md::voice
 
 	// What the 16 voices of one engine share, owned by the caller: the ROM machines' tables (nullptr: a ROM machine
 	// throws std::logic_error when it renders) and bank (nullptr: none, which plays silence), changed between blocks
-	// only, the scratch, and the TRX machines' tables (nullptr: a TRX machine throws when it renders)
+	// only, the scratch, and the TRX and EFM machines' tables (nullptr: one throws when it renders)
 	struct Shared
 	{
 		const RomTables* tables = nullptr;
@@ -100,7 +100,7 @@ namespace md::voice
 		explicit Voice(Shared& _shared) : m_shared(&_shared) {}
 
 		// The types (machine id + 1) whose code is ported: 0 (never assigned), GND--, GND-IM, TRX-BD, TRX-SD, TRX-XT,
-		// TRX-CP, TRX-RS, TRX-CB, TRX-CH, TRX-OH, TRX-CY, TRX-MA, TRX-CL, TRX-XC, TRX-B2, TRX-S2, ROM-01 to -48
+		// TRX-CP, TRX-RS, TRX-CB, TRX-CH, TRX-OH, TRX-CY, TRX-MA, TRX-CL, TRX-XC, TRX-B2, TRX-S2, EFM-BD, ROM-01 to -48
 		static bool ported(uint32_t _type);
 
 		// As VoiceEngine::setSlot: word 0 the trigger (the type, non-zero only on the block the voice is triggered),

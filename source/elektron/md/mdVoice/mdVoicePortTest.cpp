@@ -57,24 +57,24 @@ namespace
 	constexpr int kSweepBlock = kOsBlocks - 200;
 
 	constexpr uint32_t kGndIm = 4;
-	// The TRX types ported, each of which must sound
-	struct Trx
+	// The TRX and EFM types ported, each of which must sound
+	struct Ported
 	{
 		uint32_t type;
 		const char* name;
 	};
-	constexpr std::array<Trx, 14> kTrx = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
+	constexpr std::array<Ported, 15> kPorted = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
 		{21, "TRX-RS"}, {22, "TRX-CB"}, {23, "TRX-CH"},
 		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}, {27, "TRX-CL"}, {28, "TRX-XC"}, {29, "TRX-B2"},
-		{30, "TRX-S2"}}};
+		{30, "TRX-S2"}, {33, "EFM-BD"}}};
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
-	// whatever the others are: GND--, GND-IM and the TRX machines
+	// whatever the others are: GND--, GND-IM and those
 	constexpr auto kSynthMachines = []
 	{
-		std::array<uint8_t, 2 + kTrx.size()> m{0, 3};
-		for(size_t i = 0; i < kTrx.size(); ++i)
-			m[2 + i] = static_cast<uint8_t>(kTrx[i].type - 1);
+		std::array<uint8_t, 2 + kPorted.size()> m{0, 3};
+		for(size_t i = 0; i < kPorted.size(); ++i)
+			m[2 + i] = static_cast<uint8_t>(kPorted[i].type - 1);
 		return m;
 	}();
 	// ROM-01, -02, -17, -32 (factory samples), -33, -46 (none)
@@ -393,7 +393,7 @@ namespace
 						machine[v] = random() % 2 ? kRomMachines[random() % kRomMachines.size()]
 							: kSynthMachines[random() % kSynthMachines.size()];
 					if(sweep)
-						machine[v] = static_cast<uint8_t>(kTrx[static_cast<size_t>(v) % kTrx.size()].type - 1);
+						machine[v] = static_cast<uint8_t>(kPorted[static_cast<size_t>(v) % kPorted.size()].type - 1);
 					if(event < 3)
 						for(auto& p : params[v])
 							p = static_cast<uint16_t>((random() % 128) << 7);
@@ -603,7 +603,7 @@ int main()
 			static_cast<long long>(rec.sounding[kGndIm]), static_cast<long long>(rec.negative),
 			static_cast<long long>(rec.carried), static_cast<long long>(rom));
 		bool missed = rec.sounding[kGndIm] == 0 || rec.negative == 0 || rec.carried == 0 || rom == 0;
-		for(const auto& trx : kTrx)
+		for(const auto& trx : kPorted)
 		{
 			std::printf("  %s sounding samples: %lld\n", trx.name, static_cast<long long>(rec.sounding[trx.type]));
 			missed |= rec.sounding[trx.type] == 0;
