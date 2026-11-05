@@ -24,8 +24,8 @@ namespace md::voice
 	// The words of a slot, its type or 0 then the machine's coefficients: at most TRX-S2's 21
 	using Packet = std::array<uint32_t, 21>;
 
-	// The machines (ids) whose coefficient function is ported: GND--, GND-IM, the TRX ones, EFM-BD to -CB, ROM-01 to
-	// -48; mdVoiceCoefficientsTest holds them to Voice::ported
+	// The machines (ids) whose coefficient function is ported: the GND ones, the TRX ones, the EFM ones, ROM-01 to -48;
+	// mdVoiceCoefficientsTest holds them to Voice::ported
 	bool coefficientsPorted(uint8_t _machine);
 
 	// The OS's tick runs every 11 blocks of 32 samples (125.3 Hz), as mdEngine's HostModel has it

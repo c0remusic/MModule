@@ -750,8 +750,28 @@ Revues du 2026-11-05 :
   - Le masque à $3FFF : il garde les index dans les tables, bien que le contrat interdise les valeurs au-dessus.
   - Les masques du listing qui n'enlèvent rien, gardés pour la lecture ligne à ligne.
 
-Une machine dont le render arrive doit désormais apporter sa fonction : `checkMachines` échoue sinon. EFM-HH et EFM-CY
-(`$2026F8`, `$20280C`) et les fonctions de GND-SN et GND-NS ne sont pas portées, faute de render dans cette branche.
+Une machine dont le render arrive doit désormais apporter sa fonction : `checkMachines` échoue sinon.
+
+## 2026-11-05 : GND-SN, GND-NS, EFM-HH et EFM-CY
+
+La fusion avec la branche du ticket 09 (dc651e5b) a donné à `Voice::ported` quatre machines sans fonction, et
+`checkMachines` a échoué comme prévu : « machine 1 has a render or a function, not both ». Leurs fonctions ($201130,
+$201194, $2026F8, $20280C) sont portées. Le port couvre maintenant 26 fonctions pour 74 machines, toutes celles qui ont
+un render. Aucune ne demande de table nouvelle. EFM-HH reprend `efmHead`. EFM-CY a sa propre disposition : ses mots 2 à
+4 sont des multiples de la hauteur (361, 461, 691), et ses mots 7 à 9 ces multiples à l'index.
+
+`mdVoiceCoefficientsTest` : 4 326 016 paquets mot à mot contre Musashi, 0 différence, 74 machines, et 6000 blocs de 16
+voix sans `MachineRunner`, identiques à `HostModel` sur `VoiceEngine`, chaque machine sonnante. Mutations : les 103
+nouvelles sur ces quatre fonctions sont toutes prises, soit 957 sur 1002 pour tout le fichier ; les 45 restantes sont
+celles déjà classées plus haut.
+
+Coût : 18 ns par paquet, contre 2,0 µs dans Musashi, à 11 ns le lissage d'une piste, soit 0,006 % d'un cœur pour 16
+voix, mesuré à chaud sur le chemin du tick.
+
+Revues du 2026-11-05 : revue de code, aucun écart avec le listing. Revue d'architecture : les quatre tiennent dans
+l'aiguillage ; une boucle sur les rapports de EFM-CY, qui cachait les numéros de mots, est déroulée, pour que chaque mot
+se vérifie contre le listing, et le commentaire de `efmHead` ne compte plus les machines. `/simplify`, quatre angles :
+aucun constat.
 
 Reste ouvert :
 - « Sonne pareil » 44,1/48 : l'écoute et la décision pour le MD à 48 kHz appartiennent à l'utilisateur. Le ticket n'est

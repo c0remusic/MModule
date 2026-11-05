@@ -35,6 +35,22 @@ namespace md::voice
 			return 2;
 		}
 
+		int gndSn(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			_o[1] = pitched(_in, p[0] >> 4, 0);
+			_o[2] = _in.t.decay[p[1] >> 5];
+			_o[3] = p[2] * p[2] >> 7;
+			_o[4] = _in.t.decay[p[3] >> 5];
+			return 5;
+		}
+
+		int gndNs(const In& _in, uint32_t* _o)
+		{
+			_o[1] = _in.t.decay[_in.p[0] >> 5];
+			return 2;
+		}
+
 		uint32_t gndImCount(const uint32_t _p)
 		{
 			if(_p <= 0x1fff)
@@ -339,7 +355,7 @@ namespace md::voice
 			return std::max(_p << _shift, 1u << (_shift + 7));
 		}
 
-		// Words 2-5, which four EFM machines share: the decay of p1, the index p5, the level of p4, the decay of p6
+		// Words 2-5, which most EFM machines share: the decay of p1, the index p5, the level of p4, the decay of p6
 		void efmHead(const In& _in, uint32_t* _o, const int _indexShift)
 		{
 			const auto& p = _in.p;
@@ -432,6 +448,42 @@ namespace md::voice
 			return 11;
 		}
 
+		int efmHh(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			_o[1] = pitched(_in, (p[0] * 5 >> 8) + 0x40, 4);
+			efmHead(_in, _o, 9);
+			_o[7] = level(p[7]);
+			_o[8] = 0xf4240;
+			_o[9] = p[2] << 8;
+			_o[10] = k1 - (p[2] << 8);
+			_o[11] = pitched(_in, (p[3] * 12 >> 8) + 0x40, 0) >> 4;
+			_o[12] = 0xffffff;
+			return 13;
+		}
+
+		int efmCy(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			const uint32_t pitch = pitched(_in, (p[0] * 5 >> 8) + 0x40, 0);
+			const uint32_t index = p[5] + 0x400;
+			_o[1] = pitch >> 4;
+			_o[5] = efmDecay(_in, p[1], 0x46);
+			_o[2] = pitch * 361 >> 12;
+			_o[3] = pitch * 461 >> 12;
+			_o[4] = pitch * 691 >> 12;
+			_o[6] = pitch * index >> 15;
+			_o[7] = (pitch * 361 >> 8) * index >> 15;
+			_o[8] = (pitch * 461 >> 8) * index >> 15;
+			_o[9] = (pitch * 691 >> 8) * index >> 15;
+			_o[10] = p[4] * 3 + 0xc00;
+			_o[11] = _in.t.decay[350 + (p[6] * 0x28 >> 12)];
+			_o[12] = p[2] * 0xcd >> 8;
+			_o[13] = 0x7dfffe - p[3] * 0xba;
+			_o[14] = 0x400000;
+			return 15;
+		}
+
 		// 60 (270950400 / tempo) >> 12, what a count of samples by the tempo is scaled by
 		uint32_t tempoStep(const uint32_t _tempo)
 		{
@@ -506,6 +558,8 @@ namespace md::voice
 			switch(_machine)
 			{
 			case 0:		return gnd;
+			case 1:		return gndSn;
+			case 2:		return gndNs;
 			case 3:		return gndIm;
 			case 16:	return trxBd;
 			case 17:	return trxSd;
@@ -527,6 +581,8 @@ namespace md::voice
 			case 35:	return efmCp;
 			case 36:	return efmRs;
 			case 37:	return efmCb;
+			case 38:	return efmHh;
+			case 39:	return efmCy;
 			default:	return nullptr;
 			}
 		}
