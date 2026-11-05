@@ -12,6 +12,7 @@ namespace md::voice
 		Voice::State& x;
 		uint32_t type;
 		Shared& shared;
+		uint32_t index;		// the Track
 	};
 
 	// The ROM machines' routines (mdVoiceRom.cpp): init ($13D), update ($15A) and render ($16C)
@@ -34,6 +35,7 @@ namespace md::voice
 		void (*init)(Context&);
 		void (*update)(Context&);
 		void (*render)(Context&, Voice::Block&);
+		bool needsWords = false;	// silent without PiBank's words, whatever its lines hold
 	};
 
 	// The TRX machines' routines (mdVoiceTrx.cpp), by type (TRX-BD 17 to TRX-S2 30): nullptr for any other type
@@ -54,6 +56,12 @@ namespace md::voice
 		const Routines* routines(uint32_t _type);
 	}
 
+	// The P-I machines' routines (mdVoicePi.cpp), by type (P-I-BD 65 to P-I-HH 73): nullptr for any other type
+	namespace pi
+	{
+		const Routines* routines(uint32_t _type);
+	}
+
 	// GND-SN's and GND-NS's routines (mdVoiceGnd.cpp)
 	namespace gnd
 	{
@@ -70,6 +78,21 @@ namespace md::voice
 		// The ported renders' branches the test must reach
 		enum Probe
 		{
+			PiExcitationEnded,		// a P-I machine's excitation at its stop
+			PiNoiseOpens,			// P-I-SD's and P-I-RS's noise past their gate
+			PiMaShake,				// P-I-MA's noise word under its threshold
+			PiStick,				// P-I-CC's, -RC's and -HH's sine sounding
+			PiStickGain,			// ... P-I-CC's by Y:$03
+			PiStickLong,			// ... a whole block more
+			PiStickShort,			// ... its last words
+			PiStickOutside,			// ... stepping out of the sine
+			PiAmpRising,			// ... their level rising
+			PiAmpTop,				// ... at the top
+			PiAmpFalling,			// ... falling
+			PiEnded,				// ... Y:$39 at its end
+			PiClickGain,			// P-I-CC's click by Y:$03
+			PiHhClosing,			// P-I-HH's level at its end
+			PiHhAccent,				// ... a noise word over its accent
 			E12StepClamped,			// an E12 machine's step past 4 samples
 			E12EndOfSample,			// ... its position past the end
 			E12Retrigger,			// ... a retrigger
@@ -169,6 +192,21 @@ namespace md::voice
 		{
 			switch(_p)
 			{
+				case PiExcitationEnded:		return "P-I's excitation ended";
+				case PiNoiseOpens:			return "P-I's noise gate open";
+				case PiMaShake:				return "P-I-MA's shake";
+				case PiStick:				return "P-I's stick sounding";
+				case PiStickGain:			return "P-I-CC's stick by its word";
+				case PiStickLong:			return "P-I's stick a whole block more";
+				case PiStickShort:			return "P-I's stick ending";
+				case PiStickOutside:		return "P-I's stick out of the sine";
+				case PiAmpRising:			return "P-I's level rising";
+				case PiAmpTop:				return "P-I's level at the top";
+				case PiAmpFalling:			return "P-I's level falling";
+				case PiEnded:				return "P-I's level at its end";
+				case PiClickGain:			return "P-I-CC's click by its word";
+				case PiHhClosing:			return "P-I-HH's closing";
+				case PiHhAccent:			return "P-I-HH's accent";
 				case E12StepClamped:		return "E12's step clamped";
 				case E12EndOfSample:		return "E12's end of sample";
 				case E12Retrigger:			return "E12's retrigger";
@@ -304,7 +342,7 @@ namespace md::voice
 	}
 
 	// The external memory, which X and Y share: the decoding table, the bank's directory and samples, the E12 machines',
-	// the sine and TRX-CH's waves; else what the test's hook knows
+	// the P-I machines' words, lines and tables, the sine and TRX-CH's waves; else what the test's hook knows
 	inline uint32_t external(const Context& _c, const uint32_t _address, const testHooks::Area _area = testHooks::AreaY)
 	{
 		const auto& hooks = testHooks::hooks();
@@ -318,6 +356,28 @@ namespace md::voice
 			return bank->data[addr - RomBank::DataAddr] & 0xffffff;
 		if(const auto* e12 = _c.shared.e12; e12 && addr - E12Bank::Addr < E12Bank::Words)
 			return e12[addr - E12Bank::Addr] & 0xffffff;
+		if(const auto* pi = _c.shared.pi)
+		{
+			for(const auto& range : PiBank::Ranges)
+			{
+				if(addr - range.addr < range.words)
+					return pi[addr - range.addr] & 0xffffff;
+				pi += range.words;
+			}
+		}
+		if(addr - Shared::LinesAddr < Shared::LinesWords)
+			return _c.shared.lines[addr - Shared::LinesAddr];
+		if(const auto* trx = _c.shared.trx)
+		{
+			if(addr - TrxTables::PiDampAddr < trx->piDamp.size())
+				return trx->piDamp[addr - TrxTables::PiDampAddr];
+			if(addr - TrxTables::PiRingAddr < trx->piRing.size())
+				return trx->piRing[addr - TrxTables::PiRingAddr];
+			if(addr - TrxTables::PiLowCutAddr < trx->piLowCut.size())
+				return trx->piLowCut[addr - TrxTables::PiLowCutAddr];
+			if(addr - TrxTables::PiHighCutAddr < trx->piHighCut.size())
+				return trx->piHighCut[addr - TrxTables::PiHighCutAddr];
+		}
 		if(const auto* trx = _c.shared.trx; trx && addr - TrxTables::SineAddr < trx->sine.size())
 			return trx->sine[addr - TrxTables::SineAddr];
 		if(const auto* trx = _c.shared.trx; trx && addr - TrxTables::ChWavesAddr < trx->chWaves.size())

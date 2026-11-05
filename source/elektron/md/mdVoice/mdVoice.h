@@ -45,15 +45,38 @@ namespace md::voice
 		static constexpr uint32_t Addr = 0x103d7b, Words = 0x13516e - Addr;
 	};
 
-	// The voice DSP's tables the TRX, EFM, E12 and GND-SN machines read. The constructor computes the sine, the boot's
-	// own recurrence, and the filters' coefficients and the E12 machines' interpolation, their formulas. The sampled
-	// waveforms are words of the voice program in the flash image (spec 11.4: its owner imports it), which the caller
-	// copies in (md::fw::dspWords)
+	// The P-I machines' words that no formula gives (spec 11.4: their owner imports them, none is in this code), which
+	// mdVoicePiImport.h reads from the flash image and Shared::pi points at, Words of them: the ranges below of 24-bit words
+	// of the voice program, one after the other, then the OS's table OnePoleAddr, which OsTables takes. Each range holds
+	// the machine's 24 or 48 words of pitches, gains and factors, then its excitation; zeros follow on the DSP. BD, SD, MT,
+	// ML, RS in that order. The caller owns them and changes them between blocks only.
+	// Without them (nullptr) these five play silence, whatever their lines hold. CC, RC, HH and MA read none of them, but
+	// P-I-RC's sine leaves its table from the pitch knob at 95 up and reads the UW bank, Shared::bank, there.
+	struct PiBank
+	{
+		struct Range
+		{
+			uint32_t addr, words;
+		};
+		static constexpr Range Ranges[5] = {{0x142279, 0x142859 - 0x142279}, {0x142f33, 0x1433b6 - 0x142f33},
+			{0x143661, 0x143d1d - 0x143661}, {0x143f38, 0x1449c9 - 0x143f38}, {0x144c9a, 0x144efc - 0x144c9a}};
+		static constexpr uint32_t ProgramWords = Ranges[0].words + Ranges[1].words + Ranges[2].words + Ranges[3].words
+			+ Ranges[4].words;
+		static constexpr uint32_t OnePoleAddr = 0x24da14, OnePoleWords = 256;
+		static constexpr uint32_t Words = ProgramWords + OnePoleWords;
+		static constexpr uint32_t ZerosAfter = 240;		// after each range, on the DSP
+	};
+
+	// The voice DSP's tables the TRX, EFM, E12, P-I and GND-SN machines read. The constructor computes the sine, the boot's
+	// own recurrence, and the filters' coefficients, the E12 machines' interpolation and the P-I machines' tables, their
+	// formulas. The sampled waveforms are words of the voice program in the flash image (spec 11.4: its owner imports
+	// it), which the caller copies in (md::fw::dspWords)
 	struct TrxTables
 	{
 		static constexpr uint32_t SineAddr = 0x148000, BdWaveAAddr = 0x10050c, BdWaveBAddr = 0x10062c,
 			SdWaveAddr = 0x100881, FiltersAddr = 0x140000, XtWaveAddr = 0x10190f, RsWaveAddr = 0x101ba0,
-			ChWavesAddr = 0x102600, XcWaveAddr = 0x102c0f, E12OffsetsAddr = 0x103c7b, InterpolationAddr = 0x147200;
+			ChWavesAddr = 0x102600, XcWaveAddr = 0x102c0f, E12OffsetsAddr = 0x103c7b, InterpolationAddr = 0x147200,
+			PiDampAddr = 0x142949, PiRingAddr = 0x142b49, PiLowCutAddr = 0x145224, PiHighCutAddr = 0x145424;
 		std::array<uint32_t, 0x8000> sine{};		// X:$148000 and Y:$148000, one period
 		std::array<uint32_t, 288> bdWaveA{};		// P:$10050C, TRX-BD's attack
 		std::array<uint32_t, 288> bdWaveB{};		// P:$10062C, the same for a second packet word
@@ -77,6 +100,13 @@ namespace md::voice
 		std::array<uint32_t, 0x100> e12Offsets{};
 		// Y:$147200-$1475FF, the E12 machines' cubic B-spline: four taps for each of 256 phases
 		std::array<uint32_t, 0x400> interpolation{};
+		// X:$142949 and $142B49, the P-I machines' pole radii, of a decay of 0.5 ms to 4 s and of 4 us to 31 ms
+		std::array<uint32_t, 512> piDamp{};
+		std::array<uint32_t, 512> piRing{};
+		// X:$145224 and $145424, 128 rows of a two-pole: a high-pass, -30 dB below, from 220 Hz to 1.76 kHz; a low-pass,
+		// -15 dB above, from 8.8 kHz to 18.7 kHz
+		std::array<uint32_t, 512> piLowCut{};
+		std::array<uint32_t, 512> piHighCut{};
 
 		TrxTables();
 	};
@@ -85,8 +115,9 @@ namespace md::voice
 	// all the voices as the DSP has one. Every ported voice must render every block, Track 1 to 16 in turn, whatever
 	// its family: a ROM render may read a word the last render left (a reversed voice retriggered with the part before
 	// the retrigger of odd length keeps that part's last pointer from the last render that wrote it, whatever its
-	// voice), and an E12 render's tap reads what lies in X where a retrigger left it. A caller that skips voices or
-	// renders one alone (a preview) loses exactness on those edges only.
+	// voice), an E12 render's tap reads what lies in X where a retrigger left it, and P-I-CC's and P-I-RC's renders start
+	// from what Y:$20 holds, an earlier render's whatever its machine, on every block. A caller that skips voices or renders
+	// one alone (a preview) loses exactness: on those edges, and on those two machines wherever Y:$20 differs.
 	// mdVoicePortTest starts it from what the DSP's own init left in it; a product starts from zeros.
 	struct Scratch
 	{
@@ -96,15 +127,21 @@ namespace md::voice
 
 	// What the 16 voices of one engine share, owned by the caller: the ROM machines' tables (nullptr: a ROM machine
 	// throws std::logic_error when it renders) and bank (nullptr: none, which plays silence), changed between blocks
-	// only, the scratch, the tables of the machines that read them (nullptr: one throws when it renders) and the E12
-	// machines' samples (nullptr: none, which plays silence)
+	// only, the scratch, the voice DSP's tables (nullptr: a machine that reads them through trx::tables, every TRX, EFM,
+	// E12 and P-I one but P-I-MA, and GND-SN, throws std::logic_error when it renders; a word external() would have
+	// taken from them reads 0), the E12 machines' samples and the P-I machines' words (nullptr: none, which plays
+	// silence), and the P-I machines' delay lines, $600 words a voice from $135600 + $600 t as the DSP has them
 	struct Shared
 	{
+		static constexpr uint32_t LinesAddr = 0x135600, LinesWords = 0x8000;	// past the 16 voices' $6000, for a mask
+
 		const RomTables* tables = nullptr;
 		const RomBank* bank = nullptr;
 		Scratch scratch;
 		const TrxTables* trx = nullptr;
 		const uint32_t* e12 = nullptr;
+		const uint32_t* pi = nullptr;
+		std::array<uint32_t, LinesWords> lines{};
 	};
 
 	class Voice
@@ -115,11 +152,12 @@ namespace md::voice
 		using State = std::array<uint32_t, kStateWords>;	// 24-bit words
 		using Block = std::array<int32_t, kBlockFrames>;	// 24-bit signed samples
 
-		explicit Voice(Shared& _shared) : m_shared(&_shared) {}
+		// _index: the Track, 0 to 15, which the P-I machines' delay lines go by
+		Voice(Shared& _shared, const uint32_t _index) : m_shared(&_shared), m_index(_index) {}
 
 		// The types (machine id + 1) whose code is ported: 0 (never assigned), GND-- to GND-IM, TRX-BD, TRX-SD, TRX-XT,
 		// TRX-CP, TRX-RS, TRX-CB, TRX-CH, TRX-OH, TRX-CY, TRX-MA, TRX-CL, TRX-XC, TRX-B2, TRX-S2, EFM-BD, EFM-SD,
-		// EFM-XT, EFM-CP, EFM-RS, EFM-CB, EFM-HH, EFM-CY, E12-BD to E12-BC, ROM-01 to -48
+		// EFM-XT, EFM-CP, EFM-RS, EFM-CB, EFM-HH, EFM-CY, E12-BD to E12-BC, P-I-BD to P-I-HH, ROM-01 to -48
 		static bool ported(uint32_t _type);
 
 		// As VoiceEngine::setSlot: word 0 the trigger (the type, non-zero only on the block the voice is triggered),
@@ -139,5 +177,6 @@ namespace md::voice
 		State m_x{};
 		uint32_t m_active = 0;	// Y:$153 + t
 		Shared* m_shared;
+		uint32_t m_index;
 	};
 }

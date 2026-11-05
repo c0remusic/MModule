@@ -91,6 +91,8 @@ namespace md::voice
 				return r;
 			if(const auto* r = efm::routines(_type))
 				return r;
+			if(const auto* r = pi::routines(_type))
+				return r;
 			return e12::routines(_type);
 		}
 
@@ -115,7 +117,7 @@ namespace md::voice
 
 	void Voice::render(Block& _out)
 	{
-		Context c{m_state, m_x, m_active, *m_shared};
+		Context c{m_state, m_x, m_active, *m_shared, m_index};
 		if(const uint32_t pending = m_state[0])
 		{
 			const auto& next = routines(pending);
@@ -129,6 +131,12 @@ namespace md::voice
 			m_state[0] = 0;
 			next.update(c);
 		}
-		routines(m_active).render(c, _out);
+		const auto& active = routines(m_active);
+		if(active.needsWords && !m_shared->pi)
+		{
+			_out.fill(0);
+			return;
+		}
+		active.render(c, _out);
 	}
 }

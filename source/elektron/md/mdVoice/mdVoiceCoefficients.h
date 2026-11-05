@@ -10,7 +10,8 @@
 namespace md::voice
 {
 	// The tables the coefficient functions read, as OS 1.63's image holds them, from their formulas, all but the curve's
-	// first two words, literals here
+	// first two words, literals here, and onePole, which has no formula yet: it comes with PiBank's words, _pi, and
+	// without them P-I-BD, -SD and -MT, which are silent then, have no words for their filters
 	struct OsTables
 	{
 		std::array<uint32_t, 128> pitch{};		// $24BD94, one octave of a sine's step
@@ -18,14 +19,19 @@ namespace md::voice
 		std::array<uint32_t, 512> rise{};		// $24C794, 0 then a rise towards 1
 		std::array<uint32_t, 128> octaves{};	// $24D794, a log: 8833 is an octave of the pitch table
 		std::array<uint32_t, 128> curve{};		// $24BB90, 0 to 65 535, 9 e-folds over its range
+		std::array<uint32_t, 256> onePole{};	// $24DA14, a one-pole's word, $7F874B falling to 1 000 000
+		std::array<uint32_t, 128> maChance{};	// $2462E8, P-I-MA: of a shake, 10 ^ x between 1/512 and 1/20.5 of full scale
+		std::array<uint32_t, 128> maGrains{};	// $2464E8, its gain from the same knob, 1 / (1 + 4 x) of 1/sqrt 2
+		std::array<uint32_t, 128> maDecay{};	// $2466E8, its gain from the decay knob, 1 / (1 + 7 x) of 1/sqrt 2
+		std::array<uint32_t, 128> maCosine{};	// $2468E8, -2^16 cos of its pitch, 300 Hz to 5 kHz in equal ratios
 
-		OsTables();
+		explicit OsTables(const uint32_t* _pi);
 	};
 
 	// The words of a slot, its type or 0 then the machine's coefficients: at most TRX-S2's 21
 	using Packet = std::array<uint32_t, 21>;
 
-	// The machines (ids) whose coefficient function is ported: the GND, TRX, EFM and E12 ones, ROM-01 to -48;
+	// The machines (ids) whose coefficient function is ported: the GND, TRX, EFM, E12 and P-I ones, ROM-01 to -48;
 	// mdVoiceCoefficientsTest holds them to Voice::ported
 	bool coefficientsPorted(uint8_t _machine);
 

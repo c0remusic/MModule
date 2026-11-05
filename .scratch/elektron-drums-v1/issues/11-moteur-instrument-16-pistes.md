@@ -49,6 +49,17 @@ oublié dans un `setLanes` venait à coûter, la forme sûre à la compilation e
 - Plug-in chargé par l'hébergement VST3 de JUCE : sorties sur leurs canaux, mêmes échantillons quelle que soit la
   taille de bloc.
 
+## Noté par le ticket 09 (2026-11-05)
+
+- Les lignes à retard de P-I sont par voix : `Voice(_shared, _index)` prend le numéro de la Track, et la voix t de MD est
+  la Track t. Une allocation de voix qui les découple change où P-I écrit.
+- « Une voix éteinte n'est pas rendue » contredit la mémoire de travail partagée : des renders lisent ce qu'un autre a
+  laissé en scratch (voir `Scratch` dans `mdVoice.h`), P-I-CC et P-I-RC par exemple. Sauter une voix change ce qu'entend
+  la suivante. À mesurer avant de garder cette optimisation.
+- Un changement de machine sans Hit n'est pas joué par `mdVoicePortTest` : ce ticket doit le couvrir.
+- `Shared` regroupe tables, banques, scratch et lignes. Son découpage attend ce ticket, qui saura ce que le moteur
+  partage réellement.
+
 ## Références
 
 Spécification §3, §9, §11.2. Ticket « Source de machine d'une piste ».

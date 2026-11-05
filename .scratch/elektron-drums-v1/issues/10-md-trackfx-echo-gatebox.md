@@ -16,6 +16,12 @@ de son master comme sources de delay et de reverb. SRR garde sa fréquence absol
 - Chaque étage contre `mdEngine` : Q2 (linéaire) ou Q3 (non linéaire) à 44,1 kHz ; Q13 sur SRR à fond.
 - Coût de la chaîne MD pour 16 pistes mesuré.
 
+## Noté par le ticket 09 (2026-11-05)
+
+La table de l'OS à $24DA14 (`OsTables::onePole`) n'a pas de formule : P-I l'importe de la flash image, par l'exception
+de la spec 11.4. L'Echo et la Gate Box la lisent aussi. Ce ticket passe par ce même import tant qu'une formule manque, et
+en trouver une lève la dette.
+
 ## Références
 
 Spécification §3.2, §4, §5. Tickets « Moteur du Machinedrum », « Sources des effets d'envoi ».

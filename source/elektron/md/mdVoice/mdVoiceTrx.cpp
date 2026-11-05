@@ -48,6 +48,57 @@ namespace md::voice
 			}
 		}
 
+		// X:$142949 and $142B49: the radius that falls by 60 dB in t, from _first to _last seconds over the table at
+		// 44.1 kHz, written with 8 decimals before it was made a 24-bit word
+		void makeDamping(std::array<uint32_t, 512>& _table, const double _first, const double _last)
+		{
+			for(size_t i = 0; i < _table.size(); ++i)
+			{
+				const double t = _first + static_cast<double>(i) * (_last - _first) / 511.0;
+				const double decimal = std::round(std::pow(0.001, 1.0 / (44100.0 * t)) * 1e8) / 1e8;
+				_table[i] = static_cast<uint32_t>(std::llround(decimal * 8388608.0));
+			}
+		}
+
+		// X:$145224 and $145424: a second-order Chebyshev II filter by its bilinear transform, of stopband _rs dB and edge
+		// _first to _last of Nyquist, a geometric step over 128 rows, as four words: -a2, -(a1 + 1) / 2, b0 / 2, b1 / 2.
+		// b2 is b0. _high: a high-pass, else a low-pass
+		void makeShelf(std::array<uint32_t, 512>& _table, const double _rs, const double _first, const double _last,
+			const bool _high)
+		{
+			constexpr double pi = 3.14159265358979323846;
+			const double mu = std::asinh(std::sqrt(std::pow(10.0, 0.1 * _rs) - 1.0)) / 2.0;
+			// The analog prototype, a pole pair s^2 + A s + B over its zeros s^2 + 2, gain B / 2
+			const double m = std::cosh(2.0 * mu) / 2.0;
+			const double A = std::sqrt(2.0) * std::sinh(mu) / m, B = 1.0 / m;
+			for(size_t row = 0; row < 128; ++row)
+			{
+				const double wn = _first * std::pow(_last / _first, static_cast<double>(row) / 127.0);
+				const double T = std::tan(pi * wn / 2.0), T2 = T * T;
+				double b0, b1, a0, a1, a2;
+				if(_high)
+				{
+					b0 = T2 + 2.0;
+					b1 = 2.0 * T2 - 4.0;
+					a0 = T2 + A * T + B;
+					a1 = 2.0 * T2 - 2.0 * B;
+					a2 = T2 - A * T + B;
+				}
+				else
+				{
+					b0 = 1.0 + 2.0 * T2;
+					b1 = 4.0 * T2 - 2.0;
+					a0 = 1.0 + A * T + B * T2;
+					a1 = 2.0 * B * T2 - 2.0;
+					a2 = 1.0 - A * T + B * T2;
+				}
+				const double gain = B / 2.0 / a0;
+				const double words[4] = {-a2 / a0, (-a1 / a0 - 1.0) / 2.0, gain * b0 / 2.0, gain * b1 / 2.0};
+				for(size_t k = 0; k < 4; ++k)
+					_table[4 * row + k] = static_cast<uint32_t>(std::llround(words[k] * 8388608.0)) & 0xffffff;
+			}
+		}
+
 		// Y:$147200: the cubic B-spline's taps at the positions -1 to 2, for t = k / 256, each row at k + 128 mod 256. Its
 		// words are integers summed: k^3 / 6 at full scale $7FFFFF for the two outer taps; for the two inner, $555555
 		// (2/3) - t^2 + t^3 / 2 at full scale 2^23, each term rounded. One word does not follow: the DSP's holds 1 less
@@ -100,6 +151,10 @@ namespace md::voice
 		}
 		makeFilters(filters, e12Offsets);
 		makeInterpolation(interpolation);
+		makeDamping(piDamp, 0.0005, 4.0);
+		makeDamping(piRing, 0.0005 / 128.0, 4.0 / 128.0);
+		makeShelf(piLowCut, 30.0, 0.01, 0.08, true);
+		makeShelf(piHighCut, 15.0, 0.4, 0.85, false);
 	}
 }
 

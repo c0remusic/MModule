@@ -335,3 +335,56 @@ Revues du 2026-11-05 :
 
 Coût mesuré (release, par voix et par bloc de 32 échantillons, machine chargée) : E12-BD 0,47 µs, render commun 0,64 à
 0,66 µs, E12-RS 0,99 µs, mélangées 1,00 µs.
+
+## 2026-11-05 : P-I
+
+Les neuf machines P-I (types 65 à 73) sont portées, BD, SD, MT, ML, MA et RS dans `mdVoicePi.cpp`, RC, CC et HH dans
+`mdVoicePiMetal.cpp`. Les tambours frappent une excitation dans trois lignes à retard, puis huit résonateurs ; ML n'a pas
+de lignes ; SD et RS ajoutent un bruit. RC, CC et HH sont un réseau de lignes et de filtres dont `line`, `shelf` et le bruit
+sont communs. Avec elles, les 39 renders du ticket sont portés.
+
+Trois données restent celles du propriétaire (spec 11.4 amendée le 2026-11-05), réunies par `importPi()` dans
+`mdVoicePiImport.h` : les excitations, les mots de modes, et la table de l'OS à $24DA14 (`OsTables::onePole`), seule table de
+l'OS importée, faute de formule, que l'Echo, la Gate Box et Dynamix lisent aussi. Sans import ces machines se taisent : une
+seule porte, `needsWords` dans `kRoutines`, le test `piSilentWithoutWords` jouant une CC avant la boucle (rouge avant,
+BD rejouait les lignes d'une Metal). Les lignes à retard sont par voix, `Voice` prend son numéro de Track, sans défaut.
+
+`mdVoicePortTest` joue les neuf machines : 0 échantillon, 0 mot d'état, 0 mot de mémoire de travail et 0 mot de ligne à
+retard différents, de 35 008 à 102 896 échantillons non nuls par machine, chaque probe atteinte. Les lignes sont comparées
+à l'oracle, comme la mémoire de travail. La dernière lecture périmée notée à E12, Y:$1427A8, disparaît avec le port.
+`mdVoiceCoefficientsTest` : 8 102 816 paquets, 0 différence. Le test ne joue pas de changement de machine sans Hit, voir le
+ticket 11.
+
+Mutations : 377 sur le code avant les corrections, 267 prises, après 14 rangs ajoutés à `kPacketEdges` (leurs prises tiennent
+au flux aléatoire : tout rang ajouté les déplace, celles de la ligne de `ix[k-1]` en premier).
+- 81 survivants équivalents sur les limites : un opérande constant, `b = -mul(x,x)`, un pôle convexe. 6 autres aux positions,
+  qui demandent un mot 1 négatif pendant 47 s environ.
+- 5 sites non prouvés, jamais atteints par 11 graines de fuzz : rétroaction `b` de BD et MT, `toneX` au-delà de la pleine
+  échelle, `heard` de MA (deux mots à $800000 à la fois).
+- 2 trous réels sans rang possible : `ix[k-1] = lim(b)` dans le réseau, qui demande -1 fois -1 trois blocs après le Hit, donc
+  deux Hits ; `last >= $79999A` de HH, un seul mot de bruit exact qu'aucun paquet ne commande.
+- 16 équivalents de la liste faite main, dont le code mort retiré depuis, scratch comparée à 0 : branche de zéros de `read()`,
+  `ix[0x40]`, `stale`, `iy[0x3f]`, le deux-pôles de ML.
+
+Les résonateurs ont changé après ce passage (quatre modes par passe, chemin rapide) : 20 mutations de plus sur ce code et
+sur `pastEnd`. Les 8 termes du test et les 7 limites du chemin exact sont toutes prises : le chemin lent est bien atteint.
+`pastEnd` : 1 prise et 4 qui passent. Trois touchent sa borne haute, qui ne joue pas dans ce que le test atteint : `strike`
+ramène la position à la fin à chaque bloc, moins de 4 mots par échantillon, 240 zéros. Elle reste comme garde, non prouvée
+pour `positionsTwice` de SD et RS. La quatrième est le bord exact `fin - 1`, qu'aucun paquet n'atteint.
+
+Hors de ce que l'OS produit, le mot 8 à $800000 sur HH diffère de 2 LSB, non diagnostiqué ; l'OS y donne au plus $7F.
+
+Revues du 2026-11-05 :
+- Revue de code : `move a1,r0` non limité dans HH ($145901, $145934), le bug de silence ci-dessus, trois commentaires faux,
+  dont RC qui sort du sinus au bouton 95 et lit la banque UW.
+- Revue d'architecture : `piFilter` devient `onePole`, import en un appel, `mdVoicePi.h` de 218 à 115 lignes, pas de
+  défaut à l'index de `Voice`. Notes pour les tickets 10, 11 et 15 ; `Shared` se découpera au ticket 11.
+- `/simplify` : `line`, `onePole`, `noise`, `tone`, shelf et cœur des résonateurs communs, -52 lignes nettes, loin des 200
+  estimées, le chemin rapide et `pastEnd` en reprenant. `pastEnd` existe parce que retirer le test de zéros coûtait 10 à
+  13 % à BD, SD et RS, la plupart des blocs lisant au-delà de l'excitation. Vitesse préférée à la simplicité pour les
+  résonateurs : l'entrelacement seul était plus lent.
+
+Coût mesuré (release, minimum de 9 passages sur 3 tours, sous charge, par voix et par bloc de 32 échantillons, avant et
+après l'optimisation, somme de contrôle identique) : BD 1,60 à 1,28 µs, SD 1,77 à 1,46, MT 1,67 à 1,39, ML 1,32 à 1,03,
+MA 0,43 à 0,38, RS 1,76 à 1,47, RC 1,39 à 1,19, CC 1,40 à 1,22, HH 1,45 à 1,19. Somme -16,9 %, juste sous les 17 à 31 %
+annoncés.

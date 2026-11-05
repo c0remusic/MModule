@@ -1,7 +1,8 @@
 // The voice DSP's port (md::voice::Voice) against mdEngine's VoiceEngine, OS 1.63's own program on the dsp56300
 // emulator: the same slots into both, Hit by Hit, then every block of the 16 voices compared sample for sample, and
 // every voice's 64-word state blocks word for word, Y:S and X:S (a count limited when stored back changes no sample for
-// millions of them, only the word), and the voices' shared scratch, X:$000-$1FF and Y:$000-$0FF, after every block.
+// millions of them, only the word), and the voices' shared scratch, X:$000-$1FF and Y:$000-$0FF, and the P-I machines'
+// delay lines, after every block.
 // Two phases, the same each run. First the slots as HostModel's tick writes them: every voice's packet from the OS's
 // own coefficient functions (MachineRunner, Musashi) on every block, with Hits, knob changes and machine changes on
 // the ported machines, the ROM ones playing the flash image's UW bank, and at its end every voice hit once on a TRX
@@ -12,6 +13,8 @@
 // playing it. The run must reach every edge it names, and the ROM render's branches its probes count, or it proves
 // nothing. The harness then shows it finds a fault: one of the port's samples, and one of its state words, changed must
 // fail there. Last, on the port alone (the DSP would stall): a loop shorter than a block's advance renders silence.
+// It does not play a machine change without a Hit: a packet of one machine never reaches a voice still playing another,
+// where it would land on that machine's state words.
 // Its own process: Musashi serves one CPU class per executable (CLAUDE.md). GEARMULATOR_MD_FIRMWARE_BIN names the
 // flash image; exit 77 without it.
 // usage: mdVoicePortTest
@@ -19,6 +22,7 @@
 #include "mdVoice.h"
 #include "mdVoiceDsp.h"
 #include "mdVoiceInternal.h"
+#include "mdVoicePiImport.h"
 
 #include "Firmware.h"
 #include "MachineRunner.h"
@@ -35,6 +39,7 @@
 #include <cstdlib>
 #include <exception>
 #include <map>
+#include <memory>
 #include <optional>
 #include <random>
 #include <stdexcept>
@@ -63,13 +68,15 @@ namespace
 		uint32_t type;
 		const char* name;
 	};
-	constexpr std::array<Ported, 40> kPorted = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
+	constexpr std::array<Ported, 49> kPorted = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
 		{21, "TRX-RS"}, {22, "TRX-CB"}, {23, "TRX-CH"},
 		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}, {27, "TRX-CL"}, {28, "TRX-XC"}, {29, "TRX-B2"},
 		{30, "TRX-S2"}, {33, "EFM-BD"}, {34, "EFM-SD"}, {35, "EFM-XT"}, {36, "EFM-CP"}, {37, "EFM-RS"}, {38, "EFM-CB"},
 		{39, "EFM-HH"}, {40, "EFM-CY"}, {2, "GND-SN"}, {3, "GND-NS"}, {49, "E12-BD"}, {50, "E12-SD"}, {51, "E12-HT"},
 		{52, "E12-LT"}, {53, "E12-CP"}, {54, "E12-RS"}, {55, "E12-CB"}, {56, "E12-CH"}, {57, "E12-OH"}, {58, "E12-RC"},
-		{59, "E12-CC"}, {60, "E12-BR"}, {61, "E12-TA"}, {62, "E12-TR"}, {63, "E12-SH"}, {64, "E12-BC"}}};
+		{59, "E12-CC"}, {60, "E12-BR"}, {61, "E12-TA"}, {62, "E12-TR"}, {63, "E12-SH"}, {64, "E12-BC"}, {65, "P-I-BD"},
+		{66, "P-I-SD"}, {67, "P-I-MT"}, {68, "P-I-ML"}, {69, "P-I-MA"}, {70, "P-I-RS"}, {71, "P-I-RC"}, {72, "P-I-CC"},
+		{73, "P-I-HH"}}};
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
 	// whatever the others are: GND--, GND-IM and those
@@ -98,7 +105,7 @@ namespace
 	};
 	// TRX-MA's rise, hold and filter words
 	constexpr uint32_t kMaZeros = 1u << 1 | 1u << 3 | 1u << 7 | 1u << 8 | 1u << 9 | 1u << 0xa;
-	constexpr std::array<PacketEdge, 22> kPacketEdges = {{
+	constexpr std::array<PacketEdge, 46> kPacketEdges = {{
 		// GND-SN and GND-NS at any words, the OS's being all positive
 		{2, 5, 0},
 		{3, 2, 0},
@@ -146,6 +153,42 @@ namespace
 		{54, 12, 0, 4, 0, 5, 0},
 		// A retrigger under a block's time, from the sample's start, each time: the positions it moves stay in the window
 		{60, 12, 1u << 4 | 1u << 5 | 1u << 6, 0xa, 7, 9, 0x7f0000},
+		// The P-I machines at any words, the OS's being all positive and below their limits; their shelves' rows inside
+		// the tables
+		{65, 7, 0},
+		{66, 9, 0},
+		{67, 9, 0},
+		{68, 8, 0},
+		{69, 7, 0},
+		{70, 9, 0},
+		{71, 10, 0, 7, 0x20, 8, 0x40},
+		{72, 10, 0, 7, 0x20, 8, 0x40},
+		{72, 10, 0, 7, 0x7fffff, 8, 0x7f},
+		{73, 10, 0, 7, 0x20, 8, 0x40},
+		// P-I-RC's gate on the second noise word after its init, and P-I-CC's stick at the word where its gain starts
+		{71, 10, 0, 3, 0xb, 0, 0, 0x7f},
+		{72, 10, 0, 3, 0x19999a, 0, 0, 0x7f},
+		// P-I-HH's level on its end exactly, the one word that closes without passing under it: as a word, and as an
+		// accumulator 86 blocks after the Hit
+		{73, 10, 0, 9, 0x55, 0, 0, 0x7f},
+		{73, 10, 0, 9, 0x700000, 0, 0, 0x7f},
+		// P-I-HH's sine at a step of whole sines, which the AGU does not wrap
+		{73, 10, 0, 5, 0x10000, 0, 0, 0x7f},
+		// P-I-SD's noise and P-I-MA's on their gates, a voice's first word after its init
+		{66, 9, 0, 7, 0x11565a},
+		{69, 7, 0, 1, 0x266a},
+		// P-I-CC's level at -1 falling by -1, past full scale at the first step, on a voice already P-I-CC, whose init
+		// does not set word 2: twice for the Hits that find one
+		{72, 10, 1u << 7 | 1u << 8, 2, 0x800000, 3, 0x800000, 0x7fffff},
+		{72, 10, 1u << 7 | 1u << 8, 2, 0x800000, 3, 0x800000, 0x7fffff},
+		// P-I-CC's row of $145424 past its table: a level of small words, the shelf past full scale
+		{72, 10, 0, 7, 0x7fffff, 8, 0x7f, 0xffff},
+		// ... and its index past full scale, a level at -1
+		{72, 10, 0, 7, 0x7fffff, 3, 0x800000, 0x7f},
+		// P-I-CC's and P-I-RC's rows' addresses past full scale
+		{72, 10, 0, 7, 0x20, 8, 0x3fffff},
+		{71, 10, 0, 7, 0x3fffff, 8, 0x40},
+		{71, 10, 0, 7, 0x20, 8, 0x3fffff},
 	}};
 	using md::voice::isRom;
 	// A ROM type's directory entry
@@ -206,8 +249,9 @@ namespace
 		int64_t osStrayReads = 0, strayReads = 0;	// words read through the stray hook, in the first phase and all
 		// ... that are not 0 in the first phase, where a product reads 0 and so differs, by the area read
 		std::array<int64_t, hooks::AreaCount> osStrayNonZero{};
-		std::optional<ScratchDifference> scratch;	// the first word of the scratch that differs
+		std::optional<ScratchDifference> scratch;	// the first word of the scratch or the delay lines that differs
 		bool scratchFaultFound = false;				// a word changed on purpose found where it is
+		int64_t linesInUse = 0;						// their words not 0 at the end
 		std::array<uint32_t, 10> wordMax{};		// the highest ROM words the OS gave
 	};
 
@@ -216,15 +260,22 @@ namespace
 		int block = 0, voice = 0, index = 0;
 	};
 
-	std::optional<ScratchDifference> firstScratchDifference(const md::voice::Scratch& _scratch,
+	std::optional<ScratchDifference> firstScratchDifference(const md::voice::Shared& _shared,
 		const dsp56k::Memory& _mem)
 	{
-		for(uint32_t a = 0; a < _scratch.x.size(); ++a)
-			if(const uint32_t w = _mem.get(dsp56k::MemArea_X, a) & 0xffffff; w != _scratch.x[a])
-				return ScratchDifference{'X', a, w, _scratch.x[a]};
-		for(uint32_t a = 0; a < _scratch.y.size(); ++a)
-			if(const uint32_t w = _mem.get(dsp56k::MemArea_Y, a) & 0xffffff; w != _scratch.y[a])
-				return ScratchDifference{'Y', a, w, _scratch.y[a]};
+		const auto& scratch = _shared.scratch;
+		for(uint32_t a = 0; a < scratch.x.size(); ++a)
+			if(const uint32_t w = _mem.get(dsp56k::MemArea_X, a) & 0xffffff; w != scratch.x[a])
+				return ScratchDifference{'X', a, w, scratch.x[a]};
+		for(uint32_t a = 0; a < scratch.y.size(); ++a)
+			if(const uint32_t w = _mem.get(dsp56k::MemArea_Y, a) & 0xffffff; w != scratch.y[a])
+				return ScratchDifference{'Y', a, w, scratch.y[a]};
+		for(uint32_t a = 0; a < _shared.lines.size(); ++a)
+		{
+			const uint32_t addr = md::voice::Shared::LinesAddr + a;
+			if(const uint32_t w = _mem.get(dsp56k::MemArea_X, addr) & 0xffffff; w != _shared.lines[a])
+				return ScratchDifference{'L', addr, w, _shared.lines[a]};
+		}
 		return std::nullopt;
 	}
 
@@ -312,6 +363,10 @@ namespace
 			checkTable("TRX-CH's waves", _t.chWaves, T::ChWavesAddr, mem, dsp56k::MemArea_X, w.offset, w.size);
 		checkTable("the E12 machines' offsets", _t.e12Offsets, T::E12OffsetsAddr, mem);
 		checkTable("the E12 machines' interpolation", _t.interpolation, T::InterpolationAddr, mem, dsp56k::MemArea_Y);
+		checkTable("P-I's damping", _t.piDamp, T::PiDampAddr, mem);
+		checkTable("P-I's ringing", _t.piRing, T::PiRingAddr, mem);
+		checkTable("P-I's low cut", _t.piLowCut, T::PiLowCutAddr, mem);
+		checkTable("P-I's high cut", _t.piHighCut, T::PiHighCutAddr, mem);
 	}
 
 	// A bank's directory and data, which md::voice::RomBank views
@@ -403,16 +458,27 @@ namespace
 		// What the 16 voices share, its scratch from what the DSP's own init left in it
 		// The E12 machines' directory and samples from the flash image's voice program, as a product imports them
 		const auto e12 = md::fw::dspWords(_os.firmware.dspA, md::voice::E12Bank::Addr, md::voice::E12Bank::Words);
-		md::voice::Shared shared{&tables, &bankView, {}, &trx, e12.data()};
+		// The P-I machines' words the same way
+		const auto pi = md::voice::importPi(_os);
+		auto owned = std::make_unique<md::voice::Shared>();
+		auto& shared = *owned;
+		shared.tables = &tables;
+		shared.bank = &bankView;
+		shared.trx = &trx;
+		shared.e12 = e12.data();
+		shared.pi = pi.data();
 		fill(shared.scratch.x, oracle.dsp().memory(), dsp56k::MemArea_X, 0);
 		fill(shared.scratch.y, oracle.dsp().memory(), dsp56k::MemArea_Y, 0);
+		fill(shared.lines, oracle.dsp().memory(), dsp56k::MemArea_X, md::voice::Shared::LinesAddr);
 		rec.oracle.reserve(static_cast<size_t>(kBlocks) * kVoices * kFrames);
 		rec.port.reserve(rec.oracle.capacity());
 		rec.oracleState.reserve(static_cast<size_t>(kBlocks) * kVoices * 2 * Voice::kStateWords);
 		rec.portState.reserve(rec.oracleState.capacity());
 
 		md::engine::MachineRunner runner(_os.osImage);
-		std::vector<Voice> port(kVoices, Voice(shared));
+		std::vector<Voice> port;
+		for(int v = 0; v < kVoices; ++v)
+			port.emplace_back(shared, static_cast<uint32_t>(v));
 
 		std::mt19937 random(0x0d0e2);
 		std::array<uint8_t, kVoices> machine{};
@@ -596,7 +662,7 @@ namespace
 			const auto& memory = oracle.dsp().memory();
 			if(!rec.scratch)
 			{
-				rec.scratch = firstScratchDifference(shared.scratch, memory);
+				rec.scratch = firstScratchDifference(shared, memory);
 				if(rec.scratch)
 				{
 					rec.scratch->block = block;
@@ -605,10 +671,15 @@ namespace
 			}
 			if(block == kBlocks / 2)
 			{
-				auto faulty = shared.scratch;
-				faulty.x[0x1a3] ^= 1;
-				const auto found = firstScratchDifference(faulty, memory);
-				rec.scratchFaultFound = found && found->area == 'X' && found->addr == 0x1a3;
+				const auto finds = [&](uint32_t& _word, const char _area, const uint32_t _addr)
+				{
+					_word ^= 1;
+					const auto found = firstScratchDifference(shared, memory);
+					_word ^= 1;
+					return found && found->area == _area && found->addr == _addr;
+				};
+				rec.scratchFaultFound = finds(shared.scratch.x[0x1a3], 'X', 0x1a3)
+					&& finds(shared.lines[0x123], 'L', md::voice::Shared::LinesAddr + 0x123);
 			}
 		}
 		std::printf("the OS's ROM words 1-9, lowest and highest:");
@@ -617,6 +688,7 @@ namespace
 		std::printf("\n");
 		rec.strayReads = stray.reads;
 		rec.osStrayNonZero = stray.nonZero;
+		rec.linesInUse = std::count_if(shared.lines.begin(), shared.lines.end(), [](const uint32_t _w) { return _w != 0; });
 		rec.wordMax = wordMax;
 		h = {};
 		return rec;
@@ -632,8 +704,11 @@ namespace
 			Bank bank;
 			bank.add(_tables, 129, 600, loopStart);
 			const auto view = bank.view();
-			md::voice::Shared shared{&_tables, &view, {}};
-			Voice voice(shared);
+			auto owned = std::make_unique<md::voice::Shared>();
+			auto& shared = *owned;
+			shared.tables = &_tables;
+			shared.bank = &view;
+			Voice voice(shared, 0);
 			std::array<int64_t, hooks::ProbeCount> probes{};
 			hooks::hooks().probes = &probes;
 			const uint32_t words[10] = {129, 0x7fffff, 0x800000, 0, 0x7fffff, 0x400000, _wordMax[6], _wordMax[7], 0,
@@ -666,11 +741,55 @@ namespace
 		return ok;
 	}
 
+	// The port alone: P-I's five drums without the owner's words play silence, whatever their words, whichever their
+	// voice
+	bool piSilentWithoutWords(const md::voice::TrxTables& _trx)
+	{
+		auto owned = std::make_unique<md::voice::Shared>();
+		auto& shared = *owned;
+		shared.trx = &_trx;
+		Voice voice(shared, 3);
+		std::mt19937 random(0x0921);
+		// A P-I-CC first, which needs no words: its lines must not sound through the drums that do
+		const uint32_t ring[10] = {72, 0x400000, 0x7fffff, 0x400000, 0x40000, 0x1000, 0x7f0000, 0x20, 0x40, 0x7fffff};
+		voice.setSlot(ring, 10);
+		for(int block = 0; block < 100; ++block)
+		{
+			Voice::Block out{};
+			voice.render(out);
+		}
+		if(std::all_of(shared.lines.begin(), shared.lines.end(), [](const uint32_t _w) { return _w == 0; }))
+		{
+			std::printf("P-I-CC left nothing in its lines\n");
+			return false;
+		}
+		for(const uint32_t type : {65u, 66u, 67u, 68u, 70u})
+		{
+			uint32_t words[10] = {type};
+			for(uint32_t w = 1; w < 10; ++w)
+				words[w] = static_cast<uint32_t>(random()) & 0x7fffff;
+			voice.setSlot(words, 10);
+			for(int block = 0; block < 400; ++block)
+			{
+				Voice::Block out{};
+				voice.render(out);
+				if(std::any_of(out.begin(), out.end(), [](const int32_t _s) { return _s != 0; }))
+				{
+					std::printf("P-I type %u sounds at block %d\n", type, block);
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
 	// The port alone: E12 machines without the owner's samples play silence, whatever their words
 	bool e12SilentWithoutSamples(const md::voice::TrxTables& _trx)
 	{
-		md::voice::Shared shared{nullptr, nullptr, {}, &_trx};
-		Voice voice(shared);
+		auto owned = std::make_unique<md::voice::Shared>();
+		auto& shared = *owned;
+		shared.trx = &_trx;
+		Voice voice(shared, 0);
 		std::mt19937 random(0x0e12);
 		for(uint32_t type = 49; type <= 64; ++type)
 		{
@@ -786,8 +905,9 @@ int main()
 			std::printf("\n");
 			return 1;
 		}
-		std::printf("the scratch is the voice DSP's after every block, X:$000-$1FF and Y:$000-$0FF, and a word changed on "
-			"purpose is found\n");
+		std::printf("the scratch is the voice DSP's after every block, X:$000-$1FF and Y:$000-$0FF, and the delay lines, "
+			"%lld of their words in use at the end, and a word changed on purpose in each is found\n",
+			static_cast<long long>(rec.linesInUse));
 
 		// A sample and a state word of the port changed on purpose: the comparisons must find them where they are
 		const Location corrupt{kBlocks / 2, 7, 13};
@@ -821,6 +941,12 @@ int main()
 			return 1;
 		}
 		std::printf("the E12 machines are silent without their samples\n");
+		if(!piSilentWithoutWords(md::voice::TrxTables()))
+		{
+			std::printf("FAIL: a P-I machine sounded without its words\n");
+			return 1;
+		}
+		std::printf("P-I-BD, -SD, -MT, -ML and -RS are silent without their words\n");
 		std::printf("PASS: the port matches the voice DSP sample for sample and word for word\n");
 		return 0;
 	}

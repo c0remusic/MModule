@@ -639,6 +639,157 @@ namespace md::voice
 			return 11;
 		}
 
+		// The first word of most P-I machines, a pitch less 1000
+		uint32_t piPitch(const In& _in)
+		{
+			return pitched(_in, _in.p[0] >> 6, 10) + 0xfffffc18;
+		}
+
+		// A word of $24DA14 from the top of the table
+		uint32_t onePoleTop(const In& _in, const uint32_t _p)
+		{
+			return _in.t.onePole[0xdf + (_p >> 9)];
+		}
+
+		constexpr uint32_t piBend(const uint32_t _p) { return (_p << 7) + 0x80000; }
+		constexpr uint32_t piSquare(const uint32_t _p) { return _p * _p >> 5; }
+
+		int piBd(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			_o[1] = piPitch(_in);
+			_o[2] = level(p[1]);
+			_o[3] = piBend(p[2]);
+			_o[4] = onePoleTop(_in, p[3]);
+			_o[5] = level(p[4]);
+			_o[6] = _in.t.onePole[p[5] >> 6];
+			return 7;
+		}
+
+		int piSd(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			_o[1] = piPitch(_in);
+			_o[2] = level(p[1]);
+			_o[3] = (p[2] << 5) & 0x1fffe0;
+			_o[4] = _in.t.onePole[p[7] >> 6];
+			_o[5] = (p[4] << 5) & 0x1fffe0;
+			_o[6] = piSquare(p[5]);
+			_o[7] = _in.t.rise[0xe4 + (p[6] >> 7)];
+			_o[8] = piSquare(p[3]);
+			return 9;
+		}
+
+		int piMt(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			_o[1] = piPitch(_in);
+			_o[2] = level(p[1]);
+			_o[3] = piBend(p[2]);
+			_o[4] = onePoleTop(_in, p[3]);
+			_o[5] = level(p[4]);
+			_o[6] = level(p[7]);
+			_o[7] = p[6] << 9;
+			_o[8] = _in.t.onePole[std::min((p[6] >> 10) + (p[5] >> 9) + 0xdf, 0xffu)];
+			return 9;
+		}
+
+		int piMl(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			const auto& rise = _in.t.rise;
+			_o[1] = piPitch(_in);
+			_o[2] = rise[0x118 + (p[1] >> 7)];
+			_o[4] = p[1] << 9;
+			_o[3] = _o[7] = p[2] * 0x190 + 0xf4240;
+			if(p[3] <= 0x1fff)
+			{
+				_o[5] = p[3] << 9;
+				_o[6] = rise[0x12c];
+			}
+			else
+			{
+				_o[5] = 0x400200;
+				_o[6] = rise[0x12c + ((p[3] - 0x2000) >> 7)];
+			}
+			return 8;
+		}
+
+		int piMa(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			const auto& t = _in.t;
+			_o[1] = t.maChance[p[0] >> 7];
+			_o[2] = t.maGrains[p[0] >> 7] * t.maDecay[p[2] >> 7];
+			_o[3] = t.decay[0x100 + (p[1] >> 7)];
+			_o[4] = t.decay[0x80 + (p[2] >> 7)];
+			const uint32_t radius = t.decay[p[5] >> 8] >> 8;
+			_o[5] = static_cast<uint32_t>(static_cast<int32_t>(t.maCosine[p[4] >> 7] * radius) >> 8);
+			_o[6] = radius * radius >> 7;
+			return 7;
+		}
+
+		int piRs(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			_o[1] = piPitch(_in);
+			_o[2] = level(p[1]);
+			_o[3] = piBend(p[2]);
+			_o[6] = piSquare(p[4]);
+			_o[7] = _in.t.rise[0x124 + (p[5] >> 8)];
+			_o[8] = piSquare(p[3]);
+			return 9;
+		}
+
+		// Words 1, 2 and 7 to 9 of the three that share an instrument: a period from the pitch, the decay and the shelves'
+		// rows
+		void piMetal(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			_o[1] = ((0x40000000u / (_in.t.pitch[(p[0] >> 6) & 0x7f] << (p[0] >> 13))) << 4) - 1;
+			_o[2] = _in.t.decay[0x78 + (p[1] * 18 / 10 >> 7)];
+			_o[6] = level(p[4]);
+			_o[7] = p[5] >> 7;
+			_o[8] = p[6] >> 7;
+			_o[9] = p[7] <= 0x3f3f ? _in.t.rise[0xb4 + (p[7] * 18 / 10 >> 7)] : k1;
+		}
+
+		int piRc(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			piMetal(_in, _o);
+			_o[3] = k1 - (p[2] << 9);
+			_o[4] = (p[3] << 6) + 0x40000;
+			_o[5] = 0x40000000u / ((_o[1] >> 13) * 87);
+			return 10;
+		}
+
+		// P-I-CC's and -HH's step of the stick's sine
+		uint32_t piStick(const uint32_t* const _o)
+		{
+			return 0x20000000u / ((_o[1] >> 13) * 73);
+		}
+
+		int piCc(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			piMetal(_in, _o);
+			_o[3] = _in.t.curve[p[2] >> 7] << 7;
+			_o[4] = (p[3] << 6) + 0x40000;
+			_o[5] = piStick(_o);
+			return 10;
+		}
+
+		int piHh(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			piMetal(_in, _o);
+			_o[3] = level(p[2]);
+			_o[4] = (p[3] << 4) + 0x40000;
+			_o[5] = piStick(_o);
+			return 10;
+		}
+
 		// ROM-01 to -24 (First) and ROM-25 to -48 differ in words 3, 4 and 5 only
 		template<bool First>
 		int rom(const In& _in, uint32_t* _o)
@@ -734,13 +885,24 @@ namespace md::voice
 			case 61:	return e12Tr;
 			case 62:	return e12Sh;
 			case 63:	return e12Mix;
+			case 64:	return piBd;
+			case 65:	return piSd;
+			case 66:	return piMt;
+			case 67:	return piMl;
+			case 68:	return piMa;
+			case 69:	return piRs;
+			case 70:	return piRc;
+			case 71:	return piCc;
+			case 72:	return piHh;
 			default:	return nullptr;
 			}
 		}
 	}
 
-	OsTables::OsTables()
+	OsTables::OsTables(const uint32_t* const _pi)
 	{
+		if(_pi)
+			std::copy_n(_pi + PiBank::ProgramWords, onePole.size(), onePole.begin());
 		// Both decays are the same curve: 2^23 e^-(a e^(-n i / 511)). The constants hold every word of the OS's tables.
 		for(size_t i = 0; i < pitch.size(); ++i)
 			pitch[i] = static_cast<uint32_t>(std::llround(2048.0 * std::pow(2.0, static_cast<double>(i) / 127.5)));
@@ -760,6 +922,17 @@ namespace md::voice
 		}
 		curve[0] = 0;
 		curve[1] = 5;
+		for(size_t i = 0; i < maChance.size(); ++i)
+		{
+			constexpr double pi = 3.14159265358979323846;
+			const double x = static_cast<double>(i) / 127.0;
+			maChance[i] = static_cast<uint32_t>(std::llround(16384.0 + 393216.0 * (std::pow(10.0, x) - 1.0) / 9.0));
+			constexpr double scale = 4096.0 * 0.70710678118654752;
+			maGrains[i] = static_cast<uint32_t>(scale / (1.0 + 4.0 * x));
+			maDecay[i] = static_cast<uint32_t>(scale / (1.0 + 7.0 * x));
+			const double pitch = 300.0 * std::pow(5000.0 / 300.0, x);
+			maCosine[i] = static_cast<uint32_t>(static_cast<int32_t>(-65536.0 * std::cos(2.0 * pi * pitch / 44100.0)));
+		}
 	}
 
 	bool coefficientsPorted(const uint8_t _machine)

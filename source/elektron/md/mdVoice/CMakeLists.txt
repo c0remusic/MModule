@@ -6,7 +6,8 @@ add_library(mdVoice STATIC mdVoice.h mdVoiceDsp.h mdVoiceInternal.h mdVoice.cpp 
 	mdVoiceTrxCb.cpp mdVoiceTrxCh.cpp mdVoiceTrxCy.cpp mdVoiceTrxMa.cpp mdVoiceTrxCl.cpp mdVoiceTrxXc.cpp
 	mdVoiceTrxB2.cpp mdVoiceTrxS2.cpp mdVoiceEfm.h mdVoiceEfm.cpp mdVoiceEfmBd.cpp
 	mdVoiceEfmSd.cpp mdVoiceEfmXt.cpp mdVoiceEfmCp.cpp mdVoiceEfmRs.cpp mdVoiceEfmCb.cpp mdVoiceEfmHh.cpp
-	mdVoiceEfmCy.cpp mdVoiceE12.cpp mdVoiceGnd.cpp mdVoiceCoefficients.h mdVoiceCoefficients.cpp)
+	mdVoiceEfmCy.cpp mdVoiceE12.cpp mdVoiceGnd.cpp mdVoicePi.h mdVoicePiImport.h mdVoicePi.cpp mdVoicePiMetal.cpp
+	mdVoiceCoefficients.h mdVoiceCoefficients.cpp)
 target_include_directories(mdVoice PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(TARGET mdVoice PROPERTY FOLDER "Elektron")
 

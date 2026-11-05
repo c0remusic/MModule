@@ -252,9 +252,12 @@ Ticket « Qualité audio » : ne corriger que les ajouts, jamais un étage port�
 Aucun firmware n'est nécessaire chez l'utilisateur, et le plug-in livré n'a pas de dossier `roms`. Les firmwares
 servent aux tests ; toutes les tables viennent de formules testées contre le firmware. Une flash image du MD importée
 par son propriétaire sert seulement à en extraire des échantillons : la banque UW, et les formes d'onde échantillonnées
-de TRX-BD, TRX-SD, TRX-XT, TRX-RS et TRX-XC (mots du programme voix, amendé le 2026-10-31), et les échantillons des
-machines E12 (amendé le 2026-11-05), jamais son code ni ses tables. L'import ne lit la flash image qu'une fois et
-écrit ces échantillons dans le dossier de données : le rendu ne la lit jamais, et sans import ces machines se taisent.
+de TRX-BD, TRX-SD, TRX-XT, TRX-RS et TRX-XC (mots du programme voix, amendé le 2026-10-31), les échantillons et le
+répertoire des machines E12, et les excitations des P-I avec leurs mots de modes (amendé le 2026-11-05), jamais son
+code ni ses tables, à une exception près : la table de l'OS à $24DA14, sans formule connue, que P-I lit et que l'Echo,
+la Gate Box et Dynamix lisent aussi, importée tant qu'une formule manque (amendé le 2026-11-05). L'import ne lit la
+flash image qu'une fois et écrit ces données dans le dossier de données : le rendu ne la lit jamais, et sans import
+ces machines se taisent.
 
 ## 12. Critères d'acceptation
 

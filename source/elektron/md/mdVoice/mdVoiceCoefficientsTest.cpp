@@ -15,6 +15,7 @@
 #include "mdVoiceCoefficients.h"
 #include "mdVoiceDsp.h"
 #include "mdVoiceInternal.h"
+#include "mdVoicePiImport.h"
 
 #include "Firmware.h"
 #include "HostModel.h"
@@ -31,6 +32,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <memory>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -78,8 +80,13 @@ namespace
 		checkOsTable("the rise table", _tables.rise, _os, 0x24c794);
 		checkOsTable("the octaves table", _tables.octaves, _os, 0x24d794);
 		checkOsTable("the curve table", _tables.curve, _os, 0x24bb90);
-		std::printf("the tables from their formulas: pitch 128, decay 512, rise 512, octaves 128, curve 128, "
-			"0 differences\n");
+		checkOsTable("the imported one-pole table", _tables.onePole, _os, md::voice::PiBank::OnePoleAddr);
+		checkOsTable("P-I-MA's chance", _tables.maChance, _os, 0x2462e8);
+		checkOsTable("P-I-MA's grains", _tables.maGrains, _os, 0x2464e8);
+		checkOsTable("P-I-MA's decay", _tables.maDecay, _os, 0x2466e8);
+		checkOsTable("P-I-MA's cosine", _tables.maCosine, _os, 0x2468e8);
+		std::printf("the tables from their formulas: pitch 128, decay 512, rise 512, octaves 128, curve 128, P-I-MA's "
+			"four of 128, 0 differences\n");
 	}
 
 	// A Lock's snap holds until something else moves the target, which the scenario below never shows
@@ -287,10 +294,19 @@ namespace
 
 		// The E12 machines' samples as mdVoicePortTest takes them
 		const auto e12 = md::fw::dspWords(_os.firmware.dspA, md::voice::E12Bank::Addr, md::voice::E12Bank::Words);
-		md::voice::Shared shared{&rom, &bank, {}, &trx, e12.data()};
+		const auto pi = md::voice::importPi(_os);
+		auto owned = std::make_unique<md::voice::Shared>();
+		auto& shared = *owned;
+		shared.tables = &rom;
+		shared.bank = &bank;
+		shared.trx = &trx;
+		shared.e12 = e12.data();
+		shared.pi = pi.data();
 		fill(shared.scratch.x, memory, dsp56k::MemArea_X, 0);
 		fill(shared.scratch.y, memory, dsp56k::MemArea_Y, 0);
-		std::vector<Voice> voices(kVoices, Voice(shared));
+		std::vector<Voice> voices;
+		for(int v = 0; v < kVoices; ++v)
+			voices.emplace_back(shared, static_cast<uint32_t>(v));
 		std::array<Track, kVoices> tracks{};
 
 		std::mt19937 random(0x10002e0);
@@ -467,7 +483,8 @@ int main()
 		const auto flash = md::fw::readFile(path);
 		const auto os = md::fw::loadFirmwareFromFlash(flash);
 		MachineRunner runner(os.osImage);
-		const OsTables tables;
+		const auto pi = md::voice::importPi(os);
+		const OsTables tables(pi.data());
 		checkTables(tables, runner);
 		checkMachines();
 		checkSnap();
