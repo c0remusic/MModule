@@ -211,28 +211,6 @@ namespace
 			_a[k] = _mem.get(_area, _base + k);
 	}
 
-	md::voice::TrxTables trxTables(const md::fw::Firmware& _fw)
-	{
-		md::voice::TrxTables t;
-		using T = md::voice::TrxTables;
-		const auto copy = [&](auto& _table, const uint32_t _addr, const uint32_t _first = 0, uint32_t _count = 0)
-		{
-			if(_count == 0)
-				_count = static_cast<uint32_t>(_table.size());
-			const auto w = md::fw::dspWords(_fw.dspA, _addr + _first, _count);
-			std::copy(w.begin(), w.end(), _table.begin() + _first);
-		};
-		copy(t.bdWaveA, T::BdWaveAAddr);
-		copy(t.bdWaveB, T::BdWaveBAddr);
-		copy(t.sdWave, T::SdWaveAddr);
-		copy(t.xtWave, T::XtWaveAddr);
-		copy(t.xcWave, T::XcWaveAddr);
-		copy(t.rsWave, T::RsWaveAddr);
-		for(const auto& w : T::ChWaves)
-			copy(t.chWaves, T::ChWavesAddr, w.offset, w.size);
-		return t;
-	}
-
 	// One Track as the tick drives it, without MachineRunner: what HostModel does around the OS's code
 	struct Track
 	{
@@ -280,7 +258,8 @@ namespace
 		oracle.writeP(md::voice::RomBank::DirectoryAddr, directory.data(), directory.size());
 		oracle.writeP(md::voice::RomBank::DataAddr, uw.data.data(), uw.data.size());
 		const md::voice::RomBank bank{directory.data(), uw.data.data(), uw.data.size()};
-		const auto trx = trxTables(_os.firmware);
+		md::voice::TrxTables trx;
+		md::voice::importTrx(_os.firmware, trx);
 
 		// The stray pointer of a reversed ROM voice reads what the oracle's memory holds, as mdVoicePortTest has it
 		md::voice::testHooks::hooks().stray = [](const void* _user, const md::voice::testHooks::Area _area,

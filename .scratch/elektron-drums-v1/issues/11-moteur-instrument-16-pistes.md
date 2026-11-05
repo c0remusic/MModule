@@ -75,3 +75,15 @@ la preuve échantillon par échantillon ne couvre plus le produit. À garder en 
   d'avant s'arrête (`HostModel::updateVoice`). `coefficients` et `Voice` lèvent une exception sur ces machines : il faut
   ce chemin avant le fil audio, pas un simple filtre, sinon la voix d'avant continue de sonner ;
 - `OsTables::decay` remplace la table que `HostModel` lit dans l'OS pour les User Machines.
+
+## Noté par le ticket 10 (2026-11-05)
+
+- Rien ne saute une piste muette dans `md::fast` : 0,4 µs par piste pour la chaîne, et 3 µs pour l'Echo et la Gate Box même sans
+  envoi. Règle exacte par construction, pour une paire de voies et un étage : entrée marquée silencieuse, y1, y2, x1, x2 et c1 à
+  0, `floor(a) == 0` ; la mesure donne 0,3 à 0,8 s pour y arriver après un bruit à 0,5. Echo : entrée et écritures nulles sur une
+  passe de ligne, 2,2 s, pointeurs maintenus. Gate Box : sur 8192 + 2663 échantillons, `gate()` maintenu. Il faut un masque d'entrée
+  par `Block` ; rétrécir un préfixe de voies gèlerait une fin, inexact ici, et la voix t du MD doit rester sur la piste t.
+- `Block` dit « 48 kHz » dans `stFastStages.h`, faux pour le MD : ses quelques lignes passent dans un en-tête neutre quand le moteur
+  lie les deux familles.
+- La chaîne d'une piste Syntakt tourne-t-elle avant ou après son rééchantillonneur ? Avant, les étages MD vivent à deux fréquences
+  dans un processus, et `tables()` devient `tables(rate)`, à trancher ici.

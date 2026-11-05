@@ -132,6 +132,9 @@ Pas d'autre mot en X:$257-$7FF : aucune table tanh n'est chargée par OS 1.63.
 
 ## 2. DSP1 : chaîne de piste, mixeur et master (section 2)
 
+Mise à jour du 2026-11-05 : les tables de la chaîne de piste marquées « à chercher » ci-dessous ont leur formule, voir le ticket 10 et
+`mdFastTables.cpp`.
+
 `TrackFx` et `Mixer` (C++) lisent ces tables dans `TrackFx::Tables` ; `MasterEngine` exécute le master émulé sur
 la même image. Les seules adresses externes que nomme le code de la section 2 (`dspB_all.txt`, mots de code entre
 $140000 et $150000) sont celles du tableau.

@@ -310,29 +310,6 @@ namespace
 		return t;
 	}
 
-	md::voice::TrxTables trxTables(const md::fw::Firmware& _fw)
-	{
-		md::voice::TrxTables t;
-		using T = md::voice::TrxTables;
-		// The whole table, or its words from _first on (the firmware loads nothing between TRX-CH's waves)
-		const auto copy = [&](auto& _table, const uint32_t _addr, const uint32_t _first = 0, uint32_t _count = 0)
-		{
-			if(_count == 0)
-				_count = static_cast<uint32_t>(_table.size());
-			const auto w = md::fw::dspWords(_fw.dspA, _addr + _first, _count);
-			std::copy(w.begin(), w.end(), _table.begin() + _first);
-		};
-		copy(t.bdWaveA, T::BdWaveAAddr);
-		copy(t.bdWaveB, T::BdWaveBAddr);
-		copy(t.sdWave, T::SdWaveAddr);
-		copy(t.xtWave, T::XtWaveAddr);
-		copy(t.xcWave, T::XcWaveAddr);
-		copy(t.rsWave, T::RsWaveAddr);
-		for(const auto& w : T::ChWaves)
-			copy(t.chWaves, T::ChWavesAddr, w.offset, w.size);
-		return t;
-	}
-
 	// In the space the renders read it from: the whole table, or its words from _first on
 	template<size_t N>
 	void checkTable(const char* _name, const std::array<uint32_t, N>& _table, const uint32_t _addr,
@@ -452,7 +429,8 @@ namespace
 
 		// The TRX machines' tables as a product makes them, sine and filters by their formulas, the waveforms from the flash
 		// image's voice program, which must be the voice DSP's after its init
-		const auto trx = trxTables(_os.firmware);
+		md::voice::TrxTables trx;
+		md::voice::importTrx(_os.firmware, trx);
 		checkTrxTables(trx, oracle);
 
 		// What the 16 voices share, its scratch from what the DSP's own init left in it

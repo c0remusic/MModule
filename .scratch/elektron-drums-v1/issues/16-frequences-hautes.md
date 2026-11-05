@@ -22,3 +22,12 @@ s'applique pas au Syntakt.
 ## Références
 
 Spécification §11.2. Ticket « Une fréquence commune ».
+
+## Noté par le ticket 10 (2026-11-05)
+
+Tout `md::fast` dépend de 44,1 kHz sauf `Srr`, qui prend sa fréquence (à SRR 0 il cesse alors d'être un bypass) :
+- `Rate` dans `mdFastTables.cpp` porte les tables ; EQ et filtre ne sont exacts qu'à 44,1 kHz, et à 48 kHz ils liraient 8,8 % trop haut.
+- Les mots de blocage de DIST ($7FDF3B, -$4189) demandent une formule en Hz ; le suréchantillonnage de drive met DIST à une autre fréquence.
+- La rampe de 32 échantillons est liée au bloc.
+- Echo et Gate Box : `SampleRate` de la table de déclin, pôles d'amortissement, toutes les longueurs de ligne, le 44100 de TIME,
+  le pas du sinus par bloc, les vitesses du gate.

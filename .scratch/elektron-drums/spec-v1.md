@@ -70,7 +70,8 @@ et signalée.
 Port C++ des renders du DSP2 de l'OS 1.63 (39 renders à porter sur 44, qui couvrent toutes les machines hors
 INP et RAM-R), des 55 fonctions de coefficients 68k
 et du lissage, vérifié contre `mdEngine` (ticket « Port du Machinedrum en C++ »). Ordre : harnais, ROM ou TRX, EFM,
-E12, P-I, GND. Voix en entiers bit-exacts, `TrackFx` et la part du master reprise en flottant SIMD. Voix brute avant
+E12, P-I, GND. Voix en entiers bit-exacts, `TrackFx` en SIMD (doubles sur les mots du DSP, le flottant ratant Q3 sur les
+bandes faibles), Echo et Gate Box réécrits, la boucle de l'Echo en entiers (ticket 10 de la construction, 2026-11-05). Voix brute avant
 le mixeur : la vélocité, LEV et VOL s'appliquent dans l'étage AMP. L'AMD n'est pas reprise. Les machines ROM jouent
 la banque UW importée par le propriétaire, ou les samples maison, ou le silence.
 
@@ -232,8 +233,8 @@ Ticket « Interface façon Overbridge ». Référence : mockup v12 (`mockup/v12.
   0,1 dB jusqu'à 18 kHz (polyphasé, 53 coefficients par phase, 0,49 % d'un cœur pour 16 pistes) ; sa latence
   (24 échantillons à 44,1 kHz, 0,54 ms) entre dans le délai commun des Hits. Le MD et le DT2 se décident à leur tour.
 - Les étages restés en entiers (voix du MD, port exact du Syntakt gardé comme référence) sont exacts à leur
-  fréquence d'origine (Syntakt 48 kHz, MD 44,1 kHz) et adaptés ailleurs. Le Syntakt livré et les étages réécrits en
-  flottant (`TrackFx`, master) sont vérifiés à tolérance, même à leur fréquence d'origine.
+  fréquence d'origine (Syntakt 48 kHz, MD 44,1 kHz) et adaptés ailleurs. Le Syntakt livré et les étages réécrits
+  (`TrackFx`, Echo, Gate Box, master) sont vérifiés à tolérance, même à leur fréquence d'origine.
 - 88,2 et 96 kHz : rendu à mi-fréquence et suréchantillonneur 2x HIIR ; option « 96 kHz natif ».
 - SY TONE à 2x l'hôte ; SY BITS, SY SWARM et les SRR gardent leur fréquence absolue.
 - Trigs à l'échantillon près, sans gigue (ticket « Séquenceur interne »).

@@ -22,3 +22,10 @@ de ticket.
 ## Références
 
 Spécification §5. Ticket « Sources des effets d'envoi ».
+
+## Noté par le ticket 10 (2026-11-05)
+
+- `Echo` et `GateBox` sont prêts : pointeurs stéréo bruts, `GateBox` prend le retour de n'importe quel delay par `_echoL`/`_echoR`,
+  y compris celui du Syntakt. DVOL existe sur la machine (Echo vers Gate Box) : le garder ou le laisser à 0 pour « en parallèle »
+  se décide ici. L'ordre, delay avant reverb dans un bloc, reste implicite : à dire.
+- FB au-delà de 64 auto-oscille, sur la machine et dans le port.

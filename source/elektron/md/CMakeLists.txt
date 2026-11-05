@@ -4,6 +4,7 @@ add_subdirectory(mdProtocol)
 add_subdirectory(mdLib)
 add_subdirectory(mdEngine)
 add_subdirectory(mdVoice)
+add_subdirectory(mdFast)
 add_subdirectory(mdDrums)
 
 if(BUILD_TESTING)
