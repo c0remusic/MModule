@@ -9,9 +9,9 @@
 
 namespace md::voice
 {
-	// The voice DSP's tables the ROM machines read. The constructor computes the decoding; the caller fills the two
-	// filters from the OS (none is in this code), as no formula for them is known, and keeps the tables while voices use
-	// them
+	// The tables the ROM machines read, which the constructor computes: the decoding as the DSP's, word for word; the
+	// two filters ours, near the OS's (no formula gives the OS's, and none of its tables ships). mdVoicePortTest puts the
+	// DSP's own filters in them, to compare the render; mdVoiceRomFiltersTest measures what ours change.
 	struct RomTables
 	{
 		std::array<uint32_t, 0x1000> decode{};			// Y:$146000: a 12-bit code's sample
