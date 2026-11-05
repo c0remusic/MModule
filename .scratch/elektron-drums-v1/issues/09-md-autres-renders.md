@@ -184,3 +184,38 @@ Revues du 2026-11-05 :
   mesuré sur EFM-CB seul : ses autres appelants ne sont pas audités, il reste donc hors de ce changement.
 
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-CB 0,56 µs, soit 1,23 % d'un cœur pour 16 voix.
+
+## 2026-11-05 : EFM-HH
+
+EFM-HH (type 39 : init $10332E, update $103332, render $103349) est porté dans `mdVoiceEfmHh.cpp`. Un sinus à Y:$03 de la
+hauteur Y:$01 s'entend par Y:$06 et, à un niveau que Y:$05 fait décroître, courbe par Y:$04 un second sinus qui s'entend
+par Y:$07. Ce second sinus joue au niveau d'ampli, qu'un Hit relève et que Y:$02 fait décroître, multiplié par Y:$0C, un
+mot non signé, et limité. Un troisième sinus, de pas Y:$0B, le module en anneau : Y:$09 de ce sinus plus Y:$0A, limité.
+Le résultat traverse le filtre à un pôle (Y:$08), arrondi sur ses 32 mots.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS et un paquet fait main : 103 684 échantillons non nuls, 0 échantillon et
+0 mot d'état différents, la probe du niveau limité atteinte. Le mot 6 de l'OS vaut toujours 0, ce qui cache le retour du
+premier sinus : le paquet fait main, aux mots tirés au hasard, le fait entendre. Une mutation qui remplace ce mot par 0 ne
+tombe qu'au bloc 6011, dans la phase des paquets faits main. Le scénario des bancs a aussi été comparé à l'oracle :
+3000 blocs, 0 différence.
+
+Sur 37 mutations, 32 sont prises. Cinq passent, et elles ne changent rien :
+- Les mots bas des retours, Y:$17 et Y:$19, gardés d'un Hit à l'autre : la phase basse vaut 0 au Hit, donc aucune retenue.
+- `lim` au lieu de `hi` sur le niveau du modulateur et sur celui de l'ampli : ils ne croissent jamais au-delà de la pleine
+  échelle positive.
+- `lim` au lieu de `hi` sur le produit de sortie : il ne dépasse la pleine échelle que pour -1 fois -1, que ce test
+  n'atteint pas.
+
+Revues du 2026-11-05 :
+- Revue de code : aucun écart avec le listing, y compris les écritures en mémoire de travail. Le DSP ne copie pas Y:$08 en
+  X:$08 : les deux boucles de copie suivent ce trou, le filtre lisant Y:$08 directement.
+- Revue d'architecture : aucun helper de `mdVoiceEfm.h` n'est encore mérité, et EFM-HH garde des locales comme EFM-SD, ses
+  deux sinus à retour n'ayant aucun équivalent. La question se rouvrira avec EFM-CY, dernière machine de la famille. Le
+  commentaire d'en-tête nomme maintenant la hauteur du second sinus et les deux limites.
+- `/simplify` : rien à changer dans le rendu. Le test renomme `TrxEdge` en `PacketEdge`, sa table tenant aussi les EFM, et
+  le commentaire de TRX-MA retrouve sa ligne. Efficacité : gains restants d'au plus 2 %, par des helpers privés, écartés.
+  Le premier passage `/simplify` a été fait par un seul agent sur les quatre angles, et il a donc été refait avec quatre
+  agents, comme la consigne le demande.
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-HH 0,58 µs, soit 1,29 % d'un
+cœur pour 16 voix.

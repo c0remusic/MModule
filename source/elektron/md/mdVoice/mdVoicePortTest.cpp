@@ -63,10 +63,11 @@ namespace
 		uint32_t type;
 		const char* name;
 	};
-	constexpr std::array<Ported, 20> kPorted = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
+	constexpr std::array<Ported, 21> kPorted = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
 		{21, "TRX-RS"}, {22, "TRX-CB"}, {23, "TRX-CH"},
 		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}, {27, "TRX-CL"}, {28, "TRX-XC"}, {29, "TRX-B2"},
-		{30, "TRX-S2"}, {33, "EFM-BD"}, {34, "EFM-SD"}, {35, "EFM-XT"}, {36, "EFM-CP"}, {37, "EFM-RS"}, {38, "EFM-CB"}}};
+		{30, "TRX-S2"}, {33, "EFM-BD"}, {34, "EFM-SD"}, {35, "EFM-XT"}, {36, "EFM-CP"}, {37, "EFM-RS"}, {38, "EFM-CB"},
+		{39, "EFM-HH"}}};
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
 	// whatever the others are: GND--, GND-IM and those
@@ -81,8 +82,8 @@ namespace
 	constexpr std::array<uint8_t, 6> kRomMachines = {128, 129, 144, 159, 176, 189};
 
 	// The second phase's hand-made packets other than the ROM machines', which take half its Hits whatever these are:
-	// GND-IM's counts and samples at their edges, or one of these TRX packets, random words but those at 0 or set
-	struct TrxEdge
+	// GND-IM's counts and samples at their edges, or one of these packets, random words but those at 0 or set
+	struct PacketEdge
 	{
 		uint32_t type;
 		int count;
@@ -92,18 +93,22 @@ namespace
 		int set2 = 0;		// a second one
 		uint32_t value2 = 0;
 	};
-	// TRX-MA without its rise and hold, which the OS's up to 519 blocks hide from the Hits, its filters' words 0,
-	// inside their tables
+	// TRX-MA's rise, hold and filter words
 	constexpr uint32_t kMaZeros = 1u << 1 | 1u << 3 | 1u << 7 | 1u << 8 | 1u << 9 | 1u << 0xa;
-	constexpr std::array<TrxEdge, 13> kTrxEdges = {{
+	constexpr std::array<PacketEdge, 14> kPacketEdges = {{
 		// EFM-RS with pairs that differ, as the OS's words 2 and 6, 4 and 8 never do
 		{37, 13, 0},
-		// EFM-CB with a level that holds, so that the sum of the two wraps past full scale, as the OS's words never make it
+		// EFM-HH with a first sine that hears itself, the OS's word 6 being 0
+		{39, 13, 0},
+		// EFM-CB with a level that holds, so that the sum of the two wraps past full scale, as the OS's words never make
+		// it
 		{38, 11, 0, 7, 0x7fffff, 8, 0x7fffff},
 		// EFM-CP with a pitch envelope, which the OS's words 7 and 8 at 0 hide, and a level below zero
 		{36, 12, 0},
 		// ... and a decay that takes a Hit's level to $66666 exactly, the lowest word that does not clap
 		{36, 12, 0, 0xb, 0xa24b0},
+		// TRX-MA without its rise and hold, which the OS's up to 519 blocks hide from the Hits, its filters' words 0,
+		// inside their tables
 		{26, 12, kMaZeros},
 		// ... nor its fall
 		{26, 12, kMaZeros | 1u << 4},
@@ -422,7 +427,7 @@ namespace
 				}
 				else if(hit[v] && random() % 2)
 				{
-					const auto kind = random() % (1 + kTrxEdges.size());
+					const auto kind = random() % (1 + kPacketEdges.size());
 					if(kind == 0)
 					{
 						words[0] = kGndIm;
@@ -434,7 +439,7 @@ namespace
 					}
 					else
 					{
-						const auto& e = kTrxEdges[kind - 1];
+						const auto& e = kPacketEdges[kind - 1];
 						words[0] = e.type;
 						for(int w = 1; w < e.count; ++w)
 						{
