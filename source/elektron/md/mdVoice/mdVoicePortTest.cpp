@@ -228,7 +228,6 @@ namespace
 		copy(t.bdWaveA, T::BdWaveAAddr);
 		copy(t.bdWaveB, T::BdWaveBAddr);
 		copy(t.sdWave, T::SdWaveAddr);
-		copy(t.filters, T::FiltersAddr);
 		copy(t.xtWave, T::XtWaveAddr);
 		copy(t.xcWave, T::XcWaveAddr);
 		copy(t.rsWave, T::RsWaveAddr);
@@ -344,7 +343,7 @@ namespace
 		h.strayUser = &stray;
 		h.probes = &rec.probes;
 
-		// The TRX machines' tables as a product makes them, the sine by its formula and the waveforms from the flash
+		// The TRX machines' tables as a product makes them, sine and filters by their formulas, the waveforms from the flash
 		// image's voice program, which must be the voice DSP's after its init
 		const auto trx = trxTables(_os.firmware);
 		checkTrxTables(trx, oracle);

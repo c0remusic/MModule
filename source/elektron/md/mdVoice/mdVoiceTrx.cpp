@@ -2,9 +2,46 @@
 // for TRX-BD and so on), their shared helpers in mdVoiceTrx.h.
 #include "mdVoiceTrx.h"
 
+#include <cmath>
+
 namespace md::voice
 {
 	using namespace dsp;
+
+	namespace
+	{
+		// X:$140000-$1420FF, the two-pole filters', from what the words mean. A filter has a cutoff and a Q; its poles are
+		// e^(-sigma +- j t), sigma and t each a frequency on a scale of 4096 steps from 0.02 Hz to 20 kHz at 44.1 kHz.
+		// For Q from 0.51 to 3.5 over 128 steps, the first table holds how far t lies below the cutoff on that scale,
+		// sqrt(1 - 1 / (4 Q^2)), the second sigma's, 1 / (2 Q). The pole tables hold cos(w) and e^-w over sqrt 2,
+		// written with 9 decimals before they were made 24-bit words, as every word of the DSP's shows.
+		void makeFilters(decltype(TrxTables::filters)& _filters)
+		{
+			const double range = std::log(1e6);
+			const auto step = [&](const double _ratio)
+			{
+				return static_cast<uint32_t>(std::lround(4096.0 / range * std::log(_ratio))) & 0xffffff;
+			};
+			for(size_t q = 0; q < 0x80; ++q)
+			{
+				const double sigma = 1.0 / (1.02 + 5.98 * static_cast<double>(q) / 127.0);
+				_filters[q] = step(std::sqrt(1.0 - sigma * sigma));
+				_filters[0x80 + q] = step(sigma);
+			}
+			const auto word = [](const double _x)
+			{
+				const double decimal = std::round(_x * std::sqrt(0.5) * 1e9) / 1e9;
+				return static_cast<uint32_t>(std::lround(decimal * 8388608.0)) & 0xffffff;
+			};
+			constexpr double pi = 3.14159265358979323846;
+			for(size_t i = 0; i < 0x1000; ++i)
+			{
+				const double w = 2.0 * pi * 0.02 * std::pow(1e6, static_cast<double>(i) / 4096.0) / 44100.0;
+				_filters[0x100 + i] = word(std::cos(w));
+				_filters[0x1100 + i] = word(std::exp(-w));
+			}
+		}
+	}
 
 	// The boot's sine (P:$100069-$10008B): s[n+1] = 2c s[n] - s[n-1] in 48-bit double precision, c = cos(2 pi /
 	// 32768) = $7FFFFF:$D88586, from 0 and $000648:$7ED46B
@@ -29,6 +66,7 @@ namespace md::voice
 			limL(a, h[r], l[r]);
 			sine[n] = lim(a);
 		}
+		makeFilters(filters);
 	}
 }
 

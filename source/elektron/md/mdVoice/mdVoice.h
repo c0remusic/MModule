@@ -34,10 +34,9 @@ namespace md::voice
 		size_t dataWords = 0;
 	};
 
-	// The voice DSP's tables the TRX and EFM machines read. The sine is the boot's own recurrence, which the constructor runs;
-	// the sampled waveforms are words of the voice program in the flash image (spec 11.4: its owner imports it), which
-	// the caller copies in (md::fw::dspWords). So are the filters' coefficients for now, as the ROM machines' tables
-	// are, until their formula is known
+	// The voice DSP's tables the TRX and EFM machines read. The constructor computes the sine, the boot's own recurrence,
+	// and the filters' coefficients, their formula. The sampled waveforms are words of the voice program in the flash
+	// image (spec 11.4: its owner imports it), which the caller copies in (md::fw::dspWords)
 	struct TrxTables
 	{
 		static constexpr uint32_t SineAddr = 0x148000, BdWaveAAddr = 0x10050c, BdWaveBAddr = 0x10062c,

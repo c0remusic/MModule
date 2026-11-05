@@ -52,3 +52,15 @@ oublié dans un `setLanes` venait à coûter, la forme sûre à la compilation e
 ## Références
 
 Spécification §3, §9, §11.2. Ticket « Source de machine d'une piste ».
+
+## Noté par le ticket 08 (2026-11-05)
+
+`Track` et `updateVoices`, dans `mdVoiceCoefficientsTest.cpp`, sont ce que `HostModel` fait autour du code de l'OS. Ce
+ticket les reprend dans le produit, et `checkVoices` doit alors piloter ce code-là : si le moteur écrit son propre `Track`,
+la preuve échantillon par échantillon ne couvre plus le produit. À garder en le faisant :
+- les Locks d'un Hit s'appliquent avant toute mise à jour de voix dans ce bloc (`HostModel::renderBlock`) ;
+- le chemin de trigger du LFO passe avant la fonction de coefficients (`HostModel::updateVoice`) ;
+- un Hit de machine MID ou CTR donne à la voix son type seul, et le DSP lui fait jouer les routines de GND-- : la voix
+  d'avant s'arrête (`HostModel::updateVoice`). `coefficients` et `Voice` lèvent une exception sur ces machines : il faut
+  ce chemin avant le fil audio, pas un simple filtre, sinon la voix d'avant continue de sonner ;
+- `OsTables::decay` remplace la table que `HostModel` lit dans l'OS pour les User Machines.
