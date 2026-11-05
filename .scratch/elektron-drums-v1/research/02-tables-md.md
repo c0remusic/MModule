@@ -214,3 +214,10 @@ près ; expansion 12 bits et conversion 16 → 12, liées ; exponentielles de la
 puis les familles de filtre (DSP2 $140000-$1420FF, DSP1 $140000-$143675), qui partagent une structure (décalage par
 résonance + table de coupure lue en ±2 048) et devraient tomber ensemble. Les échantillons ne se calculent pas : il
 faut les demander à l'utilisateur, les remplacer, ou laisser ces machines hors de l'instrument.
+
+## Formules trouvées depuis
+
+Le 2026-11-05, ticket 08 : les tables de filtre X:$140000-$1420FF du DSP2 et les tables $24BF94, $24C794 et $24D794 de
+l'OS, mot à mot, formules dans le ticket. Marquées « à chercher » plus haut, elles sont **formule trouvée**. La famille
+`exp(-a · exp(-n i / 511))` et l'écriture en 9 décimales sont à essayer d'abord sur les tables qui restent : DSP1
+$140000-$143675 et décalages E12 pour les filtres, $24CF94 et $24DA14 pour l'OS.

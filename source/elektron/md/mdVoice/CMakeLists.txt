@@ -5,7 +5,8 @@ add_library(mdVoice STATIC mdVoice.h mdVoiceDsp.h mdVoiceInternal.h mdVoice.cpp 
 	mdVoiceTrx.cpp mdVoiceTrxBd.cpp mdVoiceTrxSd.cpp mdVoiceTrxXt.cpp mdVoiceTrxCp.cpp mdVoiceTrxRs.cpp
 	mdVoiceTrxCb.cpp mdVoiceTrxCh.cpp mdVoiceTrxCy.cpp mdVoiceTrxMa.cpp mdVoiceTrxCl.cpp mdVoiceTrxXc.cpp
 	mdVoiceTrxB2.cpp mdVoiceTrxS2.cpp mdVoiceEfm.h mdVoiceEfm.cpp mdVoiceEfmBd.cpp
-	mdVoiceEfmSd.cpp mdVoiceEfmXt.cpp mdVoiceEfmCp.cpp mdVoiceEfmRs.cpp mdVoiceEfmCb.cpp mdVoiceEfmHh.cpp mdVoiceEfmCy.cpp mdVoiceGnd.cpp)
+	mdVoiceEfmSd.cpp mdVoiceEfmXt.cpp mdVoiceEfmCp.cpp mdVoiceEfmRs.cpp mdVoiceEfmCb.cpp mdVoiceEfmHh.cpp
+	mdVoiceEfmCy.cpp mdVoiceGnd.cpp mdVoiceCoefficients.h mdVoiceCoefficients.cpp)
 target_include_directories(mdVoice PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 set_property(TARGET mdVoice PROPERTY FOLDER "Elektron")
 
@@ -16,4 +17,11 @@ if(BUILD_TESTING)
 	set_property(TARGET mdVoicePortTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME mdVoicePortTest COMMAND mdVoicePortTest)
 	set_tests_properties(mdVoicePortTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
+
+	# The OS's coefficient functions and smoothing against MachineRunner, then voices without it
+	add_executable(mdVoiceCoefficientsTest mdVoiceCoefficientsTest.cpp)
+	target_link_libraries(mdVoiceCoefficientsTest PRIVATE mdVoice mdEngine)
+	set_property(TARGET mdVoiceCoefficientsTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME mdVoiceCoefficientsTest COMMAND mdVoiceCoefficientsTest)
+	set_tests_properties(mdVoiceCoefficientsTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
 endif()

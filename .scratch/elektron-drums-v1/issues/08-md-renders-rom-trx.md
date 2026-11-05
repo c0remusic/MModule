@@ -671,3 +671,94 @@ Deux pièges de mesure :
   utilise cette grille commune. `stFastMetrics.h` garde le même défaut pour Q15.
 
 Cette mesure ne remplace pas l'écoute, qui reste à faire. Les outils (`ratecmp`) sont restés hors du dépôt.
+
+## 2026-11-05 : le côté OS sans Musashi, et les tables par formule
+
+Une voix ne demande plus Musashi. `mdVoiceCoefficients.*` porte les fonctions de coefficients de l'OS et son lissage en
+C++, par piste : `coefficients` donne le paquet d'une machine, `Smoother` lisse les 24 paramètres d'une piste. Le port
+couvre 22 fonctions pour 70 machines : GND--, GND-IM, les 14 TRX, EFM-BD à -CB et les 48 ROM, soit toutes les machines
+dont le render est porté. Ni le rendu ni l'initialisation de ce code ne lisent la flash ou l'OS : `mdVoice` ne lie pas
+`mdEngine`, et `OsTables` calcule ses tables. L'arithmétique suit le listing 68k, divisions du compilateur comprises,
+pour qu'un mot se vérifie ligne à ligne.
+
+Les tables, chacune égale mot à mot à celle du firmware, sans qu'aucun mot du firmware n'entre dans le dépôt :
+
+| Table | Mots | Formule |
+|---|---|---|
+| Filtres, angles, X:$140100 | 4096 | `round(2^23 · r9(cos(w) / √2))` |
+| Filtres, rayons, X:$141100 | 4096 | `round(2^23 · r9(exp(-w) / √2))` |
+| Filtres, décalages, X:$140000 et $140080 | 128 + 128 | `round(4096 / ln(10^6) · ln(x))`, x = `√(1 - b²)` puis `b` |
+| Hauteur, $24BD94 | 128 | `round(2048 · 2^(i / 127,5))` (déjà trouvée) |
+| Décroissance, $24BF94 | 512 | `round(2^23 · exp(-0,29643787 · exp(-12 i / 511)))` |
+| Montée, $24C794 | 512 | `round((2^23 - 1) · exp(-517,918697 · exp(-16 i / 511)))` |
+| Octaves, $24D794 | 128 | `round(32767 · ln(1 + i))` |
+
+Pour les filtres, `w = 2π · 0,02 · 10^(6 i / 4096) / 44100` : une échelle de 4096 pas de 0,02 Hz à 20 kHz à 44,1 kHz, et
+`b = 1 / (1,02 + 5,98 q / 127)`, soit un Q de 0,51 à 3,5 sur 128 pas. Les pôles valent `exp(-σ ± jt)` : les deux tables
+se lisent à deux index, ce qui donne σ et t pour une coupure et un Q. `r9` arrondit à 9 décimales : les tables ont été
+écrites en décimal avant de devenir des mots de 24 bits. Sans cet arrondi, 16 mots diffèrent d'un LSB, tous à moins de
+0,005 LSB d'un demi. Les constantes 0,29643787 et 517,918697 sont ajustées : tout l'intervalle admis tient dans
+[0,29643786811 ; 0,29643787573] et [517,91869501 ; 517,91869949]. Aucune signification physique n'a été trouvée pour
+elles. Comme au ticket 07, une autre libm pourrait arrondir un mot à 1 LSB près : l'exactitude n'est vérifiée qu'avec le
+runtime de MSVC.
+
+Ce qui est prouvé par `mdVoiceCoefficientsTest`, contre le code 68k de l'OS dans Musashi :
+- Les quatre tables de l'OS mot à mot. Les tables de filtre passent à `TrxTables`, et `mdVoicePortTest` les compare à la
+  mémoire du DSP, sans plus les copier de la flash.
+- 3 721 728 paquets mot à mot, 0 différence : chaque paramètre de chaque fonction sur toute la plage de l'OS, 0 à $3FFF,
+  les sept autres au hasard, puis 20 000 jeux au hasard par machine, et 2 000 pour chaque ROM, trigger ou non. Le tempo
+  est tiré entre 720 et 7200 pour les ROM, seules à le lire, et 20 000 paquets sont pris à chaque bout.
+- 16 voix sans `MachineRunner` : 6000 blocs, 1507 Hits, 6036 knobs, les changements de machine et le tempo, contre
+  `HostModel` jouant `VoiceEngine`, le chemin de MoDule. Paramètres, échantillons et état Y:S sont identiques à chaque
+  bloc, et toute machine dont le sample existe a sonné.
+
+`mdVoicePortTest` reste à 0 différence, tables de filtre comprises.
+
+Mutations : 899 sur `mdVoiceCoefficients.cpp`, chaque constante, opérateur et comparaison, comparées au port dans un
+harnais à part, avec le même balayage ; le port est lui-même prouvé égal à l'OS. 854 sont prises. Les 45 restantes ne
+changent aucun résultat sur la plage de l'OS :
+- 25 ajoutent 1 à un multiplicateur ou un dividende de division par constante, ce qui ne change aucun quotient. Le
+  balayage complet du paramètre le prouve, sauf pour le dividende du tempo, où `(N + 1) / t` ne diffère que si `t` divise
+  `N + 1`.
+- 9 déplacent d'un cran un seuil entre deux branches qui se rejoignent.
+- 6 touchent un bit de masque toujours nul.
+- 3 changent le `return 0` des machines qui ne calculent qu'au trigger, que `std::max(count, 1)` ramène à 1.
+- 2 touchent une boucle de table sans effet (l'index 0 d'`octaves` vaut 0, et l'écriture de trop de `pitch` est écrasée).
+
+Sur 17 mutations du `Smoother` et de `makeFilters`, dans les vrais tests, 16 étaient prises. La dernière retirait
+l'écriture de la cible dans `snap`, invisible dans le scénario ; `checkSnap` la prend désormais.
+
+Coût mesuré (release, médiane de 9 passages, machine chargée par d'autres sessions) : 19 à 24 ns par paquet, contre 2,1 à
+4,8 µs dans Musashi, et 6 à 12 ns par lissage d'une piste. À 125,3 ticks par seconde, c'est 0,007 % d'un cœur pour 16
+voix, contre 0,43 à 0,97 % pour les seuls paquets dans Musashi. La mesure est faite à chaud, sur le chemin du tick, sans
+trigger : elle ne dit pas le coût d'un Hit sur un fil audio froid. `makeFilters` prend 220 µs, une fois par `TrxTables`.
+
+Revues du 2026-11-05 :
+- Revue de code : aucun bug. Un commentaire faux sur un produit qui passerait 2^31 : il reste sous 1,2·10^9, et le mot
+  9 des ROM perd ses conversions signées.
+- Revue d'architecture : l'interface convient au ticket 11. Appliqué : les cibles écrites aux événements et non à chaque
+  tick, un seul aiguillage `function()` au lieu de deux listes, `kBlocksPerTick` côté produit, les commentaires du
+  `Smoother` et de la plage. Noté au ticket 11 : la reprise de `Track` dans le produit, et le chemin MID/CTR.
+- `/simplify`, quatre angles : `scaled` retiré au profit de l'écriture du listing ; `efmDecay`, `efmIndex` et `s2Sweep`
+  retirent des répétitions et l'écrasement du mot 3 de EFM-CP ; `rom<First>` et des fonctions nommées remplacent les
+  lambdas ; le test perd `FunctionCheck`, `updateVoices`, sa seconde boucle de médiane et sa seconde vérification des
+  filtres, et vérifie que `coefficientsPorted` et `Voice::ported` donnent les mêmes machines. Efficacité : rien à
+  changer.
+- Non appliqué :
+  - `mdVoiceTestTables.h`, partagé par les deux tests : 45 lignes dupliquées, à extraire quand la session du ticket 09
+    aura fusionné, ou à disparaître dans le chargeur de formes d'onde du ticket 11.
+  - Le masque à $3FFF : il garde les index dans les tables, bien que le contrat interdise les valeurs au-dessus.
+  - Les masques du listing qui n'enlèvent rien, gardés pour la lecture ligne à ligne.
+
+Une machine dont le render arrive doit désormais apporter sa fonction : `checkMachines` échoue sinon. EFM-HH et EFM-CY
+(`$2026F8`, `$20280C`) et les fonctions de GND-SN et GND-NS ne sont pas portées, faute de render dans cette branche.
+
+Reste ouvert :
+- « Sonne pareil » 44,1/48 : l'écoute et la décision pour le MD à 48 kHz appartiennent à l'utilisateur. Le ticket n'est
+  donc pas résolu.
+- Les tables des ROM (décodage 12 bits, interpolateur, décimateur) restent copiées de la mémoire du DSP : sans formule, le
+  produit n'a pas de quoi les remplir. La conversion 16 vers 12 bits de la flash aussi.
+- RAM-P n'est pas porté.
+- La pente des niveaux de l'OS ($100029E), la même loi que le lissage, reste dans `HostModel` : elle sert le mixeur, pas
+  la voix (ticket 10). Les LFO relèvent du ticket 13 : le `const uint16_t*` de `coefficients` est leur point d'entrée.
+- Ce que joue une TRX dont la forme d'onde manque, sans flash image.
