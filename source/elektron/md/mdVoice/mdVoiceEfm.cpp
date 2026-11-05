@@ -9,6 +9,7 @@ namespace md::voice::efm
 		constexpr Routines kXt = {xt::init, xt::update, xt::render};
 		constexpr Routines kCp = {cp::init, cp::update, cp::render};
 		constexpr Routines kRs = {rs::init, rs::update, rs::render};
+		constexpr Routines kCb = {cb::init, cb::update, cb::render};
 	}
 
 	const Routines* routines(const uint32_t _type)
@@ -20,6 +21,7 @@ namespace md::voice::efm
 			case 35:	return &kXt;
 			case 36:	return &kCp;
 			case 37:	return &kRs;
+			case 38:	return &kCb;
 			default:	return nullptr;
 		}
 	}

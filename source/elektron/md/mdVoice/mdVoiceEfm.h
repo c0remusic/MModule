@@ -103,4 +103,11 @@ namespace md::voice::efm
 		void update(Context& _c);
 		void render(Context& _c, Voice::Block& _out);
 	}
+
+	namespace cb
+	{
+		void init(Context& _c);
+		void update(Context& _c);
+		void render(Context& _c, Voice::Block& _out);
+	}
 }

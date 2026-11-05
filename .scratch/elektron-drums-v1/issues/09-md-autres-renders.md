@@ -151,3 +151,36 @@ Revues du 2026-11-05 :
 
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-RS 0,55 µs, soit 1,21 % d'un
 cœur pour 16 voix.
+
+## 2026-11-05 : EFM-CB
+
+EFM-CB (type 38 : init $103272, update $103277, render $10328C) est porté dans `mdVoiceEfmCb.cpp`. Il joue deux paires de
+sinus aux hauteurs Y:$01 et Y:$02, sans filtre. Chaque paire a un sinus à Y:$03 de sa hauteur, tous deux au même niveau
+que Y:$05 fait décroître, qui courbe par Y:$04 un second sinus à retour (Y:$06). La sortie est la moyenne des deux paires
+fois la somme de deux niveaux, Y:$07 et Y:$09 de mots que Y:$08 et Y:$0A font décroître. Le DSP ne limite ni cette somme
+ni son produit : la somme déborde et repart de l'autre côté de l'échelle.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS et un paquet fait main : 112 995 échantillons non nuls,
+0 échantillon et 0 mot d'état différents. Les mots de l'OS ne font jamais déborder la somme. Le paquet fait main épingle
+les mots 7 et 8 à pleine échelle, ce qui tient un niveau à $5A8279. Il a fallu ajouter un second mot épinglé à `TrxEdge` :
+le mot 7 seul laissait le niveau décroître dès le deuxième échantillon, et le débordement ne s'entendait jamais, le
+premier échantillon valant 0. Le scénario des bancs a aussi été comparé à l'oracle : 3000 blocs, 0 différence.
+
+Sur 42 mutations, 35 sont prises. Sept passent, et elles ne changent rien :
+- L'init à 1 au lieu de 0 : l'update suit toujours l'init et récrit ces mots.
+- Les mots bas du retour, Y:$17 et Y:$19, gardés d'un Hit à l'autre : la phase basse vaut 0 au Hit, donc aucune retenue.
+- `lim` au lieu de `hi` sur les trois niveaux : ils ne croissent jamais depuis ceux du Hit.
+- `lim` au lieu de `hi` sur le produit de sortie : il ne dépasse la pleine échelle que pour -1 fois -1, que la somme et la
+  moyenne n'atteignent pas ensemble dans ce test.
+
+Revues du 2026-11-05 :
+- Revue de code : aucun écart avec le listing, y compris les écritures en mémoire de travail.
+- Revue d'architecture : `Pair`, `loadPair` et `storePair` restent locaux, comme dans EFM-RS. Une pièce partagée ajouterait
+  environ 7 lignes pour deux utilisateurs. Le commentaire d'en-tête disait un niveau par paire : il est corrigé, le niveau
+  étant commun aux deux.
+- `/simplify` : l'aller-retour `acc(hi(...))` de la somme est retiré. Le tampon `out` reste : écrire `_out` dans la boucle
+  coûte 11 % de plus sans recopier les mots du paquet dans des locales, le bloc pouvant recouvrir `y`. Efficacité : aucun
+  appel ni rechargement de `y` dans la boucle. Le seul gain restant se trouve dans `round()` partagé, 5,5 % sans `wrap56`,
+  mesuré sur EFM-CB seul : ses autres appelants ne sont pas audités, il reste donc hors de ce changement.
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-CB 0,56 µs, soit 1,23 % d'un cœur pour 16 voix.
