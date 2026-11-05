@@ -219,7 +219,6 @@ namespace
 	{
 		const auto& mem = _oracle.dsp().memory();
 		md::voice::RomTables t;
-		fill(t.decode, mem, dsp56k::MemArea_Y, 0x146000);
 		fill(t.interpolator, mem, dsp56k::MemArea_Y, 0x163);
 		fill(t.decimator, mem, dsp56k::MemArea_X, 0x244);
 		return t;
@@ -328,6 +327,7 @@ namespace
 	{
 		VoiceEngine oracle(_os.firmware);
 		const auto tables = romTables(oracle);
+		checkTable("the decoding", tables.decode, 0x146000, oracle.dsp().memory(), dsp56k::MemArea_Y);
 		auto bank = makeBank(md::fw::loadRomBankFromFlash(_flash), tables);
 		if(bank.data.size() < 1000)
 			throw std::runtime_error("the flash image holds no UW sample bank");

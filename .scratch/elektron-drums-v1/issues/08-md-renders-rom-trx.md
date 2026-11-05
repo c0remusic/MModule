@@ -773,11 +773,39 @@ l'aiguillage ; une boucle sur les rapports de EFM-CY, qui cachait les numéros d
 se vérifie contre le listing, et le commentaire de `efmHead` ne compte plus les machines. `/simplify`, quatre angles :
 aucun constat.
 
+## 2026-11-05 : les tables des ROM
+
+La table de décodage (Y:$146000, 4096 mots) a sa formule : c'est l'expansion de la loi A autour du code 2048, pour
+A = 36,856. Avec `s = 1 + ln A` et `y = |code - 2048| / 2048`, un mot vaut `round(±2^23 · x)`, où `x = y s / A` sous
+`y = 1 / s` et `x = exp(y s - 1) / A` au-dessus. Elle se distingue d'un simple `100^(y - 1)`, dont la pente est proche, de
+1,5·10^-4 au plus. `RomTables` la calcule à sa construction, et `mdVoicePortTest` la compare mot à mot à la mémoire du
+DSP : 4096 sur 4096, 0 différence, et le test passe sans la copier. Treize mutations de la formule, douze prises ; la
+dernière déplace le signe du code 2048, dont le mot vaut 0.
+
+L'interpolateur (Y:$163, 1568 mots) et le décimateur (X:$244, 7 mots) n'ont pas de formule : le travail s'arrête là, et ils ne sont
+pas recopiés dans le dépôt. Ce qui a été essayé :
+- L'interpolateur se déplie en une seule réponse, 7 rangs de $E0 phases rangés par tronçons de 112 mots, symétrique. Ce
+  n'est pas un sinus cardinal fenêtré : ses zéros tombent à 233,8, 473,0 puis 782,0 mots, soit des écarts de 239 et 309,
+  alors qu'une fenêtre laisse les zéros du sinus cardinal à intervalles égaux.
+- Ce ne sont pas non plus des polynômes par tronçon : du degré 5 au degré 9, l'écart reste le même, de 7 à 255 LSB.
+- Deux mots sortent de la courbe (u = 559 et 783, de 0,018 environ), et les raccords de tronçons sont irréguliers.
+- Le décimateur a 7 mots alternés plus un centre, sans la forme d'un demi-bande (centre à 0,31).
+
+Tout cela ressemble à des filtres conçus numériquement, avec des outils dont les paramètres sont inconnus. Il reste
+donc deux voies, qui relèvent d'une décision : l'import depuis la flash image du propriétaire, comme les formes d'onde
+(spécification §11.4, à amender, car elle ne l'autorise que pour les ondes TRX et la banque UW), ou des filtres maison
+d'une réponse voisine, ce qui abandonne l'exactitude sur les ROM.
+
+Revue du 2026-11-05 (code, architecture et simplification ensemble, le changement tenant en quelques lignes) : rien à
+corriger. Comme les autres tables, l'exactitude n'est vérifiée qu'avec le runtime de MSVC.
+
 Reste ouvert :
 - « Sonne pareil » 44,1/48 : l'écoute et la décision pour le MD à 48 kHz appartiennent à l'utilisateur. Le ticket n'est
   donc pas résolu.
-- Les tables des ROM (décodage 12 bits, interpolateur, décimateur) restent copiées de la mémoire du DSP : sans formule, le
-  produit n'a pas de quoi les remplir. La conversion 16 vers 12 bits de la flash aussi.
+- L'interpolateur et le décimateur des ROM restent copiés de la mémoire du DSP, faute de formule : voir plus bas. Sans
+  eux, le produit ne peut pas jouer les ROM sans firmware.
+- La conversion 16 vers 12 bits de la flash reste à refaire. Il faudrait essayer la compression A de même constante, ce
+  qui n'a pas été fait.
 - RAM-P n'est pas porté.
 - La pente des niveaux de l'OS ($100029E), la même loi que le lissage, reste dans `HostModel` : elle sert le mixeur, pas
   la voix (ticket 10). Les LFO relèvent du ticket 13 : le `const uint16_t*` de `coefficients` est leur point d'entrée.

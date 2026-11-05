@@ -10,12 +10,31 @@
 // half-band), reduces the bits (BRR), then applies the amp envelope (HOLD, DEC) and a second envelope that fades a
 // voice that stops or retriggers out; a voice that starts while the last one is near silence crossfades in instead.
 #include "mdVoiceDsp.h"
+#include <cmath>
 #include "mdVoiceInternal.h"
 
 #include <stdexcept>
 
+namespace md::voice
+{
+	// A-law expansion of the 12-bit codes around 2048, for A = 36.856, in 24 bits
+	RomTables::RomTables()
+	{
+		constexpr double a = 36.856;
+		const double s = 1.0 + std::log(a);
+		for(size_t code = 0; code < decode.size(); ++code)
+		{
+			const double y = std::abs(static_cast<double>(code) - 2048.0) / 2048.0;
+			const double x = (y < 1.0 / s ? y * s : std::exp(y * s - 1.0)) / a;
+			const double word = code < 2048 ? -x : x;
+			decode[code] = static_cast<uint32_t>(std::llround(word * 8388608.0)) & 0xffffff;
+		}
+	}
+}
+
 namespace md::voice::rom
 {
+
 	namespace
 	{
 		using Block = Voice::Block;
