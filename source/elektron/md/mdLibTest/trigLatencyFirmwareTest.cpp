@@ -328,6 +328,8 @@ namespace
 			sendCc({machinedrum::Routing, track, 4, 0});	// REV
 			sendCc({machinedrum::Routing, track, 6, 0});	// LFOD
 		}
+		// Where the mixer stops, the host's blocks being full, depends on the frame: this one stops it between two blocks
+		bench.nudge(10);
 		// The Kit's blocks of 8 are Gate Box, Echo, EQ, Dynamix; the SysEx ids go Echo, Gate Box, EQ, Dynamix
 		constexpr sysex::MasterEffect effects[4] = {sysex::MasterEffect::Reverb, sysex::MasterEffect::Echo,
 			sysex::MasterEffect::Eq, sysex::MasterEffect::Dynamix};

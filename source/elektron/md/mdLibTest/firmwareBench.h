@@ -94,6 +94,13 @@ namespace mdFirmwareBench
 			return process(2.0f, first);
 		}
 
+		// _frames of a short host block, unread: moves where the DSP's 32-frame blocks fall in the host's
+		void nudge(const uint32_t _frames)
+		{
+			m_plugin->process(m_ins, m_outs, _frames, 120.0f, 0.0f, false);
+			m_frame += _frames;
+		}
+
 		void note(const uint8_t _status, const uint8_t _note, const uint8_t _velocity, const uint32_t _offset)
 		{
 			m_plugin->addMidiEvent({synthLib::MidiEventSource::Host, _status, _note, _velocity, _offset});
