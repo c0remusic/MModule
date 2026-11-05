@@ -70,11 +70,11 @@ namespace md::voice
 		// GND-- to GND-IM, by type (machine id + 1); type 0, never assigned, renders silence as the harness's idle voices
 		// do
 		constexpr std::array<Routines, 5> kGnd = {{
-			{none, none, renderSilence},		// 0
-			{none, none, renderSilence},		// 1 GND--
-			{nullptr, nullptr, nullptr},		// 2 GND-SN
-			{nullptr, nullptr, nullptr},		// 3 GND-NS
-			{none, updateGndIm, renderGndIm},	// 4 GND-IM
+			{none, none, renderSilence},					// 0
+			{none, none, renderSilence},					// 1 GND--
+			{none, gnd::updateSn, gnd::renderSn},			// 2 GND-SN
+			{gnd::initNs, gnd::updateNs, gnd::renderNs},	// 3 GND-NS
+			{none, updateGndIm, renderGndIm},				// 4 GND-IM
 		}};
 
 		// ROM-01 to -32 (types 129-160) and ROM-33 to -48 (177-192) share one init, update and render
@@ -86,7 +86,7 @@ namespace md::voice
 			if(isRom(_type))
 				return &kRom;
 			if(_type < kGnd.size())
-				return kGnd[_type].render ? &kGnd[_type] : nullptr;
+				return &kGnd[_type];
 			if(const auto* r = trx::routines(_type))
 				return r;
 			return efm::routines(_type);

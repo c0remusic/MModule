@@ -48,6 +48,16 @@ namespace md::voice
 		const Routines* routines(uint32_t _type);
 	}
 
+	// GND-SN's and GND-NS's routines (mdVoiceGnd.cpp)
+	namespace gnd
+	{
+		void updateSn(Context& _c);
+		void renderSn(Context& _c, Voice::Block& _out);
+		void initNs(Context& _c);
+		void updateNs(Context& _c);
+		void renderNs(Context& _c, Voice::Block& _out);
+	}
+
 	// What mdVoicePortTest sees inside the port; a product leaves them empty
 	namespace testHooks
 	{

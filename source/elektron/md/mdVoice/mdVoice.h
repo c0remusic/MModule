@@ -34,7 +34,7 @@ namespace md::voice
 		size_t dataWords = 0;
 	};
 
-	// The voice DSP's tables the TRX and EFM machines read. The sine is the boot's own recurrence, which the constructor runs;
+	// The voice DSP's tables the TRX, EFM and GND-SN machines read. The sine is the boot's own recurrence, which the constructor runs;
 	// the sampled waveforms are words of the voice program in the flash image (spec 11.4: its owner imports it), which
 	// the caller copies in (md::fw::dspWords). So are the filters' coefficients for now, as the ROM machines' tables
 	// are, until their formula is known
@@ -80,7 +80,7 @@ namespace md::voice
 
 	// What the 16 voices of one engine share, owned by the caller: the ROM machines' tables (nullptr: a ROM machine
 	// throws std::logic_error when it renders) and bank (nullptr: none, which plays silence), changed between blocks
-	// only, the scratch, and the TRX and EFM machines' tables (nullptr: one throws when it renders)
+	// only, the scratch, and the tables of the machines that read them (nullptr: one throws when it renders)
 	struct Shared
 	{
 		const RomTables* tables = nullptr;
@@ -99,7 +99,7 @@ namespace md::voice
 
 		explicit Voice(Shared& _shared) : m_shared(&_shared) {}
 
-		// The types (machine id + 1) whose code is ported: 0 (never assigned), GND--, GND-IM, TRX-BD, TRX-SD, TRX-XT,
+		// The types (machine id + 1) whose code is ported: 0 (never assigned), GND-- to GND-IM, TRX-BD, TRX-SD, TRX-XT,
 		// TRX-CP, TRX-RS, TRX-CB, TRX-CH, TRX-OH, TRX-CY, TRX-MA, TRX-CL, TRX-XC, TRX-B2, TRX-S2, EFM-BD, EFM-SD,
 		// EFM-XT, EFM-CP, EFM-RS, EFM-CB, EFM-HH, EFM-CY, ROM-01 to -48
 		static bool ported(uint32_t _type);

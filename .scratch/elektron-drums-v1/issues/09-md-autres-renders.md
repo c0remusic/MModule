@@ -262,3 +262,27 @@ sur la revue de code, machine par machine.
 
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-CY 1,42 µs, soit 3,13 % d'un
 cœur pour 16 voix, la plus chère des machines portées.
+
+## 2026-11-05 : GND-SN et GND-NS
+
+GND-SN (type 2 : update $1000A4, render $1000AD) et GND-NS (type 3 : init $1000DD, update $1000E4, render $1000EA) sont
+portés dans `mdVoiceGnd.cpp`. GND-SN joue un sinus au quart de la pleine échelle, à la hauteur Y:$01 plus une enveloppe qui
+décroît une fois par bloc, à un niveau d'ampli de 48 bits que Y:$02 fait décroître. GND-NS joue le bruit de Fibonacci à un
+niveau de 48 bits que Y:$01 fait décroître, dont il n'entend que le mot haut. Tous deux gardent leur bloc en X:$00-$1F.
+
+`mdVoicePortTest` les joue avec les paquets de l'OS et deux paquets faits main, aux mots tirés au hasard : 47 371 et
+38 014 échantillons non nuls, 0 échantillon et 0 mot d'état différents. Le scénario des bancs a aussi été comparé à
+l'oracle : 3000 blocs, 0 différence pour chacun.
+
+Sur 25 mutations, 22 sont prises. Trois passent, et elles ne changent rien : `hi` au lieu de `lim` sur Y:$06, sur la sortie
+de GND-SN, un quart de pleine échelle, et sur celle de GND-NS, qui ne déborde que pour -1 fois -1.
+
+Revues du 2026-11-05 :
+- Revue de code : aucun écart avec le listing, y compris le contenu final de X:$00-$1F.
+- Revue d'architecture : `gnd::routines(type)` aurait la forme de TRX et d'EFM, en déplaçant GND-IM. Écarté : ce déplacement
+  sort de ce changement, et `rom::` tient déjà le même rang dans le dispatch. La vérification devenue morte dans `find`
+  est retirée.
+- `/simplify` : la boucle du sinus devient `trx::sines`, et le niveau de 48 bits un seul `int64_t`, ce qui retire 15 lignes.
+  Les deux machines vont en fin de `kPorted` : en tête, elles auraient sorti EFM-BD et EFM-SD du balayage à 16 voix.
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : GND-SN 0,18 µs, GND-NS 0,13 µs.

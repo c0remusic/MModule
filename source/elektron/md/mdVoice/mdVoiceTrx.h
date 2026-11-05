@@ -65,7 +65,7 @@ namespace md::voice::trx
 	inline const TrxTables& tables(const Context& _c)
 	{
 		if(!_c.shared.trx)
-			throw std::logic_error("md::voice: a TRX machine renders without the voice DSP's tables");
+			throw std::logic_error("md::voice: a machine renders without the voice DSP's tables");
 		return *_c.shared.trx;
 	}
 
