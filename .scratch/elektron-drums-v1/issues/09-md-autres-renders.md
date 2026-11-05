@@ -119,3 +119,35 @@ Revues du 2026-11-05 :
 
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-CP 0,50 µs, soit 1,11 % d'un cœur pour 16 voix. EFM-BD reste à
 0,39 à 0,41 µs avec ses deux boucles.
+
+## 2026-11-05 : EFM-RS
+
+EFM-RS (type 37 : init $1031A3, update $1031A8, render $1031BB) est porté dans `mdVoiceEfmRs.cpp`. Il joue deux paires de
+sinus, chacune un sinus qui s'entend lui-même et qui courbe un second sinus. Les mots Y:$01 à Y:$04 règlent la première
+paire et Y:$05 à Y:$08 la seconde. Chaque second sinus a un niveau qu'un Hit pose à $50C335 et que Y:$09 ou Y:$0A fait
+décroître. La sortie est la seconde paire plus la première à Y:$0B, à travers le filtre à un pôle (Y:$0C), dont le DSP
+arrondit les deux premiers mots seulement.
+
+`mdVoicePortTest` le joue avec les paquets de l'OS et un paquet fait main : 78 820 échantillons non nuls, 0 échantillon et
+0 mot d'état différents. Les mots 2 et 6, 4 et 8 de l'OS sont toujours égaux, ce qui cachait toute confusion entre les
+deux paires : le paquet fait main, aux mots tirés au hasard, les sépare. Le scénario des bancs a aussi été comparé à
+l'oracle : 3000 blocs, 0 différence.
+
+Mutations : 30 prises sur 34 avant `/simplify`, puis 16 sur 16 sur les adresses et la somme du code final. Quatre passent,
+et elles ne changent rien :
+- L'init à 1 au lieu de 0 : l'update suit toujours l'init et récrit ces mots.
+- Les mots bas du retour, Y:$18 et Y:$1A, gardés d'un Hit à l'autre : la phase basse vaut 0 au Hit, donc ces mots ne
+  produisent aucune retenue, et le premier échantillon les remplace.
+- `lim` au lieu de `hi` sur le niveau : le niveau ne croît jamais depuis celui du Hit.
+
+Revues du 2026-11-05 :
+- Revue de code : aucun écart avec le listing, y compris les écritures en mémoire de travail.
+- Revue d'architecture : rien ne passe dans `mdVoiceEfm.h`. `sineFedBack`, `fmStep` et `sineStep` sont déjà la couture
+  commune, et le modulateur d'EFM-RS n'a ni niveau ni enveloppe de hauteur. Le niveau tient dans un mot : `step` rend un
+  mot, et le masque du porteur, sans effet, est retiré. EFM-BD et EFM-SD gardent ce masque, sans effet chez eux aussi.
+- `/simplify` : `Pair` porte ses mots et `step` ne prend plus qu'une paire ; une lambda remplace la fonction, que MSVC
+  n'inlinait pas, et X:$1D s'écrit après la boucle. Le coût passe de 0,70 à 0,55 µs. Les autres répétitions (`sx`,
+  $50C335, le niveau qui décroît) touchent des machines déjà validées et restent hors de ce changement.
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-RS 0,55 µs, soit 1,21 % d'un
+cœur pour 16 voix.
