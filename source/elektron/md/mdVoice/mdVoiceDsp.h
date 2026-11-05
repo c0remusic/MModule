@@ -40,24 +40,36 @@ namespace md::voice::dsp
 
 	constexpr int64_t kMax48 = 0x7fffffffffffLL, kMin48 = -0x800000000000LL;
 
+	// A value that fits 48 bits, in one test: MSVC's two compares cost a voice 2 to 3 %
+	inline bool fits48(const int64_t _a)
+	{
+		return static_cast<uint64_t>(_a - kMin48) >> 48 == 0;
+	}
+
 	// An accumulator stored as a word: limited when its extension is in use
 	inline uint32_t lim(const int64_t _a)
 	{
-		return _a > kMax48 ? 0x7fffff : _a < kMin48 ? 0x800000 : hi(_a);
+		return fits48(_a) ? hi(_a) : _a < 0 ? 0x800000 : 0x7fffff;
 	}
 
 	// ... and as an L word pair
 	inline void limL(const int64_t _a, uint32_t& _hi, uint32_t& _lo)
 	{
-		const int64_t v = _a > kMax48 ? kMax48 : _a < kMin48 ? kMin48 : _a;
+		const int64_t v = fits48(_a) ? _a : _a < 0 ? kMin48 : kMax48;
 		_hi = hi(v);
 		_lo = lo(v);
+	}
+
+	// A word sign-extended to 64 bits directly: going through sx costs a third operation per word
+	inline int64_t sx64(const uint32_t _w)
+	{
+		return static_cast<int64_t>(static_cast<uint64_t>(_w) << 40) >> 40;
 	}
 
 	// MPY: the fractional product
 	inline int64_t mul(const uint32_t _s1, const uint32_t _s2)
 	{
-		return static_cast<int64_t>(sx(_s1)) * sx(_s2) * 2;
+		return sx64(_s1) * sx64(_s2) * 2;
 	}
 
 	// MPYSU and MPYUU: a signed or unsigned word by an unsigned one
