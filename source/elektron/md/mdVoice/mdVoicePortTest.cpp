@@ -63,11 +63,11 @@ namespace
 		uint32_t type;
 		const char* name;
 	};
-	constexpr std::array<Ported, 21> kPorted = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
+	constexpr std::array<Ported, 22> kPorted = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
 		{21, "TRX-RS"}, {22, "TRX-CB"}, {23, "TRX-CH"},
 		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}, {27, "TRX-CL"}, {28, "TRX-XC"}, {29, "TRX-B2"},
 		{30, "TRX-S2"}, {33, "EFM-BD"}, {34, "EFM-SD"}, {35, "EFM-XT"}, {36, "EFM-CP"}, {37, "EFM-RS"}, {38, "EFM-CB"},
-		{39, "EFM-HH"}}};
+		{39, "EFM-HH"}, {40, "EFM-CY"}}};
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
 	// whatever the others are: GND--, GND-IM and those
@@ -92,14 +92,18 @@ namespace
 		uint32_t value = 0;
 		int set2 = 0;		// a second one
 		uint32_t value2 = 0;
+		uint32_t bits = 0xffffff;	// of a random word
 	};
 	// TRX-MA's rise, hold and filter words
 	constexpr uint32_t kMaZeros = 1u << 1 | 1u << 3 | 1u << 7 | 1u << 8 | 1u << 9 | 1u << 0xa;
-	constexpr std::array<PacketEdge, 14> kPacketEdges = {{
+	constexpr std::array<PacketEdge, 15> kPacketEdges = {{
 		// EFM-RS with pairs that differ, as the OS's words 2 and 6, 4 and 8 never do
 		{37, 13, 0},
 		// EFM-HH with a first sine that hears itself, the OS's word 6 being 0
 		{39, 13, 0},
+		// EFM-CY past full scale at its amp level, which the OS's word $0E hides, all but its amp's words below the $8000
+		// that a table step must stay under
+		{40, 15, 0, 0xe, 0xffffff, 5, 0x7fffff, 0x7fff},
 		// EFM-CB with a level that holds, so that the sum of the two wraps past full scale, as the OS's words never make
 		// it
 		{38, 11, 0, 7, 0x7fffff, 8, 0x7fffff},
@@ -443,7 +447,7 @@ namespace
 						words[0] = e.type;
 						for(int w = 1; w < e.count; ++w)
 						{
-							const auto r = static_cast<uint32_t>(random()) & 0xffffff;
+							const auto r = static_cast<uint32_t>(random()) & e.bits;
 							words[w] = e.zeros >> w & 1 ? 0 : r;
 						}
 						if(e.set != 0)

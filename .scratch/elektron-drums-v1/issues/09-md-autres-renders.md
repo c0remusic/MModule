@@ -219,3 +219,46 @@ Revues du 2026-11-05 :
 
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-HH 0,58 µs, soit 1,29 % d'un
 cœur pour 16 voix.
+
+## 2026-11-05 : EFM-CY
+
+EFM-CY (type 40 : init $1033F1, update $1033F4, render $10340F) est porté dans `mdVoiceEfmCy.cpp`. Il travaille par étages
+sur tout le bloc, dans la mémoire interne X:$21-$60 et Y:$21-$60. Quatre sinus lus dans la table, aux pas Y:$06-$09 et au
+gain Y:$0A, tombent d'un même niveau que Y:$0B fait décroître. Chacun courbe ensuite la phase d'un sinus à lui, aux
+hauteurs Y:$01-$04, qui s'entend par Y:$0C. La sortie est leur moyenne au niveau d'ampli, qu'un Hit relève et que Y:$05
+fait décroître, fois deux fois Y:$0E, un mot non signé, limité, à travers deux filtres à un pôle (Y:$0D).
+
+`mdVoicePortTest` le joue avec les paquets de l'OS et un paquet fait main : 78 195 échantillons non nuls, 0 échantillon et
+0 mot d'état différents, la probe du niveau limité atteinte. Le mot $0E de l'OS ne dépasse pas $400000, ce qui cache la
+limite de l'ampli : le paquet fait main le met à pleine échelle, le mot 5 aussi, et tient les autres sous $8000 par un
+nouveau champ `bits` de `PacketEdge`. Le scénario des bancs a aussi été comparé à l'oracle : 3000 blocs, 0 différence.
+
+Un écart reste, hors de ce que l'OS produit : un pas de table de $8000 ou plus. Les mots 6 à 9 de l'OS ne dépassent pas
+$5736. Au-delà, l'adressage modulo du DSP sort de la table et lit ailleurs, là où le port reste dedans. Le commentaire
+d'en-tête le dit, et le ticket le garde ici.
+
+Mutations : 36 prises sur 42, puis 11 sur 12 après la réécriture de `/simplify`. Ce qui passe ne change rien, et une partie a
+conduit à retirer le code :
+- `lim` au lieu de `hi` sur les quatre mots de l'étage de niveau : inaccessible, retiré.
+- Le masque de `b` : le mot suivant ne lit que ses 24 bits bas, retiré.
+- `lim` au lieu de `hi` sur le niveau et sur l'ampli : ils ne croissent jamais depuis ceux du Hit.
+- `lim` au lieu de `hi` sur le produit de sortie : il ne dépasse la pleine échelle que pour -1 fois -1.
+
+Revues du 2026-11-05 :
+- Revue de code : aucun écart avec le listing pour les paquets de l'OS, y compris le contenu final de X:$21-$60 et Y:$21-$60
+  relu à la main.
+- Revue d'architecture, famille EFM close : aucun helper de plus n'est mérité. Compte fait, la charge et le stockage des
+  phases coûteraient 11 lignes de plus, la strophe du modulateur 2, la paire niveau et décroissance 0, la boucle `sx` en
+  gagnerait 1. Les boucles de copie du paquet en gagneraient 6, mais toucheraient cinq fichiers déjà validés : écarté.
+- `/simplify` : `kTable` reprend `TrxTables::SineAddr`, les tampons deviennent `sine1` à `sine4`, le niveau `modLevel`. Les
+  quatre boucles `bentSine` n'en font plus qu'une : chaque lecture attend la précédente, et des chaînes successives
+  laissent le processeur n'en mener qu'une à la fois. Le coût passe de 1,91 à 1,42 µs pour les mêmes mots. La fusion des
+  deux filtres, 8 % de plus, est écartée : elle casserait `onePole`, commun. `word()` reste : les mots d'une autre machine
+  peuvent atteindre Y:$0F avant son Hit.
+
+Un trou de test reste, pour toutes les machines. `mdVoicePortTest` compare les échantillons et l'état, jamais la mémoire de
+travail : une écriture fausse ne s'y voit que si une machine ROM la lit par un pointeur périmé. Ces écritures reposent donc
+sur la revue de code, machine par machine.
+
+Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : EFM-CY 1,42 µs, soit 3,13 % d'un
+cœur pour 16 voix, la plus chère des machines portées.
