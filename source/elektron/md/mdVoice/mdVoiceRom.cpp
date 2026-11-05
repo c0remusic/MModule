@@ -10,12 +10,108 @@
 // half-band), reduces the bits (BRR), then applies the amp envelope (HOLD, DEC) and a second envelope that fades a
 // voice that stops or retriggers out; a voice that starts while the last one is near silence crossfades in instead.
 #include "mdVoiceDsp.h"
+#include <algorithm>
+#include <cmath>
 #include "mdVoiceInternal.h"
 
 #include <stdexcept>
 
+namespace md::voice
+{
+	namespace
+	{
+		// A Kaiser window at _x, -1 to 1
+		double kaiser(const double _x, const double _beta)
+		{
+			const auto bessel = [](const double _v)
+			{
+				double sum = 1, term = 1;
+				for(int k = 1; k < 32; ++k)
+				{
+					term *= _v * _v / (4.0 * k * k);
+					sum += term;
+				}
+				return sum;
+			};
+			return bessel(_beta * std::sqrt(std::max(0.0, 1.0 - _x * _x))) / bessel(_beta);
+		}
+
+		double sinc(const double _x)
+		{
+			constexpr double pi = 3.14159265358979323846;
+			return _x == 0.0 ? 1.0 : std::sin(pi * _x) / (pi * _x);
+		}
+
+		uint32_t word(const double _x)
+		{
+			return static_cast<uint32_t>(std::llround(_x * 8388608.0)) & 0xffffff;
+		}
+
+		// A-law expansion of the 12-bit codes around 2048, for A = 36.856, as the DSP's table, word for word
+		void makeDecode(std::array<uint32_t, 0x1000>& _decode)
+		{
+			constexpr double a = 36.856;
+			const double s = 1.0 + std::log(a);
+			for(size_t code = 0; code < _decode.size(); ++code)
+			{
+				const double y = std::abs(static_cast<double>(code) - 2048.0) / 2048.0;
+				const double x = (y < 1.0 / s ? y * s : std::exp(y * s - 1.0)) / a;
+				_decode[code] = word(code < 2048 ? -x : x);
+			}
+		}
+
+		// Our own filter, not the OS's: a Kaiser sinc over 7 samples, cut at 0.475 of the input's rate, whose rows at a
+		// phase add up to the OS's gain. A word's distance from the middle of the response is its phase's, the table
+		// being in tracts of 112 words going back from the centre of its 1568
+		void makeInterpolator(std::array<uint32_t, 0x620>& _table)
+		{
+			constexpr size_t tract = 112, rows = 7, phases = 2 * tract;
+			constexpr double cutoff = 0.475, beta = 5.0, gain = -0.62106;
+			const auto taken = [&](const size_t _word)
+			{
+				const size_t n = std::min(_word, _table.size() - 1 - _word);
+				const double t = (static_cast<double>(n % tract + tract * (6 - n / tract)) + 0.5) / phases;
+				return sinc(2 * cutoff * t) * kaiser(t / 3.5, beta);
+			};
+			for(size_t phase = 0; phase < phases; ++phase)
+			{
+				double sum = 0;
+				for(size_t row = 0; row < rows; ++row)
+					sum += taken(phase + row * phases);
+				for(size_t row = 0; row < rows; ++row)
+					_table[phase + row * phases] = word(gain * taken(phase + row * phases) / sum);
+			}
+		}
+
+		// Our own half of the last 2:1 decimator: odd taps 13 down to 1 of a half-band, Kaiser over 16, adding up to
+		// what the render's fixed centre tap ($27ECCB) needs for the OS's gain
+		void makeDecimator(std::array<uint32_t, 7>& _taps)
+		{
+			constexpr double beta = 3.5, half = 0.15972;
+			std::array<double, 7> taps{};
+			double sum = 0;
+			for(size_t k = 0; k < taps.size(); ++k)
+			{
+				const double t = 13.0 - 2.0 * static_cast<double>(k);
+				taps[k] = sinc(t / 2) * kaiser(t / 16, beta);
+				sum += taps[k];
+			}
+			for(size_t k = 0; k < taps.size(); ++k)
+				_taps[k] = word(half * taps[k] / sum);
+		}
+	}
+
+	RomTables::RomTables()
+	{
+		makeDecode(decode);
+		makeInterpolator(interpolator);
+		makeDecimator(decimator);
+	}
+}
+
 namespace md::voice::rom
 {
+
 	namespace
 	{
 		using Block = Voice::Block;

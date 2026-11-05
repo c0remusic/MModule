@@ -9,13 +9,16 @@
 
 namespace md::voice
 {
-	// The voice DSP's tables the ROM machines read, as its program holds them; the caller fills them from the OS (none
-	// is in this code) and keeps them while voices use them
+	// The tables the ROM machines read, which the constructor computes: the decoding as the DSP's, word for word; the
+	// two filters ours, near the OS's (no formula gives the OS's, and none of its tables ships). mdVoicePortTest puts the
+	// DSP's own filters in them, to compare the render; mdVoiceRomFiltersTest measures what ours change.
 	struct RomTables
 	{
 		std::array<uint32_t, 0x1000> decode{};			// Y:$146000: a 12-bit code's sample
 		std::array<uint32_t, 0x620> interpolator{};		// Y:$163-$782: the 7 rows of $E0 phases of the 4x interpolator
 		std::array<uint32_t, 7> decimator{};			// X:$244-$24A: half of the last 2:1 decimator's taps
+
+		RomTables();
 	};
 
 	// The ROM machines' sample bank, as the voice DSP holds it (md::fw::loadRomBankFromFlash builds it): its directory

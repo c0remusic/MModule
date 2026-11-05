@@ -13,7 +13,8 @@ fourni (banque UW importée, sample de l'utilisateur ou maison), jamais la flash
 
 ## Critère de fin
 
-- Bit-exact contre `mdEngine` à 44,1 kHz (Q1) sur chaque machine portée, Hits et réglages variés.
+- Bit-exact contre `mdEngine` à 44,1 kHz (Q1) sur chaque machine portée, Hits et réglages variés. Pour les ROM, le render
+  sur les filtres du DSP ; le produit joue nos filtres, mesurés et à écouter (décision du 2026-11-05, en fin de ticket).
 - « Sonne pareil » 44,1/48.
 - Coût par voix mesuré, comparé aux ~0,07-0,3 % estimés.
 
@@ -773,11 +774,67 @@ l'aiguillage ; une boucle sur les rapports de EFM-CY, qui cachait les numéros d
 se vérifie contre le listing, et le commentaire de `efmHead` ne compte plus les machines. `/simplify`, quatre angles :
 aucun constat.
 
+## 2026-11-05 : les tables des ROM
+
+La table de décodage (Y:$146000, 4096 mots) a sa formule : c'est l'expansion de la loi A autour du code 2048, pour
+A = 36,856. Avec `s = 1 + ln A` et `y = |code - 2048| / 2048`, un mot vaut `round(±2^23 · x)`, où `x = y s / A` sous
+`y = 1 / s` et `x = exp(y s - 1) / A` au-dessus. Elle se distingue d'un simple `100^(y - 1)`, dont la pente est proche, de
+1,5·10^-4 au plus. `RomTables` la calcule à sa construction, et `mdVoicePortTest` la compare mot à mot à la mémoire du
+DSP : 4096 sur 4096, 0 différence, et le test passe sans la copier. Treize mutations de la formule, douze prises ; la
+dernière déplace le signe du code 2048, dont le mot vaut 0.
+
+L'interpolateur (Y:$163, 1568 mots) et le décimateur (X:$244, 7 mots) n'ont pas de formule : le travail s'arrête là, et ils ne sont
+pas recopiés dans le dépôt. Ce qui a été essayé :
+- L'interpolateur se déplie en une seule réponse, 7 rangs de $E0 phases rangés par tronçons de 112 mots, symétrique. Ce
+  n'est pas un sinus cardinal fenêtré : ses zéros tombent à 233,8, 473,0 puis 782,0 mots, soit des écarts de 239 et 309,
+  alors qu'une fenêtre laisse les zéros du sinus cardinal à intervalles égaux.
+- Ce ne sont pas non plus des polynômes par tronçon : du degré 5 au degré 9, l'écart reste le même, de 7 à 255 LSB.
+- Deux mots sortent de la courbe (u = 559 et 783, de 0,018 environ), et les raccords de tronçons sont irréguliers.
+- Le décimateur a 7 mots alternés plus un centre, sans la forme d'un demi-bande (centre à 0,31).
+
+Tout cela ressemble à des filtres conçus numériquement, avec des outils dont les paramètres sont inconnus.
+
+Décision d'Antoine, le 2026-11-05 : pas d'import, des filtres à nous, pour une seule chaîne ROM avec ou sans flash
+image. La spécification §11.4 interdit déjà de reprendre les tables de l'OS. Les ROM du produit ne sont donc plus
+bit-exactes, et seulement elles ; le render, lui, le reste : `mdVoicePortTest` lui donne les filtres du DSP.
+
+`RomTables` calcule les siens, depuis une cible et non par ajustement sur les mots du firmware :
+- Interpolateur : sinus cardinal à fenêtre de Kaiser sur 7 échantillons, coupure 0,475 du rythme d'entrée, β = 5, dans la
+  disposition de la table, chaque phase normalisée au gain de l'OS (-0,62106).
+- Décimateur : demi-bande de Kaiser sur 16, β = 3,5, les 7 prises impaires sommées à 0,15972, avec la prise centrale que
+  le render tient en dur.
+
+Le premier jeu, coupure 0,475 et β = 4,5, suivait mieux la bande passante mais laissait 3,5 dB d'écart sur les
+samples à basse fréquence d'échantillonnage : il faut suivre aussi la transition, -8 dB à 0,5 et -19 dB à 0,6.
+
+`mdVoiceRomFiltersTest` mesure ROM-01 à -32 sur 128 Hits de 2 s, BRR à 0, contre les mêmes Hits sur les filtres du DSP :
+
+| Mesure, pire cas | Résultat |
+|---|---|
+| Enveloppe | 0,536 dB |
+| Tiers d'octave jusqu'à 10 kHz, à moins de 40 dB de la bande la plus forte | 0,512 dB |
+| Tiers d'octave de 10 à 18 kHz, non jugés | 0,505 dB |
+
+L'enveloppe dépasse les 0,2 dB de la mesure 44,1/48 ; les filtres ne tiennent pas ce seuil-là. Les limites du test, 0,6
+dB, sont une garde contre les régressions, fixées après la mesure : ce n'est pas un verdict sur le son, qui revient à
+l'écoute. Sans plancher à -40 dB, une bande à -50 dB atteint 2,5 dB, sur des images de samples à basse fréquence. Le BRR
+n'est pas jugé : il quantifie, et un pas pris un échantillon plus tôt déplace une queue de plusieurs dB (3,3 dB par tiers
+d'octave, et jusqu'à une fenêtre muette d'un seul côté), quel que soit le filtre.
+
+Treize mutations des filtres : douze prises, et la treizième, le signe du gain, l'est depuis qu'un produit scalaire
+négatif fait échouer le test, les mesures étant aveugles à la polarité.
+
+Coût : aucun au rendu ; c'est le même calcul sur d'autres mots.
+
+Revue du 2026-11-05 (code, architecture et simplification ensemble, le changement tenant en quelques lignes) : rien à
+corriger. Comme les autres tables, l'exactitude n'est vérifiée qu'avec le runtime de MSVC.
+
 Reste ouvert :
 - « Sonne pareil » 44,1/48 : l'écoute et la décision pour le MD à 48 kHz appartiennent à l'utilisateur. Le ticket n'est
   donc pas résolu.
-- Les tables des ROM (décodage 12 bits, interpolateur, décimateur) restent copiées de la mémoire du DSP : sans formule, le
-  produit n'a pas de quoi les remplir. La conversion 16 vers 12 bits de la flash aussi.
+- L'écoute des ROM sur nos filtres contre celles du DSP, BRR compris.
+- La conversion 16 vers 12 bits de la flash reste à refaire. Il faudrait essayer la compression A de même constante, ce
+  qui n'a pas été fait.
 - RAM-P n'est pas porté.
 - La pente des niveaux de l'OS ($100029E), la même loi que le lissage, reste dans `HostModel` : elle sert le mixeur, pas
   la voix (ticket 10). Les LFO relèvent du ticket 13 : le `const uint16_t*` de `coefficients` est leur point d'entrée.

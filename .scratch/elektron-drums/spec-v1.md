@@ -250,7 +250,9 @@ Ticket « Qualité audio » : ne corriger que les ajouts, jamais un étage port�
 ### 11.4 Sans firmware
 
 Aucun firmware n'est nécessaire chez l'utilisateur, et le plug-in livré n'a pas de dossier `roms`. Les firmwares
-servent aux tests ; toutes les tables viennent de formules testées contre le firmware. Une flash image du MD importée
+servent aux tests ; toutes les tables viennent de formules testées contre le firmware, sauf l'interpolateur et le
+décimateur des ROM du MD, sans formule connue, qui sont des filtres à nous, proches de ceux de l'OS, mesurés contre eux
+(décidé le 2026-11-05, ticket 08 de la construction) : les ROM ne sont donc pas bit-exactes. Une flash image du MD importée
 par son propriétaire sert seulement à en extraire des échantillons : la banque UW, et les formes d'onde échantillonnées
 de TRX-BD, TRX-SD, TRX-XT, TRX-RS et TRX-XC (mots du programme voix, amendé le 2026-10-31), les échantillons et le
 répertoire des machines E12, et les excitations des P-I avec leurs mots de modes (amendé le 2026-11-05), jamais son

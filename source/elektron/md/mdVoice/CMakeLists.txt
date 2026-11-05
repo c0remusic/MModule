@@ -25,4 +25,12 @@ if(BUILD_TESTING)
 	set_property(TARGET mdVoiceCoefficientsTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME mdVoiceCoefficientsTest COMMAND mdVoiceCoefficientsTest)
 	set_tests_properties(mdVoiceCoefficientsTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
+
+	# The ROM machines on our filters against the same on the DSP's, measured
+	add_executable(mdVoiceRomFiltersTest mdVoiceRomFiltersTest.cpp)
+	target_link_libraries(mdVoiceRomFiltersTest PRIVATE mdVoice mdEngine)
+	target_include_directories(mdVoiceRomFiltersTest PRIVATE ../../syntakt/stFast)
+	set_property(TARGET mdVoiceRomFiltersTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME mdVoiceRomFiltersTest COMMAND mdVoiceRomFiltersTest)
+	set_tests_properties(mdVoiceRomFiltersTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 endif()

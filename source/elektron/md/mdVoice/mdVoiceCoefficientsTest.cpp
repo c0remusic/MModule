@@ -270,7 +270,6 @@ namespace
 
 		const auto& memory = oracle.dsp().memory();
 		md::voice::RomTables rom;
-		fill(rom.decode, memory, dsp56k::MemArea_Y, 0x146000);
 		fill(rom.interpolator, memory, dsp56k::MemArea_Y, 0x163);
 		fill(rom.decimator, memory, dsp56k::MemArea_X, 0x244);
 		const auto uw = md::fw::loadRomBankFromFlash(_flash);
