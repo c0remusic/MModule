@@ -286,3 +286,52 @@ Revues du 2026-11-05 :
   Les deux machines vont en fin de `kPorted` : en tête, elles auraient sorti EFM-BD et EFM-SD du balayage à 16 voix.
 
 Coût mesuré (release, médiane de 9 passages, par voix et par bloc de 32 échantillons) : GND-SN 0,18 µs, GND-NS 0,13 µs.
+
+## 2026-11-05 : E12
+
+Les 16 machines E12 (types 49 à 64, quatre renders : $103838, $103945, $103A10, $103B46) sont portées dans
+`mdVoiceE12.cpp`. Elles lisent un échantillon de 12 bits, position sur 48 bits, interpolé sur 4 points par une B-spline
+cubique. E12-BD n'a pas de filtre, neuf machines finissent par un passe-haut à deux pôles dont le gain suit les pôles, et
+six mélangent un second échantillon avant un passe-haut fixe. Un retrigger ramène la position au départ.
+
+Les échantillons et leur répertoire sont les données du propriétaire (spec 11.4 amendée le 2026-11-05) : un bloc
+`E12Bank`, de $103D7B à $13516D, que l'appelant fournit par `Shared`, sans quoi ces machines se taisent. Le rendu ne lit
+jamais la flash image. Les tables sont par formule, testées mot à mot contre le DSP : décalages $103C7B et $103CFB, la
+formule de $140000 avec Q de 0,51 à 14, et interpolation $147200, à une exception près. Le DSP tient 1 de moins à k = 11,
+qu'aucune forme essayée ne donne : `makeInterpolation` corrige ce cas, et `OsTables::curve` fixe ses deux premiers mots. Ces
+trois nombres restent dans le code comme les autres constantes du listing. Les fonctions de coefficients d'E12 sont portées,
+6,74 millions de paquets à 0 différence contre Musashi.
+
+`mdVoicePortTest` joue les 16 machines avec les paquets de l'OS et des paquets faits main : 0 échantillon et 0 mot d'état
+différents, de 19 570 à 70 141 échantillons non nuls par machine, chaque probe atteinte.
+
+Sur 44 mutations, 32 prises au premier passage, surtout parce que le test ne voyait pas la mémoire de travail. Après
+l'ajout ci-dessous et le nettoyage, les trois qui passent encore sont : le bord exact de la fin de l'échantillon, et celui de
+la fin du second, que les paquets n'atteignent pas, et `tapWord` à $100 au lieu de $200, dont la plage n'est pas lue.
+
+**La mémoire de travail est maintenant comparée.** `mdVoicePortTest` compare X:$000-$1FF et Y:$000-$0FF après chaque bloc,
+pour toutes les machines, avec une preuve par un mot corrompu. Cela ferme le trou noté à EFM-CY et a trouvé deux défauts
+anciens, qu'aucun échantillon ne montrait :
+- TRX-CB, avec un paquet fait main dont les indices de filtre sortent des tables : le DSP lit la banque UW, le port lisait
+  0, et le mot resté en scratch finissait lu par un pointeur périmé de ROM-47. `filterWord`, `pole` et `offsetPole` lisent
+  maintenant par `external()`.
+- 726 lectures par pointeur périmé donnaient au test un mot que le produit n'avait pas : le crochet du test lisait ce que
+  le produit ne calculait pas. `external()` sert maintenant le sinus et les ondes de TRX-CH, et masque les adresses à
+  $1FFFFF comme le JIT. Il en reste une, Y:$1427A8, dans l'excitation de P-I-BD, tant que P-I n'est pas porté.
+
+Le crochet lit X ou Y selon l'accès : il lisait toujours Y.
+
+Hors de ce que l'OS produit, `word()` rend encore 0 hors de certaines tables (sine masqué, ondes de BD, SD, RS et CH) : même
+classe de défaut, sur des mots que l'OS ne donne pas.
+
+Revues du 2026-11-05 :
+- Revue de code : aucun écart avec le listing. $1038A1-$1038AB est mort, et `clr b ifmi` à $10384E ne peut pas agir.
+- Revue d'architecture : `E12Bank` est un bloc de taille fixe et un pointeur simple, `filter` prend ses coefficients. `TrxTables`
+  garde son nom, à revoir à part : quatre familles le lisent.
+- `/simplify` : `renderTwo` remplace deux renders identiques à un gain près, `kRoutines` le switch, et les fonctions de
+  coefficients partagent `e12Body`, `retriggers` et `retriggerTime`, dont ROM. `%` dans `loadWindow` coûtait 65 % : une
+  comparaison le remplace. Les chemins rapides restent, mesurés. Le gain de 9 à 14 % dans `mul` et `lim`, communs à toutes
+  les machines, viendra dans son propre commit.
+
+Coût mesuré (release, par voix et par bloc de 32 échantillons, machine chargée) : E12-BD 0,47 µs, render commun 0,64 à
+0,66 µs, E12-RS 0,99 µs, mélangées 1,00 µs.

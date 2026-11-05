@@ -15,19 +15,25 @@ namespace md::voice
 		// For Q from 0.51 to 3.5 over 128 steps, the first table holds how far t lies below the cutoff on that scale,
 		// sqrt(1 - 1 / (4 Q^2)), the second sigma's, 1 / (2 Q). The pole tables hold cos(w) and e^-w over sqrt 2,
 		// written with 9 decimals before they were made 24-bit words, as every word of the DSP's shows.
-		void makeFilters(decltype(TrxTables::filters)& _filters)
+		// The E12 machines' offsets are the same two, for Q from 0.51 to 14.
+		void makeFilters(decltype(TrxTables::filters)& _filters, decltype(TrxTables::e12Offsets)& _e12Offsets)
 		{
 			const double range = std::log(1e6);
 			const auto step = [&](const double _ratio)
 			{
 				return static_cast<uint32_t>(std::lround(4096.0 / range * std::log(_ratio))) & 0xffffff;
 			};
-			for(size_t q = 0; q < 0x80; ++q)
+			const auto offsets = [&](uint32_t* const _out, const double _span)
 			{
-				const double sigma = 1.0 / (1.02 + 5.98 * static_cast<double>(q) / 127.0);
-				_filters[q] = step(std::sqrt(1.0 - sigma * sigma));
-				_filters[0x80 + q] = step(sigma);
-			}
+				for(size_t q = 0; q < 0x80; ++q)
+				{
+					const double sigma = 1.0 / (1.02 + _span * static_cast<double>(q) / 127.0);
+					_out[q] = step(std::sqrt(1.0 - sigma * sigma));
+					_out[0x80 + q] = step(sigma);
+				}
+			};
+			offsets(_filters.data(), 5.98);
+			offsets(_e12Offsets.data(), 26.98);
 			const auto word = [](const double _x)
 			{
 				const double decimal = std::round(_x * std::sqrt(0.5) * 1e9) / 1e9;
@@ -39,6 +45,32 @@ namespace md::voice
 				const double w = 2.0 * pi * 0.02 * std::pow(1e6, static_cast<double>(i) / 4096.0) / 44100.0;
 				_filters[0x100 + i] = word(std::cos(w));
 				_filters[0x1100 + i] = word(std::exp(-w));
+			}
+		}
+
+		// Y:$147200: the cubic B-spline's taps at the positions -1 to 2, for t = k / 256, each row at k + 128 mod 256. Its
+		// words are integers summed: k^3 / 6 at full scale $7FFFFF for the two outer taps; for the two inner, $555555
+		// (2/3) - t^2 + t^3 / 2 at full scale 2^23, each term rounded. One word does not follow: the DSP's holds 1 less
+		// for k = 11, and no form tried (float32, decimals, scales, offsets) gives it.
+		void makeInterpolation(decltype(TrxTables::interpolation)& _table)
+		{
+			const auto outer = [](const int64_t _k)
+			{
+				const int64_t n = _k * _k * _k * 0x7fffff, d = 6ll << 24;
+				return static_cast<uint32_t>((2 * n + d) / (2 * d));
+			};
+			const auto inner = [](const int64_t _k)
+			{
+				const int64_t rounded = (_k * _k * _k + 2) / 4;
+				return static_cast<uint32_t>(0x555555 - 128 * _k * _k + rounded - (_k == 11 ? 1 : 0));
+			};
+			for(uint32_t row = 0; row < 256; ++row)
+			{
+				const int64_t k = (row + 128) & 0xff;
+				_table[4 * row] = outer(256 - k);
+				_table[4 * row + 1] = inner(k);
+				_table[4 * row + 2] = inner(256 - k);
+				_table[4 * row + 3] = outer(k);
 			}
 		}
 	}
@@ -66,7 +98,8 @@ namespace md::voice
 			limL(a, h[r], l[r]);
 			sine[n] = lim(a);
 		}
-		makeFilters(filters);
+		makeFilters(filters, e12Offsets);
+		makeInterpolation(interpolation);
 	}
 }
 

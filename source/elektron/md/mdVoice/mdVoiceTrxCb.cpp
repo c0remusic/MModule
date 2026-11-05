@@ -91,8 +91,8 @@ namespace md::voice::trx::cb
 
 		// Each through the two high-pass filters, by Y:$09 and Y:$0C, then Y:$0A and Y:$0D: the first sine's outputs
 		// from X:$02, the second's from X:$42
-		highPassStage(_c, poles(offsetPole(t, y[9], y[0xc])), 0x20, 0x40, 0x00, 0x15);
-		highPassStage(_c, poles(offsetPole(t, y[0xa], y[0xd])), 0x60, 0x20, 0x40, 0x1b);
+		highPassStage(_c, poles(offsetPole(_c, y[9], y[0xc])), 0x20, 0x40, 0x00, 0x15);
+		highPassStage(_c, poles(offsetPole(_c, y[0xa], y[0xd])), 0x60, 0x20, 0x40, 0x1b);
 
 		// A quarter of their sum, two samples late
 		uint32_t last = 0;

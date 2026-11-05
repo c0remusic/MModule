@@ -84,7 +84,7 @@ namespace md::voice::trx::sd
 		// a2, as the DSP leaves them
 		{
 			const uint32_t index = y[0xb];
-			const auto p = poles(pole(t, (index - 3) & 0xffffff, (index - 0x241) & 0xffffff));
+			const auto p = poles(pole(_c, (index - 3) & 0xffffff, (index - 0x241) & 0xffffff));
 			iy[0] = p.g;
 			iy[1] = p.a2;
 			ix[0x1e] = y[0x1b];

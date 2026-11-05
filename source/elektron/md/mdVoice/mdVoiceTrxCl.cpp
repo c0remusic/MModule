@@ -73,7 +73,7 @@ namespace md::voice::trx::cl
 		}
 		y[9] = level;
 
-		highPassStage(_c, poles(offsetPole(t, y[5], y[6])), 0x20, 0x00, 0x40, 0x0e);
+		highPassStage(_c, poles(offsetPole(_c, y[5], y[6])), 0x20, 0x00, 0x40, 0x0e);
 
 		// From the stage's history words: two samples late, its last two kept for the next block
 		for(uint32_t k = 0; k < 32; ++k)

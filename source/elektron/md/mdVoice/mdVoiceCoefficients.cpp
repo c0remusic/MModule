@@ -489,6 +489,155 @@ namespace md::voice
 		{
 			return (0x10266000 / _tempo) * 60 >> 12;
 		}
+
+		// A count of retriggers from a parameter: ROM's RTRG, E12's
+		uint32_t retriggers(const uint32_t _p)
+		{
+			if(_p > 0x3f40)
+				return 0x7f0000;
+			if(_p <= 0x1fff)
+				return (_p + 0x40) >> 7;
+			return (_p * _p >> 21) + 0x20;
+		}
+
+		// The time between them from a parameter, by the tempo: a line up to the middle, then the pitch table
+		uint32_t retriggerTime(const In& _in, const uint32_t _p, const int _shift)
+		{
+			if(_p <= 0x1fff)
+				return _p * tempoStep(_in.tempo) >> (_shift + 1);
+			const uint32_t x = ((_p << 7) / 0x7f) >> 5;
+			return ((_in.t.pitch[x & 0x7f] >> (5 - (x >> 7))) * 1058400 / _in.tempo) * 60 >> _shift;
+		}
+
+		// E12-OH's, -RC's, -CC's and -TR's pitch word: p0 on a scale of 5/6 around $3000
+		uint32_t e12Scaled(const uint32_t _p)
+		{
+			return static_cast<uint32_t>((static_cast<int32_t>(_p * 5) - 0xa000) / 6 + 0x2000);
+		}
+
+		// Words 1, 3 and 5, which all but E12-BD's share: the pitch, the decay of p1 and a cutoff that follows the pitch
+		void e12Body(const In& _in, uint32_t* _o, const uint32_t _x, const int _octaves, const uint32_t _cutoff)
+		{
+			_o[1] = pitched(_in, _x, _octaves);
+			_o[3] = _in.t.decay[100 + (((_in.p[1] << 2) / 3) >> 6)];
+			_o[5] = std::min((_in.p[2] >> 3) + _cutoff, 0x7ffu);
+		}
+
+		// Words 8 to 10: the pitch bend p7, the retriggers p5 and their time p6
+		void e12Retrigger(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			_o[8] = pitched(_in, p[7] >> 6, 11) + 0xff800000;
+			_o[9] = retriggers(p[5]);
+			const uint32_t time = retriggerTime(_in, p[6], 12);
+			_o[10] = time <= 0x10 ? 0x11 : time;
+		}
+
+		// ... and before them, but for E12-OH's, the start p4 and the end
+		void e12Tail(const In& _in, uint32_t* _o)
+		{
+			_o[6] = (_in.p[4] << 7) & 0x7fff80;
+			_o[7] = k1;
+			e12Retrigger(_in, _o);
+		}
+
+		int e12Bd(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			e12Body(_in, _o, p[0] >> 5, 8, 0);
+			_o[4] = level(p[2]);
+			_o[5] = _in.t.decay[p[3] >> 5];
+			e12Tail(_in, _o);
+			return 11;
+		}
+
+		// The cutoff's word 5 from the pitch word, for those that take p0 as it is
+		constexpr uint32_t e12CutoffPitch(const uint32_t _p) { return (_p * 0xcccd >> 21) + 0x32; }
+
+		// E12-HT, -LT, -CP, -CB, -CH
+		int e12One(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			_o[4] = p[3] >> 7;
+			e12Body(_in, _o, p[0] >> 5, 8, e12CutoffPitch(p[0]));
+			e12Tail(_in, _o);
+			return 11;
+		}
+
+		// E12-SD, -BR, -BC
+		int e12Mix(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			e12Body(_in, _o, p[0] >> 5, 8, e12CutoffPitch(p[0]));
+			e12Tail(_in, _o);
+			_o[11] = level(p[3]);
+			return 12;
+		}
+
+		int e12Rs(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			e12Body(_in, _o, p[0] >> 5, 8, e12CutoffPitch(p[0]));
+			e12Tail(_in, _o);
+			_o[11] = _in.t.curve[p[3] >> 7] << 6;
+			return 12;
+		}
+
+		int e12Rc(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			const uint32_t x = e12Scaled(p[0]);
+			e12Body(_in, _o, x >> 5, 8, x / 0x28 + 0x32);
+			e12Tail(_in, _o);
+			_o[11] = level(p[3]);
+			return 12;
+		}
+
+		int e12Cc(const In& _in, uint32_t* _o)
+		{
+			e12Rc(_in, _o);
+			_o[4] = _in.p[3] >> 7;
+			return 12;
+		}
+
+		int e12Tr(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			const uint32_t x = e12Scaled(p[0]);
+			_o[4] = p[3] >> 7;
+			e12Body(_in, _o, x >> 5, 8, x / 0x28 + 0x32);
+			e12Tail(_in, _o);
+			return 11;
+		}
+
+		int e12Oh(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			const uint32_t x = e12Scaled(p[0]);
+			e12Body(_in, _o, x >> 5, 8, x / 0x28 + 0x32);
+			_o[6] = level(p[4]);
+			_o[7] = level(p[3]);
+			e12Retrigger(_in, _o);
+			return 11;
+		}
+
+		int e12Sh(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			e12Body(_in, _o, p[0] >> 6, 9, (p[0] * 0xcccd >> 22) + 0x98);
+			e12Tail(_in, _o);
+			_o[11] = level(p[3]);
+			return 12;
+		}
+
+		int e12Ta(const In& _in, uint32_t* _o)
+		{
+			const auto& p = _in.p;
+			_o[4] = p[3] >> 7;
+			e12Body(_in, _o, p[0] >> 6, 9, (p[0] * 0xcccd >> 22) + 0x99);
+			e12Tail(_in, _o);
+			return 11;
+		}
 
 		// ROM-01 to -24 (First) and ROM-25 to -48 differ in words 3, 4 and 5 only
 		template<bool First>
@@ -519,22 +668,8 @@ namespace md::voice
 			_o[7] = rate;
 			_o[6] = 0x4000000 / rate;
 
-			if(p[6] > 0x3f40)
-				_o[8] = 0x7f0000;
-			else if(p[6] <= 0x1fff)
-				_o[8] = (p[6] + 0x40) >> 7;
-			else
-				_o[8] = (p[6] * p[6] >> 21) + 0x20;
-
-			uint32_t retrig;
-			if(p[7] <= 0x1fff)
-				retrig = p[7] * step >> 11;
-			else
-			{
-				const uint32_t x = ((p[7] << 7) / 0x7f) >> 5;
-				retrig = ((pitch[x & 0x7f] >> (5 - (x >> 7))) * 1058400 / _in.tempo) * 60 >> 10;
-			}
-			_o[9] = std::max(retrig, 0x44u);
+			_o[8] = retriggers(p[6]);
+			_o[9] = std::max(retriggerTime(_in, p[7], 10), 0x44u);
 			return 10;
 		}
 
@@ -583,6 +718,22 @@ namespace md::voice
 			case 37:	return efmCb;
 			case 38:	return efmHh;
 			case 39:	return efmCy;
+			case 48:	return e12Bd;
+			case 49:	return e12Mix;
+			case 50:	return e12One;
+			case 51:	return e12One;
+			case 52:	return e12One;
+			case 53:	return e12Rs;
+			case 54:	return e12One;
+			case 55:	return e12One;
+			case 56:	return e12Oh;
+			case 57:	return e12Rc;
+			case 58:	return e12Cc;
+			case 59:	return e12Mix;
+			case 60:	return e12Ta;
+			case 61:	return e12Tr;
+			case 62:	return e12Sh;
+			case 63:	return e12Mix;
 			default:	return nullptr;
 			}
 		}
@@ -601,6 +752,14 @@ namespace md::voice
 		}
 		for(size_t i = 0; i < octaves.size(); ++i)
 			octaves[i] = static_cast<uint32_t>(std::llround(32767.0 * std::log(1.0 + static_cast<double>(i))));
+		// All but its first two words, which fall to 0 and 5 from the 8 and 9 of the curve
+		for(size_t i = 0; i < curve.size(); ++i)
+		{
+			const double x = static_cast<double>(i) / 127.0;
+			curve[i] = static_cast<uint32_t>(std::llround(65535.0 * std::exp(9.0 * (x - 1.0))));
+		}
+		curve[0] = 0;
+		curve[1] = 5;
 	}
 
 	bool coefficientsPorted(const uint8_t _machine)

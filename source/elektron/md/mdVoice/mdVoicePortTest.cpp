@@ -1,7 +1,7 @@
 // The voice DSP's port (md::voice::Voice) against mdEngine's VoiceEngine, OS 1.63's own program on the dsp56300
 // emulator: the same slots into both, Hit by Hit, then every block of the 16 voices compared sample for sample, and
 // every voice's 64-word state blocks word for word, Y:S and X:S (a count limited when stored back changes no sample for
-// millions of them, only the word).
+// millions of them, only the word), and the voices' shared scratch, X:$000-$1FF and Y:$000-$0FF, after every block.
 // Two phases, the same each run. First the slots as HostModel's tick writes them: every voice's packet from the OS's
 // own coefficient functions (MachineRunner, Musashi) on every block, with Hits, knob changes and machine changes on
 // the ported machines, the ROM ones playing the flash image's UW bank, and at its end every voice hit once on a TRX
@@ -57,17 +57,19 @@ namespace
 	constexpr int kSweepBlock = kOsBlocks - 200;
 
 	constexpr uint32_t kGndIm = 4;
-	// The TRX and EFM types ported, each of which must sound
+	// The TRX, EFM, GND and E12 types ported, each of which must sound
 	struct Ported
 	{
 		uint32_t type;
 		const char* name;
 	};
-	constexpr std::array<Ported, 24> kPorted = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
+	constexpr std::array<Ported, 40> kPorted = {{{17, "TRX-BD"}, {18, "TRX-SD"}, {19, "TRX-XT"}, {20, "TRX-CP"},
 		{21, "TRX-RS"}, {22, "TRX-CB"}, {23, "TRX-CH"},
 		{24, "TRX-OH"}, {25, "TRX-CY"}, {26, "TRX-MA"}, {27, "TRX-CL"}, {28, "TRX-XC"}, {29, "TRX-B2"},
 		{30, "TRX-S2"}, {33, "EFM-BD"}, {34, "EFM-SD"}, {35, "EFM-XT"}, {36, "EFM-CP"}, {37, "EFM-RS"}, {38, "EFM-CB"},
-		{39, "EFM-HH"}, {40, "EFM-CY"}, {2, "GND-SN"}, {3, "GND-NS"}}};
+		{39, "EFM-HH"}, {40, "EFM-CY"}, {2, "GND-SN"}, {3, "GND-NS"}, {49, "E12-BD"}, {50, "E12-SD"}, {51, "E12-HT"},
+		{52, "E12-LT"}, {53, "E12-CP"}, {54, "E12-RS"}, {55, "E12-CB"}, {56, "E12-CH"}, {57, "E12-OH"}, {58, "E12-RC"},
+		{59, "E12-CC"}, {60, "E12-BR"}, {61, "E12-TA"}, {62, "E12-TR"}, {63, "E12-SH"}, {64, "E12-BC"}}};
 
 	// The machines the first phase plays: those md::voice ports (machine id = type - 1), the ROM ones half the time
 	// whatever the others are: GND--, GND-IM and those
@@ -96,7 +98,7 @@ namespace
 	};
 	// TRX-MA's rise, hold and filter words
 	constexpr uint32_t kMaZeros = 1u << 1 | 1u << 3 | 1u << 7 | 1u << 8 | 1u << 9 | 1u << 0xa;
-	constexpr std::array<PacketEdge, 17> kPacketEdges = {{
+	constexpr std::array<PacketEdge, 22> kPacketEdges = {{
 		// GND-SN and GND-NS at any words, the OS's being all positive
 		{2, 5, 0},
 		{3, 2, 0},
@@ -136,6 +138,14 @@ namespace
 		// TRX-S2's words that the OS sets to 0 random, its sweeps' decays among them; its filters' words 0, inside their
 		// tables
 		{30, 21, 1u << 1 | 1u << 0x10 | 1u << 0x11 | 1u << 0x13},
+		// E12-BD at any words, starts and ends below zero among them, the OS's being all positive but its pitch envelope
+		{49, 11, 0},
+		// The same on each of the others' renders, their Q and cutoff inside the tables
+		{50, 12, 0, 4, 0x40, 5, 0x400},
+		{51, 11, 0, 4, 0x7f, 5, 0x7ff},
+		{54, 12, 0, 4, 0, 5, 0},
+		// A retrigger under a block's time, from the sample's start, each time: the positions it moves stay in the window
+		{60, 12, 1u << 4 | 1u << 5 | 1u << 6, 0xa, 7, 9, 0x7f0000},
 	}};
 	using md::voice::isRom;
 	// A ROM type's directory entry
@@ -173,6 +183,15 @@ namespace
 		{1, 0x44, 0x7fffff},			// a retrigger every block
 	}};
 
+	// A word of the voices' shared scratch that is not the oracle's
+	struct ScratchDifference
+	{
+		char area = 'X';
+		uint32_t addr = 0, oracle = 0, port = 0;
+		int block = 0;
+		std::array<uint32_t, kVoices> types{};
+	};
+
 	// What both gave, block after block: [block][voice][frame] and [block][voice][word]
 	struct Recording
 	{
@@ -185,6 +204,10 @@ namespace
 		std::map<std::string, int64_t> edges;	// the ROM edges reached, each a count
 		std::array<int64_t, hooks::ProbeCount> probes{};
 		int64_t osStrayReads = 0, strayReads = 0;	// words read through the stray hook, in the first phase and all
+		// ... that are not 0 in the first phase, where a product reads 0 and so differs, by the area read
+		std::array<int64_t, hooks::AreaCount> osStrayNonZero{};
+		std::optional<ScratchDifference> scratch;	// the first word of the scratch that differs
+		bool scratchFaultFound = false;				// a word changed on purpose found where it is
 		std::array<uint32_t, 10> wordMax{};		// the highest ROM words the OS gave
 	};
 
@@ -192,6 +215,18 @@ namespace
 	{
 		int block = 0, voice = 0, index = 0;
 	};
+
+	std::optional<ScratchDifference> firstScratchDifference(const md::voice::Scratch& _scratch,
+		const dsp56k::Memory& _mem)
+	{
+		for(uint32_t a = 0; a < _scratch.x.size(); ++a)
+			if(const uint32_t w = _mem.get(dsp56k::MemArea_X, a) & 0xffffff; w != _scratch.x[a])
+				return ScratchDifference{'X', a, w, _scratch.x[a]};
+		for(uint32_t a = 0; a < _scratch.y.size(); ++a)
+			if(const uint32_t w = _mem.get(dsp56k::MemArea_Y, a) & 0xffffff; w != _scratch.y[a])
+				return ScratchDifference{'Y', a, w, _scratch.y[a]};
+		return std::nullopt;
+	}
 
 	template<typename T>
 	std::optional<Location> firstDifference(const std::vector<T>& _a, const std::vector<T>& _b, const int _width)
@@ -275,6 +310,8 @@ namespace
 		checkTable("TRX-RS's wave", _t.rsWave, T::RsWaveAddr, mem);
 		for(const auto& w : T::ChWaves)
 			checkTable("TRX-CH's waves", _t.chWaves, T::ChWavesAddr, mem, dsp56k::MemArea_X, w.offset, w.size);
+		checkTable("the E12 machines' offsets", _t.e12Offsets, T::E12OffsetsAddr, mem);
+		checkTable("the E12 machines' interpolation", _t.interpolation, T::InterpolationAddr, mem, dsp56k::MemArea_Y);
 	}
 
 	// A bank's directory and data, which md::voice::RomBank views
@@ -334,23 +371,26 @@ namespace
 		loadBank(oracle, bank);
 		const auto bankView = bank.view();
 
-		// The words the port does not hold, a stray pointer's, as the oracle reads them: the JIT masks the address to its
-		// memory's size, the interpreter reads 0 past it; else the oracle's memory after the block, which a stray pointer
-		// finds the same: samples or code
+		// The words the port does not hold, a stray pointer's, as the oracle holds them after the block: what the product,
+		// which reads 0 there, answers differently. external() masks the address as the JIT does; the interpreter reads 0
+		// past the memory
 		struct Stray
 		{
 			const dsp56k::Memory* memory;
 			bool jit = true;
 			int64_t reads = 0;
+			std::array<int64_t, hooks::AreaCount> nonZero{};
 		} stray{&oracle.dsp().memory()};
 		Recording rec;
 		auto& h = hooks::hooks();
-		h.stray = [](const void* _user, const uint32_t _addr) -> uint32_t
+		h.stray = [](const void* _user, const hooks::Area _area, const uint32_t _addr) -> uint32_t
 		{
 			auto& s = *const_cast<Stray*>(static_cast<const Stray*>(_user));
 			++s.reads;
-			const auto mask = s.jit ? s.memory->size(dsp56k::MemArea_Y) - 1 : 0xffffff;
-			return s.memory->get(dsp56k::MemArea_Y, _addr & mask);
+			const auto area = _area == hooks::AreaX ? dsp56k::MemArea_X : dsp56k::MemArea_Y;
+			const uint32_t word = s.memory->get(area, _addr);
+			s.nonZero[_area] += s.jit && word != 0;
+			return word;
 		};
 		h.strayUser = &stray;
 		h.probes = &rec.probes;
@@ -361,7 +401,9 @@ namespace
 		checkTrxTables(trx, oracle);
 
 		// What the 16 voices share, its scratch from what the DSP's own init left in it
-		md::voice::Shared shared{&tables, &bankView, {}, &trx};
+		// The E12 machines' directory and samples from the flash image's voice program, as a product imports them
+		const auto e12 = md::fw::dspWords(_os.firmware.dspA, md::voice::E12Bank::Addr, md::voice::E12Bank::Words);
+		md::voice::Shared shared{&tables, &bankView, {}, &trx, e12.data()};
 		fill(shared.scratch.x, oracle.dsp().memory(), dsp56k::MemArea_X, 0);
 		fill(shared.scratch.y, oracle.dsp().memory(), dsp56k::MemArea_Y, 0);
 		rec.oracle.reserve(static_cast<size_t>(kBlocks) * kVoices * kFrames);
@@ -390,6 +432,7 @@ namespace
 				// The OS's packets play on the JIT, as MoDule runs the voice DSP; the hand-made ones on the interpreter
 				oracle.setInterpreter(true);
 				stray.jit = false;
+				h.addressMask = 0xffffff;
 			}
 			// ROM-45's sample replaced by a shorter one and back, under the voices playing it
 			if(block >= kOsBlocks && block % 50 == 0)
@@ -548,12 +591,32 @@ namespace
 				}
 				prev = y;
 			}
+
+			// The scratch every voice left, and once a word of it changed on purpose, which the comparison must find
+			const auto& memory = oracle.dsp().memory();
+			if(!rec.scratch)
+			{
+				rec.scratch = firstScratchDifference(shared.scratch, memory);
+				if(rec.scratch)
+				{
+					rec.scratch->block = block;
+					std::copy(type.begin(), type.end(), rec.scratch->types.begin());
+				}
+			}
+			if(block == kBlocks / 2)
+			{
+				auto faulty = shared.scratch;
+				faulty.x[0x1a3] ^= 1;
+				const auto found = firstScratchDifference(faulty, memory);
+				rec.scratchFaultFound = found && found->area == 'X' && found->addr == 0x1a3;
+			}
 		}
 		std::printf("the OS's ROM words 1-9, lowest and highest:");
 		for(int w = 1; w < 10; ++w)
 			std::printf(" $%06x-$%06x", wordMin[w], wordMax[w]);
 		std::printf("\n");
 		rec.strayReads = stray.reads;
+		rec.osStrayNonZero = stray.nonZero;
 		rec.wordMax = wordMax;
 		h = {};
 		return rec;
@@ -602,6 +665,31 @@ namespace
 		}
 		return ok;
 	}
+
+	// The port alone: E12 machines without the owner's samples play silence, whatever their words
+	bool e12SilentWithoutSamples(const md::voice::TrxTables& _trx)
+	{
+		md::voice::Shared shared{nullptr, nullptr, {}, &_trx};
+		Voice voice(shared);
+		std::mt19937 random(0x0e12);
+		for(uint32_t type = 49; type <= 64; ++type)
+		{
+			uint32_t words[12] = {type};
+			for(uint32_t w = 1; w < 12; ++w)
+				words[w] = static_cast<uint32_t>(random()) & 0xffffff;
+			words[4] &= 0x7f;
+			words[5] &= 0x7ff;
+			voice.setSlot(words, 12);
+			for(int block = 0; block < 400; ++block)
+			{
+				Voice::Block out{};
+				voice.render(out);
+				if(std::any_of(out.begin(), out.end(), [](const int32_t _s) { return _s != 0; }))
+					return false;
+			}
+		}
+		return true;
+	}
 }
 
 int main()
@@ -633,6 +721,9 @@ int main()
 		}
 		std::printf("words read through a stray pointer: %lld in the OS's phase, %lld in all\n",
 			static_cast<long long>(rec.osStrayReads), static_cast<long long>(rec.strayReads));
+		std::printf("of those not 0 in the OS's phase, what a product reads as 0: %lld in X, %lld in Y\n",
+			static_cast<long long>(rec.osStrayNonZero[hooks::AreaX]),
+			static_cast<long long>(rec.osStrayNonZero[hooks::AreaY]));
 		static const char* const named[] = {"os empty slot silent", "os reversed", "os ended mid-block",
 			"os retriggered", "os started past the end", "edge empty slot silent", "edge reversed",
 			"edge ended mid-block", "edge retriggered", "edge looped", "edge started past the end",
@@ -680,6 +771,24 @@ int main()
 			return 1;
 		}
 
+		if(!rec.scratchFaultFound)
+		{
+			std::printf("FAIL: the harness did not find the scratch word changed on purpose\n");
+			return 1;
+		}
+		if(rec.scratch)
+		{
+			const auto& d = *rec.scratch;
+			std::printf("FAIL: block %d, scratch %c:$%03x: the oracle holds $%06x, the port $%06x; the voices' types:",
+				d.block, d.area, d.addr, d.oracle, d.port);
+			for(const uint32_t t : d.types)
+				std::printf(" %u", t);
+			std::printf("\n");
+			return 1;
+		}
+		std::printf("the scratch is the voice DSP's after every block, X:$000-$1FF and Y:$000-$0FF, and a word changed on "
+			"purpose is found\n");
+
 		// A sample and a state word of the port changed on purpose: the comparisons must find them where they are
 		const Location corrupt{kBlocks / 2, 7, 13};
 		auto faulty = rec.port;
@@ -706,6 +815,12 @@ int main()
 			std::printf("FAIL: a loop shorter than a block's advance did not render the stalled blocks silent\n");
 			return 1;
 		}
+		if(!e12SilentWithoutSamples(md::voice::TrxTables()))
+		{
+			std::printf("FAIL: an E12 machine sounded without its samples\n");
+			return 1;
+		}
+		std::printf("the E12 machines are silent without their samples\n");
 		std::printf("PASS: the port matches the voice DSP sample for sample and word for word\n");
 		return 0;
 	}

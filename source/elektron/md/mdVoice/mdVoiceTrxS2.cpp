@@ -138,8 +138,8 @@ namespace md::voice::trx::s2
 
 			burst(_c, noisy);
 
-			highPassStage(_c, poles(offsetPole(t, y[1], y[0x10])), 0xa0, 0x00, 0xc2, 0x29);
-			twoPoleStage(_c, poles(offsetPole(t, y[0x11], y[0x13])), 0xc2, 0x2f, true);
+			highPassStage(_c, poles(offsetPole(_c, y[1], y[0x10])), 0xa0, 0x00, 0xc2, 0x29);
+			twoPoleStage(_c, poles(offsetPole(_c, y[0x11], y[0x13])), 0xc2, 0x2f, true);
 
 			// The burst's level: it builds for Y:$3C blocks, and decays by a rate that changes past Y:$14
 			{

@@ -90,11 +90,11 @@ namespace md::voice::trx::ch
 		addChWaves(t, y, {y[8], y[0xb], y[0xc], y[0xd], y[0xe], y[0xf]}, 0x21, sig);
 
 		// A two-pole filter twice by Y:$03 and Y:$04, the first's last two outputs at X:$00-$01
-		twoPoleStage(_c, poles(offsetPole(t, y[3], y[4])), 0x20, 0x15, true);
+		twoPoleStage(_c, poles(offsetPole(_c, y[3], y[4])), 0x20, 0x15, true);
 
 		// The two high-pass biquads: into X:$60, then back into X:$20
-		highPassBiquad(_c, poles(offsetPole(t, y[6], y[7])), 0x20, 0x60, 0x19, 0x1b);
-		highPassBiquad(_c, poles(offsetPole(t, y[0x11], y[0x12])), 0x60, 0x20, 0x1d, 0x1f);
+		highPassBiquad(_c, poles(offsetPole(_c, y[6], y[7])), 0x20, 0x60, 0x19, 0x1b);
+		highPassBiquad(_c, poles(offsetPole(_c, y[0x11], y[0x12])), 0x60, 0x20, 0x1d, 0x1f);
 
 		// Half of it at the level Y:$10: held while Y:$09 counts down, falling by Y:$01 a sample while Y:$0A does, then
 		// decaying by Y:$02

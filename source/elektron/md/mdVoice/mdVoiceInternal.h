@@ -48,6 +48,12 @@ namespace md::voice
 		const Routines* routines(uint32_t _type);
 	}
 
+	// The E12 machines' routines (mdVoiceE12.cpp), by type (E12-BD 49 to E12-BC 64): nullptr for any other type
+	namespace e12
+	{
+		const Routines* routines(uint32_t _type);
+	}
+
 	// GND-SN's and GND-NS's routines (mdVoiceGnd.cpp)
 	namespace gnd
 	{
@@ -64,6 +70,16 @@ namespace md::voice
 		// The ported renders' branches the test must reach
 		enum Probe
 		{
+			E12StepClamped,			// an E12 machine's step past 4 samples
+			E12EndOfSample,			// ... its position past the end
+			E12Retrigger,			// ... a retrigger
+			E12RetriggerNoWords,	// ... on the block's last sample, a DO of no words
+			E12RetriggerEnds,		// ... with a time under a block: the zeros before it, and its count carried
+			E12RetriggerLast,		// ... none left
+			E12TapOutside,			// ... a tap outside the internal memory, a retrigger's stray position
+			E12OddPosition,			// ... a window from a word's second half
+			E12SecondSample,		// E12-RS's and the mixed machines' second sample mixed in
+			E12SecondEnded,			// ... past its end
 			EfmCpClap,				// EFM-CP's level jumping back up, a clap
 			EfmCpLastClap,			// EFM-CP's last clap, its decay Y:$02 from there
 			EfmHhLevelLimited,		// a Hit that adds EFM-HH's level past full scale
@@ -153,6 +169,16 @@ namespace md::voice
 		{
 			switch(_p)
 			{
+				case E12StepClamped:		return "E12's step clamped";
+				case E12EndOfSample:		return "E12's end of sample";
+				case E12Retrigger:			return "E12's retrigger";
+				case E12RetriggerNoWords:	return "E12's retrigger of no words";
+				case E12RetriggerEnds:		return "E12's retrigger time under a block";
+				case E12RetriggerLast:		return "E12's retriggers run out";
+				case E12TapOutside:			return "E12's tap outside the internal memory";
+				case E12OddPosition:		return "E12's odd position";
+				case E12SecondSample:		return "E12's second sample";
+				case E12SecondEnded:		return "E12's second sample ended";
 				case EfmCpClap:				return "EFM-CP's clap";
 				case EfmCpLastClap:			return "EFM-CP's last clap";
 				case EfmHhLevelLimited:		return "EFM-HH's level limited at a Hit";
@@ -239,13 +265,26 @@ namespace md::voice
 			return nullptr;
 		}
 
+		// The memory a stray read means
+		enum Area
+		{
+			AreaX,
+			AreaY,
+			AreaCount
+		};
+
 		struct Hooks
 		{
-			// A Y word the voice holds nowhere else, which the render reads through the pointer a reversed odd
-			// retrigger leaves unwritten (a sample read as an address), through the decoding ring's last two words
-			// and outside TRX-B2's sine; nullptr reads 0. The test reads its oracle's memory there, the emulator's
-			uint32_t (*stray)(const void* _user, uint32_t _addr) = nullptr;
+			// A word external() cannot compute, which a render reads: in Y through the pointer a reversed odd retrigger
+			// leaves unwritten (a sample read as an address), through the decoding ring's last two words and outside
+			// TRX-B2's sine; in X through a tap of an E12 machine that a retrigger left outside the window (see
+			// mdVoiceE12.cpp) or past the end of its samples, and through a filter's index past its tables. nullptr
+			// reads 0, as a product does. The test reads its oracle's memory there, the emulator's
+			uint32_t (*stray)(const void* _user, Area _area, uint32_t _addr) = nullptr;
 			const void* strayUser = nullptr;
+			// The address bits external() keeps: the voice DSP's 2M words, a stray address wrapping into them, as the
+			// emulator's JIT has it. Its interpreter reads 0 past them instead, for the test's hand-made phase
+			uint32_t addressMask = 0x1fffff;
 			std::array<int64_t, ProbeCount>* probes = nullptr;
 		};
 
@@ -264,17 +303,25 @@ namespace md::voice
 		}
 	}
 
-	// The external memory, which X and Y share: the decoding table, the bank's directory and samples
-	inline uint32_t external(const Context& _c, const uint32_t _addr)
+	// The external memory, which X and Y share: the decoding table, the bank's directory and samples, the E12 machines',
+	// the sine and TRX-CH's waves; else what the test's hook knows
+	inline uint32_t external(const Context& _c, const uint32_t _address, const testHooks::Area _area = testHooks::AreaY)
 	{
-		if(_addr - 0x146000 < 0x1000 && _c.shared.tables)
-			return _c.shared.tables->decode[_addr - 0x146000] & 0xffffff;
-		const auto* bank = _c.shared.bank;
-		if(bank && _addr - RomBank::DirectoryAddr < RomBank::DirectoryWords)
-			return bank->directory[_addr - RomBank::DirectoryAddr] & 0xffffff;
-		if(bank && _addr - RomBank::DataAddr < bank->dataWords)
-			return bank->data[_addr - RomBank::DataAddr] & 0xffffff;
 		const auto& hooks = testHooks::hooks();
-		return hooks.stray ? hooks.stray(hooks.strayUser, _addr) & 0xffffff : 0;
+		const uint32_t addr = _address & hooks.addressMask;
+		if(addr - 0x146000 < 0x1000 && _c.shared.tables)
+			return _c.shared.tables->decode[addr - 0x146000] & 0xffffff;
+		const auto* bank = _c.shared.bank;
+		if(bank && addr - RomBank::DirectoryAddr < RomBank::DirectoryWords)
+			return bank->directory[addr - RomBank::DirectoryAddr] & 0xffffff;
+		if(bank && addr - RomBank::DataAddr < bank->dataWords)
+			return bank->data[addr - RomBank::DataAddr] & 0xffffff;
+		if(const auto* e12 = _c.shared.e12; e12 && addr - E12Bank::Addr < E12Bank::Words)
+			return e12[addr - E12Bank::Addr] & 0xffffff;
+		if(const auto* trx = _c.shared.trx; trx && addr - TrxTables::SineAddr < trx->sine.size())
+			return trx->sine[addr - TrxTables::SineAddr];
+		if(const auto* trx = _c.shared.trx; trx && addr - TrxTables::ChWavesAddr < trx->chWaves.size())
+			return trx->chWaves[addr - TrxTables::ChWavesAddr];
+		return hooks.stray ? hooks.stray(hooks.strayUser, _area, addr) & 0xffffff : 0;
 	}
 }

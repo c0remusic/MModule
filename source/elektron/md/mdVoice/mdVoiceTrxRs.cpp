@@ -98,7 +98,7 @@ namespace md::voice::trx::rs
 		// word. That is TRX-CP's high-pass, 2 (2 r c h1 - r^2 h2), its accumulator kept to 48 bits. The first's last
 		// two at X:$42-$43 (and Y), the second's from X:$22 on after its last two
 		{
-			const auto pl = offsetPole(t, y[6], y[7]);
+			const auto pl = offsetPole(_c, y[6], y[7]);
 			const uint32_t a2 = lim(shl(-mul(pl.r, pl.r), 1));
 			const uint32_t a1 = lim(wrap56(shl(mul(pl.r, pl.c), 1) + acc(0xc00000)));
 			iy[0] = a2;

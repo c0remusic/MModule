@@ -77,7 +77,9 @@ namespace
 		checkOsTable("the decay table", _tables.decay, _os, 0x24bf94);
 		checkOsTable("the rise table", _tables.rise, _os, 0x24c794);
 		checkOsTable("the octaves table", _tables.octaves, _os, 0x24d794);
-		std::printf("the tables from their formulas: pitch 128, decay 512, rise 512, octaves 128, 0 differences\n");
+		checkOsTable("the curve table", _tables.curve, _os, 0x24bb90);
+		std::printf("the tables from their formulas: pitch 128, decay 512, rise 512, octaves 128, curve 128, "
+			"0 differences\n");
 	}
 
 	// A Lock's snap holds until something else moves the target, which the scenario below never shows
@@ -157,13 +159,13 @@ namespace
 						for(auto& w : p)
 							w = param();
 						p[k] = static_cast<uint16_t>(v);
-						check(machine, p, random() & 1, rom ? tempo() : 3000);
+						check(machine, p, random() & 1, tempo());
 					}
 			for(int n = 0; n < (rom ? 2000 : 20000); ++n)
 			{
 				for(auto& w : p)
 					w = random() % 4 == 0 ? static_cast<uint16_t>((random() % 128) << 7) : param();
-				check(machine, p, random() & 1, rom ? tempo() : 3000);
+				check(machine, p, random() & 1, tempo());
 			}
 		}
 		// The extremes of the tempo
@@ -275,14 +277,17 @@ namespace
 		const auto trx = trxTables(_os.firmware);
 
 		// The stray pointer of a reversed ROM voice reads what the oracle's memory holds, as mdVoicePortTest has it
-		md::voice::testHooks::hooks().stray = [](const void* _user, const uint32_t _addr) -> uint32_t
+		md::voice::testHooks::hooks().stray = [](const void* _user, const md::voice::testHooks::Area _area,
+			const uint32_t _addr) -> uint32_t
 		{
 			const auto& mem = *static_cast<const dsp56k::Memory*>(_user);
-			return mem.get(dsp56k::MemArea_Y, _addr & (mem.size(dsp56k::MemArea_Y) - 1));
+			return mem.get(_area == md::voice::testHooks::AreaX ? dsp56k::MemArea_X : dsp56k::MemArea_Y, _addr);
 		};
 		md::voice::testHooks::hooks().strayUser = &memory;
 
-		md::voice::Shared shared{&rom, &bank, {}, &trx};
+		// The E12 machines' samples as mdVoicePortTest takes them
+		const auto e12 = md::fw::dspWords(_os.firmware.dspA, md::voice::E12Bank::Addr, md::voice::E12Bank::Words);
+		md::voice::Shared shared{&rom, &bank, {}, &trx, e12.data()};
 		fill(shared.scratch.x, memory, dsp56k::MemArea_X, 0);
 		fill(shared.scratch.y, memory, dsp56k::MemArea_Y, 0);
 		std::vector<Voice> voices(kVoices, Voice(shared));

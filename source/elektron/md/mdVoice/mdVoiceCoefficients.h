@@ -9,14 +9,15 @@
 
 namespace md::voice
 {
-	// The tables the coefficient functions read, as OS 1.63's image holds them, from their formulas: nothing here comes
-	// from the OS
+	// The tables the coefficient functions read, as OS 1.63's image holds them, from their formulas, all but the curve's
+	// first two words, literals here
 	struct OsTables
 	{
 		std::array<uint32_t, 128> pitch{};		// $24BD94, one octave of a sine's step
 		std::array<uint32_t, 512> decay{};		// $24BF94, an envelope's factor per step, towards 1
 		std::array<uint32_t, 512> rise{};		// $24C794, 0 then a rise towards 1
 		std::array<uint32_t, 128> octaves{};	// $24D794, a log: 8833 is an octave of the pitch table
+		std::array<uint32_t, 128> curve{};		// $24BB90, 0 to 65 535, 9 e-folds over its range
 
 		OsTables();
 	};
@@ -24,7 +25,7 @@ namespace md::voice
 	// The words of a slot, its type or 0 then the machine's coefficients: at most TRX-S2's 21
 	using Packet = std::array<uint32_t, 21>;
 
-	// The machines (ids) whose coefficient function is ported: the GND ones, the TRX ones, the EFM ones, ROM-01 to -48;
+	// The machines (ids) whose coefficient function is ported: the GND, TRX, EFM and E12 ones, ROM-01 to -48;
 	// mdVoiceCoefficientsTest holds them to Voice::ported
 	bool coefficientsPorted(uint8_t _machine);
 

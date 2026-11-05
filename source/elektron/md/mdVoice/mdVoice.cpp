@@ -89,7 +89,9 @@ namespace md::voice
 				return &kGnd[_type];
 			if(const auto* r = trx::routines(_type))
 				return r;
-			return efm::routines(_type);
+			if(const auto* r = efm::routines(_type))
+				return r;
+			return e12::routines(_type);
 		}
 
 		const Routines& routines(const uint32_t _type)

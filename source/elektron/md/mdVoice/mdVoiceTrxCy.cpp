@@ -45,10 +45,10 @@ namespace md::voice::trx::cy
 		addChWaves(t, y, {y[2], y[3], y[4], y[5], y[6], y[7]}, 0x15, sig);
 
 		// The first path's outputs from X:$04, the second's from X:$26
-		highPassStage(_c, poles(offsetPole(t, y[0x11], y[0xc])), 0x60, 0x00, 0x04, 0x1b);
-		twoPoleStage(_c, poles(offsetPole(t, y[8], y[0xe])), 0x04, 0x21);
-		highPassStage(_c, poles(offsetPole(t, y[9], y[0xf])), 0x60, 0x00, 0x26, 0x25);
-		twoPoleStage(_c, poles(offsetPole(t, y[0xa], y[0x10])), 0x26, 0x2b);
+		highPassStage(_c, poles(offsetPole(_c, y[0x11], y[0xc])), 0x60, 0x00, 0x04, 0x1b);
+		twoPoleStage(_c, poles(offsetPole(_c, y[8], y[0xe])), 0x04, 0x21);
+		highPassStage(_c, poles(offsetPole(_c, y[9], y[0xf])), 0x60, 0x00, 0x26, 0x25);
+		twoPoleStage(_c, poles(offsetPole(_c, y[0xa], y[0x10])), 0x26, 0x2b);
 
 		// Each path at its level, written back as the DSP does, then half their sum weighted by Y:$0B and Y:$12 (the
 		// DSP's two passes, a sample at a time); then the levels decay

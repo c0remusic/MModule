@@ -157,10 +157,13 @@ namespace md::voice::trx
 		_iy[3] = 0x400000;
 	}
 
-	// A word of the filters' tables by its X address
-	inline uint32_t filterWord(const TrxTables& _t, const uint32_t _addr)
+	// A word of the filters' tables by its X address; an index from a packet word may reach past them, into what lies
+	// there
+	inline uint32_t filterWord(const Context& _c, const uint32_t _addr)
 	{
-		return word(_t.filters, (_addr - TrxTables::FiltersAddr) & 0xffffff);
+		const auto& filters = tables(_c).filters;
+		const uint32_t index = (_addr - TrxTables::FiltersAddr) & 0xffffff;
+		return index < filters.size() ? filters[index] : external(_c, _addr, testHooks::AreaX);
 	}
 
 	// TRX-CH's and TRX-CY's six waves (TrxTables::ChWaves) added to _sig, each at its gain, from its offset in the
@@ -193,17 +196,17 @@ namespace md::voice::trx
 		uint32_t c, r;
 	};
 
-	inline Pole pole(const TrxTables& _t, const uint32_t _angle, const uint32_t _radius)
+	inline Pole pole(const Context& _c, const uint32_t _angle, const uint32_t _radius)
 	{
-		return {filterWord(_t, (0x140900 + _angle) & 0xffffff), filterWord(_t, (0x141900 + _radius) & 0xffffff)};
+		return {filterWord(_c, (0x140900 + _angle) & 0xffffff), filterWord(_c, (0x141900 + _radius) & 0xffffff)};
 	}
 
 	// ... by a base word: the angle the base plus X:$140000[offset], the radius the base plus X:$140080[offset]
-	inline Pole offsetPole(const TrxTables& _t, const uint32_t _base, const uint32_t _offset)
+	inline Pole offsetPole(const Context& _c, const uint32_t _base, const uint32_t _offset)
 	{
-		const uint32_t angle = _base + filterWord(_t, (0x140000 + _offset) & 0xffffff);
-		const uint32_t radius = _base + filterWord(_t, (0x140080 + _offset) & 0xffffff);
-		return pole(_t, angle & 0xffffff, radius & 0xffffff);
+		const uint32_t angle = _base + filterWord(_c, (0x140000 + _offset) & 0xffffff);
+		const uint32_t radius = _base + filterWord(_c, (0x140080 + _offset) & 0xffffff);
+		return pole(_c, angle & 0xffffff, radius & 0xffffff);
 	}
 
 	// A two-pole filter's coefficients: a1 = 2 r c, a2 = -r^2, and g = 1/2 - a1 - a2

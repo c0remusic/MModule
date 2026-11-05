@@ -103,7 +103,7 @@ namespace md::voice::trx::ma
 
 		fibonacci(&ix[0x02], y[0x15], y[0x16]);
 
-		highPassStage(_c, poles(offsetPole(t, y[0xa], y[0x10])), 0x02, 0x70, 0x46, 0x23);
+		highPassStage(_c, poles(offsetPole(_c, y[0xa], y[0x10])), 0x02, 0x70, 0x46, 0x23);
 		// From its two history words: two samples late, its last two lost
 		std::copy_n(&ix[0x46], 32, &iy[0x20]);
 
@@ -111,10 +111,10 @@ namespace md::voice::trx::ma
 
 		// The second stage's input history lands on the follower's first two words, so it reads two words past them:
 		// X:$42-$43, which nothing here writes, hold what the last voice to write them left, as on the DSP
-		highPassStage(_c, poles(offsetPole(t, y[7], y[8])), 0x24, 0x70, 0x46, 0x17);
+		highPassStage(_c, poles(offsetPole(_c, y[7], y[8])), 0x24, 0x70, 0x46, 0x17);
 		for(uint32_t k = 0; k < 32; ++k)
 			ix[0x46 + k] = lim(acc(ix[0x46 + k]) >> 3);
-		highPassStage(_c, poles(offsetPole(t, y[9], y[0xf])), 0x46, 0x70, 0x02, 0x1d);
+		highPassStage(_c, poles(offsetPole(_c, y[9], y[0xf])), 0x46, 0x70, 0x02, 0x1d);
 
 		y[0x11] = lim(acc(y[0x11]) + acc(y[0xb]));
 		for(uint32_t k = 0; k < 32; ++k)
