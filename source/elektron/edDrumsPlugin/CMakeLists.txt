@@ -34,6 +34,16 @@ target_compile_definitions(edDrumsPlugin PRIVATE ED_DRUMS_NAME="${ED_DRUMS_NAME}
 target_link_libraries(edDrumsPlugin PRIVATE edDrums mdProtocol juce_plugin_modules)
 set_property(TARGET edDrumsPlugin PROPERTY FOLDER "Elektron")
 
+if(BUILD_TESTING)
+	# What processBlock tells the engine of the host's transport (GEARMULATOR_MD_FIRMWARE_BIN: exit 77 without it)
+	add_executable(edDrumsProcessorTest edDrumsProcessorTest.cpp)
+	target_link_libraries(edDrumsProcessorTest PRIVATE edDrumsPlugin edDrums mdProtocol juce_plugin_modules)
+	target_compile_definitions(edDrumsProcessorTest PRIVATE JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 ED_DRUMS_NAME="${ED_DRUMS_NAME}")
+	add_test(NAME edDrumsProcessorTest COMMAND edDrumsProcessorTest)
+	set_tests_properties(edDrumsProcessorTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
+	set_property(TARGET edDrumsProcessorTest PROPERTY FOLDER "Elektron/test")
+endif()
+
 if(BUILD_TESTING AND TARGET edDrumsPlugin_VST3)
 	# The VST3 itself, loaded through JUCE's VST3 hosting as Live loads it, against the engine driven directly
 	# (GEARMULATOR_MD_FIRMWARE_BIN: exit 77 without it)

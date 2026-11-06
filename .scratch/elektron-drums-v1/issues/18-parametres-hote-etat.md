@@ -36,3 +36,7 @@ Spécification §8, §9. Tickets « Paramètres hôte et sorties », « Format d
 Les paramètres de chaîne ne sont pas encore des paramètres hôte. `Chain` est seul propriétaire des réglages ; rajouter une lecture (
 `Chain::settings`) pour l'état, `Engine::chain` a été retiré faute d'appel. Le changement de famille recharge la chaîne sans demander :
 la question reste à l'interface. Un type d'étage automatisé à la cadence d'un bloc attend la fin de chaque fondu.
+
+## Noté par le ticket 13 (2026-11-06)
+
+`setLfo` est idempotent, les paramètres hôte restent la vérité : pas de relecture à ajouter dans `Engine`. Retirer alors `Processor::engine()` : `edDrumsVst3HostTest` entendra les LFO suivre le transport. Un retarget automatisé est déjà couvert par la pente à la cible.

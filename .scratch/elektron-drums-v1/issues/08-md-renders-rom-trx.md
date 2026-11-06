@@ -839,3 +839,9 @@ Reste ouvert :
 - La pente des niveaux de l'OS ($100029E), la même loi que le lissage, reste dans `HostModel` : elle sert le mixeur, pas
   la voix (ticket 10). Les LFO relèvent du ticket 13 : le `const uint16_t*` de `coefficients` est leur point d'entrée.
 - Ce que joue une TRX dont la forme d'onde manque, sans flash image.
+
+## 2026-11-06 : écoute close
+
+Écoute à l'aveugle, sortie à 44,1 kHz. ROM sur nos filtres contre DSP émulé : ROM-08 BRR 120, -17,2 dB, 3/8 ; ROM-20 et ROM-17, pires cas de 0,536 et 0,512 dB, rien entendu.
+Chemin 44,1 vers 48 et retour par Legacy (TRX -43,9 dB, EFM, E12, P-I, GND -27,3 dB) : rien entendu, de l'aveu de l'utilisateur, une paire passée voulant dire cela. Nos filtres sont gardés. Le test juge
+le rééchantillonnage, pas un moteur adapté : le MD à 48 kHz reste au ticket 16. Reste ouverte la conversion 16 vers 12 bits de la flash.

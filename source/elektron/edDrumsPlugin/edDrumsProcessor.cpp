@@ -1,6 +1,7 @@
 #include "edDrumsProcessor.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 
 #include "mdProtocol/mdmachines.h"
@@ -185,11 +186,19 @@ namespace elektron::drums
 		}
 
 		double bpm = m_tempo->get();
+		juce::Optional<double> quarters;
 		if(auto* playHead = getPlayHead())
 			if(const auto position = playHead->getPosition())
-				if(const auto hostBpm = position->getBpm())
+			{
+				if(const auto hostBpm = position->getBpm(); hostBpm && std::isfinite(*hostBpm))
 					bpm = *hostBpm;
+				if(position->getIsPlaying())
+					quarters = position->getPpqPosition();
+			}
 		e.setTempo(bpm);
+		// A transport that stands still leaves the LFOs running on at the tempo, as the machines' run without their sequencer
+		if(quarters && std::isfinite(*quarters))
+			e.setPosition(*quarters);
 	}
 
 	void Processor::processBlock(juce::AudioBuffer<float>& _buffer, juce::MidiBuffer& _midi)

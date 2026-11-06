@@ -1,5 +1,7 @@
 #include "mdVoiceTrack.h"
 
+#include <algorithm>
+
 namespace md::voice
 {
 	void Track::setMachine(const uint8_t _id, const Defaults& _defaults)
@@ -67,14 +69,32 @@ namespace md::voice
 		m_lockPending = 0;
 	}
 
+	void Track::modulate(const size_t _param, const int _offset)
+	{
+		if(m_modulation[_param] == _offset)
+			return;
+		m_modulation[_param] = _offset;
+		m_modulated = _offset ? m_modulated | 1u << _param : m_modulated & ~(1u << _param);
+		m_moved = true;
+	}
+
 	void Track::update(const OsTables& _tables, const uint32_t _tempo, Voice& _voice)
 	{
 		// The OS's tick runs the LFO's restart and this Track's LFO on its destination here, before the coefficient
-		// function (HostModel::updateVoice): ticket 13 goes in here, on a Hit
+		// function (HostModel::updateVoice)
 		if(isAudioMachine(m_machine))
 		{
+			Smoother::Values moved;
+			const uint16_t* values = m_smoother.values().data();
+			if(m_modulated)
+			{
+				moved = m_smoother.values();
+				for(size_t p = 0; p < m_modulation.size(); ++p)
+					moved[p] = static_cast<uint16_t>(std::clamp(moved[p] + m_modulation[p], 0, 0x3fff));
+				values = moved.data();
+			}
 			Packet packet;
-			const int n = coefficients(_tables, m_machine, m_smoother.values().data(), m_trigger, _tempo, packet);
+			const int n = coefficients(_tables, m_machine, values, m_trigger, _tempo, packet);
 			_voice.setSlot(packet.data(), n);
 		}
 		else if(m_trigger)
@@ -83,6 +103,7 @@ namespace md::voice
 			_voice.setSlot(&gnd, 1);
 		}
 		m_trigger = false;
+		m_moved = false;
 	}
 
 	void prepareBlock(std::array<Track, 16>& _tracks, std::vector<Voice>& _voices, const OsTables& _tables,
@@ -96,7 +117,7 @@ namespace md::voice
 			if(!(bits & 1))
 				continue;
 			const bool tick = _tracks[t].ticks(_block);
-			if(_tracks[t].triggered() || (tick && (_live >> t & 1)))
+			if(_tracks[t].triggered() || ((tick || _tracks[t].moved()) && (_live >> t & 1)))
 				_tracks[t].update(_tables, _tempo, _voices[t]);
 			if(tick)
 				_tracks[t].tick();

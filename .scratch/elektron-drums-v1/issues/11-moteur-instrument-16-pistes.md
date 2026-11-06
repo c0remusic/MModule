@@ -137,3 +137,15 @@ la preuve échantillon par échantillon ne couvre plus le produit. À garder en 
   lie les deux familles.
 - La chaîne d'une piste Syntakt tourne-t-elle avant ou après son rééchantillonneur ? Avant, les étages MD vivent à deux fréquences
   dans un processus, et `tables()` devient `tables(rate)`, à trancher ici.
+
+## 2026-11-06 : correction après écoute
+
+Les chiffres de la voix éteinte et de `alignTicks` étaient mal décrits, ici et dans le commit. Le scénario `skip` de `edDrumsEngineTest` ne joue aucun rythme
+à 125 ou 30 BPM : le tempo n'y règle que le mot de tempo, les Hits tombent au hasard, 1 sur 6000 ou 24000 blocs (environ 4,4 et 17 s), sons et machines
+tirés au sort, 16 pistes, et `alignTicks` n'y est pas appelé. Remesuré sur rendus réels :
+- Un Hit n'est touché qu'après la queue de sa voix plus 5,94 s de silence ; 98 machines sur 98 identiques à 6,0 s d'écart ou moins. Un pattern normal ne gèle jamais.
+- Après gel, sons par défaut : les machines à bruit tirent un autre bruit (environ +3 dB de résidu, pas de changement de niveau), les autres autour de -50 dB.
+- `alignTicks` sur pattern fixe : seul P-I diffère (-12,3 à -26 dB), TRX, EFM, E12, ROM et GND sont identiques ; les autres familles ne bougent que sous un balayage de PTCH.
+
+Écoute à l'aveugle du même jour, 8 essais par paire, sortie à 44,1 kHz : P-I-SD 3/8, TRX-CB 5/8, EFM-SD 5/8 ; ROM-17 et a1 « rien entendu » ; a2 et a3 inachevées. Rien de prouvé
+entendu : gel et `alignTicks` confirmés par l'utilisateur.

@@ -12,6 +12,8 @@
 //	- the same kits with every slot off, in their families' chains, and in a chain of ticket 12 at its dearest: two drives
 //	  raised 2x (then 4x), three bands, the filter under its envelope, on the Syntakt the amp's: the chain's cost is the
 //	  difference from every slot off. Without a chain the numbers are the engine's alone, as ticket 11 gave them
+//	- the mixed kit at its dearest with 2 LFOs a Track moving every block on the chain, the machine, level and pan (ticket 13):
+//	  the difference from no LFO is what they cost
 // and the load of the other processes (GetSystemTimes minus this process). SP TWINSHOT plays near full-scale noise
 // at its top rate. The flash image: GEARMULATOR_MD_FIRMWARE_BIN.
 
@@ -89,6 +91,9 @@ namespace
 		Mixing		// the dearest, its drives' MIX at 64
 	};
 
+	using Aims = std::array<LfoTarget, 2>;		// 2 LFOs a Track, moving every block, on these
+	constexpr Aims NoLfo{LfoTarget::None, LfoTarget::None};
+
 	ChainSettings dearest(const Family _family)
 	{
 		const bool syntakt = _family == Family::Syntakt;
@@ -109,9 +114,20 @@ namespace
 		return s;
 	}
 
+	// One LFO's worth of what moves every block: a sine of 1/64, each Track's its own speed
+	LfoSettings moving(const LfoTarget _target, const int _track)
+	{
+		LfoSettings s;
+		s.rate.division = _track % 3;
+		s.shape = LfoShape::Sine;
+		s.depth = 40;
+		s.target = _target;
+		return s;
+	}
+
 	// One run: every Track on its sound, _hits or not
 	Result once(const Library& _library, const std::array<Sound, Tracks>& _kit, const bool _hits, const double _seconds,
-		const Chains _chains = Chains::Bare, const int _factor = 2)
+		const Chains _chains = Chains::Bare, const int _factor = 2, const Aims& _lfos = NoLfo)
 	{
 		auto e = std::make_unique<Engine>(_library);
 		e->setOversampling(_factor);
@@ -132,6 +148,9 @@ namespace
 					chain.drive[0].mix = chain.drive[1].mix = 64;
 				e->setChain(t, chain);
 			}
+			for(int i = 0; i < 2; ++i)
+				if(_lfos[static_cast<size_t>(i)] != LfoTarget::None)
+					e->setLfo(t, i, moving(_lfos[static_cast<size_t>(i)], t));
 		}
 		std::array<std::array<float, HostBlock>, 2 * Outputs> buffers;
 		std::array<float*, 2 * Outputs> p{};
@@ -179,13 +198,13 @@ namespace
 	}
 
 	void scenario(const char* _name, const Library& _library, const std::array<Sound, Tracks>& _kit, const bool _hits,
-		const int _runs, const double _seconds, const Chains _chains = Chains::Bare, const int _factor = 2)
+		const int _runs, const double _seconds, const Chains _chains = Chains::Bare, const int _factor = 2, const Aims& _lfos = NoLfo)
 	{
 		std::vector<double> pct;
 		double worst = 0, others = 0;
 		for(int r = 0; r < _runs; ++r)
 		{
-			const auto result = once(_library, _kit, _hits, _seconds, _chains, _factor);
+			const auto result = once(_library, _kit, _hits, _seconds, _chains, _factor, _lfos);
 			pct.push_back(result.pct);
 			worst = std::max(worst, result.worstUs);
 			others = std::max(others, result.others);
@@ -314,11 +333,16 @@ int main(const int _argc, char** _argv)
 	scenario("mixed, no Hit", library, kit, false, runs, seconds);
 	scenario("mixed, family chains", library, kit, true, runs, seconds, Chains::Family);
 	scenario("mixed, dearest chains, drives 2x", library, kit, true, runs, seconds, Chains::Dearest, 2);
+	scenario("mixed, dearest, 2x, 2 LFOs on FLTF + 3 bands", library, kit, true, runs, seconds, Chains::Dearest, 2, Aims{LfoTarget::Frequency, LfoTarget::BandA});
+	scenario("mixed, dearest, 2x, 2 LFOs on 2 of the 3 bands", library, kit, true, runs, seconds, Chains::Dearest, 2, Aims{LfoTarget::BandA, LfoTarget::BandB});
+	scenario("mixed, dearest, 2x, 2 LFOs on SYN1 + SYN2", library, kit, true, runs, seconds, Chains::Dearest, 2, Aims{LfoTarget::Machine1, LfoTarget::Machine2});
+	scenario("mixed, dearest, 2x, 2 LFOs on level + pan", library, kit, true, runs, seconds, Chains::Dearest, 2, Aims{LfoTarget::Level, LfoTarget::Pan});
 	scenario("mixed, dearest chains, drives 4x", library, kit, true, runs, seconds, Chains::Dearest, 4);
 
 	kit.fill(md[0].sound);
 	scenario("16 MD, family chains", library, kit, true, runs, seconds, Chains::Family);
 	scenario("16 MD, dearest chains, drives 2x", library, kit, true, runs, seconds, Chains::Dearest, 2);
+	scenario("16 MD, dearest, 2x, 2 LFOs on SYN1 + SYN2", library, kit, true, runs, seconds, Chains::Dearest, 2, Aims{LfoTarget::Machine1, LfoTarget::Machine2});
 	scenario("16 MD, the dearest on 1 Track of 4, drives 2x", library, kit, true, runs, seconds, Chains::OneInFour, 2);
 	scenario("16 MD, the dearest on 1 Track of 16, drives 2x", library, kit, true, runs, seconds, Chains::OneInSixteen, 2);
 	scenario("16 MD, dearest chains, MIX 64, drives 2x", library, kit, true, runs, seconds, Chains::Mixing, 2);

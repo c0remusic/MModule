@@ -157,3 +157,15 @@ vélocité et le fondu à déplacer après la chaîne. Choke : le fondu à l'ann
 a été retiré du moteur faute d'usage : ce ticket devra le rendre.
 
 Le `Block` a été sorti dans `elektronBlock.h`.
+
+## 2026-11-06 : hypothèses résolues
+
+Recherche sur le portage exact et l'état de boot de l'OS 1.41, routines de l'OS exécutées sur cet état. Tout ce qui suit en dérive et reste hors du dépôt pour les valeurs brutes.
+1. Drives de firmware au débit de base : **confirmé**, ni le Syntakt ni le MD ne suréchantillonnent. `Chain::raised` est juste.
+2. RST (AENR) : **confirmé pour l'init** (activé). Il commande aussi le fondu de filtre et l'effacement de BASE/WIDTH. Coupé : identique sur un Hit seul, -32 à -77 dB à Hits rapprochés. L'import de Sounds devra le rendre paramétrable. Le MD n'a pas de BASE/WIDTH : ce cas n'existe qu'en emplacement ajouté.
+3. Filtre par défaut : **réfuté**. L'init du firmware est type 0 Lowpass, FREQ 127, DEC et REL 64 ; la chaîne a type 7 OFF, DEC et REL 0. WIDTH varie selon la machine à l'init. Écoute : CY ALLOY (-16,0 dB, niveau +0,75 dB) et SD BASIC rien entendu, BD MODERN 5/8. Type 0 retenu par fidélité à la spécification, à faire.
+4. Enveloppe et ampli : FENR vaut **0 après INIT TRACK SOUND**, 1 sur les kits d'usine : descripteur et manuel ont tous deux raison. Le code suit 1 : un champ `reset`, à 0 par défaut, à faire. `on=false` est neutre sur les machines AHD mais **réfuté** sur SY TONE, SY CHORD, SY DUAL VCO et SY BITS, en ADSR à l'init avec voix tenue jusqu'au relâchement : +3,5 à -7,0 dB. Défauts d'ampli différents aussi. À faire.
+
+Trouvé en passant : `Machine::indexDescriptors` garde le premier descripteur d'un id, le firmware le dernier, donc le kit par défaut du portage a AmpMode ADSR et voix tenue sur toutes les machines, +2,8 à +17,0 dB. À corriger à part, la référence bouge.
+
+Q6 sur MD DIST : écarté, l'utilisateur ayant suivi la recommandation, DIST étant l'étage de la machine. `HitDelay` reste sans gigue, décalage de drive traité par le rééchantillonneur à phase minimale.

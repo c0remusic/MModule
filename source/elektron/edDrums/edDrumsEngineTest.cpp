@@ -30,6 +30,7 @@
 #include "Firmware.h"
 #include "TrackFx.h"
 #include "edDrumsEngine.h"
+#include "edDrumsTestSupport.h"
 #include "mdDrumsAllocationCounter.h"
 #include "mdProtocol/mdmachines.h"
 #include "stFastBdModern.h"
@@ -47,12 +48,12 @@
 namespace
 {
 	using namespace elektron::drums;
+	using namespace elektron::drums::test;
 	using elektron::BlockSize;
 	using syntakt::fast::bench::highShare;
 	using syntakt::fast::bench::Pi;
 	using Clock = std::chrono::steady_clock;
 
-	constexpr int Channels = 2 * Outputs;
 	constexpr int HitSamples = 1500;	// a Hit compared from its onset
 
 	void require(const bool _condition, const std::string& _message)
@@ -65,44 +66,6 @@ namespace
 	{
 		return (_m.family == Family::Syntakt ? syntaktMachineNames[_m.id] : "MD machine " + std::to_string(_m.id));
 	}
-
-	// Every machine that can sound, both families
-	std::vector<Machine> machines()
-	{
-		std::vector<Machine> m;
-		for(int id = 0; id < SyntaktMachines; ++id)
-			m.push_back({Family::Syntakt, static_cast<uint8_t>(id)});
-		for(int id = 1; id < 256; ++id)
-			if(md::voice::coefficientsPorted(static_cast<uint8_t>(id)))
-				m.push_back({Family::Machinedrum, static_cast<uint8_t>(id)});
-		return m;
-	}
-
-	class Take
-	{
-	public:
-		explicit Take(const int _samples) : m_samples(_samples), m_buffers(Channels)
-		{
-			for(int c = 0; c < Channels; ++c)
-				m_buffers[static_cast<size_t>(c)].assign(static_cast<size_t>(_samples), 0.0f);
-		}
-
-		// Renders _count samples at _at
-		void render(Engine& _e, const int _at, const int _count)
-		{
-			std::array<float*, Channels> p{};
-			for(int c = 0; c < Channels; ++c)
-				p[static_cast<size_t>(c)] = m_buffers[static_cast<size_t>(c)].data() + _at;
-			_e.render(p.data(), _count);
-		}
-
-		const std::vector<float>& channel(const int _c) const { return m_buffers[static_cast<size_t>(_c)]; }
-		int samples() const { return m_samples; }
-
-	private:
-		int m_samples;
-		std::vector<std::vector<float>> m_buffers;
-	};
 
 	float peakOf(const std::vector<float>& _x)
 	{

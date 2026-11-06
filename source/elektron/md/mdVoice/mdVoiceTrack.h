@@ -45,6 +45,11 @@ namespace md::voice
 		// update in the block; without one, dropped
 		void takeLocks();
 
+		// An LFO's move of SYN _param (0-7), in the smoothed words' units, which every update adds after the smoothing, as the
+		// OS's apply does, its word limited to 0 to $3FFF. A move brings an update of its own at the next block, not at the tick
+		void modulate(size_t _param, int _offset);
+		bool moved() const { return m_moved; }
+
 		// The Track's slot as the OS's tick fills it. A machine the voice cannot play has only its Hit: the voice takes
 		// GND--'s routines, as the DSP's dispatch gives those types, so that what it played stops
 		void update(const OsTables& _tables, uint32_t _tempo, Voice& _voice);
@@ -68,6 +73,9 @@ namespace md::voice
 		uint32_t m_locked = 0;					// bit n: parameter n plays m_lockValue, the last Hit's
 		uint32_t m_lockPending = 0;				// the same for the block's Hit
 		std::array<uint8_t, kParams> m_lockValue{}, m_lockPendingValue{};
+		std::array<int, 8> m_modulation{};
+		uint32_t m_modulated = 0;				// bit n: m_modulation[n] is not 0
+		bool m_moved = false;					// an update waits
 		uint8_t m_machine = 0;
 		int m_pending = 0;	// the machine the next Hit brings, -1: none. HostModel assigns machine 0 at construction
 		bool m_trigger = false;

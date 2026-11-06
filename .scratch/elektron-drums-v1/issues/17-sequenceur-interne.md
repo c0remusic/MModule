@@ -28,3 +28,8 @@ Spécification §7, §12. Tickets « Séquenceur interne », « Fonctions de MoD
 Le séquenceur vit dans `edDrums`, sans JUCE, et fusionne ses trigs aux notes de l'hôte là où `processBlock` coupe son bloc. Il faudra une API de Locks : le
 moteur n'en a pas. L'identité de deux rendus ne tient que depuis la même phase de grille : une voie Syntakt dépend de son bloc à
 48 kHz, et les voix éteintes gèlent (spécification §3). Le critère 6 démarre donc ses deux rendus de la même position, moteur neuf.
+
+## Noté par le ticket 13 (2026-11-06)
+
+`Engine::position()` continue au tempo quand l'hôte est arrêté, pour les LFO : ce n'est pas « l'hôte joue ». Porter `isPlaying` depuis `sync`, et lire `position()` en lecture seulement : sa tolérance donne les échantillons
+indépendants des blocs du critère 6.

@@ -43,3 +43,8 @@ fonction de la fréquence.
 
 `Chain` sépare débit et famille : le MD à 48 kHz passe par `Chain(48000, ...)` et `tables(rate)`, qui s'arrêtent sur tout autre débit.
 Le 96 kHz natif doit ajouter ses tables. `Oversampler` est dans sa propre paire pour le 2x hors de la chaîne.
+
+## Noté le 2026-11-06
+
+Décidé avec l'utilisateur : le MD à 48 kHz passe par un rééchantillonneur, comme chez Gearmulator, où la machine garde sa fréquence et `ResamplerInOut` fait le pont. L'utilisateur produit à 44,1 kHz : 48 kHz ne doit
+rien coûter à ce chemin. Les LFO comptent leurs pentes en blocs : le 96 kHz natif les diviserait par deux, à remesurer alors.

@@ -234,14 +234,14 @@ namespace md::fast
 
 	void Eq::set(const int _lane, const int _eqf, const int _eqg)
 	{
-		if(_eqf == m_eqf[_lane] && _eqg == m_eqg[_lane])
+		const int f = _eqf >> 3, g = _eqg >> 7;		// what the tables read
+		if(f == m_eqf[_lane] && g == m_eqg[_lane])
 			return;
-		m_eqf[_lane] = _eqf;
-		m_eqg[_lane] = _eqg;
+		m_eqf[_lane] = f;
+		m_eqg[_lane] = g;
 
 		using namespace tables;
 		const auto& t = m_t;
-		const int f = _eqf >> 3, g = _eqg >> 7;
 
 		// The poles' radius and cosine, the zeros' the same; c0 = -r^2, c1 = rc - 1/2
 		const int32_t cosP = t.eqCos[f + t.eqPoleCos[g] + EqCosBase], radP = t.eqExp[f + t.eqPoleExp[g] + EqExpBase];

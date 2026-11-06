@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "edDrumsChain.h"
+#include "edDrumsLfo.h"
 #include "edDrumsLibrary.h"
 #include "elektronBlock.h"
 #include "mdVoice.h"
@@ -28,9 +29,27 @@
 // and a Hit adds no latency. Level and velocity come after the chain, at the ring. A cut is one ramp of CutSamples: after
 // the chain, so that what the chain holds goes too, until a Hit of the Track sounds; from there on the old voice ramps
 // before the chain, under the new one.
+//
+// A Track's two LFOs (edDrumsLfo.h, ticket 13) step at the blocks of its family, the Machinedrum's for an Off Track, so that
+// a TRIG LFO meets a Hit the same wherever its note fell. A Track takes what is aimed at it at the blocks of its own family,
+// each block by its target's limit, which is what keeps a square's edge from clicking: SYN1-8 at the machine, level and pan at
+// the Track, the rest at its chain. A Hit of the Track takes it all at once.
 namespace elektron::drums
 {
+	// The chain's value an LFO target at or past DriveA is
+	constexpr VelocityTarget chainTarget(const LfoTarget _target)
+	{
+		return static_cast<VelocityTarget>(static_cast<int>(_target) - static_cast<int>(LfoTarget::DriveA) + static_cast<int>(VelocityTarget::DriveA));
+	}
+	static_assert(chainTarget(LfoTarget::DriveA) == VelocityTarget::DriveA && chainTarget(LfoTarget::DriveB) == VelocityTarget::DriveB
+		&& chainTarget(LfoTarget::BandA) == VelocityTarget::BandA && chainTarget(LfoTarget::BandB) == VelocityTarget::BandB
+		&& chainTarget(LfoTarget::Frequency) == VelocityTarget::Frequency && chainTarget(LfoTarget::Resonance) == VelocityTarget::Resonance
+		&& chainTarget(LfoTarget::Width) == VelocityTarget::Width && chainTarget(LfoTarget::EnvelopeDepth) == VelocityTarget::EnvelopeDepth,
+		"an LFO's chain targets are VelocityTarget's, in its order");
+	static_assert(static_cast<int>(LfoTarget::Count) - static_cast<int>(LfoTarget::EnvelopeDepth) == 1, "the chain's targets end the list");
+
 	constexpr int Tracks = Lanes;
+	static_assert(LfoBank::Tracks == Tracks, "an LFO bank is the engine's");
 	constexpr int Outputs = 16;		// Main, then Out 01 to 15, each stereo: Live opens 16 output buses per plug-in
 	constexpr double SampleRate = 44100.0;
 
@@ -84,6 +103,14 @@ namespace elektron::drums
 		// The drives' rate unless told otherwise
 		static constexpr int DefaultOversampling = 2;
 
+		// The most an LFO moves level, pan or SYN1-8 in a block, in 1/128 of a value, which is what a square's edge becomes: a
+		// whole range in 4 blocks, at the top of level's law as fast as a cut's ramp. A chain's are Chain::moveLimit
+		static constexpr int LfoMove = (127 << 7) / 4;
+
+		// Where a host's position agrees with the engine's own, in quarter notes: a sample at 323 BPM, past any host's rounding,
+		// 1/512 of the cycle of a 1/64
+		static constexpr double PositionTolerance = 1.0 / 8192;
+
 		// _library outlives the engine
 		explicit Engine(const Library& _library);
 		~Engine();
@@ -113,8 +140,17 @@ namespace elektron::drums
 		void setPan(int _track, int _pan);
 		// 0 Main, 1-15 Out 01-15
 		void setOutput(int _track, int _output);
-		// Beats per minute, for the Machinedrum's machines that read the tempo
+		// Beats per minute, for the Machinedrum's machines that read the tempo and for the LFOs
 		void setTempo(double _bpm);
+
+		// The host's transport at this sample, in quarter notes; between two calls it runs on at the tempo. A call that
+		// agrees with where it stands, to PositionTolerance, changes nothing: the samples do not depend on the host's blocks
+		void setPosition(double _quarters);
+		double position() const;
+
+		// LFO _index (0 or 1) of _track, from the next block of its Track's family. A target it leaves ramps back; off, an LFO costs nothing
+		void setLfo(int _track, int _index, const LfoSettings& _settings);
+		double lfoPhase(int _track, int _index) const;
 
 		// A Hit of _track silences the Tracks of _targets, a bit each, whatever their family, where the Hit sounds
 		void setChokes(int _track, uint32_t _targets);
@@ -178,7 +214,8 @@ namespace elektron::drums
 		{
 			int64_t at = 0;			// where its next block goes
 			float gain = 0, velocity = 0;
-			int quiet = 0;			// its last blocks in a row under Silence
+			int quiet = 0;			// its last blocks in a row under Silence, before its chain too
+			bool voiced = false;	// quiet out of its chain, not before it: a closed filter is no end. Read once it is quiet
 
 			void start(int64_t _at, float _velocity, float _level);
 			void write(Ring& _ring, const float* _x, float _level, int64_t _fadeAt);
@@ -195,6 +232,7 @@ namespace elektron::drums
 
 		struct Source;
 
+
 		// As far as a Machinedrum voice cut can reach past what is written: the ramp, a Hit's wait and the voice's start
 		static constexpr int TailBlocks = 5;
 
@@ -203,12 +241,15 @@ namespace elektron::drums
 			Machine machine;
 			std::array<uint8_t, 8> params{};
 			int note = 60;
-			float level = 0.62f;			// the gain of level 100
+			int levelValue = 100;
+			float level = 0.62f;			// the gain of level 100, the LFOs' moves in it
+			int panValue = 64;
 			std::array<float, 2> pan{1, 1}, panNow{1, 1};
 			int output = 0;
 			uint32_t chokes = 0;
 			int accent = 0;
 			Family chainFamily = Family::Off;	// the Chain that holds its settings
+			std::array<int, static_cast<size_t>(LfoTarget::Count)> taken{};	// what the LFOs aimed here add up to, as far as its slope has got
 
 			// Machinedrum
 			Ring mdRing;
@@ -233,12 +274,19 @@ namespace elektron::drums
 			int nextPhase = 0;				// ... from output sample phaseAt, which a Hit sets
 			int64_t phaseAt = Never;
 			uint32_t pendingLocks = 0, lockedNow = 0;
-			std::array<uint8_t, 8> lockValue{};
+			std::array<uint8_t, 8> lockValue{}, lockPendingValue{};
 		};
 
 		void cut(int _track);
 		void hitMachinedrum(int _track, int _velocity, float _gain);
 		void hitSyntakt(int _track, int _velocity, float _gain);
+		void takeMoves(int _track, bool _settle = false);
+		void modulate(uint32_t _tracks, double _seconds);
+		void sendParameter(const Track& _track, int _index, int _value);
+		static int playedValue(const Track& _track, const int _index)
+		{
+			return (_track.lockedNow >> _index & 1 ? _track.lockValue : _track.params)[static_cast<size_t>(_index)];
+		}
 		void takeLane(int _track);
 		void freeLane(int _source, int _lane);
 		void releaseVoice(int _track);
@@ -272,6 +320,14 @@ namespace elektron::drums
 		int64_t m_stNext = 0;			// the host sample whose reading first needs block m_stBlock
 		std::unique_ptr<Chain> m_stChain;
 		std::unique_ptr<Block> m_stIn;
+
+		LfoBank m_lfos;
+		uint32_t m_stMask = 0;			// the Tracks on a Syntakt machine: the others' LFOs and moves go by the Machinedrum's blocks
+
+		// The transport: position m_quarters at sample m_quartersAt, and on at the tempo
+		double m_quarters = 0;
+		int64_t m_quartersAt = 0;
+		double m_quartersPerSample = 120.0 / 60 / SampleRate;
 
 		int64_t m_now = 0;				// the next host sample
 	};

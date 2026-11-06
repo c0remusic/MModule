@@ -234,6 +234,7 @@ namespace elektron::drums
 	{
 		int clampValue(const int _value) { return std::clamp(_value, 0, 127); }
 
+
 		// What a Kit or a restored state may hold, inside what the stages' tables hold
 		ChainSettings limited(ChainSettings _s)
 		{
@@ -401,43 +402,47 @@ namespace elektron::drums
 	{
 		const auto i = static_cast<size_t>(_lane);
 		const auto& s = m_settings[i];
-		return s.velocityTarget == _target ? s.velocityDepth * m_velocity[i] / 127 : 0;
+		const int velocity = s.velocityTarget == _target ? s.velocityDepth * m_velocity[i] / 127 : 0;
+		return velocity * 128 + m_modulation[i][static_cast<size_t>(_target)];
 	}
 
 	void Chain::setDrive(const int _lane, const int _place, const ChainSettings::Drive& _drive, const int _offset)
 	{
-		const int amount = clampValue(_drive.amount + _offset);
+		const int amount = wordOf(_drive.amount, _offset);
 		auto& s = driveAt(_place);
 		switch(_drive.type)
 		{
-		case DriveType::Syntakt:	s.syntakt.set(_lane, amount << 8); break;
-		case DriveType::MdDist:		s.dist.set(_lane, amount << 7); break;
-		case DriveType::MdSrr:		s.srr.set(_lane, amount << 7); break;
+		case DriveType::Syntakt:	s.syntakt.set(_lane, amount << 1); break;
+		case DriveType::MdDist:		s.dist.set(_lane, amount); break;
+		case DriveType::MdSrr:		s.srr.set(_lane, amount); break;
 		default:					break;
 		}
 		m_mix[_place][_lane] = static_cast<float>(_drive.mix) / 127.0f;
 	}
 
-	void Chain::setBand(const int _lane, const int _place)
+	void Chain::setBand(const int _lane, const int _place, const bool _a, const bool _b)
 	{
 		const auto& band = m_settings[static_cast<size_t>(_lane)].band;
 		const int a = offset(_lane, VelocityTarget::BandA), b = offset(_lane, VelocityTarget::BandB);
 		auto& s = bandAt(_place);
-		const auto value = [&](const size_t _i, const int _offset) { return clampValue(band.values[_i] + _offset); };
+		const auto word = [&](const size_t _i, const int _offset) { return wordOf(band.values[_i], _offset); };
 		const auto hz = [](const int _v) { return 20 * std::pow(1000.0, _v / 127.0); };
-		const auto db = [](const int _v) { return (_v - 64) * 18.0 / 63; };
+		const auto db = [](const double _v) { return (_v - 64) * 18.0 / 63; };
 		switch(band.type)
 		{
 		case BandType::BaseWidth:
-			s.baseWidth.set(_lane, value(0, a) << 8, value(1, b) << 8);
+			s.baseWidth.set(_lane, word(0, a) << 1, word(1, b) << 1);
 			break;
 		case BandType::MdEq:
-			s.eq.set(_lane, value(0, a) << 7, value(1, b) << 7);
+			s.eq.set(_lane, word(0, a), word(1, b));
 			break;
 		case BandType::ThreeBand:
-			s.threeBand.set(_lane, 0, ThreeBand::lowShelf(hz(band.values[0]), db(value(1, a)), m_rate));
-			s.threeBand.set(_lane, 1, ThreeBand::bell(hz(band.values[2]), db(value(3, b)), m_rate));
-			s.threeBand.set(_lane, 2, ThreeBand::highShelf(hz(band.values[4]), db(band.values[5]), m_rate));
+			if(_a)
+				s.threeBand.set(_lane, 0, ThreeBand::lowShelf(hz(band.values[0]), db(word(1, a) / 128.0), m_rate));
+			if(_b)
+				s.threeBand.set(_lane, 1, ThreeBand::bell(hz(band.values[2]), db(word(3, b) / 128.0), m_rate));
+			if(_a && _b)
+				s.threeBand.set(_lane, 2, ThreeBand::highShelf(hz(band.values[4]), db(band.values[5]), m_rate));
 			break;
 		default:
 			break;
@@ -446,27 +451,27 @@ namespace elektron::drums
 
 	int Chain::envelopeDepth(const int _lane) const
 	{
-		return clampValue(m_settings[static_cast<size_t>(_lane)].filter.depth + offset(_lane, VelocityTarget::EnvelopeDepth));
+		return wordOf(m_settings[static_cast<size_t>(_lane)].filter.depth, offset(_lane, VelocityTarget::EnvelopeDepth));
 	}
 
 	void Chain::setFilter(const int _lane, const double _envelope)
 	{
 		const auto i = static_cast<size_t>(_lane);
 		const auto& f = m_settings[i].filter;
-		const int frequency = clampValue(f.frequency + offset(_lane, VelocityTarget::Frequency));
-		const int resonance = clampValue(f.resonance + offset(_lane, VelocityTarget::Resonance));
+		const int frequency = wordOf(f.frequency, offset(_lane, VelocityTarget::Frequency));
+		const int resonance = wordOf(f.resonance, offset(_lane, VelocityTarget::Resonance));
 		const int depth = envelopeDepth(_lane);
 		if(f.type == FilterType::Syntakt)
 		{
-			syntaktFilter(_lane).set(_lane, f.mode, syntakt::fast::filterCutoff(frequency << 8, depth << 8, f.keyTrack, m_note[i],
-				_envelope), resonance << 24, true);
+			syntaktFilter(_lane).set(_lane, f.mode, syntakt::fast::filterCutoff(frequency << 1, depth << 1, f.keyTrack, m_note[i],
+				_envelope), resonance << 17, true);
 		}
 		else if(f.type == FilterType::Machinedrum)
 		{
 			// The envelope moves the whole band: FLTF rises and FLTW follows
-			const double moved = (frequency + _envelope * (depth - 64) * 2) * 128;
-			const int width = clampValue(f.width + offset(_lane, VelocityTarget::Width));
-			m_filter.machinedrum.set(_lane, std::clamp(static_cast<int>(moved), 0, 0x3fff), width << 7, resonance << 7);
+			const double moved = frequency + _envelope * (depth - (64 << 7)) * 2;
+			const int width = wordOf(f.width, offset(_lane, VelocityTarget::Width));
+			m_filter.machinedrum.set(_lane, std::clamp(static_cast<int>(moved), 0, 0x3fff), width, resonance);
 		}
 	}
 
@@ -490,6 +495,26 @@ namespace elektron::drums
 				setDrive(_lane, places[d], s.drive[d], offset(_lane, d == 0 ? VelocityTarget::DriveA : VelocityTarget::DriveB));
 		setBand(_lane, s.band.after ? BandAfter : BandBefore);
 		setFilter(_lane, m_envelope.value(_lane));
+	}
+
+	void Chain::takeMoves(const int _lane, const bool _filterSet)
+	{
+		const auto i = static_cast<size_t>(_lane);
+		const auto& s = m_settings[i];
+		const auto moved = [&](const VelocityTarget _target) { return m_moved[i] >> static_cast<int>(_target) & 1; };
+		const auto places = drivePlaces(s);
+		for(size_t d = 0; d < 2; ++d)
+		{
+			const auto target = d == 0 ? VelocityTarget::DriveA : VelocityTarget::DriveB;
+			if(moved(target) && s.drive[d].type != DriveType::Off)
+				setDrive(_lane, places[d], s.drive[d], offset(_lane, target));
+		}
+		if(moved(VelocityTarget::BandA) || moved(VelocityTarget::BandB))
+			setBand(_lane, s.band.after ? BandAfter : BandBefore, moved(VelocityTarget::BandA), moved(VelocityTarget::BandB));
+		if(!_filterSet && (moved(VelocityTarget::Frequency) || moved(VelocityTarget::Resonance) || moved(VelocityTarget::Width)
+			|| moved(VelocityTarget::EnvelopeDepth)))
+			setFilter(_lane, m_envelope.value(_lane));
+		m_moved[i] = 0;
 	}
 
 	void Chain::configure(const int _lane, const ChainSettings& _settings)
@@ -541,6 +566,23 @@ namespace elektron::drums
 		}
 	}
 
+	void Chain::modulate(const int _lane, const VelocityTarget _target, const int _offset)
+	{
+		const auto i = static_cast<size_t>(_lane);
+		auto& now = m_modulation[i][static_cast<size_t>(_target)];
+		if(now == _offset)
+			return;
+		now = _offset;
+		m_moved[i] |= static_cast<uint16_t>(1 << static_cast<int>(_target));
+	}
+
+	int Chain::moveLimit(const int _lane, const VelocityTarget _target) const
+	{
+		constexpr int Whole = 127 << 7;
+		const bool syntaktFilter = m_settings[static_cast<size_t>(_lane)].filter.type == FilterType::Syntakt;
+		return syntaktFilter && _target >= VelocityTarget::Frequency ? Whole / 8 : Whole / 24;
+	}
+
 	void Chain::setNote(const int _lane, const int _note)
 	{
 		const auto i = static_cast<size_t>(_lane);
@@ -566,7 +608,7 @@ namespace elektron::drums
 		const auto i = static_cast<size_t>(_lane);
 		const auto bit = static_cast<uint16_t>(1 << _lane);
 		m_velocity[i] = _velocity;
-		if(m_settings[i].velocityTarget != VelocityTarget::None)
+		if(m_settings[i].velocityTarget != VelocityTarget::None || m_moved[i])
 			setValues(_lane);
 
 		// What its group left in a lane no one was computing goes, the filter's flags after it, which it would take too
@@ -602,8 +644,17 @@ namespace elektron::drums
 		{
 			const auto i = static_cast<size_t>(l);
 			const auto& s = m_settings[i];
-			if(_active >> l & 1 && s.filter.type != FilterType::Off && envelopeDepth(l) != 64)
-				setFilter(l, m_envelope.step(l, s.filter.envelope, m_trig[i], m_gateOff[i]));
+			const bool active = _active >> l & 1;
+			bool filtered = false;
+			if(active && s.filter.type != FilterType::Off)
+			{
+				const double envelope = m_envelope.step(l, s.filter.envelope, m_trig[i], m_gateOff[i]);
+				filtered = envelopeDepth(l) != 64 << 7;
+				if(filtered)
+					setFilter(l, envelope);
+			}
+			if(active && m_moved[i])
+				takeMoves(l, filtered);
 			m_trig[i] = m_gateOff[i] = false;
 		}
 	}

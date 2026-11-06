@@ -60,7 +60,8 @@ namespace elektron::drums
 		Frequency,
 		Resonance,
 		Width,			// FLTW
-		EnvelopeDepth
+		EnvelopeDepth,
+		Count
 	};
 
 	// Values 0-127 as a Kit holds them. Value-initialised, a chain with every slot off: the voice itself
@@ -107,6 +108,14 @@ namespace elektron::drums
 		VelocityTarget velocityTarget = VelocityTarget::None;
 		int velocityDepth = 0;		// -127 to 127: added to the target's value at velocity 127
 	};
+
+	// A Kit's value as a word (value << 7) moved by _offset, in 1/128 of a value, inside what a Kit's value reaches: a stage's
+	// tables end there
+	constexpr int wordOf(const int _value, const int _offset)
+	{
+		const int word = (_value << 7) + _offset;
+		return word < 0 ? 0 : word > 127 << 7 ? 127 << 7 : word;
+	}
 
 	// The family's chain, as a machine of the family is first chosen: where the firmware has it, each stage at the value
 	// that leaves the voice as it is, or as near as the stage goes
@@ -166,6 +175,14 @@ namespace elektron::drums
 		// crossfades over FadeSamples while the Track sounds, one that changes during that once it ends
 		void configure(int _lane, const ChainSettings& _settings);
 
+		// An LFO's move of _target on _lane from the next block, in 1/128 of a value, inside the value's range there
+		void modulate(int _lane, VelocityTarget _target, int _offset);
+
+		// The most an LFO may move _target on _lane in a block, in 1/128 of a value, which is what a square's edge becomes: the
+		// Machinedrum's filter takes a whole range in 24 blocks, 17 ms at 44.1 kHz (16 give -48.6 dB of HF), the Syntakt's in 8,
+		// drives and bands 24
+		int moveLimit(int _lane, VelocityTarget _target) const;
+
 		// The note its filter's key tracking follows
 		void setNote(int _lane, int _note);
 
@@ -181,6 +198,9 @@ namespace elektron::drums
 
 		// The Tracks of _active, in place
 		void process(Block& _buf, uint16_t _active);
+
+		// Whether _lane's amp closes its voice
+		bool ampOn(const int _lane) const { return m_ampLanes >> _lane & 1; }
 
 		// The samples a voice comes late through _lane's chain: the Machinedrum's filter, the drives raised
 		int delay(int _lane) const;
@@ -230,12 +250,13 @@ namespace elektron::drums
 
 		void place(int _lane, int _place, int _type);
 		void endFade(int _place, int _lane);
-		int offset(int _lane, VelocityTarget _target) const;
-		int envelopeDepth(int _lane) const;
+		int offset(int _lane, VelocityTarget _target) const;		// in 1/128 of a value: velocity's and the LFOs'
+		int envelopeDepth(int _lane) const;							// a value as a word, 0 to $3F80
 		void setDrive(int _lane, int _place, const ChainSettings::Drive& _drive, int _offset);
-		void setBand(int _lane, int _place);
+		void setBand(int _lane, int _place, bool _a = true, bool _b = true);		// the three bands: only those of A and B
 		void setFilter(int _lane, double _envelope);
 		void setValues(int _lane);
+		void takeMoves(int _lane, bool _filterSet);
 		void stepEnvelopes(uint16_t _active);
 		void run(int _place, int _type, Block& _buf, uint16_t _lanes);
 		void crossfade(int _place, uint16_t _fading, uint16_t _active, Block& _buf);
@@ -269,5 +290,7 @@ namespace elektron::drums
 		std::array<int, Lanes> m_note{}, m_velocity{};
 		std::array<bool, Lanes> m_other{};			// its Syntakt filter is syntaktOther
 		std::array<bool, Lanes> m_trig{}, m_gateOff{};
+		std::array<std::array<int, static_cast<size_t>(VelocityTarget::Count)>, Lanes> m_modulation{};	// in 1/128 of a value
+		std::array<uint16_t, Lanes> m_moved{};						// the VelocityTargets whose words wait for the lane's next block
 	};
 }

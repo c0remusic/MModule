@@ -50,6 +50,9 @@ namespace elektron::drums
 
 		static juce::File dataFolder();
 
+		// The audio thread's, after prepareToPlay, for a test between blocks: no host parameter reaches an LFO yet (ticket 18)
+		Engine* engine() { return m_engine.get(); }
+
 	private:
 		struct TrackParameters
 		{

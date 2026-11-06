@@ -388,3 +388,7 @@ Coût mesuré (release, minimum de 9 passages sur 3 tours, sous charge, par voix
 après l'optimisation, somme de contrôle identique) : BD 1,60 à 1,28 µs, SD 1,77 à 1,46, MT 1,67 à 1,39, ML 1,32 à 1,03,
 MA 0,43 à 0,38, RS 1,76 à 1,47, RC 1,39 à 1,19, CC 1,40 à 1,22, HH 1,45 à 1,19. Somme -16,9 %, juste sous les 17 à 31 %
 annoncés.
+
+## 2026-11-06 : écoute close
+
+Même écoute que le ticket 08 : EFM, E12, P-I, GND par le chemin 44,1 vers 48, rien entendu. Le MD à 48 kHz reste au ticket 16.

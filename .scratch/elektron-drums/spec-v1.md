@@ -51,7 +51,7 @@ Règle commune (ticket « Source de machine d'une piste ») :
 - Une voix mono par piste ; un trig redémarre la voix ; pas de polyphonie dans une piste.
 - Une voix éteinte (enveloppe finie, sous -100 dB) n'est pas rendue et ne coûte rien. Elle gèle : son Hit suivant
   repart de l'état figé, et diffère de celui d'un moteur qui l'aurait rendue (amendé le 2026-11-06, ticket 11 :
-  TRX -17,5 dB, P-I -5,8 dB à 30 BPM, chiffres dans le ticket).
+  seulement après 5,9 s de silence sur le MD, chiffres corrigés dans le ticket, rien d'entendu à l'aveugle).
 - Aucun coût fixe par famille : les routines d'OS d'une famille (conversion des paramètres, LFO, lissage du MD)
   tournent par piste, pour les seules pistes qui la jouent.
 - Changer de machine : rampe de 64 échantillons sur la voix, paramètres de machine aux défauts de la nouvelle,
@@ -111,6 +111,8 @@ piste »).
 - La chaîne tourne avant les anneaux, niveau, vélocité et fondu après elle (ticket 12). Un drive suréchantillonné sur
   piste Syntakt décale ses Hits d'une valeur fixe, gigue 0 (chiffres dans le ticket).
 - Une piste dont la chaîne reste celle de sa famille reste fidèle à son firmware ; tout ajout est marqué « + ».
+- La pente d'un LFO se limite à sa cible : 24 blocs sur le filtre MD, 8 sur les autres valeurs de chaîne, 4 sur niveau, pan et SYN
+  (ticket 13). Un Hit règle ce qui vise sa piste.
 
 ## 5. Effets d'envoi
 

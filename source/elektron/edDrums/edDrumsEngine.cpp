@@ -87,10 +87,20 @@ namespace elektron::drums
 			return std::clamp(1.0f - static_cast<float>(_n + 1) / static_cast<float>(Engine::CutSamples), 0.0f, 1.0f);
 		}
 
-		float gainOf(const int _value)
+		float gainOf(const float _value)
 		{
-			const float g = static_cast<float>(_value) / 127.0f;
+			const float g = _value / 127.0f;
 			return g * g;
+		}
+
+		std::array<float, 2> panOf(const float _pan)
+		{
+			return {std::min(1.0f, (127.0f - _pan) / 63.0f), std::min(1.0f, _pan / 64.0f)};
+		}
+
+		float moved(const int _value, const int _offset)
+		{
+			return static_cast<float>(wordOf(_value, _offset)) / 128.0f;
 		}
 
 		// A sum over the taps of one Track, oldest first
@@ -129,7 +139,7 @@ namespace elektron::drums
 		virtual ~Source() = default;
 		virtual void setLanes(int _lanes) = 0;
 		virtual void setNote(int _lane, int _note) = 0;
-		virtual void setParameter(int _lane, int _index, uint8_t _value) = 0;
+		virtual void setParameter(int _lane, int _index, uint8_t _value, uint8_t _fine) = 0;
 		virtual void trig(int _lane) = 0;
 		virtual void gateOff(int _lane) = 0;
 		virtual const Block& renderBlock() = 0;
@@ -170,9 +180,9 @@ namespace elektron::drums
 
 			void setLanes(const int _lanes) override { m.setLanes(_lanes); }
 			void setNote(const int _lane, const int _note) override { m.setNote(_lane, _note); }
-			void setParameter(const int _lane, const int _index, const uint8_t _value) override
+			void setParameter(const int _lane, const int _index, const uint8_t _value, const uint8_t _fine) override
 			{
-				m.setParameter(_lane, _index, _value, 0);
+				m.setParameter(_lane, _index, _value, _fine);
 			}
 			void trig(const int _lane) override { m.trig(_lane); }
 			void gateOff(const int _lane) override { m.gateOff(_lane); }
@@ -267,7 +277,8 @@ namespace elektron::drums
 		const float peak = _ring.write(at, _x, gain, to, _fadeAt);
 		gain = to;
 		at += BlockSize;
-		quiet = peak < Silence ? quiet + 1 : 0;
+		quiet = peak < Silence && !voiced ? quiet + 1 : 0;
+		voiced = false;
 	}
 
 	// ---- the engine ----
@@ -318,19 +329,30 @@ namespace elektron::drums
 		t.machine = _machine;
 		t.pendingLocks = t.lockedNow = 0;
 		t.params = defaults(m_library, _machine);
+		const uint32_t bit = 1u << _track;
 		if(_machine.family != Family::Off && _machine.family != t.chainFamily)
 		{
+			// The LFOs' moves go with the Track: the new chain takes them from what the old one leaves
+			for(int target = static_cast<int>(LfoTarget::DriveA); target < static_cast<int>(LfoTarget::Count); ++target)
+			{
+				chainOf(t).modulate(_track, chainTarget(static_cast<LfoTarget>(target)), 0);
+				if(t.taken[static_cast<size_t>(target)] || m_lfos.offset(_track, target))
+					m_lfos.wait(_track, target);
+			}
 			t.chainFamily = _machine.family;
 			chainOf(t).setNote(_track, t.note);
 			chainOf(t).configure(_track, _machine.family == Family::Syntakt ? syntaktChain() : machinedrumChain());
 		}
-		const uint32_t bit = 1u << _track;
+		m_stMask = _machine.family == Family::Syntakt ? m_stMask | bit : m_stMask & ~bit;
 		m_mdMask &= ~bit;
 		if(_machine.family == Family::Machinedrum)
 		{
 			auto& md = m_mdTracks[static_cast<size_t>(_track)];
 			md.setMachine(_machine.id, t.params);
 			md.clearMachineLocks();
+			// What it took while on no Machinedrum machine went nowhere
+			for(size_t i = 0; i < 8; ++i)
+				md.modulate(i, t.taken[static_cast<size_t>(LfoTarget::Machine1) + i]);
 			m_mdMask |= bit;
 		}
 	}
@@ -339,10 +361,11 @@ namespace elektron::drums
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
 		t.params[static_cast<size_t>(_index)] = _value;
+		t.lockValue[static_cast<size_t>(_index)] = _value;
 		if(t.machine.family == Family::Machinedrum)
 			m_mdTracks[static_cast<size_t>(_track)].knob(static_cast<size_t>(_index), _value);
 		else if(t.lane >= 0)
-			sourceOf(t).setParameter(t.lane, _index, _value);
+			sendParameter(t, _index, _value);
 	}
 
 	void Engine::setNote(const int _track, const int _note)
@@ -358,13 +381,16 @@ namespace elektron::drums
 
 	void Engine::setLevel(const int _track, const int _level)
 	{
-		m_tracks[static_cast<size_t>(_track)].level = gainOf(_level);
+		auto& t = m_tracks[static_cast<size_t>(_track)];
+		t.levelValue = _level;
+		t.level = gainOf(moved(_level, t.taken[static_cast<size_t>(LfoTarget::Level)]));
 	}
 
 	void Engine::setPan(const int _track, const int _pan)
 	{
-		const auto pan = static_cast<float>(_pan);
-		m_tracks[static_cast<size_t>(_track)].pan = {std::min(1.0f, (127.0f - pan) / 63.0f), std::min(1.0f, pan / 64.0f)};
+		auto& t = m_tracks[static_cast<size_t>(_track)];
+		t.panValue = _pan;
+		t.pan = panOf(moved(_pan, t.taken[static_cast<size_t>(LfoTarget::Pan)]));
 	}
 
 	void Engine::setOutput(const int _track, const int _output)
@@ -375,6 +401,85 @@ namespace elektron::drums
 	void Engine::setTempo(const double _bpm)
 	{
 		m_tempo = static_cast<uint32_t>(std::lround(std::clamp(_bpm, 30.0, 300.0) * 24.0));
+		const double perSample = std::clamp(_bpm, 1.0, 1000.0) / 60 / SampleRate;
+		if(perSample == m_quartersPerSample)
+			return;
+		m_quarters = position();
+		m_quartersAt = m_now;
+		m_quartersPerSample = perSample;
+	}
+
+	double Engine::position() const
+	{
+		return m_quarters + static_cast<double>(m_now - m_quartersAt) * m_quartersPerSample;
+	}
+
+	void Engine::setPosition(const double _quarters)
+	{
+		if(std::abs(_quarters - position()) <= PositionTolerance)
+			return;
+		m_quarters = _quarters;
+		m_quartersAt = m_now;
+	}
+
+	void Engine::setLfo(const int _track, const int _index, const LfoSettings& _settings)
+	{
+		m_lfos.set(_track, _index, _settings);
+	}
+
+	double Engine::lfoPhase(const int _track, const int _index) const
+	{
+		return m_lfos.phase(_track, _index);
+	}
+
+	void Engine::sendParameter(const Track& _track, const int _index, const int _value)
+	{
+		const int word = wordOf(_value, _track.taken[static_cast<size_t>(LfoTarget::Machine1) + static_cast<size_t>(_index)]);
+		sourceOf(_track).setParameter(_track.lane, _index, static_cast<uint8_t>(word >> 7), static_cast<uint8_t>((word & 127) << 1));
+	}
+
+	void Engine::takeMoves(const int _track, const bool _settle)
+	{
+		auto& t = m_tracks[static_cast<size_t>(_track)];
+		for(uint32_t bits = m_lfos.waiting(_track), p = 0; bits; bits >>= 1, ++p)
+		{
+			if(!(bits & 1))
+				continue;
+			const auto target = static_cast<LfoTarget>(p);
+			const int sum = m_lfos.offset(_track, static_cast<int>(p));
+			const int limit = target < LfoTarget::DriveA ? LfoMove : chainOf(t).moveLimit(_track, chainTarget(target));
+			const int offset = t.taken[p] = _settle ? sum : t.taken[p] + std::clamp(sum - t.taken[p], -limit, limit);
+			if(offset == sum)
+				m_lfos.taken(_track, static_cast<int>(p));
+			if(target <= LfoTarget::Machine8)
+			{
+				const int index = static_cast<int>(p) - static_cast<int>(LfoTarget::Machine1);
+				if(t.machine.family == Family::Machinedrum)
+					m_mdTracks[static_cast<size_t>(_track)].modulate(static_cast<size_t>(index), offset);
+				else if(t.lane >= 0)
+					sendParameter(t, index, playedValue(t, index));
+			}
+			else if(target == LfoTarget::Level)
+			{
+				setLevel(_track, t.levelValue);
+			}
+			else if(target == LfoTarget::Pan)
+			{
+				setPan(_track, t.panValue);
+			}
+			else
+			{
+				chainOf(t).modulate(_track, chainTarget(target), offset);
+			}
+		}
+	}
+
+	void Engine::modulate(const uint32_t _tracks, const double _seconds)
+	{
+		m_lfos.step(_tracks, position(), _seconds * SampleRate * m_quartersPerSample, _seconds);
+		for(uint32_t bits = m_lfos.waiting() & _tracks, t = 0; bits; bits >>= 1, ++t)
+			if(bits & 1)
+				takeMoves(static_cast<int>(t));
 	}
 
 	void Engine::setChain(const int _track, const ChainSettings& _settings)
@@ -407,7 +512,7 @@ namespace elektron::drums
 			return;
 		}
 		t.pendingLocks |= 1u << _index;
-		t.lockValue[static_cast<size_t>(_index)] = _value;
+		t.lockPendingValue[static_cast<size_t>(_index)] = _value;
 	}
 
 	void Engine::noteOn(const int _track, const int _velocity, const bool _accent)
@@ -416,6 +521,10 @@ namespace elektron::drums
 		for(uint32_t bits = t.chokes, target = 0; bits; bits >>= 1, ++target)
 			if(bits & 1)
 				cut(static_cast<int>(target));
+		m_lfos.trig(_track, position());
+		// What is aimed at the Track plays from the Hit where it stands, not where its ramp has got to
+		if(m_lfos.waiting(_track))
+			takeMoves(_track, true);
 		const float gain = static_cast<float>(_accent ? 128 + 2 * t.accent : _velocity) / 127.0f;
 		if(t.machine.family == Family::Machinedrum)
 			hitMachinedrum(_track, _velocity, gain);
@@ -481,7 +590,7 @@ namespace elektron::drums
 		}
 		t.lane = lane;
 		for(int i = 0; i < 8; ++i)
-			source.setParameter(lane, i, t.params[static_cast<size_t>(i)]);
+			sendParameter(t, i, t.params[static_cast<size_t>(i)]);
 		source.setNote(lane, t.note);
 	}
 
@@ -518,12 +627,12 @@ namespace elektron::drums
 
 		// The Hit's locks, and the Kit's value back on what the last Hit locked
 		const uint32_t changed = t.lockedNow | t.pendingLocks;
-		for(int i = 0; i < 8; ++i)
-			if(changed >> i & 1)
-				source.setParameter(t.lane, i, t.pendingLocks >> i & 1 ? t.lockValue[static_cast<size_t>(i)]
-					: t.params[static_cast<size_t>(i)]);
 		t.lockedNow = t.pendingLocks;
 		t.pendingLocks = 0;
+		t.lockValue = t.lockPendingValue;
+		for(int i = 0; i < 8; ++i)
+			if(changed >> i & 1)
+				sendParameter(t, i, playedValue(t, i));
 		source.trig(t.lane);
 
 		// The block that sees the trig, the next that sounds it: the voice's first sample must be what the FIR's centre
@@ -599,6 +708,7 @@ namespace elektron::drums
 
 	void Engine::renderMachinedrum()
 	{
+		modulate(~m_stMask, BlockSize / SampleRate);
 		md::voice::prepareBlock(m_mdTracks, m_voices, *m_library.os, m_tempo, m_mdBlock, m_mdMask, m_mdLive);
 		const uint32_t live = m_mdLive | m_mdTails;
 		auto& in = *m_mdIn;
@@ -620,6 +730,9 @@ namespace elektron::drums
 			}
 			for(int n = 0; n < BlockSize; ++n)
 				in.s[n][track] = x[n];
+			if(t.md.quiet)
+				for(const float v : x)
+					t.md.voiced = t.md.voiced || std::abs(v) >= Silence;
 		}
 		if(live)
 			m_mdChain->process(in, static_cast<uint16_t>(live));
@@ -650,6 +763,7 @@ namespace elektron::drums
 
 	void Engine::renderSyntakt()
 	{
+		modulate(m_stMask, BlockSize / syntakt::fast::MachineRate);
 		auto& in = *m_stIn;
 		uint32_t live = 0;
 		const auto compute = [&](const size_t _track)
@@ -708,6 +822,11 @@ namespace elektron::drums
 				compute(track);
 				m_stChain->hit(static_cast<int>(track), m_tracks[track].stNextVelocity);
 			}
+		// What an amp closes is over, whatever goes on under it
+		for(uint32_t bits = live, track = 0; bits; bits >>= 1, ++track)
+			if(bits & 1 && m_tracks[track].st.quiet && !m_stChain->ampOn(static_cast<int>(track)))
+				for(auto& sample : in.s)
+					m_tracks[track].st.voiced = m_tracks[track].st.voiced || std::abs(sample[track]) >= Silence;
 		if(live)
 			m_stChain->process(in, static_cast<uint16_t>(live));
 		for(size_t track = 0; track < Tracks; ++track)
