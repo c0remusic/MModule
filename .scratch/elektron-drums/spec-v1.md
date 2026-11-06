@@ -49,7 +49,9 @@ song (l'hôte arrange), pas d'horloge libre, pas d'enregistrement de notes hors 
 Règle commune (ticket « Source de machine d'une piste ») :
 
 - Une voix mono par piste ; un trig redémarre la voix ; pas de polyphonie dans une piste.
-- Une voix éteinte (enveloppe finie, sous -100 dB) n'est pas rendue et ne coûte rien.
+- Une voix éteinte (enveloppe finie, sous -100 dB) n'est pas rendue et ne coûte rien. Elle gèle : son Hit suivant
+  repart de l'état figé, et diffère de celui d'un moteur qui l'aurait rendue (amendé le 2026-11-06, ticket 11 :
+  TRX -17,5 dB, P-I -5,8 dB à 30 BPM, chiffres dans le ticket).
 - Aucun coût fixe par famille : les routines d'OS d'une famille (conversion des paramètres, LFO, lissage du MD)
   tournent par piste, pour les seules pistes qui la jouent.
 - Changer de machine : rampe de 64 échantillons sur la voix, paramètres de machine aux défauts de la nouvelle,

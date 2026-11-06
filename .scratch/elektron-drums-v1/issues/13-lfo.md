@@ -20,3 +20,8 @@ Avancent au bloc.
 ## Références
 
 Spécification §4. Ticket « Chaîne de piste » (amendement LFO).
+
+## Noté par le ticket 11 (2026-11-06)
+
+`Track::update` est la couture où un LFO s'insère. Le moteur n'a aucune position de transport : ce ticket doit lui en donner une.
+`alignTicks` met chaque piste sur sa propre phase de tick au Hit : un LFO qui vise une autre piste tombe donc sur une autre phase.

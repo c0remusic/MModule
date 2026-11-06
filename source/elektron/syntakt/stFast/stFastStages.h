@@ -11,22 +11,18 @@
 
 #include <emmintrin.h>
 
+#include "elektronBlock.h"
+
 // What the Syntakt's machines rewritten for speed share: 32-bit float, the 16 Tracks side by side (each field an array
 // of 16 lanes, a vector op on 4 of them), the machine's own blocks of 32 samples at its own 48 kHz (a 44.1 kHz host
 // gets them through Host, stFastResample.h). The exact integer port (stEngine) is the reference.
 namespace syntakt::fast
 {
-	constexpr int Lanes = 16;		// one per Track
-	constexpr int BlockSize = 32;	// samples per block
-	constexpr float MachineRate = 48000.0f;
+	using elektron::Block;
+	using elektron::BlockSize;
+	using elektron::Lanes;
 
-	// The 16 Tracks' samples of a block, sample-major: s[n] holds sample n of every Track. A stage computes lanes 0 to
-	// lanes - 1 of the block it writes (a multiple of 4: a vector's) and leaves the others as they are
-	struct alignas(16) Block
-	{
-		float s[BlockSize][Lanes];
-		int lanes = Lanes;
-	};
+	constexpr float MachineRate = 48000.0f;
 
 	// A stage that reads a block computes the lanes of the block it writes: both must have the same, else a block its
 	// machine's setLanes left out goes on computing all 16, the narrowing's saving silently lost (stFastLanesTest

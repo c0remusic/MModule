@@ -15,29 +15,6 @@
 
 namespace mdDrums
 {
-	namespace
-	{
-		constexpr size_t g_flashSize = 8 * 1024 * 1024;
-
-		std::vector<uint8_t> readFlash(const std::filesystem::path& _path)
-		{
-			std::error_code error;
-			if(!std::filesystem::is_regular_file(_path, error) || std::filesystem::file_size(_path, error) != g_flashSize)
-				return {};
-			std::ifstream file(_path, std::ios::binary);
-			std::vector<uint8_t> flash(g_flashSize);
-			if(!file.read(reinterpret_cast<char*>(flash.data()), static_cast<std::streamsize>(flash.size())))
-				return {};
-			return flash;
-		}
-
-		std::filesystem::path fromEnvironment(const char* _name)
-		{
-			const auto* value = std::getenv(_name);
-			return value && *value ? std::filesystem::path(value) : std::filesystem::path();
-		}
-	}
-
 	// Sample-accurate Hits (ticket 19 of the editor map). The voice DSP starts a Hit at its next 32-sample block, 0 to 31
 	// samples after the note. Each Track's contributions to the mix (main left and right, its REV and DEL sends, its
 	// own output) go through a delay of 31 less that wait, set by its Hit, so that every Hit sounds 31 samples after its
@@ -265,29 +242,12 @@ namespace mdDrums
 
 	std::vector<uint8_t> Engine::findFlashImage(const std::vector<std::filesystem::path>& _folders)
 	{
-		if(const auto path = fromEnvironment("GEARMULATOR_MD_FIRMWARE_BIN"); !path.empty())
-		{
-			if(auto flash = readFlash(path); !flash.empty())
-				return flash;
-		}
-		auto folders = _folders;
-		if(const auto local = fromEnvironment("LOCALAPPDATA"); !local.empty())
-			folders.push_back(local / "Programs" / "Gearmulator-Elektron");
-		if(const auto home = fromEnvironment("USERPROFILE"); !home.empty())
-			folders.push_back(home / "Documents" / "Gearmulator Preview" / "Machinedrum");
-		if(const auto home = fromEnvironment("HOME"); !home.empty())
-			folders.push_back(home / "Documents" / "Gearmulator Preview" / "Machinedrum");
-		for(const auto& folder : folders)
-		{
-			if(auto flash = readFlash(folder / FlashImageName); !flash.empty())
-				return flash;
-		}
-		return {};
+		return md::fw::findFlashImage(_folders);
 	}
 
 	std::vector<uint8_t> Engine::readFlashImage(const std::filesystem::path& _file, std::string& _error)
 	{
-		auto flash = readFlash(_file);
+		auto flash = md::fw::readFlashImage(_file);
 		if(flash.empty())
 		{
 			_error = "That file is not an 8 MB flash image";

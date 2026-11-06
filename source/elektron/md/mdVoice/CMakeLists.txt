@@ -7,8 +7,15 @@ add_library(mdVoice STATIC mdVoice.h mdVoiceDsp.h mdVoiceInternal.h mdVoice.cpp 
 	mdVoiceTrxB2.cpp mdVoiceTrxS2.cpp mdVoiceEfm.h mdVoiceEfm.cpp mdVoiceEfmBd.cpp
 	mdVoiceEfmSd.cpp mdVoiceEfmXt.cpp mdVoiceEfmCp.cpp mdVoiceEfmRs.cpp mdVoiceEfmCb.cpp mdVoiceEfmHh.cpp
 	mdVoiceEfmCy.cpp mdVoiceE12.cpp mdVoiceGnd.cpp mdVoicePi.h mdVoicePiImport.h mdVoicePi.cpp mdVoicePiMetal.cpp
-	mdVoiceCoefficients.h mdVoiceCoefficients.cpp)
+	mdVoiceCoefficients.h mdVoiceCoefficients.cpp mdVoiceTrack.h mdVoiceTrack.cpp)
 target_include_directories(mdVoice PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+# These sources round doubles to the OS's table words: /fp:fast and link-time code generation must not move a rounding
+if(MSVC)
+	set_property(SOURCE mdVoiceCoefficients.cpp mdVoiceRom.cpp mdVoiceTrx.cpp APPEND PROPERTY COMPILE_OPTIONS /fp:strict)
+else()
+	set_property(SOURCE mdVoiceCoefficients.cpp mdVoiceRom.cpp mdVoiceTrx.cpp APPEND PROPERTY COMPILE_OPTIONS
+		-fno-fast-math -ffp-contract=off)
+endif()
 set_property(TARGET mdVoice PROPERTY FOLDER "Elektron")
 
 if(BUILD_TESTING)

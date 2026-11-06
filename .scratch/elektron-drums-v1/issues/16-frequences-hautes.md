@@ -31,3 +31,10 @@ Tout `md::fast` dépend de 44,1 kHz sauf `Srr`, qui prend sa fréquence (à SRR 
 - La rampe de 32 échantillons est liée au bloc.
 - Echo et Gate Box : `SampleRate` de la table de déclin, pôles d'amortissement, toutes les longueurs de ligne, le 44100 de TIME,
   le pas du sinus par bloc, les vitesses du gate.
+
+## Noté par le ticket 11 (2026-11-06)
+
+**48 kHz manque aussi.** Le moteur de la v1 ne marche qu'à 44,1 kHz : ailleurs le plug-in se tait et annonce une latence 0. Le
+critère Q15 et la spécification (§11.1, §12 point 4) exigent déjà 48 kHz : ce ticket le couvre, et il doit décider du MD à 48 kHz.
+Inchangé, il joue 8,8 % trop haut. L'anneau MD reçoit alors une lecture FIR comme celle du Syntakt, et `HitDelay` devient une
+fonction de la fréquence.

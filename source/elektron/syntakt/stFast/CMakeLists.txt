@@ -8,7 +8,7 @@ add_library(stFast STATIC stFastStages.h stFastStages.cpp stFastBdModern.h stFas
 	stFastSdBasic.cpp stFastCyAlloy.h stFastCyAlloy.cpp stFastPcCarbon.h stFastPcCarbon.cpp stFastSdVintage.h
 	stFastSdVintage.cpp stFastCpVintage.h stFastCpVintage.cpp stFastSyToy.h stFastSyToy.cpp stFastSyBits.h
 	stFastSyBits.cpp stFastSpTwinshot.h stFastSpTwinshot.cpp stFastResample.h stFastResample.cpp stFastTables.h stFastTables.cpp)
-target_include_directories(stFast PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(stFast PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 set_property(TARGET stFast PROPERTY FOLDER "Elektron/syntakt")
 
 if(BUILD_TESTING)

@@ -9,6 +9,7 @@
 #include <string_view>
 #include <vector>
 
+#include "Firmware.h"
 #include "HostModel.h"
 #include "MachineRunner.h"
 #include "TrackFx.h"
@@ -16,12 +17,6 @@
 #include "mdDrumsSamples.h"
 
 #include "mdProtocol/mdlfosettings.h"
-
-namespace md::fw
-{
-	struct FlashOs;
-	struct RomBank;
-}
 
 namespace md::automation::sysex
 {
@@ -60,7 +55,7 @@ namespace mdDrums
 		// elektron_sps1-1uw_os1.63.bin in _folders and in the folders the Gearmulator plug-ins use. Empty if none.
 		static std::vector<uint8_t> findFlashImage(const std::vector<std::filesystem::path>& _folders);
 		// The file name findFlashImage looks for in each folder
-		static constexpr const char* FlashImageName = "elektron_sps1-1uw_os1.63.bin";
+		static constexpr const char* FlashImageName = md::fw::FlashImageName;
 		// A file the user chose (ticket 35): its bytes when it is an 8 MB image whose OS md::fw::loadFirmwareFromFlash
 		// reads, else empty and _error says why, for the editor
 		static std::vector<uint8_t> readFlashImage(const std::filesystem::path& _file, std::string& _error);

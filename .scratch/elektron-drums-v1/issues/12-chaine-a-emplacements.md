@@ -35,3 +35,15 @@ Spécification §4. Ticket « Chaîne de piste ».
   se replie sur le rail opposé. Gardé, c'est le son de l'étage, mais la chaîne doit le savoir.
 - `set` ne limite pas : le code qui ajoute enveloppe et LFO reste dans 0 à $3FFF, sinon les tables sont lues hors bornes.
 - Point plat de l'EQ : Kit 63, le 64 du boot fait déjà +0,24 dB.
+
+## Noté par le ticket 11 (2026-11-06)
+
+Avant ou après les anneaux, la question reste ouverte. Aujourd'hui `Ring::write` écrit dans l'anneau du bloc de la voix, niveau,
+vélocité et fondu compris. Mettre la chaîne avant l'anneau : un Hit déplace la position d'écriture (de ±31 échantillons en MD,
+jusqu'à un bloc en Syntakt), et une piste Syntakt peut avoir deux voies à `at` différents, donc un `Block` ne porte pas 16 voies
+alignées. Option à mesurer : un bloc de 16 voies lu des anneaux sur une grille fixe, puis la chaîne, sans latence ajoutée
+(arithmétique, pas mesuré). Prix : une seconde histoire FIR côté Syntakt, un décalage par voie pour les enveloppes, et le niveau, la
+vélocité et le fondu à déplacer après la chaîne. Choke : le fondu à l'anneau laisse la queue de la chaîne, à décider. `m_block`
+a été retiré du moteur faute d'usage : ce ticket devra le rendre.
+
+Le `Block` a été sorti dans `elektronBlock.h`.

@@ -23,7 +23,6 @@ namespace md::engine
 		constexpr uint32_t kStackTop = kSramBase + kSramSize - 0x10;
 		constexpr uint32_t kReturnSentinel = 0x00000100;	// unmapped, never executed: we stop when PC gets here
 		constexpr uint64_t kMaxInstructions = 2'000'000;
-		constexpr size_t kRecordSize = 86;
 	}
 
 	class MachineCpu final : public mc68k::Mc68k
@@ -99,39 +98,9 @@ namespace md::engine
 
 	void MachineRunner::parseMachineTable()
 	{
-		// The descriptor table (86-byte records) is found by its shape around the TRX-B2 record's name.
-		auto valid = [&](const size_t _o)
-		{
-			if(_o + kRecordSize > m_os.size()) return false;
-			const uint32_t fn = static_cast<uint32_t>(m_os[_o]) << 24 | m_os[_o + 1] << 16 | m_os[_o + 2] << 8 | m_os[_o + 3];
-			if(fn < kOsBase || fn >= kOsBase + m_os.size()) return false;
-			for(size_t k = 5; k < 10; ++k)
-				if(m_os[_o + k] != 0 && (m_os[_o + k] < 32 || m_os[_o + k] >= 127)) return false;
-			return true;
-		};
-		static const char kAnchor[] = "TRXB2PTCH";
-		const uint8_t* const begin = m_os.data();
-		const uint8_t* const end = begin + m_os.size();
-		const auto* const anchor = reinterpret_cast<const uint8_t*>(kAnchor);
-		const uint8_t* hit = std::search(begin, end, anchor, anchor + sizeof(kAnchor) - 1);
-		if(hit == end) hit = nullptr;
-		if(!hit || hit - m_os.data() < 5) throw std::runtime_error("machine table not found (not an MD OS 1.63 image?)");
-		size_t start = static_cast<size_t>(hit - m_os.data()) - 5;
-		while(start >= kRecordSize && valid(start - kRecordSize)) start -= kRecordSize;
-		for(size_t o = start; valid(o); o += kRecordSize)
-		{
-			MachineInfo m;
-			m.function = static_cast<uint32_t>(m_os[o]) << 24 | m_os[o + 1] << 16 | m_os[o + 2] << 8 | m_os[o + 3];
-			m.id = m_os[o + 4];
-			for(size_t k = 5; k < 10 && m_os[o + k]; ++k) m.name += static_cast<char>(m_os[o + k]);
-			for(size_t p = 0; p < 8; ++p)
-			{
-				for(size_t k = 0; k < 4 && m_os[o + 10 + 4 * p + k]; ++k) m.params[p] += static_cast<char>(m_os[o + 10 + 4 * p + k]);
-				m.defaults[p] = m_os[o + 42 + p];
-			}
-			m_index[m.id] = static_cast<int>(m_machines.size());
-			m_machines.push_back(std::move(m));
-		}
+		m_machines = fw::readMachineTable(m_os);
+		for(size_t m = 0; m < m_machines.size(); ++m)
+			m_index[m_machines[m].id] = static_cast<int>(m);
 	}
 
 	const MachineInfo* MachineRunner::machine(const uint8_t _id) const

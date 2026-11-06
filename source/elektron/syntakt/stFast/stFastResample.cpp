@@ -20,7 +20,7 @@ namespace syntakt::fast
 		}
 	}
 
-	Resample48To44::Resample48To44()
+	void Resample48To44::taps(float (*_h)[Taps])
 	{
 		constexpr double Cutoff = 20000, Beta = 7, Pi = 3.14159265358979323846;
 		constexpr int N = 320 * Latency + 1;			// centred on 160 Latency: Latency host samples
@@ -31,13 +31,18 @@ namespace syntakt::fast
 				const int j = p + Up * k;
 				if(j >= N)
 				{
-					m_h[p][k] = 0;
+					_h[p][k] = 0;
 					continue;
 				}
 				const double t = j - c, r = t / c;
 				const double sinc = t == 0 ? 2 * fc : std::sin(2 * Pi * fc * t) / (Pi * t);
-				m_h[p][k] = static_cast<float>(Up * sinc * besselI0(Beta * std::sqrt(1 - r * r)) / besselI0(Beta));
+				_h[p][k] = static_cast<float>(Up * sinc * besselI0(Beta * std::sqrt(1 - r * r)) / besselI0(Beta));
 			}
+	}
+
+	Resample48To44::Resample48To44()
+	{
+		taps(m_h);
 		reset();
 	}
 

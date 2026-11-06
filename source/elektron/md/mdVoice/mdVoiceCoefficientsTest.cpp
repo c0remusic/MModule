@@ -3,7 +3,8 @@
 // function: each of its eight parameters over the OS's whole range, 0 to $3FFF, the others random, then all eight
 // random, a trigger or not and, for the ROM machines, any tempo, every word of the packet compared. Then 16 voices
 // without MachineRunner: the port's smoothing and coefficient functions into md::voice::Voice, against mdEngine's
-// HostModel playing VoiceEngine, the same Hits, knobs and machines, the parameters, the samples and the state compared;
+// HostModel playing VoiceEngine, the same Hits, knobs, locks and machines, MID and CTR ones too, the product's own
+// md::voice::Track driving them, the parameters, the samples and the state compared;
 // the ROM machines' tables, the scratch and a stray pointer still come from the oracle's DSP, as in mdVoicePortTest.
 // Last, the cost. The harness shows it finds a fault: a packet's type, count or word changed must fail. The filters'
 // tables are mdVoicePortTest's to check.
@@ -16,6 +17,7 @@
 #include "mdVoiceDsp.h"
 #include "mdVoiceInternal.h"
 #include "mdVoicePiImport.h"
+#include "mdVoiceTrack.h"
 
 #include "Firmware.h"
 #include "HostModel.h"
@@ -36,6 +38,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -46,6 +49,7 @@ namespace
 	using md::voice::OsTables;
 	using md::voice::Packet;
 	using md::voice::Smoother;
+	using md::voice::Track;
 	using md::voice::Voice;
 
 	constexpr uint32_t kTempoAddr = 0x100150c;	// BPM x 24
@@ -211,35 +215,6 @@ namespace
 			_a[k] = _mem.get(_area, _base + k);
 	}
 
-	// One Track as the tick drives it, without MachineRunner: what HostModel does around the OS's code
-	struct Track
-	{
-		Smoother smoother;
-		std::array<uint8_t, Smoother::kParams> kit{};	// the Kit's values, which a knob sets
-		uint8_t machine = 0;
-		int pending = 0;	// HostModel's constructor assigns machine 0, which the first Hit applies
-		bool trigger = false;
-
-		void hit()
-		{
-			trigger = true;
-			if(pending < 0)
-				return;
-			machine = static_cast<uint8_t>(pending);
-			pending = -1;
-			for(size_t p = 0; p < kit.size(); ++p)
-				smoother.snap(p, kit[p]);
-		}
-
-		void update(const OsTables& _tables, const uint32_t _tempo, Voice& _voice)
-		{
-			Packet packet;
-			const int n = md::voice::coefficients(_tables, machine, smoother.values().data(), trigger, _tempo, packet);
-			_voice.setSlot(packet.data(), n);
-			trigger = false;
-		}
-	};
-
 	void checkVoices(const md::fw::FlashOs& _os, const std::vector<uint8_t>& _flash, const OsTables& _tables)
 	{
 		VoiceEngine oracle(_os.firmware);
@@ -288,10 +263,14 @@ namespace
 		std::array<Track, kVoices> tracks{};
 
 		std::mt19937 random(0x10002e0);
-		const auto machines = portedMachines();
+		// The ported machines and the MID and CTR ones, whose Hit stops the voice
+		auto machines = portedMachines();
+		for(int id = 0x60; id <= 0x7b; ++id)
+			if(runner.machine(static_cast<uint8_t>(id)))
+				machines.push_back(static_cast<uint8_t>(id));
 		uint32_t tempo = 3000;
 		std::array<int64_t, 256> sounding{};
-		int64_t hits = 0, knobs = 0;
+		int64_t hits = 0, knobs = 0, locks = 0;
 		VoiceEngine::Block expected{};
 		for(int block = 0; block < kBlocks; ++block)
 		{
@@ -308,46 +287,58 @@ namespace
 				{
 					const auto id = machines[random() % machines.size()];
 					host.setMachine(v, id);
-					track.pending = id;
-					const auto& defaults = runner.machine(id)->defaults;
-					for(size_t p = 0; p < defaults.size(); ++p)
-					{
-						track.kit[p] = defaults[p];
-						track.smoother.setTarget(p, defaults[p]);
-					}
+					track.setMachine(id, runner.machine(id)->defaults);
 				}
 				else if(event == 1)
 				{
+					// Locks before or after their Hit, in its block
+					const bool before = random() & 1;
+					const int locked = random() % 3 ? 0 : 1 + static_cast<int>(random() % 3);
+					std::array<std::pair<int, int>, 3> values{};
+					for(int k = 0; k < locked; ++k)
+						values[static_cast<size_t>(k)] = {static_cast<int>(random() % 8), static_cast<int>(random() % 128)};
+					const auto lock = [&]
+					{
+						for(int k = 0; k < locked; ++k)
+						{
+							const auto [p, value] = values[static_cast<size_t>(k)];
+							host.lock(v, p, value);
+							track.lock(static_cast<size_t>(p), static_cast<uint8_t>(value));
+							++locks;
+						}
+					};
+					if(before)
+						lock();
 					host.trigger(v, 100);
 					track.hit();
+					if(!before)
+						lock();
 					++hits;
 				}
 				else if(event < 6)
 				{
 					const int p = static_cast<int>(random() % 8), value = static_cast<int>(random() % 128);
 					host.knob(v, p, value);
-					track.kit[static_cast<size_t>(p)] = static_cast<uint8_t>(value);
-					track.smoother.setTarget(static_cast<size_t>(p), static_cast<uint8_t>(value));
+					track.knob(static_cast<size_t>(p), static_cast<uint8_t>(value));
 					++knobs;
 				}
+				else if(event == 6)
+				{
+					// A lock with no Hit in its block, unless the Hit comes by chance: dropped
+					const int p = static_cast<int>(random() % 8), value = static_cast<int>(random() % 128);
+					host.lock(v, p, value);
+					track.lock(static_cast<size_t>(p), static_cast<uint8_t>(value));
+				}
 			}
-			// As the OS's ticks: every voice's packet, then its smoothing; a Hit between ticks updates its voice alone
-			const bool tick = block % md::voice::kBlocksPerTick == 0;
-			for(size_t v = 0; v < tracks.size(); ++v)
-			{
-				if(tick || tracks[v].trigger)
-					tracks[v].update(_tables, tempo, voices[v]);
-				if(tick)
-					tracks[v].smoother.tick();
-			}
+			md::voice::prepareBlock(tracks, voices, _tables, tempo, block, 0xffffu, 0xffffu);
 			if(!host.renderBlock(expected))
 				throw std::runtime_error("the voice DSP faulted: " + oracle.faultReason());
 			for(int v = 0; v < kVoices; ++v)
 			{
 				const auto i = static_cast<size_t>(v);
 				const auto where = "block " + std::to_string(block) + ", voice " + std::to_string(v) + ", machine "
-					+ std::to_string(tracks[i].machine);
-				const auto& values = tracks[i].smoother.values();
+					+ std::to_string(tracks[i].machine());
+				const auto& values = tracks[i].values();
 				const auto* const params = host.voiceParams(v);
 				for(size_t p = 0; p < values.size(); ++p)
 					if(values[p] != params[p])
@@ -360,7 +351,7 @@ namespace
 					if(got[f] != expected[i][f])
 						throw std::runtime_error("frame " + std::to_string(f) + " at " + where + ": the oracle's "
 							+ std::to_string(expected[i][f]) + ", the port's " + std::to_string(got[f]));
-					sounding[tracks[i].machine] += got[f] != 0;
+					sounding[tracks[i].machine()] += got[f] != 0;
 				}
 				const auto base = VoiceEngine::kSlotBase + VoiceEngine::kSlotStride * static_cast<uint32_t>(v);
 				for(uint32_t w = 0; w < Voice::kStateWords; ++w)
@@ -371,11 +362,11 @@ namespace
 		md::voice::testHooks::hooks() = {};
 		int silent = 0;
 		for(const uint8_t m : machines)
-			silent += m != 0 && (m < 176) && sounding[m] == 0;
-		std::printf("%d blocks of %d voices without MachineRunner, %lld Hits, %lld knobs: parameters, samples and "
-			"state the same; %d machines of %zu never sounded\n", kBlocks, kVoices, static_cast<long long>(hits),
-			static_cast<long long>(knobs), silent, machines.size());
-		if(hits == 0 || knobs == 0 || silent > 0)
+			silent += m != 0 && (m < 176) && md::voice::isAudioMachine(m) && sounding[m] == 0;
+		std::printf("%d blocks of %d voices without MachineRunner, %lld Hits, %lld knobs, %lld locks: parameters, samples "
+			"and state the same; %d machines of %zu never sounded\n", kBlocks, kVoices, static_cast<long long>(hits),
+			static_cast<long long>(knobs), static_cast<long long>(locks), silent, machines.size());
+		if(hits == 0 || knobs == 0 || locks == 0 || silent > 0)
 			throw std::runtime_error("a machine played nothing, which proves nothing");
 	}
 

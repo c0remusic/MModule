@@ -2,6 +2,7 @@
 // Elektron OS (.syx) file decoder: sysex transport -> flash container -> compressed sections
 // (an aPLib-style LZ scheme) -> DSP56303 memory records. The OS file is supplied by the user at run time.
 #pragma once
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -76,6 +77,26 @@ struct FlashOs {
     std::vector<uint8_t> osImage;
 };
 FlashOs loadFirmwareFromFlash(const std::vector<uint8_t>& flash);
+
+// md-drums: the 8 MB flash image: the file's bytes, empty for anything else
+constexpr const char* FlashImageName = "elektron_sps1-1uw_os1.63.bin";
+std::vector<uint8_t> readFlashImage(const std::filesystem::path& file);
+// md-drums: the first one of GEARMULATOR_MD_FIRMWARE_BIN, then FlashImageName in folders and in the folders the
+// Gearmulator plug-ins use. Empty if none
+std::vector<uint8_t> findFlashImage(const std::vector<std::filesystem::path>& folders);
+
+// md-drums: OS 1.63's machine descriptors. Each machine's coefficient function is count = fn(uint32_t* out, const
+// uint16_t* params)
+struct MachineInfo {
+    uint8_t id = 0;
+    std::string name;
+    std::array<std::string, 8> params;
+    std::array<uint8_t, 8> defaults{};
+    uint32_t function = 0;
+};
+// The descriptors in the decompressed OS (section 0), 86-byte records found by their shape around TRX-B2's. Throws
+// FirmwareError on an image that holds no such table
+std::vector<MachineInfo> readMachineTable(const std::vector<uint8_t>& os);
 
 // md-drums: the UW sample bank as OS 1.63's boot leaves it in the voice DSP (DSP2), redone from the flash image alone
 // (the OS's ROM sample transfer, $20d20e): a directory at P:$147e00 of 4-word entries (start, length, loop start or

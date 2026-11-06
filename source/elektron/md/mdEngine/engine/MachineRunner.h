@@ -10,18 +10,13 @@
 #include <string>
 #include <vector>
 
+#include "Firmware.h"
+
 namespace md::engine
 {
 	class MachineCpu;
 
-	struct MachineInfo
-	{
-		uint8_t id = 0;
-		std::string name;
-		std::array<std::string, 8> params;
-		std::array<uint8_t, 8> defaults{};
-		uint32_t function = 0;
-	};
+	using MachineInfo = md::fw::MachineInfo;
 
 	class MachineRunner
 	{

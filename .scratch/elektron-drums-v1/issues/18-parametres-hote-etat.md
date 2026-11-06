@@ -22,3 +22,11 @@ relecture, rien dit à l'hôte au chargement).
 ## Références
 
 Spécification §8, §9. Tickets « Paramètres hôte et sorties », « Format des kits et de l'état ».
+
+## Noté par le ticket 11 (2026-11-06)
+
+- Persister la machine en famille + id, jamais par index : la liste du paramètre Machine bouge à chaque portage. Figer la liste
+  d'identifiants par test.
+- `Processor::sync` lit tous les paramètres à chaque bloc : à rendre piloté par changement.
+- `dataFolder` suit le nom de travail, à changer avec lui. « Elektron Drums Dev » imite la marque d'autrui : nom à trancher avant
+  toute publication.

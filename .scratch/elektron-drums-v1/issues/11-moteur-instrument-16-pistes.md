@@ -1,7 +1,7 @@
 # Moteur de l'instrument : 16 pistes, familles mélangées
 
 Type: AFK
-Status: ready-for-agent
+Status: resolved
 Assignee: 
 Blocked by: 04, 08
 
@@ -59,6 +59,56 @@ oublié dans un `setLanes` venait à coûter, la forme sûre à la compilation e
 - Un changement de machine sans Hit n'est pas joué par `mdVoicePortTest` : ce ticket doit le couvrir.
 - `Shared` regroupe tables, banques, scratch et lignes. Son découpage attend ce ticket, qui saura ce que le moteur
   partage réellement.
+
+## 2026-11-06 : fait
+
+`source/elektron/edDrums/` (sans JUCE) porte le moteur, `edDrums::Engine` : 16 pistes, chacune une machine MD (les 107 que l'OS
+1.63 définit et que `mdVoice` joue) ou Syntakt (les 9 de `syntakt::fast`), plus `Library`, la liste des machines et leurs défauts.
+`edDrumsPlugin/` est le VST3, nom de travail « Elektron Drums Dev », sans éditeur. `mdVoice/mdVoiceTrack.*` reprend le `Track` du
+test de coefficients : `mdVoiceCoefficientsTest` pilote désormais ce code-là, 0 différence. `edDrumsEngineTest` et
+`edDrumsVst3HostTest` entrent au garde-fou. Session à 48 kHz : le plug-in se tait et annonce une latence 0 (ticket 16).
+
+**Latence** : un Hit sonne 82 échantillons après sa note à 44,1 kHz (1,86 ms), gigue 0, sur les 107 machines MD et les 9 Syntakt,
+Hits identiques bit pour bit quelle que soit leur position dans le bloc. C'est une latence constante annoncée à l'hôte. Le MD rend
+dans un anneau par piste où chaque voix commence à son échantillon ; le Syntakt prend ses voies au Hit et les rend à la fin du bloc
+ou à la coupure, phase FIR par piste en 1/147 d'échantillon. `voiceStart` fait attendre les machines qui sonnent tard : ROM 8,
+TRX-S2 33, TRX-BD 34, TRX-XT 38. Les attaques plus lentes (de +1 à +352 échantillons à 1 % du pic, machine par machine) sont le son
+de la machine, pas de la latence, comme TRX-XT, TRX-XC et TRX-CB sur le Machinedrum.
+
+**Coût**, minimum de 5 passes de 4 s, deux mesures, 16 pistes en Hits soutenus : 16 MD au pire cas 8,65 à 8,85 % d'un cœur, Syntakt
+4,07 à 4,19 %, mixte 7,34 à 7,46 %, sans Hit 0,03 %. Le maximum de 15 % tient, et les guides aussi (moteurs ≤ 10). **Ces chiffres ne
+sont pas sur machine calme** : 1,5 à 3,7 cœurs pris par d'autres processus ; à refaire avec l'acceptation (ticket 25). Pire bloc
+mixte : 1 110 µs après le chemin rapide de `Ring::write`, 3 100 à 3 800 avant ; un bloc de 32 dure 726 µs, machine chargée.
+
+**Q12** : choke à 64 échantillons -53,4 dB (MD), -52,6 dB (Syntakt) ; changement de machine couvert, y compris sans Hit. **Trois cas
+restent sous le seuil de -50 dB**, tous hors du geste normal, bornés par le test et à ne pas lire comme réussis :
+- Hit et choke au même échantillon : -24,3 dB (MD), -41,4 dB (Syntakt), rien après la rampe. Le son coupé n'a jamais vraiment sonné.
+- Voie Syntakt reprise par un nouveau Hit quand les 16 voies d'une machine sont prises : -43,2 dB, contre -26,0 avant correction. La
+  machine fait elle-même le fondu de 32 échantillons, pas 64. Borne -42.
+
+**Voix éteinte.** Décision contre la phrase de la spécification telle qu'elle était : une voix calme est figée, et son Hit suivant
+n'est donc pas celui d'un moteur qui l'aurait rendue. Mesuré à 125 et 30 BPM, sur la voix seule, en dB du signal, après
+`alignTicks` : TRX -17,5 et -23,9 ; EFM -100,6 et -18,0 ; P-I -22,2 et **-5,8** ; ROM -48,9 et -35,2 ; E12 -129,2 et -119,5 ;
+GND -348 et -343. Ce qui n'est jamais rendu reste sous -102 dB aux deux tempos. Sur le pire cas, P-I à 30 BPM, ni le scratch partagé
+seul (-28,6) ni les ticks seuls (-12,8) n'expliquent l'écart : il reste l'état de la voix figée, par déduction, sans mesure directe.
+Les bornes valent pour une graine. Spécification §3 amendée. Décision à confirmer par l'utilisateur : aucune écoute n'a jugé -5,8 dB. Fenêtres : MD 8192 blocs (5,9 s, P-I-HH se tait jusqu'à 6170 blocs),
+Syntakt 512 blocs à 48 kHz (341 ms, SP TWINSHOT se tait 353 blocs sur un sample à trou). Un sample à trou plus long, ralenti, serait
+coupé : ticket 20.
+
+`Track::alignTicks` (hors brief) cale les ticks de la piste sur le Hit. Une Track de l'OS garde ses ticks à l'échelle du moteur :
+un Hit dépendait donc de sa position. Avec l'alignement chaque Hit est indépendant de sa position, mais la piste ne suit plus le
+calendrier de ticks de l'oracle : de -8 à -30 dB selon la famille à 125 BPM contre les ticks fixes. Choix à confirmer aussi.
+
+La question de `Shared` (ticket 09) est close : `Engine` en possède un, les tables y sont en pointeurs lecture seule. Les voies
+Syntakt se prennent au Hit, la plus basse libre, et `setLanes` suit ; il n'y a pas de compactage explicite des voies qui sonnent. Bug trouvé en revue : `Library` lisait la table des machines de l'OS au pas de 50 au
+lieu de 86, et son test la comparait à elle-même. `md::fw::readMachineTable` est la seule marche, partagée avec `MachineRunner` ; le
+test contrôle ids et noms de paramètres contre `mdProtocol`, 135 machines sur les 140 qu'il nomme (5 absentes de l'OS 1.63, listées).
+`findFlashImage` et `FlashImageName` passent aussi dans `md::fw`, pour que `edDrums` ne lie pas MoDule. Aucune donnée du firmware dans
+le dépôt : `Library` lit les défauts dans la flash à l'exécution, sans flash le plug-in se tait. `/fp:strict` sur `mdVoiceRom.cpp`,
+`mdVoiceTrx.cpp` et `mdVoiceCoefficients.cpp`, qui arrondissent des doubles vers les tables de l'OS.
+
+Écartés : banc VST3 partagé (trois copies, commit à part) ; `Load` de `edDrumsCost` ; `importRomBank` ; Machine persistée en famille
++ id (ticket 18) ; borne d'index de Lock ; flams sous 57 échantillons ; partage du travail scratch ; chaîne SIMD par voie (ticket 12).
 
 ## Références
 

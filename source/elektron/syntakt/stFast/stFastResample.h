@@ -24,6 +24,9 @@ namespace syntakt::fast
 
 		Resample48To44();
 
+		// Phase p's taps, _h[p][k] weighing the input k samples before
+		static void taps(float (*_h)[Taps]);
+
 		// Silence before the first input, the FIFO empty
 		void reset();
 
@@ -51,7 +54,7 @@ namespace syntakt::fast
 	// FIFO takes the 48 kHz blocks it needs, 1 or 2 (34.8 samples on average), and what was queued before the host
 	// block (a trig, a parameter, a note) lands on the first of them, so a trig falls on the machine's own 48 kHz block
 	// grid, from 0.8 host samples early to 28.4 late (0.64 ms) against its ideal time, in a pattern that repeats every
-	// 147 host blocks: for ticket 11 to settle. 88.2 and 96 kHz are ticket 16's: the machine at its 48 kHz, through
+	// 147 host blocks; the instrument's engine reads its Tracks at a phase of their own instead (edDrumsEngine.h). 88.2 and 96 kHz are ticket 16's: the machine at its 48 kHz, through
 	// Resample48To44 at 88.2, and brought up 2x by a half-band filter (HIIR) at both. Other rates are refused
 	template<typename Machine>
 	class Host : public Machine

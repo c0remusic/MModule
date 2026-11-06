@@ -1,4 +1,6 @@
 #include "Firmware.h"
+#include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 
@@ -286,6 +288,83 @@ std::vector<uint8_t> loadPatchImageFromFlash(const std::vector<uint8_t>& flash, 
     const size_t index = uw ? 4 : 3;
     if (c.sections.size() <= index || !c.sections[index].sumOk || c.sections[index].data.size() != kImageSize) return {};
     return std::move(c.sections[index].data);
+}
+
+std::vector<uint8_t> readFlashImage(const std::filesystem::path& file)
+{
+    constexpr size_t flashSize = 8 * 1024 * 1024;
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(file, error) || std::filesystem::file_size(file, error) != flashSize)
+        return {};
+    std::ifstream in(file, std::ios::binary);
+    std::vector<uint8_t> flash(flashSize);
+    if (!in.read(reinterpret_cast<char*>(flash.data()), static_cast<std::streamsize>(flash.size())))
+        return {};
+    return flash;
+}
+
+std::vector<uint8_t> findFlashImage(const std::vector<std::filesystem::path>& folders)
+{
+    const auto fromEnvironment = [](const char* name)
+    {
+        const auto* value = std::getenv(name);
+        return value && *value ? std::filesystem::path(value) : std::filesystem::path();
+    };
+    if (const auto path = fromEnvironment("GEARMULATOR_MD_FIRMWARE_BIN"); !path.empty())
+        if (auto flash = readFlashImage(path); !flash.empty())
+            return flash;
+    auto all = folders;
+    if (const auto local = fromEnvironment("LOCALAPPDATA"); !local.empty())
+        all.push_back(local / "Programs" / "Gearmulator-Elektron");
+    if (const auto home = fromEnvironment("USERPROFILE"); !home.empty())
+        all.push_back(home / "Documents" / "Gearmulator Preview" / "Machinedrum");
+    if (const auto home = fromEnvironment("HOME"); !home.empty())
+        all.push_back(home / "Documents" / "Gearmulator Preview" / "Machinedrum");
+    for (const auto& folder : all)
+        if (auto flash = readFlashImage(folder / FlashImageName); !flash.empty())
+            return flash;
+    return {};
+}
+
+std::vector<MachineInfo> readMachineTable(const std::vector<uint8_t>& os)
+{
+    constexpr size_t recordSize = 86;
+    constexpr uint32_t osBase = 0x200000;
+    const auto word = [&](const size_t o)
+    {
+        return static_cast<uint32_t>(os[o]) << 24 | os[o + 1] << 16 | os[o + 2] << 8 | os[o + 3];
+    };
+    const auto valid = [&](const size_t o)
+    {
+        if (o + recordSize > os.size()) return false;
+        const uint32_t fn = word(o);
+        if (fn < osBase || fn >= osBase + os.size()) return false;
+        for (size_t k = 5; k < 10; ++k)
+            if (os[o + k] != 0 && (os[o + k] < 32 || os[o + k] >= 127)) return false;
+        return true;
+    };
+    static const char anchorText[] = "TRXB2PTCH";
+    const auto* anchor = reinterpret_cast<const uint8_t*>(anchorText);
+    const auto hit = std::search(os.begin(), os.end(), anchor, anchor + sizeof(anchorText) - 1);
+    if (hit == os.end() || hit - os.begin() < 5)
+        throw FirmwareError("machine table not found (not an MD OS 1.63 image?)");
+    size_t start = static_cast<size_t>(hit - os.begin()) - 5;
+    while (start >= recordSize && valid(start - recordSize)) start -= recordSize;
+    std::vector<MachineInfo> machines;
+    for (size_t o = start; valid(o); o += recordSize)
+    {
+        MachineInfo m;
+        m.function = word(o);
+        m.id = os[o + 4];
+        for (size_t k = 5; k < 10 && os[o + k]; ++k) m.name += static_cast<char>(os[o + k]);
+        for (size_t p = 0; p < 8; ++p)
+        {
+            for (size_t k = 0; k < 4 && os[o + 10 + 4 * p + k]; ++k) m.params[p] += static_cast<char>(os[o + 10 + 4 * p + k]);
+            m.defaults[p] = os[o + 42 + p];
+        }
+        machines.push_back(std::move(m));
+    }
+    return machines;
 }
 
 } // namespace md::fw
