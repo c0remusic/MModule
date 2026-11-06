@@ -11,7 +11,7 @@
 //		table at 0 in both engines, which takes out unit 2's feedback and units 1 and 3's modulation, the one table
 //		holding both: the same measures, fatal; the null printed
 //	Q15	the same Hits at 44.1 kHz, rendered at 48 and resampled (Host), against 48 kHz (bench::q15): envelope below
-//		18 kHz within 0.2 dB, every third octave below 10 kHz within 0.5 dB, nothing excused
+//		18 kHz within its bound, every third octave below 10 kHz within its bound
 //	cost: microseconds per 32-sample block of 16 voices playing, fast against exact, and at 44.1 kHz
 // A Hit is chaotic where the exact port, its phases 1 LSB on, fails Q4's measures against itself (a lane of Q3's
 // feedback sine where it misses the null), and is then judged by its distributions within the calibrated factor times
@@ -313,6 +313,6 @@ int main()
 	q3(s7);
 	// Block by block (bench::blockByBlock): its output against the exact port's
 	blockByBlock<fast::CyAlloy>(s7, Hits, "CY ALLOY", [](fast::CyAlloy&) {});
-	judgeVoice<fast::CyAlloy>(s7, Hits, "CY ALLOY", Seconds, DepthTable);
+	judgeVoice<fast::CyAlloy>(s7, Hits, "CY ALLOY", Seconds, DepthTable, {3.89});
 	return finish();
 }

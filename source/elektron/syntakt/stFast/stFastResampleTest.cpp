@@ -1,8 +1,8 @@
 // syntakt::fast::Resample48To44, the resampler that brings the fast Syntakt's 48 kHz to a 44.1 kHz host (Host), by
 // research 19's Q11 on sines (.scratch/elektron-drums/research/19-qualite-audio.md, section 11), fatal:
 //	gain within 0.1 dB 20 Hz-18 kHz, THD+N <= -70 dB 1-16 kHz, 22.05-24 kHz (what would alias) rejected by >= 60 dB
-//	Host's timing at 44.1 kHz, fatal: a trig at every host block of the 147-block cycle lands from 0.8 host samples
-//	early to 28.4 late against its ideal time, past the latency; the latency and the jitter printed
+//	Host's timing at 44.1 kHz, fatal: a trig at every host block of the 147-block cycle lands from 1.5 host samples
+//	early to 27.8 late against its ideal time, past the latency; the latency and the jitter printed
 //	cost: microseconds per host block for 16 lanes, printed
 // Needs no firmware.
 
@@ -199,8 +199,9 @@ namespace
 	// A trig before every host block of a 147-block cycle at 44.1 kHz, against the same trig at 48 kHz: BD MODERN's
 	// first sample is a jump (its click) to A, D samples after its trig's 48 kHz block; at 44.1 kHz, where the jump's
 	// band-limited image crosses A / 2 (interpolated linearly: within about 0.1 sample), against the trig's ideal time
-	// plus the same D and the latency. Fatal: from 0.8 host samples early to 28.4 late (Host's bound), within 0.25
-	// sample of measure
+	// plus the same D and the latency. Fatal: from 1.5 host samples early to 27.8 late (Host's bound), within 0.25
+	// sample of measure: the half-crossing comes 0.65 sample before the whole Latency, the filter's delay at BD
+	// MODERN's click being under it
 	void timing()
 	{
 		constexpr int Native = 4;	// the 48 kHz trig's block
@@ -241,8 +242,8 @@ namespace
 			"%.2f host samples on average (BD MODERN's own %.0f at 48 kHz, %.2f here, and the latency), the trig %+.2f "
 			"to %+.2f host samples from its ideal time (jitter %.2f, %.3f ms)\n", latency, sum / count, d,
 			d * 147 / 160, lo, hi, hi - lo, (hi - lo) / 44.1);
-		check(count == 147 && lo >= -0.8 - 0.25 && hi <= 28.4 + 0.25, "Host's trig at 44.1 kHz from 0.8 host samples "
-			"early to 28.4 late, within 0.25 sample of measure");
+		check(count == 147 && lo >= -1.5 - 0.25 && hi <= 27.8 + 0.25, "Host's trig at 44.1 kHz from 1.5 host samples "
+			"early to 27.8 late, within 0.25 sample of measure");
 	}
 
 	// ---- cost ----

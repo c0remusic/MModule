@@ -853,6 +853,34 @@ namespace
 		}
 	}
 
+	// Drives moved after while the places they leave still fade: both count for a moment, what a Hit waits for stays MaxDelay
+	void delayInAMove()
+	{
+		const auto tone = [](const int64_t _n) { return 0.5 * std::cos(2 * Pi * 200 * static_cast<double>(_n) / 44100); };
+		auto chain = std::make_unique<Chain>(44100.0, false);
+		chain->setOversampling(4);
+		ChainSettings first, second, third;
+		first.filter.type = second.filter.type = third.filter.type = FilterType::Machinedrum;
+		for(size_t d = 0; d < 2; ++d)
+		{
+			first.drive[d] = {DriveType::Syntakt, false, 1, 127};
+			second.drive[d] = {DriveType::MdDist, false, 1, 127};
+			third.drive[d] = {DriveType::Syntakt, true, 1, 127};
+		}
+		chain->configure(0, first);
+		int worst = 0;
+		through(*chain, 8192, tone, [&](const int _b)
+		{
+			if(_b == 100)
+				chain->configure(0, second);
+			if(_b == 101)
+				chain->configure(0, third);
+			worst = std::max(worst, chain->delay(0));
+		});
+		std::printf("  a move during a fade: a Hit waits %d samples at most, MaxDelay %d\n", worst, Chain::MaxDelay);
+		require(worst == Chain::MaxDelay, "a chain's delay past MaxDelay");
+	}
+
 	// What a restored state may hold
 	void wildSettings()
 	{
@@ -1366,6 +1394,7 @@ int main()
 		q9();
 		q12();
 		secondChange();
+		delayInAMove();
 		grid();
 		envelope();
 		depthTarget();

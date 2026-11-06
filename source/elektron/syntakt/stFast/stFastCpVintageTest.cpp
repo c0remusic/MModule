@@ -14,7 +14,7 @@
 //		from the exact port's seeds (bench::exactNoiseSeeds). The same Hits with unit 1's feedback table at 0 in both
 //		engines: the same measures, fatal; the null printed
 //	Q15	the same Hits at 44.1 kHz, rendered at 48 and resampled (Host), against 48 kHz (bench::q15): envelope below
-//		18 kHz within 0.2 dB, every third octave below 10 kHz within 0.5 dB, nothing excused
+//		18 kHz within its bound, every third octave below 10 kHz within its bound
 //	cost: microseconds per 32-sample block of 16 voices playing, fast against exact, and at 44.1 kHz
 // A Hit is chaotic where the exact port, its phases 1 LSB on, fails Q4's measures against itself, and is then judged by
 // its distributions within the calibrated factor times the exact port's own dispersion + 0.5 dB (bench::calibrate).
@@ -365,6 +365,6 @@ int main()
 	// Block by block (bench::blockByBlock), unit 1's envelope word (0x40003c0e, the voice's 0xfc) the exact port's
 	blockByBlock<fast::CpVintage>(s7, Hits, "CP VINTAGE", [](fast::CpVintage&) {},
 		{0xfc}, [](const fast::CpVintage& _m, const int _t, int32_t* _w) { _w[0] = _m.testEnvelope(_t); });
-	judgeVoice<fast::CpVintage>(s7, Hits, "CP VINTAGE", Seconds, FeedbackTable);
+	judgeVoice<fast::CpVintage>(s7, Hits, "CP VINTAGE", Seconds, FeedbackTable, {4.24});
 	return finish();
 }

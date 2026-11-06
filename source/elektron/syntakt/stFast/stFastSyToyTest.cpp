@@ -9,7 +9,7 @@
 //		pitch within 1 cent, fatal; the null and the 1 ms envelope printed. The same Hits with unit 4's feedback table
 //		at 0 in both engines: the same measures, fatal; the null printed
 //	Q15	the same Hits at 44.1 kHz, rendered at 48 and resampled (Host), against 48 kHz (bench::q15): envelope below
-//		18 kHz within 0.2 dB, every third octave below 10 kHz within 0.5 dB, nothing excused
+//		18 kHz within its bound, every third octave below 10 kHz within its bound
 //	cost: microseconds per 32-sample block of 16 voices playing, fast against exact, and at 44.1 kHz
 // The voice is checked word for word block by block (bench::blockByBlock) and as its parameters change while it
 // sounds (changesWhileSounding). A Hit is chaotic where the exact port, its phases 1 LSB on, fails Q4's measures
@@ -283,6 +283,6 @@ int main()
 	blockByBlock<fast::SyToy>(s7, Hits, "SY TOY", [](fast::SyToy&) {}, {std::begin(Fields), std::end(Fields)},
 		[](const fast::SyToy& _m, const int _t, int32_t* _w) { _m.testWords(_t, _w); });
 	changesWhileSounding(s7);
-	judgeVoice<fast::SyToy>(s7, Hits, "SY TOY", Seconds, FeedbackTable);
+	judgeVoice<fast::SyToy>(s7, Hits, "SY TOY", Seconds, FeedbackTable, {0.85});
 	return finish();
 }

@@ -222,7 +222,7 @@ namespace
 		const auto reference = hitAt(_library, machine, 0, 4000, &Bare);
 		const auto& y = reference.channel(0);
 		const auto sound = defaults(_library, machine);
-		constexpr int Compared = 2000, First = Engine::HitDelay - 24;
+		constexpr int Compared = 2000, First = Engine::HitDelay - syntakt::fast::Resample48To44::Latency;
 		double best = 1e9;
 		for(int block = 0; block < 147; ++block)
 		{
@@ -930,18 +930,21 @@ namespace
 				++n;
 			return n;
 		};
+		// The Hit at _position, against the one at 0 _position samples on
+		const auto same = [&](const Machine& _machine, const std::vector<float>& _reference, const int _position,
+			const ChainSettings& _chain, const int _factor)
+		{
+			auto y = _reference;
+			y.insert(y.begin(), static_cast<size_t>(_position), 0.0f);
+			return hitAt(_library, _machine, _position, _position + Samples, &_chain, _factor).channel(0) == y;
+		};
 		for(const Machine machine : {Machine{Family::Syntakt, 1}, Machine{Family::Syntakt, 2}, Machine{Family::Machinedrum, 17}, Machine{Family::Machinedrum, 34}})
 			for(const int factor : {1, 2, 4})
 			{
 				const auto chain = heavyChain();
 				const auto reference = hitAt(_library, machine, 0, Samples, &chain, factor);
 				for(const int position : {1, 15, 31, 33, 1021, 4703})
-					if(hitAt(_library, machine, position, position + Samples, &chain, factor).channel(0) != [&]
-					{
-						auto y = reference.channel(0);
-						y.insert(y.begin(), static_cast<size_t>(position), 0.0f);
-						return y;
-					}())
+					if(!same(machine, reference.channel(0), position, chain, factor))
 						throw std::runtime_error(nameOf(machine) + ": a Hit in a chain moved with its note");
 			}
 
@@ -956,13 +959,27 @@ namespace
 			{
 				const int shift = onset(hitAt(_library, machine, 0, Samples, &raised, factor).channel(0)) - alone;
 				std::printf(" a raised drive at %dx: %+d", factor, shift);
-				// The Syntakt has no room: late by the chain's delay. A Machinedrum Hit waits less by it
-				const int expected = machine.family == Family::Syntakt ? Oversampler::delay(factor) : factor > 1 ? -2 : 0;
+				// A Hit waits less by its chain's delay, a low frequency's: what is left is where the onset's edge falls
+				const int expected = factor == 1 ? 0 : machine.family == Family::Syntakt ? 1 : -2;
 				require(shift == expected, "a raised drive's Hit, off its stated place");
 			}
 			std::printf("\n");
 		}
-		std::printf("  heavy chains on both families, off, 2x and 4x: a Hit's samples the same at 7 positions, jitter 0\n");
+
+		// The longest wait HitDelay is made for: the latest voice, and on the Syntakt the longest chain, wherever its note falls
+		for(const Machine machine : {Machine{Family::Syntakt, 0}, Machine{Family::Machinedrum, 18}})
+		{
+			const DriveType type = machine.family == Family::Syntakt ? DriveType::MdDist : DriveType::Syntakt;
+			ChainSettings longest;
+			longest.drive[0] = {type, false, 1, 127};
+			longest.drive[1] = {type, false, 1, 127};
+			longest.filter.type = FilterType::Machinedrum;
+			const auto reference = hitAt(_library, machine, 0, Samples, &longest, 4);
+			for(int position = 1; position < 2 * BlockSize; ++position)
+				if(!same(machine, reference.channel(0), position, longest, 4))
+					throw std::runtime_error(nameOf(machine) + ": the longest chain moved its Hit, note at " + std::to_string(position));
+		}
+		std::printf("  heavy chains on both families, off, 2x and 4x: a Hit's samples the same at 6 positions, the longest chain at 63, jitter 0\n");
 	}
 
 	void velocityAndAccent(const Library& _library)
@@ -1221,6 +1238,58 @@ namespace
 		}
 		std::printf("  two Hits in one block, the later's: apart by %.1f dB at worst of 33 positions\n", 20 * std::log10(std::max(worst, 1e-12)));
 		require(worst < 1e-3, "the earlier Hit won");
+	}
+
+	// A second Hit of a Track before the first's phase has come, HitDelay - Latency - 1 samples after its note: the first plays
+	// on the phase before it, up to a sample of 48 kHz off, until the second's. The second's samples are its own, and past
+	// the window the first is not touched before the block that starts the second's ramp, which moves with the Hit
+	void hitInPhaseWindow(const Library& _library)
+	{
+		const Machine machine{Family::Syntakt, 0};
+		constexpr int First = 1000, Samples = 6000;
+		constexpr int Early = syntakt::fast::Resample48To44::Latency, Window = Engine::HitDelay - Early - 1;
+		const double peak = peakOf(hitAt(_library, machine, First, Samples, &Bare).channel(0));
+		double second = 0, inWindow = 0, pastWindow = 0;
+		for(const int older : {77, 84, 91, 98, 105})		// an older Hit, all but silent, leaves the Track on a phase of its own
+		{
+			const auto play = [&](const std::vector<int>& _notes)
+			{
+				auto e = engineWith(_library, machine);
+				e->setChain(0, Bare);
+				Take take(Samples);
+				take.render(*e, 0, older);
+				e->noteOn(0, 1);
+				int at = older;
+				for(const int note : _notes)
+				{
+					take.render(*e, at, note - at);
+					e->noteOn(0, 127);
+					at = note;
+				}
+				take.render(*e, at, Samples - at);
+				return take;
+			};
+			const auto alone = play({First});
+			for(int d = 1; d <= Window + 8; ++d)
+			{
+				const int note = First + d;
+				const auto both = play({First, note}), later = play({note});
+				for(size_t n = static_cast<size_t>(note + Engine::HitDelay + Engine::CutSamples); n < Samples; ++n)
+					second = std::max<double>(second, std::abs(both.channel(0)[n] - later.channel(0)[n]));
+				if(d < BlockSize)		// the first may not have reached a block: the later Hit takes its place
+					continue;
+				double& first = d <= Window ? inWindow : pastWindow;
+				for(int n = First; n < note + Engine::HitDelay - Early - BlockSize; ++n)
+					first = std::max<double>(first, std::abs(both.channel(0)[static_cast<size_t>(n)] - alone.channel(0)[static_cast<size_t>(n)]));
+			}
+		}
+		const auto relative = [&](const double _x) { return 20 * std::log10(std::max(_x / peak, 1e-12)); };
+		std::printf("  a second Hit 1 to %d samples after the first (the phase's window %d): its own samples within %.1f dB of the peak past "
+			"its ramp; the first, before the second's ramp, within %.1f dB in the window, %.1f dB past it\n", Window + 8, Window,
+			relative(second), relative(inWindow), relative(pastWindow));
+		require(second / peak < 1e-4, "a second Hit is not its own");		// -107.8 dB measured
+		require(inWindow / peak < 0.14, "a first Hit further off than a sample");		// -18.1 dB measured
+		require(pastWindow / peak < 1e-3, "a second Hit past the window touched the first");
 	}
 
 	// Track B takes the lane of Track A's cut voice, all lanes held: B's chain sees its Hit
@@ -1542,6 +1611,7 @@ int main()
 		staleGateOff(library);
 		tailGain(library);
 		twoHitsInABlock(library);
+		hitInPhaseWindow(library);
 		heirChain(library);
 		bareVoice(library);
 		chainsAtHits(library);

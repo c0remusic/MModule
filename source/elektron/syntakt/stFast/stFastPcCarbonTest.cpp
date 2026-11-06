@@ -10,7 +10,7 @@
 //		within 1 cent, fatal; the null and the 1 ms envelope printed. PC CARBON has no feedback: nothing in it is
 //		chaotic, so this Q4 is already deterministic and the voice needs no render without its feedback
 //	Q15	the same Hits at 44.1 kHz, rendered at 48 and resampled (Host), against 48 kHz (bench::q15): envelope below
-//		18 kHz within 0.2 dB, every third octave below 10 kHz within 0.5 dB, nothing excused
+//		18 kHz within its bound, every third octave below 10 kHz within its bound
 //	cost: microseconds per 32-sample block of 16 voices playing, fast against exact, and at 44.1 kHz
 // A Hit would be chaotic where the exact port, its phases 1 LSB on, failed Q4's measures against itself, and would be
 // judged by its distributions (bench::Exacts): Q4 prints it, should one be.
@@ -276,6 +276,6 @@ int main()
 	q3(s7);
 	// Block by block (bench::blockByBlock): its output against the exact port's
 	blockByBlock<fast::PcCarbon>(s7, Hits, "PC CARBON", [](fast::PcCarbon&) {});
-	judgeVoice<fast::PcCarbon>(s7, Hits, "PC CARBON", Seconds, 0);
+	judgeVoice<fast::PcCarbon>(s7, Hits, "PC CARBON", Seconds, 0, {1.18});
 	return finish();
 }

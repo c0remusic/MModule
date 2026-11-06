@@ -43,6 +43,8 @@ Ordre de la spécification (§13). `Blocked by:` en tête de chaque ticket.
 - 2026-11-06 : but de l'utilisateur, unité de latence et de son, moins de dépendances, code de l'OS retiré là où ça apporte. L'exactitude bit à bit
   est un outil de mesure : les tickets restants se jugent aux seuils et à l'oreille. Une écoute à l'aveugle n'a rien trouvé d'audible autour des voix exactes ;
   elle n'a jamais comparé une voix refaite.
+- 2026-11-06 : [rééchantillonneur à phase minimale](issues/11-moteur-instrument-16-pistes.md), 48 coefficients par phase, `HitDelay` 81 (1,84 ms), gigue 0, bornes de Q15 par
+  machine. Écoute de SY BITS et CP VINTAGE encore à faire, retour au filtre linéaire si elle s'entend.
 ## Not yet specified
 
 - Réécritures maison ciblées, après les tickets 14 à 18, une famille à la fois, en paires à l'aveugle contre la voix actuelle : machines qui lisent la flash (TRX à formes

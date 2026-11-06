@@ -305,7 +305,7 @@ valeur, pas seulement passe/échoue.
 | Q12 | Coupures ajoutées (layer, mute, vol de voix) | HF d'un 200 Hz pleine échelle coupé à sa crête (`qbench` §6) | ≤ −50 dB (rampe ≥ 64 échantillons) |
 | Q13 | Repliement voulu préservé | null contre l'oracle sur SRR et BITS à fond (le flottant ne doit pas « nettoyer ») | Q1 ou Q2 selon l'étage |
 | Q14 | Dénormaux | temps d'un bloc après 10 s de silence suivant un Hit fort, contre un bloc actif | ≤ 1,2× |
-| Q15 | Indépendance à la fréquence | un Hit rendu à 44,1, 48, 96 kHz : enveloppe et spectre < 18 kHz | enveloppe ±0,2 dB, spectre ±0,5 dB par tiers d'octave |
+| Q15 | Indépendance à la fréquence | un Hit rendu à 44,1, 48, 96 kHz : enveloppe et spectre < 18 kHz | enveloppe ±0,2 dB, spectre ±0,5 dB par tiers d'octave ; depuis le filtre à phase minimale du 2026-11-06, le test du Syntakt borne l'enveloppe machine par machine, voir le ticket 11 de la carte de construction |
 | Q16 | Gain staging | crête des 16 pistes et du master, scénario « 16 BD en phase » | aucune valeur non finie ; crête rapportée, pas de clip interne caché |
 
 ### Seuils Q3-Q4 validés à l'écoute (2026-10-26, ticket 05 de `elektron-drums-v1`)

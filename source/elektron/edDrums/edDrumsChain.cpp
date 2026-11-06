@@ -806,6 +806,6 @@ namespace elektron::drums
 		for(const int p : {Pre0, Pre1, Post0, Post1})
 			if(const int type = m_type[static_cast<size_t>(p)][l]; type && raised(p >= Post0, type))
 				samples += Oversampler::delay(m_factor);
-		return samples;
+		return std::min(samples, MaxDelay);		// a drive moved while the place it leaves fades counts twice for a moment
 	}
 }

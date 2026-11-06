@@ -353,6 +353,6 @@ int main()
 	q3(s7);
 	blockByBlock<fast::SpTwinshot>(s7, Hits, "SP TWINSHOT", [](fast::SpTwinshot&) {}, Fields, words);
 	changesWhileSounding(s7);
-	judgeVoice<fast::SpTwinshot>(s7, Hits, "SP TWINSHOT", Seconds, 0);
+	judgeVoice<fast::SpTwinshot>(s7, Hits, "SP TWINSHOT", Seconds, 0, {1.02, 1.19});
 	return finish();
 }

@@ -27,30 +27,8 @@ namespace elektron::drums
 
 		constexpr int Up = Resample48To44::Up, Down = Resample48To44::Down;
 		constexpr int FirTaps = Resample48To44::Taps;
-		constexpr int FirRow = (FirTaps + 3) / 4 * 4;					// a vector's worth of taps at a time
-		constexpr int FirDelay = Resample48To44::Latency * Down;		// in 1/147 of a 48 kHz sample
+		constexpr int FirDelay = Resample48To44::Latency * Down;		// Latency, in 1/147 of a 48 kHz sample
 		static_assert(Down % Up == 13 && Down / Up == 1, "a host sample steps the read by 1 sample and 13 phases");
-
-		// The FIR's taps oldest first, the first ones of a row zeros
-		struct FirTable
-		{
-			alignas(16) float rows[Up][FirRow]{};
-
-			FirTable()
-			{
-				const auto taps = std::make_unique<float[][FirTaps]>(Up);
-				Resample48To44::taps(taps.get());
-				for(int p = 0; p < Up; ++p)
-					for(int k = 0; k < FirTaps; ++k)
-						rows[p][FirRow - 1 - k] = taps[p][k];
-			}
-		};
-
-		const FirTable& firTable()
-		{
-			static const FirTable table;
-			return table;
-		}
 
 		// A Syntakt machine's neutral sound until a Kit gives it one (the firmware's defaults are not in the repository):
 		// its knobs in the middle, its drive and HOLD off
@@ -64,8 +42,8 @@ namespace elektron::drums
 		}
 
 		// The latest a Syntakt note can wait, in 1/147 of a 48 kHz sample: the block that sees its trig, at most 142 / 147
-		// of a block past 32 samples ahead of the note; the block that sounds it; the FIR's delay
-		constexpr int64_t SyntaktWait = BlockSize * 142 + Up * BlockSize + FirDelay;
+		// of a block past 32 samples ahead of the note; the block that sounds it; the longest chain; the FIR's Latency
+		constexpr int64_t SyntaktWait = BlockSize * 142 + Up * BlockSize + Up * Chain::MaxDelay + FirDelay;
 
 		// A voice reaches 1 % of its peak in its first samples, all but these, measured by edDrumsEngineTest with the
 		// defaults: TRX-BD and TRX-S2 sound a block after their trigger, TRX-XT later still, the ROM machines' filters take 8.
@@ -113,8 +91,9 @@ namespace elektron::drums
 		// A sum over the taps of one Track, oldest first
 		inline float dot(const float* _x, const float* _h)
 		{
+			static_assert(FirTaps % 4 == 0, "whole vectors");
 			__m128 sum = _mm_setzero_ps();
-			for(int k = 0; k < FirRow; k += 4)
+			for(int k = 0; k < FirTaps; k += 4)
 				sum = _mm_add_ps(sum, _mm_mul_ps(_mm_loadu_ps(_x + k), _mm_load_ps(_h + k)));
 			__m128 hi = _mm_movehl_ps(sum, sum);
 			sum = _mm_add_ps(sum, hi);
@@ -295,11 +274,11 @@ namespace elektron::drums
 		m_mdChain(std::make_unique<Chain>(SampleRate, false)), m_mdIn(std::make_unique<Block>()),
 		m_stChain(std::make_unique<Chain>(syntakt::fast::MachineRate, true)), m_stIn(std::make_unique<Block>())
 	{
-		static_assert(HitDelay >= BlockSize - 1 + LatestStart + Chain::MaxDelay,
+		static_assert(HitDelay == BlockSize - 1 + LatestStart + Chain::MaxDelay,
 			"a Machinedrum Hit waits its block, the latest voice and its chain");
 		static_assert(HitDelay * Down >= SyntaktWait, "a Syntakt Hit waits its blocks and the FIR");
 		static_assert(2 * HitDelay + 2 * BlockSize + CutSamples + Ring::Mirror < Ring::Size, "the rings hold it all");
-		static_assert(FirRow == Ring::Mirror, "a window of the ring is a row of the FIR");
+		static_assert(FirTaps == Ring::Mirror, "a window of the ring is a row of the FIR");
 
 		m_shared->tables = &m_library.rom;
 		m_shared->bank = m_library.bank.directory ? &m_library.bank : nullptr;
@@ -316,7 +295,6 @@ namespace elektron::drums
 		for(auto& s : m_sources)
 			s->fitWidth();
 
-		firTable();		// made here, not on the audio thread
 		setOversampling(DefaultOversampling);
 	}
 
@@ -655,17 +633,19 @@ namespace elektron::drums
 				sendParameter(t, i, playedValue(t, i));
 		source.trig(t.lane);
 
-		// The block that sees the trig, the next that sounds it: the voice's first sample must be what the FIR's centre
-		// reads at output sample m_now + HitDelay, read - FirDelay = 147 (position of that sample in the ring)
+		// The block that sees the trig, the next that sounds it: the voice's first sample out of its chain must be what the
+		// FIR places at output sample m_now + HitDelay, read - FirDelay = 147 (position of that sample in the ring)
+		const int chainDelay = m_stChain->delay(_track);
 		const int64_t first = BlockSize * (m_stBlock + 1);
-		const int64_t rest = Down * (m_now + HitDelay) - FirDelay - Up * first;
+		const int64_t rest = Down * (m_now + HitDelay) - FirDelay - Up * (first + chainDelay);
 		t.stNext = first + rest / Up;
 		t.stNextGain = _gain;
 		t.stNextVelocity = _velocity;
 		t.stGateOff = false;
 		t.nextPhase = static_cast<int>(rest % Up);
-		// The first output whose newest tap reaches that sample, whatever the phase before it
-		t.phaseAt = m_now + HitDelay - Resample48To44::Latency - 1;
+		// The first output whose newest tap reaches that sample, whatever the phase before it: chainDelay is in 48 kHz
+		// samples here, so that the phase comes a sample early at a chain of 12, never late
+		t.phaseAt = m_now + HitDelay - Resample48To44::Latency - chainDelay - 1;
 	}
 
 	void Engine::cut(const int _track)
@@ -900,7 +880,6 @@ namespace elektron::drums
 			for(int i = 0; i < n; ++i)
 				_out[i] += x[i];
 		}
-		const auto& fir = firTable();
 		for(int done = 0; done < _count;)
 		{
 			const int64_t m = m_now + done;
@@ -917,7 +896,7 @@ namespace elektron::drums
 			const int n = static_cast<int>(std::min<int64_t>(_count - done, t.phaseAt - m));
 			for(int k = 0; k < n; ++k)
 			{
-				_out[done + k] += dot(t.stRing.window(i - (FirRow - 1)), fir.rows[p]);
+				_out[done + k] += dot(t.stRing.window(i - (FirTaps - 1)), Resample48To44::Table[p]);
 				++i;
 				p += Down - Up;
 				if(p >= Up)

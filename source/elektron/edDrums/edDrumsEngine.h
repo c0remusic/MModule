@@ -84,11 +84,12 @@ namespace elektron::drums
 	{
 	public:
 		// A voice's first sample sounds HitDelay samples after its note, on every output, jitter 0: the latency to report to
-		// the host. The Syntakt sets it: its machine sees a trig in a block of 48 kHz and sounds from the next, the note
-		// waits up to a block for the first, and the FIR adds its delay. A Machinedrum voice waits as long; one that
-		// starts late, or whose chain delays it, is held back less. A Syntakt Track has nothing to spare: it arrives late
-		// by its chain's delay, a drive raised 2x or 4x (Chain::delay)
-		static constexpr int HitDelay = 82;
+		// the host. The Machinedrum sets it: a note waits up to a block for the next of its family, the latest voice starts
+		// LatestStart in and the longest chain delays it. A voice that starts sooner, or whose chain delays it less, is held
+		// back. A Syntakt machine sees a trig in a block of 48 kHz and sounds from the next, the note waits up to a block for
+		// the first and the FIR places it Latency on, with room left: a Hit holds its voice back by what is left past its
+		// chain's delay (Chain::delay), so that a raised drive arrives on time
+		static constexpr int HitDelay = 81;
 
 		// A voice whose peak stays under Silence (-100 dB) that many blocks is off: not rendered until its next Hit. As long
 		// as the longest silence inside a Hit, which the engine test measures
@@ -189,7 +190,7 @@ namespace elektron::drums
 		class Ring
 		{
 		public:
-			static constexpr int Size = 512, Mirror = 56;
+			static constexpr int Size = 512, Mirror = 48;
 
 			// A block of _x from _at, its gain ramping over the block from _from to _to, and from _fadeAt in a line to 0.
 			// Returns the block's peak before the gains

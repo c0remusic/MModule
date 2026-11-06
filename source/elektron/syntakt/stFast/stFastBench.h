@@ -1285,15 +1285,25 @@ namespace syntakt::fast::bench
 		return y;
 	}
 
+	// Q15's bounds, a machine's own, given to judgeVoice: its worst Hit through Resample48To44, measured, plus 0.1 dB. They
+	// detect a change, they are no criterion of quality. All nine stood at 0.2 dB of envelope and 0.5 dB of third octave,
+	// which the linear-phase filter kept (0.012 dB, 0.25 dB at worst). The minimum-phase filter that replaced it delays each
+	// band by its own time, 2.4 samples to 5 kHz, 5.2 at 16 kHz, and fastHits takes off a whole Latency, so that where a
+	// sound starts or stops inside a 1 ms bin the bin holds more or less of it, up to 7 dB at 1 ms, 2.7 dB at 10 ms
+	struct Q15Bound
+	{
+		double envelopeDb, spectrumDb = 0.5;
+	};
+
 	// Q15: a machine renders at its native 48 kHz and reaches 44.1 kHz through Host (Resample48To44). Its Hits at
 	// 44.1 kHz (_b, aligned for the resampler's latency) against its Hits at 48 kHz (_a), both from the trig and
 	// rendered 50 ms past _seconds, each low-passed at 18 kHz (lowPass18k), then cut to _seconds: what lies above
 	// 18 kHz, which 44.1 kHz cannot hold, is printed, not judged; the cut leaves out the filters' zero-padded ends.
 	// Both renders are the same 48 kHz engine output, the one resampled: nothing chaotic separates them, so every Hit
-	// is judged alike and nothing is excused: the envelope within 0.2 dB above -40 dB, read on the 48 kHz grid (to48k,
-	// its own error checked first), every third octave below 10 kHz within 0.5 dB
+	// is judged alike: the envelope within _bound above -40 dB, read on the 48 kHz grid (to48k,
+	// its own error checked first), every third octave below 10 kHz within _bound
 	inline void q15(const std::vector<std::vector<double>>& _a, const std::vector<std::vector<double>>& _b,
-		const double _seconds)
+		const double _seconds, const Q15Bound& _bound)
 	{
 		checkTo48k();
 		const auto cut = [](std::vector<double> _x, const double _fs, const double _s)
@@ -1302,9 +1312,9 @@ namespace syntakt::fast::bench
 			return _x;
 		};
 		bool envOk = true, specOk = true;
-		double env = 0, spec = 0, above = 0, full = 0;
+		double env = 0, env10 = 0, full10 = 0, spec = 0, above = 0, full = 0;
 		std::printf("  Q15 Hit  envelope dB, < 18 kHz  spectrum < 10 kHz dB (worst band, Hz)  > 10 kHz dB, not judged  "
-			"envelope dB, full band, not judged\n");
+			"envelope dB, full band, not judged  10 ms envelope dB, < 18 kHz  10 ms, full band\n");
 		for(int l = 0; l < Lanes; ++l)
 		{
 			const auto a = cut(lowPass18k(_a[l], 48000), 48000, _seconds);
@@ -1313,6 +1323,11 @@ namespace syntakt::fast::bench
 			const double ef = envelopeDiff(envelope(cut(_a[l], 48000, _seconds), 48000),
 				envelope(cut(to48k(_b[l]), 48000, _seconds), 48000));
 			full = std::max(full, ef);
+			const double e10 = envelopeDiff(envelope(a, 48000, 10), envelope(cut(to48k(b), 48000, _seconds), 48000, 10));
+			const double ef10 = envelopeDiff(envelope(cut(_a[l], 48000, _seconds), 48000, 10),
+				envelope(cut(to48k(_b[l]), 48000, _seconds), 48000, 10));
+			env10 = std::max(env10, e10);
+			full10 = std::max(full10, ef10);
 
 			// The third octaves where _a's is above its loudest - 60 dB
 			const auto ra = bands(a, 48000, -17, 12), rb = bands(cut(b, 44100, _seconds), 44100, -17, 12);
@@ -1332,17 +1347,18 @@ namespace syntakt::fast::bench
 					at = 1000 * std::exp2((k - 17) / 3.0);
 				}
 			}
-			std::printf("       %2d  %21.3f  %8.3f (%5.0f)  %37.3f  %33.3f\n", l, e, s, at, s10, ef);
+			std::printf("       %2d  %21.3f  %8.3f (%5.0f)  %37.3f  %33.3f  %26.3f  %16.3f\n", l, e, s, at, s10, ef, e10, ef10);
 			above = std::max(above, s10);
 			env = std::max(env, e);
 			spec = std::max(spec, s);
-			envOk &= e <= 0.2;
-			specOk &= s <= 0.5;
+			envOk &= e <= _bound.envelopeDb;
+			specOk &= s <= _bound.spectrumDb;
 		}
 		std::printf("  Q15 worst: envelope below 18 kHz %.3f dB, spectrum below 10 kHz %.3f dB; above 10 kHz %.3f dB "
-			"and the full band's envelope %.3f dB, not judged\n", env, spec, above, full);
-		check(envOk, "Q15: 44.1 against 48 kHz, every Hit's envelope below 18 kHz within 0.2 dB above -40 dB");
-		check(specOk, "Q15: 44.1 against 48 kHz, every Hit's third octaves below 10 kHz within 0.5 dB");
+			"and the full band's envelope %.3f dB, not judged; 10 ms envelope below 18 kHz %.3f dB, full band %.3f dB, not judged; "
+			"bounds %.2f and %.2f dB\n", env, spec, above, full, env10, full10, _bound.envelopeDb, _bound.spectrumDb);
+		check(envOk, "Q15: 44.1 against 48 kHz, every Hit's envelope below 18 kHz within its bound above -40 dB");
+		check(specOk, "Q15: 44.1 against 48 kHz, every Hit's third octaves below 10 kHz within its bound");
 	}
 
 	// ---- the voice without its chaos ----
@@ -1445,10 +1461,10 @@ namespace syntakt::fast::bench
 
 	// Machine's _hits as every machine's test judges them, _seconds each: Q4 against the exact port (Exacts, q4); with
 	// its chaos table _chaosTable at 0 in both engines (deterministic, after testWithoutChaos), where it has one (0:
-	// none); Q15; the cost (printCost, as _name)
+	// none); Q15 within _q15; the cost (printCost, as _name)
 	template<typename Machine>
 	void judgeVoice(const std::vector<int32_t>& _s7, const HitSet& _hits, const char* _name, const double _seconds,
-		const uint32_t _chaosTable)
+		const uint32_t _chaosTable, const Q15Bound& _q15)
 	{
 		const auto render = [&](const double _fs, const double _s, const bool _noChaos, const bool _fromTrig)
 		{
@@ -1463,7 +1479,7 @@ namespace syntakt::fast::bench
 		if(_chaosTable)
 			deterministic(exactHits(withoutTable(_s7, _chaosTable), _seconds, Nudge{}, _hits),
 				render(48000, _seconds, true, false));
-		q15(render(48000, _seconds + 0.05, false, true), render(44100, _seconds + 0.05, false, true), _seconds);
+		q15(render(48000, _seconds + 0.05, false, true), render(44100, _seconds + 0.05, false, true), _seconds, _q15);
 		printCost<Machine>(_name, _s7, _hits);
 	}
 

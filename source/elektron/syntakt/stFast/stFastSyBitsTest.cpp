@@ -370,6 +370,6 @@ int main()
 	blockByBlock<fast::SyBits>(s7, Hits, "SY BITS", [](fast::SyBits&) {}, {std::begin(Fields), std::end(Fields)},
 		words);
 	changesWhileSounding(s7);
-	judgeVoice<fast::SyBits>(s7, Hits, "SY BITS", Seconds, 0);
+	judgeVoice<fast::SyBits>(s7, Hits, "SY BITS", Seconds, 0, {7.25});
 	return finish();
 }

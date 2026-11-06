@@ -8,24 +8,24 @@
 namespace syntakt::fast
 {
 	// 48 kHz to 44.1 kHz (147/160) over the 16 lanes, for a machine that renders at its native 48 kHz: a polyphase
-	// FIR, one Kaiser-windowed sinc (20 kHz, -6 dB there, beta 7) of 320 Latency + 1 taps at 147 x 48 kHz, read as
-	// 147 phases of Taps taps, the fewest a sweep found to hold flat to 18 kHz with 22.05-24 kHz rejected by 60 dB
-	// (40 taps and 19 kHz, 18 samples of delay, lost 1.7 dB at 18 kHz). Its delay is Latency host samples, whole:
-	// output sample m stands for input time (m - Latency) 160 / 147. Measured by Q11 (stFastResampleTest): gain within
-	// 0.1 dB 20 Hz-18 kHz, THD+N <= -70 dB 1-16 kHz, 22.05-24 kHz rejected by 60 dB; above 18 kHz it rolls off to its
-	// cutoff. The input waits in a FIFO between the engine's 32-sample blocks and the host's
+	// FIR of 147 phases of Taps taps, minimum phase, stFastResampleTaps.py's. Its delay depends on frequency, 2.4 host
+	// samples to 5 kHz, 5.17 at 16 kHz, nothing rings before the onset, and a blind test of it at 44 taps heard nothing
+	// against the linear-phase filter of delay 24. Measured by Q11 (stFastResampleTest): gain within 0.1 dB 20 Hz-18 kHz,
+	// THD+N <= -70 dB 1-16 kHz, 22.05-24 kHz rejected by 60 dB; above 18 kHz it rolls off to its cutoff. The input waits
+	// in a FIFO between the engine's 32-sample blocks and the host's
 	class Resample48To44
 	{
 	public:
 		static constexpr int Up = 147, Down = 160;
-		static constexpr int Latency = 24;	// host samples
-		static constexpr int Taps = 53;		// per phase
-		static_assert((320 * Latency + Up) / Up == Taps, "the prototype's taps fill Taps phases");
+		// Where a sound is placed, in host samples: output sample m stands for input time (m - Latency) 160 / 147. No one
+		// delay of the filter's: 3 is where its largest tap falls, 2.9 samples in, so that a Hit's edge sounds about there
+		static constexpr int Latency = 3;
+		static constexpr int Taps = 48;		// per phase
 
 		Resample48To44();
 
-		// Phase p's taps, _h[p][k] weighing the input k samples before
-		static void taps(float (*_h)[Taps]);
+		// Phase p's taps, oldest input first: Table[p][Taps - 1 - k] weighs the input k samples before
+		alignas(16) static const float Table[Up][Taps];
 
 		// Silence before the first input, the FIFO empty
 		void reset();
@@ -40,8 +40,6 @@ namespace syntakt::fast
 	private:
 		static int64_t inputOf(const int64_t _m) { return _m * Down / Up; }
 
-		float m_h[Up][Taps];	// phase p's taps, m_h[p][k] weighing the input k samples before
-
 		static constexpr int Capacity = Taps + 3 * BlockSize;
 		alignas(16) float m_x[Capacity][Lanes];
 		int64_t m_base = 0;		// the input sample m_x[0] holds
@@ -53,7 +51,7 @@ namespace syntakt::fast
 	// blocks of 32 samples. At 48 kHz block for block. At 44.1 kHz through Resample48To44: before each host block the
 	// FIFO takes the 48 kHz blocks it needs, 1 or 2 (34.8 samples on average), and what was queued before the host
 	// block (a trig, a parameter, a note) lands on the first of them, so a trig falls on the machine's own 48 kHz block
-	// grid, from 0.8 host samples early to 28.4 late (0.64 ms) against its ideal time, in a pattern that repeats every
+	// grid, from 1.5 host samples early to 27.8 late (0.66 ms) against its ideal time, in a pattern that repeats every
 	// 147 host blocks; the instrument's engine reads its Tracks at a phase of their own instead (edDrumsEngine.h). 88.2 and 96 kHz are ticket 16's: the machine at its 48 kHz, through
 	// Resample48To44 at 88.2, and brought up 2x by a half-band filter (HIIR) at both. Other rates are refused
 	template<typename Machine>
@@ -62,7 +60,7 @@ namespace syntakt::fast
 	public:
 		explicit Host(const float _sampleRate) : m_resample(supported(_sampleRate) == 44100.0f) {}
 
-		// The host samples the output is delayed by
+		// The host samples a Hit is placed after its time, Resample48To44::Latency, which a host need not be told
 		int latency() const { return m_resample ? Resample48To44::Latency : 0; }
 
 		// One host block: 32 samples into each of the 16 _outputs

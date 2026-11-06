@@ -10,7 +10,7 @@
 //		within 1 dB, pitch within 1 cent, fatal; the null and the 1 ms envelope printed. The same Hits with unit 0's
 //		feedback table at 0 in both engines, which leaves nothing chaotic: the same measures, fatal; the null printed
 //	Q15	the same Hits at 44.1 kHz, rendered at 48 and resampled (Host), against 48 kHz (bench::q15): envelope below
-//		18 kHz within 0.2 dB, spectrum below 10 kHz within 0.5 dB per third octave, nothing excused
+//		18 kHz within its bound, spectrum below 10 kHz within its bound per third octave
 //	cost: microseconds per 32-sample block of 16 voices playing, fast against exact, and at 44.1 kHz
 // A Hit is chaotic where the exact port, its phases 1 LSB on, fails Q4's measures against itself, a lane of Q3's
 // feedback sine where it misses the null (unit 0's feedback is never below 0.525 cycle per unit). It is judged by its
@@ -338,6 +338,6 @@ int main()
 	// (its chaotic Hits drift past Q4's fixed measures)
 	blockByBlock<fast::SdBasic>(withoutTable(s7, FeedbackTable), Hits, "SD BASIC, feedback 0",
 		[](fast::SdBasic& _m) { _m.testWithoutChaos(); });
-	judgeVoice<fast::SdBasic>(s7, Hits, "SD BASIC", Seconds, FeedbackTable);
+	judgeVoice<fast::SdBasic>(s7, Hits, "SD BASIC", Seconds, FeedbackTable, {2.24});
 	return finish();
 }

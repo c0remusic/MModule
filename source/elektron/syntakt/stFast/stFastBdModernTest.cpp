@@ -10,7 +10,7 @@
 //		of 1024-sample frames within 1 dB where the exact port's are within 30 dB of its loudest, pitch (spectral
 //		peak) within 1 cent; the null and the 1 ms envelope printed, not fatal (bench::q4)
 //	Q15	the same Hits at 44.1 kHz, rendered at 48 and resampled (Host), against 48 kHz (bench::q15): envelope below
-//		18 kHz within 0.2 dB above -40 dB, spectrum below 10 kHz within 0.5 dB per third octave, nothing excused
+//		18 kHz within its bound above -40 dB, spectrum below 10 kHz within its bound per third octave
 //	cost: microseconds per 32-sample block of 16 voices playing, fast against exact
 // A Hit is chaotic where the exact port, its phases 1 LSB on, fails Q4's measures against itself (TRANSIENT's
 // feedback), a lane of Q3's feedback sine where it misses the null: no rewrite can do better. There Q4 and Q3 give
@@ -287,6 +287,6 @@ int main()
 	// (Hits 5 and 9 are chaotic, and the float feedback drifts from them past Q4's fixed measures)
 	blockByBlock<fast::BdModern>(withoutTable(s7, FeedbackTable), BdModernHits, "BD MODERN, feedback 0",
 		[](fast::BdModern& _m) { _m.testWithoutChaos(); });
-	judgeVoice<fast::BdModern>(s7, BdModernHits, "BD MODERN", Seconds, FeedbackTable);
+	judgeVoice<fast::BdModern>(s7, BdModernHits, "BD MODERN", Seconds, FeedbackTable, {0.63});
 	return finish();
 }

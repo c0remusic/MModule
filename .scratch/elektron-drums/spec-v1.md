@@ -237,8 +237,9 @@ Ticket « Interface façon Overbridge ». Référence : mockup v12 (`mockup/v12.
   Syntakt dépend de sa fréquence de part en part : repliement de CY ALLOY (bord de Carson jusqu'à 1,28 MHz), retard
   d'un échantillon des rétroactions, verrou de période 2 à Nyquist (BD MODERN Hit 13, 16 dB d'enveloppe entre 44,1 et
   48 kHz). Rendu à 48 kHz, il sonne comme la machine à toute fréquence. Le rééchantillonneur passe Q11, plat à
-  0,1 dB jusqu'à 18 kHz (polyphasé, 53 coefficients par phase, 0,49 % d'un cœur pour 16 pistes) ; sa latence
-  (24 échantillons à 44,1 kHz, 0,54 ms) entre dans le délai commun des Hits. Le MD et le DT2 se décident à leur tour.
+  0,1 dB jusqu'à 18 kHz (polyphasé à phase minimale, 48 coefficients par phase, décidé le 2026-11-06 après une écoute à
+  l'aveugle, ticket 11). Son retard dépend de la fréquence, 2,4 échantillons à 44,1 kHz jusqu'à 5 kHz, 5,2 à 16 kHz ; le
+  délai commun des Hits en compte 3. Le MD et le DT2 se décident à leur tour.
 - Les étages restés en entiers (voix du MD, port exact du Syntakt gardé comme référence) sont exacts à leur
   fréquence d'origine (Syntakt 48 kHz, MD 44,1 kHz) et adaptés ailleurs. Le Syntakt livré et les étages réécrits
   (`TrackFx`, Echo, Gate Box, master) sont vérifiés à tolérance, même à leur fréquence d'origine.
