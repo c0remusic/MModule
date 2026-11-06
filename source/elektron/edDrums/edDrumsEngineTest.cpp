@@ -539,7 +539,7 @@ namespace
 		constexpr int Delay = Engine::HitDelay;
 		const std::array<Tone, 2> tones{{
 			{"MD sine", {Family::Machinedrum, 1}, {35, 127, 0, 0, 0, 0, 0, 0}, 0, -25.0, -25.0, -23.4, -20.2, -21.9, -22.6, -36.5},
-			{"Syntakt held", {Family::Syntakt, 0}, {64, 0, 0, 0, 0, 0, 127, 127}, 79, -39.0, -41.4, -39.6, -37.7, -22.1, -23.0, -40.2},
+			{"Syntakt held", {Family::Syntakt, 0}, {64, 0, 0, 0, 0, 0, 127, 127}, 79, -39.0, -39.7, -39.6, -37.7, -22.1, -23.0, -40.2},
 		}};
 		struct Cut
 		{
@@ -747,7 +747,7 @@ namespace
 		std::printf("  all 16 lanes of a machine held, a Track choked and struck at once: HF %.1f dB\n", v);
 		// Measured, 1 dB of margin: the machine's own fade of the block that sees the trig ends the ramp, 32 samples, not
 		// Q12's 64. Without it, the lane freed at once, -26 dB
-		require(v <= -42, "a lane taken from a cut voice clicks");
+		require(v <= -40.7, "a lane taken from a cut voice clicks");
 	}
 
 	// A machine change, its Hit at once: the old voice's ramp and a Hit as a fresh Track's, whichever follows which
@@ -818,8 +818,8 @@ namespace
 
 	// ---- the chain on the engine ----
 
-	// Q1: a Machinedrum Track in its family's chain against TrackFx on its voice alone, word for word; the Syntakt's, whose
-	// stages' tolerances stFastTrackTest measures, against its voice alone, a high-pass at 5 Hz apart
+	// Q1: a Machinedrum Track in its family's chain against TrackFx on its voice alone, word for word; a Syntakt one, its filter
+	// off, against its voice alone, a high-pass at 5 Hz apart. In its family's own, against the exact port: edDrumsChainTest
 	void familyChains(const std::vector<uint8_t>& _flash, const Library& _library)
 	{
 		const auto os = md::fw::loadFirmwareFromFlash(_flash);
@@ -864,10 +864,12 @@ namespace
 		std::printf("  Q1: 10 Machinedrum machines in their chain, %zu samples: TrackFx's words x 4, 0 LSB apart\n", compared);
 
 		double worst = -300;
+		auto filterOff = syntaktChain();
+		filterOff.filter.mode = 7;
 		for(int id = 0; id < SyntaktMachines; ++id)
 		{
 			const Machine machine{Family::Syntakt, static_cast<uint8_t>(id)};
-			const auto bare = hitAt(_library, machine, 0, 8000, &Bare), chained = hitAt(_library, machine, 0, 8000);
+			const auto bare = hitAt(_library, machine, 0, 8000, &Bare), chained = hitAt(_library, machine, 0, 8000, &filterOff);
 			double power = 0, error = 0;
 			for(size_t n = 0; n < 8000; ++n)
 			{
@@ -877,8 +879,8 @@ namespace
 			}
 			worst = std::max(worst, 10 * std::log10(error / power));
 		}
-		std::printf("  the nine Syntakt machines in their chain against their voice alone: %.1f dB of the signal at worst (BASE/WIDTH's "
-			"5 Hz; the stages against the exact port: stFastTrackTest)\n", worst);
+		std::printf("  the nine Syntakt machines in their chain, the filter off, against their voice alone: %.1f dB of the signal at "
+			"worst (BASE/WIDTH's 5 Hz)\n", worst);
 		require(worst < -26, "a Syntakt machine's chain is not its voice");
 	}
 

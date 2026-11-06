@@ -17,6 +17,7 @@
 #include "stBoot.h"
 #include "stFastMetrics.h"
 #include "stFastTrack.h"
+#include "stMainFilter.h"
 #include "stMainMemory.h"
 #include "stMemoryMap.h"
 #include "stSection7.h"
@@ -234,6 +235,39 @@ namespace
 		// Below Q3 only at low cutoffs, the DSP's 32-bit words there being what the doubles do not follow: bounds 1 dB under
 		require(worstOverall >= 59 && worstWindow >= 53, "the filter's types");
 
+		// FREQ 127, where a new Sound's filter stands and the cutoff word ends
+		for(const int type : {0, 1})
+		{
+			Score score;
+			const auto x = signal(13 + static_cast<uint32_t>(type), 0.5);
+			for(const int reso : {0, 0x2000, 0x4000, 0x6000, 0x7f00})
+			{
+				Exact exact(_section7);
+				auto fast = std::make_unique<Multimode>();
+				auto block = std::make_unique<Block>();
+				std::vector<double> reference, y;
+				exact.half(0x52, type << 8);
+				exact.half(0x56, reso);
+				exact.half(0x82, 1);
+				fast->set(0, type, 0x7f000000, reso << 16, true);
+				for(int b = 0; b < Blocks / 4; ++b)
+				{
+					const int trig = b % 1000 == 3;
+					input(x, b, exact.out(), *block, 2);
+					track::filter(exact.sram(), exact.rom(), TrackParams + 0x52, VoiceOut, 0x7f000000, 0, trig, 1);
+					if(trig)
+						fast->trig(0);
+					fast->process(*block);
+					capture(exact.out(), *block, reference, y);
+				}
+				reference.erase(reference.begin(), reference.begin() + 8 * BlockSize);
+				y.erase(y.begin(), y.begin() + 8 * BlockSize);
+				score.add(reference, y);
+			}
+			std::printf("  filter type %d at FREQ 127, 5 resonances: SNR %.1f dB, worst window %.1f dB\n", type, score.overall, score.worst);
+			require(score.overall >= 70 && score.worst >= 60, "Q3 of the filter at FREQ 127");
+		}
+
 		// A type changed at a block: the machine's fade and snap, sample for sample
 		Exact exact(_section7);
 		auto fast = std::make_unique<Multimode>();
@@ -261,8 +295,8 @@ namespace
 		require(score.overall >= 70 && score.worst >= 60, "a filter type change");
 	}
 
-	// The chain a Syntakt machine is first given, the three stages in turn, as ticket 12 runs them: every setting where it
-	// leaves a voice alone
+	// The chain a Syntakt machine is first given, the three stages in turn, as ticket 12 runs them, at a new Sound's values:
+	// OVER 0, BASE 0, WIDTH 127, TYPE 0, FREQ 127, RESO 0
 	void familyChain(const std::vector<int32_t>& _section7)
 	{
 		Exact exact(_section7);
@@ -271,12 +305,12 @@ namespace
 		auto filter = std::make_unique<Multimode>();
 		auto block = std::make_unique<Block>();
 		const auto x = signal(21, 0.9);
-		exact.half(0x52, 7 << 8);
+		exact.half(0x52, 0);
 		exact.half(0x56, 0);
 		exact.half(0x66, 0);
 		exact.half(0x68, 0x7f00);
 		exact.half(0x82, 1);
-		filter->set(0, 7, 0x7f000000, 0, true);
+		filter->set(0, 0, 0x7f000000, 0, true);
 		filter->clear(0);
 		std::vector<double> reference, y;
 		for(int b = 0; b < Blocks; ++b)
@@ -300,7 +334,7 @@ namespace
 		y.erase(y.begin(), y.begin() + 102 * BlockSize);
 		Score score;
 		score.add(reference, y);
-		std::printf("  the family's chain, drive 0, BASE/WIDTH open, type 7: SNR %.1f dB, worst window %.1f dB\n", score.overall, score.worst);
+		std::printf("  the family's chain, drive 0, BASE/WIDTH open, type 0 at FREQ 127: SNR %.1f dB, worst window %.1f dB\n", score.overall, score.worst);
 		require(score.overall >= 70 && score.worst >= 60, "Q3 of the family's chain");
 	}
 
@@ -312,7 +346,7 @@ namespace
 		};
 		double worstDb = 0;
 		for(const Setting s : {Setting{0, 0, 40, 0, 0, 0}, {30, 10, 60, 0, 0, 0}, {60, 30, 80, 0, 0, 0}, {20, 0, 50, 64, 40, 1},
-			{0, 127, 50, 0, 0, 0}, {115, 0, 40, 0, 0, 0}, {122, 0, 40, 0, 0, 0}})
+			{0, 127, 50, 0, 0, 0}, {115, 0, 40, 0, 0, 0}, {122, 0, 40, 0, 0, 0}, {0, 64, 127, 100, 32, 0}, {0, 64, 127, 100, 32, 1}})
 		{
 			Exact exact(_section7);
 			auto fast = std::make_unique<TrackAmp>();
@@ -410,6 +444,47 @@ namespace
 		// The attack is short of a whole block at its first values
 		require(worstAttack < 0.11 && worstDecay < 0.03 && worstDelay < 0.05, "the filter envelope's laws");
 	}
+
+	// FENR against CPU #1's envelope: Hits in the attack, the decay and the release, on and off
+	void envelopeReset(const syntakt::main::Section3& _section3)
+	{
+		namespace m = syntakt::main;
+		constexpr uint32_t P = m::Memory::SramBase;		// where this test keeps the page the routine reads
+		for(const bool reset : {false, true})
+		{
+			auto mem = std::make_unique<m::Memory>(_section3);
+			auto fast = std::make_unique<FilterEnvelope>();
+			FilterEnvelope::Setting s;
+			s.attack = 50;
+			s.decay = 50;
+			s.sustain = 40;
+			s.release = 50;
+			s.reset = reset;
+			mem->setHalf(P + 0x5c, s.attack << 8);
+			mem->setHalf(P + 0x5e, s.decay << 8);
+			mem->setHalf(P + 0x60, s.sustain << 8);
+			mem->setHalf(P + 0x62, s.release << 8);
+			mem->setHalf(P + 0x64, reset ? 0x100 : 0);
+			double worst = 0, atHit = 0;
+			int sinceHit = 0;
+			for(int b = 0; b < 3000; ++b)
+			{
+				const bool trig = b == 0 || b == 30 || b == 900 || b == 1800, gateOff = b == 1500;
+				m::filterEnvelopes(*mem, P, trig, gateOff, 0);
+				const double exact = -static_cast<double>(m::filterEnvelope(*mem, 0)) / 2147483648.0;
+				const double y = fast->step(0, s, trig, gateOff);
+				sinceHit = trig ? 0 : sinceHit + 1;
+				// A Hit's own block and its first steps, before the laws' fit adds up
+				if(sinceHit < 8)
+					worst = std::max(worst, std::abs(y - exact));
+				if(trig && b)
+					atHit = std::max(atHit, exact);
+			}
+			std::printf("  FENR %d: a Hit on a moving envelope within %.4f of CPU #1's, which stands at %.3f at most\n", reset ? 1 : 0, worst, atHit);
+			require(worst < 0.02, "FENR against CPU #1's envelope");
+			require(reset ? atHit == 0 : atHit > 0.2, "a Hit's envelope");
+		}
+	}
 }
 
 int main()
@@ -438,6 +513,7 @@ int main()
 		familyChain(words);
 		amp(words);
 		envelope(os);
+		envelopeReset(os);
 	}
 	catch(const std::exception& _e)
 	{

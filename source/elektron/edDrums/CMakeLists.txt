@@ -18,12 +18,13 @@ if(BUILD_TESTING)
 	add_test(NAME edDrumsEngineTest COMMAND edDrumsEngineTest)
 	set_tests_properties(edDrumsEngineTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
-	# A Track's chain on its own: Q5, Q6, Q7, Q9, Q12, the skeleton's order, no firmware
+	# A Track's chain on its own: Q5, Q6, Q7, Q9, Q12, the skeleton's order; Q3 against the exact port (SYNTAKT_SECTION7,
+	# SYNTAKT_SAMPLES: exit 77 without them)
 	add_executable(edDrumsChainTest edDrumsChainTest.cpp)
-	target_link_libraries(edDrumsChainTest PRIVATE edDrums)
+	target_link_libraries(edDrumsChainTest PRIVATE edDrums stEngine)
 	set_property(TARGET edDrumsChainTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsChainTest COMMAND edDrumsChainTest)
-	set_tests_properties(edDrumsChainTest PROPERTIES TIMEOUT 120)
+	set_tests_properties(edDrumsChainTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
 
 	# Two LFOs a Track on the transport, aimed at any Track; their laws against syntakt::main's and mdDrums::Lfo
 	# (GEARMULATOR_MD_FIRMWARE_BIN: exit 77 without it)

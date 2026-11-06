@@ -630,7 +630,8 @@ namespace syntakt::fast
 		{
 			m_count[_l] = 0;
 			m_stage[_l] = _s.delay == 0 ? Attack : Delay;
-			value = 0;
+			if(_s.reset)
+				value = 0;
 			return value;
 		}
 		if(_gateOff)

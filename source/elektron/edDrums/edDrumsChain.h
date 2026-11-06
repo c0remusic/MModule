@@ -117,9 +117,11 @@ namespace elektron::drums
 		return word < 0 ? 0 : word > 127 << 7 ? 127 << 7 : word;
 	}
 
-	// The family's chain, as a machine of the family is first chosen: where the firmware has it, each stage at the value
-	// that leaves the voice as it is, or as near as the stage goes
-	ChainSettings syntaktChain();
+	// The family's chain, as a machine of the family is first chosen, where the firmware has it. The Syntakt's stands as a
+	// new Sound does: the filter lowpass and open, the amp AHD at unity; _sustained, a machine that starts in ADSR, the amp
+	// in ADSR and its voice held to the gate-off. The Machinedrum's, each stage at the value that leaves the voice as it is, or
+	// as near as the stage goes
+	ChainSettings syntaktChain(bool _sustained = false);
 	ChainSettings machinedrumChain();
 
 	// The three bands of the "+": a low shelf, a bell of fixed Q and a high shelf, each a trapezoidal state-variable filter
@@ -201,6 +203,12 @@ namespace elektron::drums
 
 		// Whether _lane's amp closes its voice
 		bool ampOn(const int _lane) const { return m_ampLanes >> _lane & 1; }
+
+		// Whether _lane's amp holds its voice to the gate-off, as ADSR or a HOLD at its top do on the machine
+		bool holdsVoice(int _lane) const;
+
+		// What _lane's amp lets through at the moment, 1 without one
+		float ampLevel(const int _lane) const { return ampOn(_lane) ? m_amp.level(_lane) : 1.0f; }
 
 		// The samples a voice comes late through _lane's chain: the Machinedrum's filter, the drives raised
 		int delay(int _lane) const;

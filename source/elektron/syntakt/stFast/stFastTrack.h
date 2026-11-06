@@ -97,6 +97,7 @@ namespace syntakt::fast
 		void gateOff(const int _lane) { m_gateOff[_lane] = true; }
 		void process(Block& _buf, uint16_t _lanes = 0xffff);
 		void clear(int _lane);
+		float level(const int _lane) const { return m_level[_lane]; }
 
 	private:
 		enum Stage { Hold = 0, Decay = 1, Attack = 2, Fade = 5, Release = 4 };
@@ -124,6 +125,7 @@ namespace syntakt::fast
 		struct Setting
 		{
 			int delay = 0, attack = 0, decay = 0, sustain = 0, release = 0;		// 0-127
+			bool reset = false;		// FENR: a Hit restarts from 0, not from where the envelope stands
 		};
 
 		// Lane _l's next block, _gateOff or _trig in it; its value, 0 to 1

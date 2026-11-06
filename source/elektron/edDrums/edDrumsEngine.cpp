@@ -55,6 +55,13 @@ namespace elektron::drums
 		// A Syntakt machine's neutral sound until a Kit gives it one (the firmware's defaults are not in the repository):
 		// its knobs in the middle, its drive and HOLD off
 		constexpr std::array<uint8_t, 8> SyntaktDefaults{64, 64, 64, 64, 64, 0, 0, 64};
+		constexpr int VoiceHold = 6;		// HOLD among them: on, every machine's voice waits for its gate-off
+
+		// A new Sound of these starts in ADSR, its voice held: SY BITS, as SY TONE, SY CHORD and SY DUAL VCO will
+		bool startsSustained(const Machine& _machine)
+		{
+			return _machine.id == 7;
+		}
 
 		// The latest a Syntakt note can wait, in 1/147 of a 48 kHz sample: the block that sees its trig, at most 142 / 147
 		// of a block past 32 samples ahead of the note; the block that sounds it; the FIR's delay
@@ -341,7 +348,8 @@ namespace elektron::drums
 			}
 			t.chainFamily = _machine.family;
 			chainOf(t).setNote(_track, t.note);
-			chainOf(t).configure(_track, _machine.family == Family::Syntakt ? syntaktChain() : machinedrumChain());
+			chainOf(t).configure(_track, _machine.family == Family::Syntakt ? syntaktChain(startsSustained(_machine)) : machinedrumChain());
+			t.held = chainOf(t).holdsVoice(_track);
 		}
 		m_stMask = _machine.family == Family::Syntakt ? m_stMask | bit : m_stMask & ~bit;
 		m_mdMask &= ~bit;
@@ -434,7 +442,8 @@ namespace elektron::drums
 
 	void Engine::sendParameter(const Track& _track, const int _index, const int _value)
 	{
-		const int word = wordOf(_value, _track.taken[static_cast<size_t>(LfoTarget::Machine1) + static_cast<size_t>(_index)]);
+		const int word = _index == VoiceHold && _track.held ? 127 << 7
+			: wordOf(_value, _track.taken[static_cast<size_t>(LfoTarget::Machine1) + static_cast<size_t>(_index)]);
 		sourceOf(_track).setParameter(_track.lane, _index, static_cast<uint8_t>(word >> 7), static_cast<uint8_t>((word & 127) << 1));
 	}
 
@@ -484,7 +493,11 @@ namespace elektron::drums
 
 	void Engine::setChain(const int _track, const ChainSettings& _settings)
 	{
-		chainOf(m_tracks[static_cast<size_t>(_track)]).configure(_track, _settings);
+		auto& t = m_tracks[static_cast<size_t>(_track)];
+		chainOf(t).configure(_track, _settings);
+		t.held = chainOf(t).holdsVoice(_track);
+		if(t.lane >= 0)
+			sendParameter(t, VoiceHold, playedValue(t, VoiceHold));
 	}
 
 	void Engine::setOversampling(const int _factor)
@@ -535,6 +548,13 @@ namespace elektron::drums
 	void Engine::noteOff(const int _track)
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
+		// A note that ends in the block its Hit waits for ends in the block after, as the port's length counter has it: that
+		// block the machine and the amp would both drop its gate-off
+		if(t.stNext >= 0)
+		{
+			t.stGateOff = true;
+			return;
+		}
 		if(t.lane >= 0)
 			sourceOf(t).gateOff(t.lane);
 		chainOf(t).gateOff(_track);
@@ -642,6 +662,7 @@ namespace elektron::drums
 		t.stNext = first + rest / Up;
 		t.stNextGain = _gain;
 		t.stNextVelocity = _velocity;
+		t.stGateOff = false;
 		t.nextPhase = static_cast<int>(rest % Up);
 		// The first output whose newest tap reaches that sample, whatever the phase before it
 		t.phaseAt = m_now + HitDelay - Resample48To44::Latency - 1;
@@ -822,9 +843,9 @@ namespace elektron::drums
 				compute(track);
 				m_stChain->hit(static_cast<int>(track), m_tracks[track].stNextVelocity);
 			}
-		// What an amp closes is over, whatever goes on under it
+		// What an amp has closed is over, whatever goes on under it
 		for(uint32_t bits = live, track = 0; bits; bits >>= 1, ++track)
-			if(bits & 1 && m_tracks[track].st.quiet && !m_stChain->ampOn(static_cast<int>(track)))
+			if(bits & 1 && m_tracks[track].st.quiet && m_stChain->ampLevel(static_cast<int>(track)) >= Silence)
 				for(auto& sample : in.s)
 					m_tracks[track].st.voiced = m_tracks[track].st.voiced || std::abs(sample[track]) >= Silence;
 		if(live)
@@ -847,6 +868,8 @@ namespace elektron::drums
 				t.stSounding = true;
 				t.stFadeAt = Never;
 			}
+			if(std::exchange(t.stGateOff, false))
+				noteOff(static_cast<int>(track));
 		}
 		for(size_t s = 0; s < m_sources.size(); ++s)
 		{

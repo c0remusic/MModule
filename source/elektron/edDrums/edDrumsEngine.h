@@ -249,6 +249,7 @@ namespace elektron::drums
 			uint32_t chokes = 0;
 			int accent = 0;
 			Family chainFamily = Family::Off;	// the Chain that holds its settings
+			bool held = false;				// its chain's amp holds its voice (Chain::holdsVoice)
 			std::array<int, static_cast<size_t>(LfoTarget::Count)> taken{};	// what the LFOs aimed here add up to, as far as its slope has got
 
 			// Machinedrum
@@ -269,6 +270,7 @@ namespace elektron::drums
 			int64_t stNext = -1;			// where the Hit the next block sees goes, -1 none
 			float stNextGain = 0;
 			int stNextVelocity = 0;			// what the chain's velocity target hears: the note's
+			bool stGateOff = false;			// that Hit's note has ended
 			int lane = -1;					// the lane its voice holds, on the machine it plays
 			int phase = 0;					// how much earlier than the family's clock its ring is read, in 1/147 sample
 			int nextPhase = 0;				// ... from output sample phaseAt, which a Hit sets

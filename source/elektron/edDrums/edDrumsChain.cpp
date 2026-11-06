@@ -101,13 +101,18 @@ namespace elektron::drums
 
 	}
 
-	ChainSettings syntaktChain()
+	ChainSettings syntaktChain(const bool _sustained)
 	{
 		ChainSettings s;
 		s.drive[0].type = DriveType::Syntakt;
 		s.band.type = BandType::BaseWidth;
 		s.band.values = {0, 127};
 		s.filter.type = FilterType::Syntakt;
+		s.filter.mode = 0;
+		s.filter.envelope.decay = 64;
+		s.filter.envelope.release = 64;
+		// AHD is at unity while it holds and decays, and fades the last Hit as the port's does
+		s.amp = {true, 0, 64, 127, 100, 32, _sustained};
 		return s;
 	}
 
@@ -781,6 +786,12 @@ namespace elektron::drums
 		}
 		if(m_ampLanes & _active)
 			m_amp.process(_buf, m_ampLanes & _active);
+	}
+
+	bool Chain::holdsVoice(const int _lane) const
+	{
+		const auto& amp = m_settings[static_cast<size_t>(_lane)].amp;
+		return ampOn(_lane) && (amp.adsr || amp.hold == 127);
 	}
 
 	int Chain::pureDelay(const int _lane) const

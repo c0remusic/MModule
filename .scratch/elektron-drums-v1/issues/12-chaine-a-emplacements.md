@@ -169,3 +169,7 @@ Recherche sur le portage exact et l'état de boot de l'OS 1.41, routines de l'OS
 Trouvé en passant : `Machine::indexDescriptors` garde le premier descripteur d'un id, le firmware le dernier, donc le kit par défaut du portage a AmpMode ADSR et voix tenue sur toutes les machines, +2,8 à +17,0 dB. À corriger à part, la référence bouge.
 
 Q6 sur MD DIST : écarté, l'utilisateur ayant suivi la recommandation, DIST étant l'étage de la machine. `HitDelay` reste sans gigue, décalage de drive traité par le rééchantillonneur à phase minimale.
+
+## 2026-11-06 : défauts de famille faits
+
+`syntaktChain` tient ce que pose l'init de l'OS : filtre type 0, DEC et REL 64, FENR 0, ampli actif en AHD à 0, 64, 127, 100, 32 ; SY BITS en ADSR, voix tenue jusqu'au relâchement (`Chain::holdsVoice`). L'ampli reste actif pour le fondu de l'ancien Hit au retrigger : pire AHD de 72,7 / 56,2 à 84,7 / 87,2 dB contre le portage. Machines tenues : 58,7 dB sur une fenêtre, borné à 58, cause déduite. Une constante de -123 dBFS, non expliquée, est retirée des fenêtres de Q3 ; les deux chiffres sont imprimés.

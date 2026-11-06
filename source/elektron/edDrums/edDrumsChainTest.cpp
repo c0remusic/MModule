@@ -1,4 +1,4 @@
-// A Track's chain on its own, no firmware (ticket 12 of .scratch/elektron-drums-v1), each measure printed:
+// A Track's chain on its own (ticket 12 of .scratch/elektron-drums-v1), each measure printed, no firmware but for the last:
 //
 //   - every place's stage at unity: the families' chains and each stage alone, DIST's gain measured;
 //   - Q5: nothing changed through a chain of Off slots;
@@ -7,19 +7,26 @@
 //   - Q6: ASR of a sine at 2.5 kHz x 8 through a drive raised 2x and 4x; MIX on the raised path;
 //   - Q7: the half-bands' round trip; their delay, which Oversampler::delay states;
 //   - Q9: the three bands' filter at its cutoff from 20 Hz to 20 kHz, its stability under a sweep;
-//   - Q12: every stage type changed on a 200 Hz tone at its crest; the filter's envelope, moving the Machinedrum's band.
+//   - Q12: every stage type changed on a 200 Hz tone at its crest; the filter's envelope, moving the Machinedrum's band;
+//   - a new Sound's values and when a Track takes them, a note shorter than a block;
+//   - Q3: each machine in its family's chain against the exact port, and a machine that holds, through the engine, to its gate-off.
+//
+// SYNTAKT_SECTION7 and SYNTAKT_SAMPLES name the user's firmware and sample set: exit 77 without them, once the rest has run.
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <functional>
 #include <memory>
+#include <numeric>
 #include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "edDrumsChain.h"
+#include "edDrumsTestSupport.h"
+#include "stFastBench.h"
 #include "stFastMetrics.h"
 
 namespace
@@ -937,6 +944,407 @@ namespace
 		through(*chain, 8192, tone);
 		std::printf("  the filter's parameters past their ends: inside the tables\n");
 	}
+
+	// ---- a new Sound, and the exact port ----
+
+	// A new Sound's panel, read from the OS's init (ticket 12): what a user sees on a Syntakt Track
+	void familyValues()
+	{
+		const auto s = syntaktChain();
+		const auto& f = s.filter;
+		require(s.drive[0].type == DriveType::Syntakt && s.drive[0].amount == 0 && s.band.type == BandType::BaseWidth
+			&& s.band.values[0] == 0 && s.band.values[1] == 127, "a new Sound's drive and band");
+		require(f.type == FilterType::Syntakt && f.mode == 0 && f.frequency == 127 && f.resonance == 0 && f.depth == 64, "a new Sound's filter");
+		require(f.envelope.delay == 0 && f.envelope.attack == 0 && f.envelope.decay == 64 && f.envelope.sustain == 0
+			&& f.envelope.release == 64 && !f.envelope.reset, "a new Sound's filter envelope");
+		const auto amp = [](const ChainSettings::Amp& _a)
+		{
+			return _a.attack == 0 && _a.hold == 64 && _a.decay == 127 && _a.sustain == 100 && _a.release == 32;
+		};
+		require(amp(s.amp) && s.amp.on && !s.amp.adsr, "a new Sound's amp");
+		const auto held = syntaktChain(true);
+		require(amp(held.amp) && held.amp.on && held.amp.adsr, "the amp of a machine that starts in ADSR");
+		std::printf("  a new Sound: TYPE 0, FREQ 127, RESO 0, ENV 64, DEC and REL 64, FENR 0; amp on, 0 64 127 100 32, AHD, ADSR where a machine holds\n");
+	}
+
+	// SYN1-8 as the engine's defaults, with the flag CPU #1 sets (0x400a4bc6)
+	template<typename Set>
+	void setVoice(Set&& _set, const ChainSettings& _chain)
+	{
+		constexpr uint8_t Syn[8] = {64, 64, 64, 64, 64, 0, 0, 64};
+		const bool hold = _chain.amp.adsr || _chain.amp.hold == 127;
+		for(int i = 0; i < 8; ++i)
+			_set(i, Syn[i], static_cast<uint8_t>(i == 6 && hold ? 1 : 0));
+	}
+
+	// The exact port's voice CPU as it runs a block, track 0: the machine, then the track's stages on the words of _chain, the
+	// amp's as they stand whether it is on or not, and CPU #1's cutoff. Its voice alone: bench::Exact
+	class Port
+	{
+	public:
+		Port(const std::vector<int32_t>& _section7, const int _machine, const ChainSettings& _chain)
+			: m_sram(std::make_unique<syntakt::Sram>()), m_rom{_section7.data(), syntakt::fast::bench::g_samples}
+		{
+			syntakt::boot(*m_sram, m_globals, m_rom);
+			const auto& a = _chain.amp;
+			const auto& f = _chain.filter;
+			m_block[0] = static_cast<uint8_t>(_machine);
+			m_block[0xa0] = static_cast<uint8_t>(f.mode);
+			m_block[0xa2] = static_cast<uint8_t>(f.resonance);
+			m_block[0xa4] = static_cast<uint8_t>(_chain.band.values[0]);
+			m_block[0xa6] = static_cast<uint8_t>(_chain.band.values[1]);
+			uint32_t at = 0xe0;
+			for(const int value : {a.attack, a.hold, a.decay, a.sustain, a.release, a.adsr ? 1 : 0, 1})
+			{
+				m_block[at] = static_cast<uint8_t>(value);
+				at += 2;
+			}
+			m_block[0x151] = 60;		// the note in Q16
+			m_block[0x188] = static_cast<uint8_t>(f.frequency);		// the cutoff's word
+			setVoice([&](const int _i, const uint8_t _value, const uint8_t _fine)
+			{
+				m_block[2 + 2 * static_cast<uint32_t>(_i)] = _value;
+				m_block[3 + 2 * static_cast<uint32_t>(_i)] = _fine;
+			}, _chain);
+		}
+
+		const int32_t* render(const bool _trig, const bool _gateOff)
+		{
+			m_block[0x180] = _trig ? 1 : 0;
+			m_block[0x181] = _gateOff ? 1 : 0;
+			syntakt::runBlock(*m_sram, m_globals, m_rom, m_block.data());
+			return m_sram->ptr(syntakt::VoiceOut);
+		}
+
+	private:
+		std::unique_ptr<syntakt::Sram> m_sram;
+		syntakt::Globals m_globals;
+		syntakt::Rom m_rom;
+		std::array<uint8_t, syntakt::BlockBytes> m_block{};
+	};
+
+	struct Played
+	{
+		const char* name;
+		int machine;		// the firmware's
+		bool sustained;
+	};
+
+	// The nine this instrument plays, and the two that start in ADSR that it does not have yet: their exact voices
+	constexpr Played PortMachines[] = {{"BD MODERN", 0, false}, {"SD BASIC", 1, false}, {"CY ALLOY", 2, false}, {"PC CARBON", 3, false},
+		{"SD VINTAGE", 6, false}, {"CP VINTAGE", 7, false}, {"SY TOY", 36, false}, {"SY BITS", 37, true}, {"SP TWINSHOT", 44, false},
+		{"SY TONE", 4, true}, {"SY CHORD", 5, true}};
+
+	// The chain every machine that holds is also played in
+	ChainSettings holdAtTop()
+	{
+		auto s = syntaktChain();
+		s.amp.on = true;
+		s.amp.hold = 127;
+		s.amp.decay = 40;
+		return s;
+	}
+
+	struct Q3
+	{
+		double snr, window, second;
+		double rawWindow, rawSecond;		// as bench::localSnr measures them, the port's offset in
+	};
+
+	// Under Q3's 60 where a law is a fit, 1 dB under what they reach. Inferred, not measured: the amp's release, within 0.01 dB
+	// (stFastTrackTest), is what remains in a tail at -60 dB of its Hit
+	constexpr double HeldWindow = 58;
+
+	// Q3: the exact voice through the Chain against the exact voice through the port's stages, two Hits and their gate-offs
+	Q3 chainAgainstPort(const std::vector<int32_t>& _section7, const Played& _played, const ChainSettings& _chain, const char* _what)
+	{
+		namespace bench = syntakt::fast::bench;
+		constexpr int First = 20, FirstOff = 1200, Second = 2500, SecondOff = 3700, Blocks = 5000;
+		auto port = std::make_unique<Port>(_section7, _played.machine, _chain);
+		auto voice = std::make_unique<bench::Exact>(_section7);
+		voice->setMachine(0, _played.machine);
+		voice->setNote(0, 60);
+		setVoice([&](const int _i, const uint8_t _value, const uint8_t _fine) { voice->setParameter(0, _i, _value, _fine); }, _chain);
+		auto chain = std::make_unique<Chain>(48000.0, true);
+		chain->configure(0, _chain);
+		auto block = std::make_unique<Block>();
+		std::vector<double> reference, y;
+		for(int b = 0; b < Blocks; ++b)
+		{
+			const bool trig = b == First || b == Second, gateOff = b == FirstOff || b == SecondOff;
+			if(trig)
+				voice->trig(0);
+			if(gateOff)
+				voice->gateOff(0);
+			voice->render();
+			const int32_t* out = port->render(trig, gateOff);
+			if(b < First)
+				continue;
+			if(trig)
+				chain->hit(0, 127);
+			if(gateOff)
+				chain->gateOff(0);
+			for(int n = 0; n < BlockSize; ++n)
+				block->s[n][0] = static_cast<float>(bench::q31(voice->out(0)[n]));
+			chain->process(*block, 1);
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				reference.push_back(8 * bench::q31(out[n]));		// the port's stages give x / 8
+				y.push_back(block->s[n][0]);
+			}
+		}
+		double signal = 0, noise = 0;
+		for(size_t n = 0; n < y.size(); ++n)
+		{
+			signal += reference[n] * reference[n];
+			noise += (y[n] - reference[n]) * (y[n] - reference[n]);
+		}
+
+		// bench::localSnr. The port's quiet tails stand a constant -123 dBFS off whatever the stages, which alone would be the error
+		// of a quiet window: _offset takes that much out of a window's mean at most, never what a low note leaves in it
+		const auto windowOf = [&](const size_t _from, const size_t _to, const double _offset)
+		{
+			constexpr size_t Window = 480;
+			double loud = 0;
+			for(size_t a = _from; a + Window <= _to; a += Window)
+				loud = std::max(loud, std::inner_product(&reference[a], &reference[a] + Window, &reference[a], 0.0));
+			double worst = 1e9;
+			for(size_t a = _from; a + Window <= _to; a += Window)
+			{
+				double power = 0, mean = 0, error = 0;
+				for(size_t n = a; n < a + Window; ++n)
+				{
+					power += reference[n] * reference[n];
+					mean += (y[n] - reference[n]) / Window;
+				}
+				const double taken = std::clamp(mean, -_offset, _offset);
+				for(size_t n = a; n < a + Window; ++n)
+					error += (y[n] - reference[n] - taken) * (y[n] - reference[n] - taken);
+				if(power >= loud * 1e-6)
+					worst = std::min(worst, db(power / std::max(error, 1e-30)));
+			}
+			return worst;
+		};
+		constexpr double PortOffset = 8e-7;		// -122 dBFS
+		const auto second = static_cast<size_t>((Second - First - 2) * BlockSize);
+		const Q3 q{db(signal / std::max(noise, 1e-30)), windowOf(0, second, PortOffset), windowOf(second, y.size(), PortOffset),
+			windowOf(0, second, 0), windowOf(second, y.size(), 0)};
+		std::printf("  Q3, %s, %s: SNR %.1f dB, worst window %.1f dB, %.1f through a second Hit; the port's offset in, %.1f and %.1f\n",
+			_played.name, _what, q.snr, q.window, q.second, q.rawWindow, q.rawSecond);
+		return q;
+	}
+
+	void q3(const std::vector<int32_t>& _section7)
+	{
+		Q3 worst{1e9, 1e9, 1e9, 1e9, 1e9}, worstHeld = worst;
+		const auto add = [](Q3& _worst, const Q3& _q)
+		{
+			_worst = {std::min(_worst.snr, _q.snr), std::min(_worst.window, _q.window), std::min(_worst.second, _q.second),
+				std::min(_worst.rawWindow, _q.rawWindow), std::min(_worst.rawSecond, _q.rawSecond)};
+		};
+		for(const auto& played : PortMachines)
+		{
+			add(played.sustained ? worstHeld : worst, chainAgainstPort(_section7, played, syntaktChain(played.sustained), "its family's chain"));
+			if(played.sustained)
+				add(worstHeld, chainAgainstPort(_section7, played, holdAtTop(), "AHD, HOLD 127"));
+		}
+		std::printf("  Q3 at worst: AHD, SNR %.1f dB, window %.1f, second Hit %.1f; held, %.1f, %.1f, %.1f (thresholds: SNR 70, windows 60, held %.0f)\n",
+			worst.snr, worst.window, worst.second, worstHeld.snr, worstHeld.window, worstHeld.second, HeldWindow);
+		require(worst.snr >= 70 && worst.window >= 60 && worst.second >= 60, "Q3 of a machine in its family's chain");
+		require(worstHeld.snr >= 70 && worstHeld.window >= HeldWindow && worstHeld.second >= HeldWindow, "Q3 of a machine held");
+	}
+
+	// SY BITS played by the engine against the exact port whole: its level in windows of 50 ms, the note released or not
+	void heldAgainstPort(const std::vector<int32_t>& _section7, const Library& _library)
+	{
+		namespace bench = syntakt::fast::bench;
+		constexpr double Ms = 50;
+		constexpr int Release = 28800, Samples = 96000;		// 600 ms, 2 s at 48 kHz
+		struct Case
+		{
+			const char* name;
+			ChainSettings chain;
+			int release;		// at 48 kHz, -1 none; 0: with the note, which the port ends the block after
+		};
+		const Case cases[] = {{"its family's chain, released", syntaktChain(true), Release}, {"its family's chain, the note held", syntaktChain(true), -1},
+			{"AHD, HOLD 127, released", holdAtTop(), Release}, {"AHD, HOLD 127, the note held", holdAtTop(), -1},
+			{"its family's chain, released with its note", syntaktChain(true), 0}, {"AHD, HOLD 127, released with its note", holdAtTop(), 0}};
+		for(const auto& c : cases)
+		{
+			auto port = std::make_unique<Port>(_section7, 37, c.chain);
+			std::vector<double> reference;
+			for(int b = 0; b < Samples / BlockSize + 1; ++b)
+			{
+				const int32_t* out = port->render(b == 0, c.release >= 0 && b == (c.release ? c.release / BlockSize : 1));
+				for(int n = 0; n < BlockSize && b; ++n)
+					reference.push_back(8 * bench::q31(out[n]));
+			}
+
+			auto e = std::make_unique<Engine>(_library);
+			e->setMachine(0, {Family::Syntakt, 7});
+			e->setLevel(0, 127);
+			e->setChain(0, c.chain);
+			const int to = Engine::HitDelay + Samples * 147 / 160, off = c.release > 0 ? Engine::HitDelay + c.release * 147 / 160 : 0;
+			test::Take take(to);
+			e->noteOn(0, 127);
+			take.render(*e, 0, off);
+			if(c.release >= 0)
+				e->noteOff(0);
+			take.render(*e, off, to - off);
+			const std::vector<double> y(take.channel(0).begin() + Engine::HitDelay, take.channel(0).end());
+			const auto reach = bench::envelope(reference, 48000, Ms), mine = bench::envelope(y, 44100, Ms);
+			const double loud = *std::max_element(reach.begin(), reach.end());
+			double worst = 0;
+			for(size_t w = 0; w + 1 < std::min(reach.size(), mine.size()); ++w)
+				if(reach[w] >= loud * 1e-5)
+					worst = std::max(worst, std::abs(db(mine[w] / reach[w])));
+			std::printf("  SY BITS through the engine, %s: its level within %.2f dB of the port's down to -50 dB\n", c.name, worst);
+			require(worst < 1, "a held machine does not end as the port's");
+		}
+	}
+
+	// A note shorter than a block ends: with its Hit, some samples on, on a voice that sounds, on a lane taken from a cut voice
+	void shortNotes(const Library& _library)
+	{
+		constexpr int Seconds3 = 3 * 44100;
+		const Machine bits{Family::Syntakt, 7};
+		const auto over = [&](Engine& _e)
+		{
+			test::Take take(Seconds3);
+			take.render(_e, 0, Seconds3);
+			return !_e.liveTracks();
+		};
+		for(const int gap : {0, 10, 31, 40})
+			for(const bool second : {false, true})
+			{
+				auto e = std::make_unique<Engine>(_library);
+				e->setMachine(0, bits);
+				if(second)
+				{
+					test::Take take(4410);
+					e->noteOn(0, 127);
+					take.render(*e, 0, 4410);
+				}
+				test::Take take(64);
+				e->noteOn(0, 127);
+				if(gap)
+					take.render(*e, 0, gap);
+				e->noteOff(0);
+				require(over(*e), "a note " + std::to_string(gap) + " samples long never ended" + (second ? ", on a sounding voice" : ""));
+			}
+
+		// All 16 lanes held: the Hit takes a cut voice's at the block that sees its trig
+		auto e = std::make_unique<Engine>(_library);
+		for(int t = 0; t < Tracks; ++t)
+			e->setMachine(t, bits);
+		test::Take take(4410);
+		for(int t = 0; t < Tracks; ++t)
+			e->noteOn(t, 127);
+		take.render(*e, 0, 4410);
+		e->setChokes(1, 1);
+		e->noteOn(1, 127);
+		e->noteOn(0, 127);
+		require(e->lanesRendered(7) == 16, "the lanes all held");
+		e->noteOff(0);
+		for(int t = 1; t < Tracks; ++t)
+			e->noteOff(t);
+		require(over(*e), "a short note on a lane taken from a cut voice never ended");
+		std::printf("  a note of 0, 10, 31 and 40 samples, alone, on a sounding voice, on a lane taken from a cut voice: over within 3 s\n");
+	}
+
+	double peakBetween(const std::vector<float>& _y, const int _from, const int _to)
+	{
+		float peak = 0;
+		for(int n = _from; n < _to; ++n)
+			peak = std::max(peak, std::abs(_y[static_cast<size_t>(n)]));
+		return peak;
+	}
+
+	// What remains of a Hit 1.5 s on, of its first 100 ms
+	double sustained(Engine& _e)
+	{
+		test::Take take(66150);
+		_e.noteOn(0, 127);
+		take.render(_e, 0, 66150);
+		return peakBetween(take.channel(0), 62000, 66150) / peakBetween(take.channel(0), 0, 4410);
+	}
+
+	// When a Track takes its chain: a family's first machine and a change of family, not a machine of the family
+	void familyLoads(const Library& _library)
+	{
+		const Machine bits{Family::Syntakt, 7}, bass{Family::Syntakt, 0}, md{Family::Machinedrum, 17};
+		const auto first = [&](const std::vector<Machine>& _machines)
+		{
+			auto e = std::make_unique<Engine>(_library);
+			for(const auto& m : _machines)
+				e->setMachine(0, m);
+			e->setLevel(0, 127);
+			return sustained(*e);
+		};
+		const double chosen = first({bits}), plain = first({bass, bits}), back = first({md, bits}), again = first({bits, md, bits});
+		const double kept = first({bits, bass}), bare = first({bass});
+		std::printf("  1.5 s on: SY BITS chosen first %.3f, after BD MODERN %.3f, after a Machinedrum machine %.3f, and back %.3f; "
+			"BD MODERN after SY BITS %.3f, alone %.3f\n", chosen, plain, back, again, kept, bare);
+		require(chosen > 0.5 && back > 0.5 && again > 0.5, "SY BITS's family chain does not hold it");
+		require(plain < 0.05, "a machine of the family brought a chain");
+		require(kept > 10 * bare, "a machine of the family took the chain away");
+
+		// A chain given later holds the next Hit, on the lane the voice still has, and a chain without the amp lets it go
+		const auto next = [&](const ChainSettings& _first, const ChainSettings& _second)
+		{
+			auto e = std::make_unique<Engine>(_library);
+			e->setMachine(0, bits);
+			e->setLevel(0, 127);
+			e->setChain(0, _first);
+			test::Take take(4410);
+			e->noteOn(0, 127);
+			take.render(*e, 0, 4410);
+			e->noteOff(0);
+			e->setChain(0, _second);
+			return sustained(*e);
+		};
+		const double taken = next(syntaktChain(), syntaktChain(true)), left = next(syntaktChain(true), syntaktChain());
+		std::printf("  a chain changed between two Hits: the second holds at %.3f, lets go at %.3f\n", taken, left);
+		require(taken > 0.5 && left < 0.05, "a chain does not reach the voice's hold");
+
+		// A HOLD under its top holds no voice, and an amp off holds none whatever it says
+		auto under = syntaktChain();
+		under.amp.on = true;
+		under.amp.hold = 126;
+		auto off = syntaktChain(true);
+		off.amp.on = false;
+		off.amp.hold = 127;
+		const double belowTop = next(syntaktChain(true), under), ampOff = next(syntaktChain(true), off);
+		std::printf("  HOLD 126 lets go at %.3f, an amp off at %.3f\n", belowTop, ampOff);
+		require(belowTop < 0.05 && ampOff < 0.05, "a voice held by an amp that does not hold");
+
+		// A Hit in the block of a note that ended takes its place, as the port's noteOn: it holds
+		{
+			auto again = std::make_unique<Engine>(_library);
+			again->setMachine(0, bits);
+			again->setLevel(0, 127);
+			again->noteOn(0, 127);
+			again->noteOff(0);
+			const double replaced = sustained(*again);
+			std::printf("  a Hit in the block of a short note: holds at %.3f\n", replaced);
+			require(replaced > 0.5, "a Hit took the gate-off of the note it replaced");
+		}
+
+		// Released, the Track is over, even where its voice would go on: DECAY 127
+		auto e = std::make_unique<Engine>(_library);
+		e->setMachine(0, bits);
+		e->setParameter(0, 7, 127);
+		test::Take take(441000);
+		e->noteOn(0, 127);
+		take.render(*e, 0, 22050);
+		require(e->liveTracks() & 1, "a held voice ended by itself");
+		e->noteOff(0);
+		int over = 0;
+		for(; over < 9 * 44100 / 1024 && e->liveTracks() & 1; ++over)
+			take.render(*e, 1024);
+		std::printf("  SY BITS released at DECAY 127: its Track over in %.2f s\n", over * 1024 / 44100.0);
+		require(!(e->liveTracks() & 1), "a voice released in its amp stayed");
+	}
 }
 
 int main()
@@ -963,6 +1371,16 @@ int main()
 		depthTarget();
 		noteDuringHit();
 		wildSettings();
+		familyValues();
+		const Library library;
+		familyLoads(library);
+		shortNotes(library);
+		namespace bench = syntakt::fast::bench;
+		const auto section7 = bench::loadSection7OrSkip();
+		if(section7.empty() || !bench::loadSamplesOrSkip())
+			return 77;
+		q3(section7);
+		heldAgainstPort(section7, library);
 	}
 	catch(const std::exception& _e)
 	{

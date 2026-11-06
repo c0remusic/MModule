@@ -1262,6 +1262,18 @@ namespace
 		require(square > 0.5, "a square's closed filter ended a held voice");
 		require(automation > 0.5, "an automated closed filter ended a held voice");
 
+		// ... nor under an amp that holds it
+		const double underAmp = opens([&](Engine& _e, Take& _take)
+		{
+			auto held = filterOf(FilterType::Machinedrum, 127);
+			held.amp = syntaktChain(true).amp;
+			_e.setChain(0, held);
+			_e.setLfo(0, 0, aimed(LfoTarget::Frequency, -97, LfoShape::Square, 6));
+			_e.setPosition(4 - 3.0);
+			_take.render(_e, Samples);
+		});
+		require(underAmp > 0.5, "a closed filter under an amp ended a held voice");
+
 		// The amp: the voice under it goes on, its Track is over
 		auto e = std::make_unique<Engine>(_library);
 		setTone(*e, 0, Tones[1]);
