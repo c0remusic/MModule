@@ -16,7 +16,8 @@ and the original voice CPU (SyntHack's harness, section 7) on the block the segm
 The initial state (the module's, stSyntakt.cpp): CPU #1's SRAM image and the delay's and reverb's inits (fx3.boot);
 each track's default machine (0x4022c8d8, the FX track's 0) and every internal id of tracks 0-11 below 54, of the FX
 track below 72, at its descriptor's default (the first of 0x4022d59c naming it: the machine's group then 45, 47, 48,
-59, 60; for the FX track 49, 50, 52, 53, 54, 59, 60; 0 where none does); each track's LEV (word t) at descriptor
+59, 60; for the FX track 49, 50, 52, 53, 54, 59, 60; 0 where none does; a track's AMP MODE as 0x400b3c38 chooses,
+descriptor 84, or 83 on machines 4, 5, 20 and 37); each track's LEV (word t) at descriptor
 10's default; the smoothing state at its targets; the settings 0; the kit pointer 0x800030b8 at 0x41b9c000 (its bytes
 0); byte 0x80003145 = 1; 0x43bdc824 = 1; the tempo 120 BPM.
 
@@ -41,7 +42,7 @@ import vectors3 as v  # noqa: E402
 BLOCK = 32
 TRACKS, ENGINE_TRACKS, FX_TRACK = 8, 13, 12
 TRACK_IDS, FX_IDS = 54, 72
-TUNE, OVERDRIVE = 18, 26
+TUNE, OVERDRIVE, AMP_MODE = 18, 26, 50
 ENGINE, SETTINGS, MACHINES, STATE = v.ENGINE, v.SETTINGS, v.MACHINES, v.STATE
 NOTES, VELOCITY = v.NOTES, v.VELOCITY
 GATES, HELD = 0x8000_3152, 0x8000_3154
@@ -107,6 +108,8 @@ class Original:
         return None
 
     def default_of(self, machine: int, t: int, ident: int) -> int:
+        if t != FX_TRACK and ident == AMP_MODE:
+            return self.descriptors[83 if machine in (4, 5, 20, 37) else 84][4] & 0xFFFF
         groups = FX_GROUPS if t == FX_TRACK else (machine,) + TRACK_GROUPS
         for g in groups:
             d = self.default(g, ident)

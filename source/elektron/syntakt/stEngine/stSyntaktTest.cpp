@@ -12,7 +12,8 @@
 //     stSyntaktTest --wav OUT.wav      also writes the eight stems mixed with the returns, to listen to
 //     stSyntaktTest --raw OUT.bin      also writes the 14 outputs raw (int32, channel after channel), to compare builds
 //
-// It also measures the time from a noteOn to the first sample of its stem, at several offsets within a block.
+// It also compares the module's kit with the firmware's parameter descriptors, read from section 3, and measures the
+// time from a noteOn to the first sample of its stem, at several offsets within a block.
 
 #include <algorithm>
 #include <cmath>
@@ -110,6 +111,160 @@ namespace
 		return static_cast<bool>(f);
 	}
 
+	// The firmware's choice of parameter descriptors, read from section 3 by its own rules, apart from the module's
+	// lookup: 0x400a5e4c walks the 505 and each one it stores replaces the one before, in a table per kind of track
+	// (keyed by internal id) and a table of machine parameters (keyed by group and id); 0x400a63ec looks in them
+	class Firmware
+	{
+	public:
+		struct Descriptor
+		{
+			int32_t group, id, min, max, value;
+		};
+
+		explicit Firmware(const syntakt::main::Section3& _section3) : m_section3(_section3)
+		{
+			constexpr uint32_t Descriptors = 0x4022d59c;
+			for(uint32_t i = 0; i < 505; ++i)
+			{
+				const uint32_t d = Descriptors + 52 * i;
+				m_descriptors.push_back({longAt(d), longAt(d + 4), longAt(d + 8), longAt(d + 12), longAt(d + 16)});
+			}
+		}
+
+		const Descriptor& operator[](const int _index) const { return m_descriptors[static_cast<size_t>(_index)]; }
+
+		// 0x400a63ec: the descriptor of internal id _id on machine _machine, 0 for none. Ids 17-26 are the machine's
+		// own; the others its kind of track's table, one of two (0x400a63c4 says which) that 0x400a5c8e and 0x400a5d04
+		// keep descriptors out of
+		int ofTrack(const int _machine, const int _id) const
+		{
+			if(_id >= 17 && _id <= 26)
+				return last([&](const int, const Descriptor& _d) { return _d.group == _machine && _d.id == _id; });
+			const bool second = _machine == 35 || halfAt(0x4022c93a + 4 * static_cast<uint32_t>(_machine)) == 0xff0;
+			return last([&](const int _i, const Descriptor& _d)
+			{
+				if(_d.id != _id || _i == 95 || _i == 105 || (second ? _i == 61 : _i == 62 || _i == 70 || _i == 71))
+					return false;
+				return (_d.group >= 45 && _d.group <= 48) || _d.group == 59 || _d.group == 60 || _d.group == 62;
+			});
+		}
+
+		// 0x400b3c38, a Sound for machine _machine: ofTrack's descriptor but for AMP MODE on four machines
+		int ofSound(const int _machine, const int _id) const
+		{
+			const int d = ofTrack(_machine, _id);
+			const bool held = _machine == 4 || _machine == 5 || _machine == 20 || _machine == 37;
+			return d == 84 && held ? 83 : d;
+		}
+
+		// The FX track's table (0x400a6300), which 0x400a5dd6 keeps the same two descriptors out of
+		int ofFx(const int _id) const
+		{
+			return last([&](const int _i, const Descriptor& _d)
+			{
+				if(_d.id != _id || _i == 95 || _i == 105)
+					return false;
+				return (_d.group >= 49 && _d.group <= 54) || _d.group == 59 || _d.group == 60 || _d.group == 62;
+			});
+		}
+
+		// A descriptor's default, as 0x400b3c38 writes it: 0 for none
+		uint16_t value(const int _descriptor) const
+		{
+			return _descriptor ? static_cast<uint16_t>((*this)[_descriptor].value) : 0;
+		}
+
+	private:
+		template<typename Stored> int last(const Stored& _stored) const
+		{
+			int found = 0;
+			for(int i = 0; i < static_cast<int>(m_descriptors.size()); ++i)
+				if(_stored(i, m_descriptors[static_cast<size_t>(i)]))
+					found = i;
+			return found;
+		}
+
+		uint32_t halfAt(const uint32_t _address) const
+		{
+			const uint8_t* b = m_section3.bytes.data() + (_address - m_section3.Base);
+			return uint32_t(b[0]) << 8 | b[1];
+		}
+
+		int32_t longAt(const uint32_t _address) const
+		{
+			return static_cast<int32_t>(halfAt(_address) << 16 | halfAt(_address + 2));
+		}
+
+		const syntakt::main::Section3& m_section3;
+		std::vector<Descriptor> m_descriptors;
+	};
+
+	// The module's kit against the firmware's descriptors, every word: the default kit (a Sound of each track's default
+	// machine, the FX track's words), then a machine set, which writes ids 17-26 where it has a descriptor and nothing
+	// else (0x40024db2), and every parameter's range on each machine
+	bool defaultsMatch(const syntakt::main::Section3& _section3, const std::vector<int32_t>& _section7)
+	{
+		const Firmware firmware(_section3);
+		Syntakt st(_section3, _section7);
+		int words = 0, differ = 0;
+		const auto check = [&](const char* _what, const int _track, const int _id, const int _got, const int _want)
+		{
+			++words;
+			if(_got != _want && ++differ <= 12)
+				std::printf("  %s, track %d, id %d: %04x, the firmware's %04x\n", _what, _track, _id,
+					static_cast<unsigned>(_got), static_cast<unsigned>(_want));
+		};
+
+		std::vector<std::vector<int>> kit(Syntakt::Tracks);
+		for(int t = 0; t < Syntakt::Tracks; ++t)
+		{
+			for(int id = 0; id < Syntakt::TrackParameterEnd; ++id)
+			{
+				kit[static_cast<size_t>(t)].push_back(st.parameter(t, id));
+				check("default kit", t, id, st.parameter(t, id), firmware.value(firmware.ofSound(st.machine(t), id)));
+			}
+		}
+		for(int id = 0; id < Syntakt::FxParameterEnd; ++id)
+			check("default kit, FX track", 12, id, st.fxParameter(id), firmware.value(firmware.ofFx(id)));
+
+		for(int machine = 0; machine <= 44; ++machine)
+		{
+			if(!st.isPorted(machine))
+				continue;
+			for(int t = 0; t < Syntakt::Tracks; ++t)
+			{
+				st.setMachine(t, machine);
+				for(int id = 0; id < Syntakt::TrackParameterEnd; ++id)
+				{
+					const int d = id >= 17 && id <= 26 ? firmware.ofTrack(machine, id) : 0;
+					check("machine set", t, id, st.parameter(t, id),
+						d ? firmware.value(d) : kit[static_cast<size_t>(t)][static_cast<size_t>(id)]);
+				}
+			}
+			for(int id = 1; id < Syntakt::TrackParameterEnd; ++id)
+			{
+				if(const int d = firmware.ofTrack(machine, id))
+				{
+					const auto range = st.parameterRange(machine, id);
+					check("minimum", machine, id, range.min, static_cast<uint16_t>(firmware[d].min));
+					check("maximum", machine, id, range.max, static_cast<uint16_t>(firmware[d].max));
+				}
+			}
+		}
+		for(int id = 1; id < Syntakt::FxParameterEnd; ++id)
+		{
+			if(const int d = firmware.ofFx(id))
+			{
+				const auto range = st.fxParameterRange(id);
+				check("minimum, FX track", 12, id, range.min, static_cast<uint16_t>(firmware[d].min));
+				check("maximum, FX track", 12, id, range.max, static_cast<uint16_t>(firmware[d].max));
+			}
+		}
+		std::printf("defaults: %d words and ranges against section 3's descriptors, %d differ\n", words, differ);
+		return differ == 0;
+	}
+
 	// The first sample of _count a stem is not 0, or -1
 	long firstSound(const std::vector<int32_t>& _stem)
 	{
@@ -194,7 +349,7 @@ int main(const int _argc, char** _argv)
 			rawPath.c_str());
 	}
 
-	bool ok = true;
+	bool ok = defaultsMatch(section3, section7);
 	for(int c = 0; c < Channels; ++c)
 	{
 		int differ = 0;

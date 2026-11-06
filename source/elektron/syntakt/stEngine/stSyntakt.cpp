@@ -33,6 +33,7 @@ namespace syntakt
 		constexpr uint32_t DescriptorBytes = 52;
 		constexpr uint32_t DefaultMachines = 0x4022c8d8;
 		constexpr int TrackLevelDescriptor = 10;	// "Track Level", the engine copy's word t
+		constexpr uint32_t AmpModeAdsr = 83, AmpModeAhd = 84;	// AMP MODE's two descriptors
 		constexpr int IndexGroups = 64;				// the groups the index holds: the machines' and the tracks'
 
 		// The descriptor groups a track's parameters belong to, besides its machine's own (whose group is its id):
@@ -158,8 +159,16 @@ namespace syntakt
 				return r;
 			}
 
+			// As 0x400b3c38 fills a Sound. AMP MODE is the one id whose descriptors disagree on the default: 0x400a5e4c
+			// keeps the last, AHD, and 0x400b3c38 takes the one before it, ADSR, on machines 4, 5, 20 and 37
 			uint16_t defaultOf(const int _machine, const int _t, const int _id) const
 			{
+				if(_t != FxTrack && _id == Syntakt::AmpMode)
+				{
+					const bool adsr = _machine == 4 || _machine == 5 || _machine == 20 || _machine == 37;
+					const uint32_t d = Descriptors + DescriptorBytes * (adsr ? AmpModeAdsr : AmpModeAhd);
+					return static_cast<uint16_t>(mem.word(d + 16));
+				}
 				const uint32_t d = descriptorOf(_machine, _t, _id);
 				return d ? static_cast<uint16_t>(mem.word(d + 16)) : 0;
 			}

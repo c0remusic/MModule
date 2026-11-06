@@ -466,7 +466,9 @@ namespace
 
 	Onsets onsets(juce::AudioProcessor& _plugin, const double _rate, const int _count)
 	{
-		// A short decay and release, each note released 50 ms on, so that each hit starts from silence
+		// No hold, a short decay and release, each note released 50 ms on, so that each hit starts from silence (BD
+		// MODERN's AMP MODE is AHD, whose hold a gate-off does not end)
+		_plugin.getParameters()[indexOf("t01_p41")]->setValue(0.0f);
 		_plugin.getParameters()[indexOf("t01_p42")]->setValue(20.0f / 127.0f);
 		_plugin.getParameters()[indexOf("t01_p44")]->setValue(10.0f / 127.0f);
 		render(_plugin, {}, g_block * 4);
