@@ -23,7 +23,7 @@ Avancent au bloc.
 `lfoRateOfSyntakt`, `lfoRateOfMachinedrum`) et `LfoBank` (LFO, sommes, cibles en attente, testé sans firmware). `Engine` garde `taken`,
 `takeMoves` et le transport (`setPosition`, `position`) ; `edDrumsProcessor::sync` donne tempo et position, un transport arrêté laisse les
 LFO courir au tempo. Cibles : niveau et pan à la piste, SYN1-8 à la machine (`Track::modulate`), le reste par `Chain::modulate` et
-`offset`, en 1/128 de valeur. `edDrumsLfoTest` et `edDrumsProcessorTest` entrent au garde-fou, 2 tests.
+`offset`, en 1/128 de valeur. `edDrumsLfoTest` et `edDrumsProcessorTest` entrent au garde-fou, 57 tests.
 
 | Critère | Seuil | Mesuré |
 |---|---|---|
