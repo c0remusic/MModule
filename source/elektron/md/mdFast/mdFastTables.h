@@ -22,9 +22,10 @@ namespace md::fast::tables
 		std::array<int16_t, 128> eqPoleCos{}, eqPoleExp{}, eqZeroCos{}, eqZeroExp{};	// by EQG
 		std::array<int32_t, 257> distGain{}, distFilter{};			// by DIST x 2
 
-		Tables();
+		// The scales' cosines and radii hold a frequency at _rate, the OS's own at 44.1 kHz
+		explicit Tables(double _rate = 44100);
 	};
 
-	// Built at the first call, which a stage's constructor makes: nothing on the audio thread
-	const Tables& tables();
+	// Built at the first call, which a stage's constructor makes: nothing on the audio thread. 44.1 kHz, the OS's, or 48
+	const Tables& tables(double _rate = 44100);
 }

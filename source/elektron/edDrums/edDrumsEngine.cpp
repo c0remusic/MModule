@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <utility>
 #include <type_traits>
 
 #include <emmintrin.h>
@@ -73,9 +74,17 @@ namespace elektron::drums
 			return id == 16 ? 34 : id == 18 ? LatestStart : id == 29 ? 33 : (id >= 128 && id < 160) || (id >= 176 && id < 192) ? 8 : 0;
 		}
 
+		// A ring's gain is the last Hit's, and a cut voice goes on under it before the chain: what keeps the tail as loud as it
+		// was. Never above 1: a louder tail under a soft Hit (2 here) adds 1.9 dB of HF to a plain 127 to 64, and takes back
+		// none of 127 to 1
+		float tailGain(const float _old, const float _new)
+		{
+			return std::min(_old / _new, 1.0f);
+		}
+
 		float cutGain(const int64_t _n)
 		{
-			return std::max(0.0f, 1.0f - static_cast<float>(_n + 1) / static_cast<float>(Engine::CutSamples));
+			return std::clamp(1.0f - static_cast<float>(_n + 1) / static_cast<float>(Engine::CutSamples), 0.0f, 1.0f);
 		}
 
 		float gainOf(const int _value)
@@ -263,9 +272,13 @@ namespace elektron::drums
 
 	// ---- the engine ----
 
-	Engine::Engine(const Library& _library) : m_library(_library), m_shared(std::make_unique<md::voice::Shared>())
+	Engine::Engine(const Library& _library)
+		: m_library(_library), m_shared(std::make_unique<md::voice::Shared>()),
+		m_mdChain(std::make_unique<Chain>(SampleRate, false)), m_mdIn(std::make_unique<Block>()),
+		m_stChain(std::make_unique<Chain>(syntakt::fast::MachineRate, true)), m_stIn(std::make_unique<Block>())
 	{
-		static_assert(HitDelay >= BlockSize - 1 + LatestStart, "a Machinedrum Hit waits its block and the latest voice");
+		static_assert(HitDelay >= BlockSize - 1 + LatestStart + Chain::MaxDelay,
+			"a Machinedrum Hit waits its block, the latest voice and its chain");
 		static_assert(HitDelay * Down >= SyntaktWait, "a Syntakt Hit waits its blocks and the FIR");
 		static_assert(2 * HitDelay + 2 * BlockSize + CutSamples + Ring::Mirror < Ring::Size, "the rings hold it all");
 		static_assert(FirRow == Ring::Mirror, "a window of the ring is a row of the FIR");
@@ -286,6 +299,7 @@ namespace elektron::drums
 			s->fitWidth();
 
 		firTable();		// made here, not on the audio thread
+		setOversampling(DefaultOversampling);
 	}
 
 	Engine::~Engine() = default;
@@ -304,6 +318,12 @@ namespace elektron::drums
 		t.machine = _machine;
 		t.pendingLocks = t.lockedNow = 0;
 		t.params = defaults(m_library, _machine);
+		if(_machine.family != Family::Off && _machine.family != t.chainFamily)
+		{
+			t.chainFamily = _machine.family;
+			chainOf(t).setNote(_track, t.note);
+			chainOf(t).configure(_track, _machine.family == Family::Syntakt ? syntaktChain() : machinedrumChain());
+		}
 		const uint32_t bit = 1u << _track;
 		m_mdMask &= ~bit;
 		if(_machine.family == Family::Machinedrum)
@@ -333,6 +353,7 @@ namespace elektron::drums
 		t.note = _note;
 		if(t.lane >= 0)
 			sourceOf(t).setNote(t.lane, _note);
+		chainOf(t).setNote(_track, _note);
 	}
 
 	void Engine::setLevel(const int _track, const int _level)
@@ -356,6 +377,22 @@ namespace elektron::drums
 		m_tempo = static_cast<uint32_t>(std::lround(std::clamp(_bpm, 30.0, 300.0) * 24.0));
 	}
 
+	void Engine::setChain(const int _track, const ChainSettings& _settings)
+	{
+		chainOf(m_tracks[static_cast<size_t>(_track)]).configure(_track, _settings);
+	}
+
+	void Engine::setOversampling(const int _factor)
+	{
+		m_mdChain->setOversampling(_factor);
+		m_stChain->setOversampling(_factor);
+	}
+
+	void Engine::setAccent(const int _track, const int _amount)
+	{
+		m_tracks[static_cast<size_t>(_track)].accent = _amount;
+	}
+
 	void Engine::setChokes(const int _track, const uint32_t _targets)
 	{
 		m_tracks[static_cast<size_t>(_track)].chokes = _targets & ~(1u << _track);
@@ -373,16 +410,17 @@ namespace elektron::drums
 		t.lockValue[static_cast<size_t>(_index)] = _value;
 	}
 
-	void Engine::noteOn(const int _track, const int _velocity)
+	void Engine::noteOn(const int _track, const int _velocity, const bool _accent)
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
 		for(uint32_t bits = t.chokes, target = 0; bits; bits >>= 1, ++target)
 			if(bits & 1)
 				cut(static_cast<int>(target));
+		const float gain = static_cast<float>(_accent ? 128 + 2 * t.accent : _velocity) / 127.0f;
 		if(t.machine.family == Family::Machinedrum)
-			hitMachinedrum(_track, _velocity);
+			hitMachinedrum(_track, _velocity, gain);
 		else if(t.machine.family == Family::Syntakt)
-			hitSyntakt(_track, _velocity);
+			hitSyntakt(_track, _velocity, gain);
 	}
 
 	void Engine::noteOff(const int _track)
@@ -390,15 +428,29 @@ namespace elektron::drums
 		auto& t = m_tracks[static_cast<size_t>(_track)];
 		if(t.lane >= 0)
 			sourceOf(t).gateOff(t.lane);
+		chainOf(t).gateOff(_track);
 	}
 
-	void Engine::hitMachinedrum(const int _track, const int _velocity)
+	void Engine::hitMachinedrum(const int _track, const int _velocity, const float _gain)
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
 		m_mdTracks[static_cast<size_t>(_track)].hit();
 		m_mdTracks[static_cast<size_t>(_track)].alignTicks(m_mdBlock);
+		m_mdChain->hit(_track, _velocity);
 		// The voice's first sample lands HitDelay after the note, wherever its block falls
-		t.md.start(m_now + HitDelay - voiceStart(t.machine), static_cast<float>(_velocity) / 127.0f, t.level);
+		const int64_t at = m_now + HitDelay - voiceStart(t.machine) - m_mdChain->delay(_track);
+		t.mdHitSkip = m_mdChain->pureDelay(_track);
+		const float tail = tailGain(t.md.velocity, _gain);
+		t.md.start(at, _gain, t.level);
+
+		// A cut voice goes on under this one: what remains of its ramp, before the chain from here
+		if(t.mdFadeAt != Never)
+		{
+			for(int b = 0; b < t.mdTailBlocks; ++b)
+				for(int n = 0; n < BlockSize; ++n)
+					t.mdTail[b][n] *= tail * cutGain(at + b * BlockSize + n - t.mdFadeAt);
+			t.mdFadeAt = Never;
+		}
 		m_mdLive |= 1u << _track;
 	}
 
@@ -425,6 +477,7 @@ namespace elektron::drums
 			source.lanes[static_cast<size_t>(lane)] = {};
 			source.lanes[static_cast<size_t>(lane)].track = _track;
 			source.lanes[static_cast<size_t>(lane)].skip = true;
+			++t.stVoices;
 		}
 		t.lane = lane;
 		for(int i = 0; i < 8; ++i)
@@ -439,20 +492,29 @@ namespace elektron::drums
 		auto& t = m_tracks[static_cast<size_t>(lane.track)];
 		if(lane.fadeAt == Never)
 			t.lane = -1;
-		if(t.lane < 0)
-			t.stRing.close();
+		releaseVoice(lane.track);
 		lane.track = -1;
 		source.used &= ~(1u << _lane);
 		source.fitWidth();
 	}
 
-	void Engine::hitSyntakt(const int _track, const int _velocity)
+	void Engine::releaseVoice(const int _track)
+	{
+		auto& t = m_tracks[static_cast<size_t>(_track)];
+		if(--t.stVoices > 0)
+			return;
+		t.stRing.close();
+		m_stChain->clear(_track);
+		t.stSounding = false;
+		t.stFadeAt = Never;
+	}
+
+	void Engine::hitSyntakt(const int _track, const int _velocity, const float _gain)
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
 		if(t.lane < 0)
 			takeLane(_track);
 		auto& source = sourceOf(t);
-		auto& lane = source.lanes[static_cast<size_t>(t.lane)];
 
 		// The Hit's locks, and the Kit's value back on what the last Hit locked
 		const uint32_t changed = t.lockedNow | t.pendingLocks;
@@ -468,8 +530,9 @@ namespace elektron::drums
 		// reads at output sample m_now + HitDelay, read - FirDelay = 147 (position of that sample in the ring)
 		const int64_t first = BlockSize * (m_stBlock + 1);
 		const int64_t rest = Down * (m_now + HitDelay) - FirDelay - Up * first;
-		lane.next = first + rest / Up;
-		lane.nextVelocity = static_cast<float>(_velocity) / 127.0f;
+		t.stNext = first + rest / Up;
+		t.stNextGain = _gain;
+		t.stNextVelocity = _velocity;
 		t.nextPhase = static_cast<int>(rest % Up);
 		// The first output whose newest tap reaches that sample, whatever the phase before it
 		t.phaseAt = m_now + HitDelay - Resample48To44::Latency - 1;
@@ -483,16 +546,28 @@ namespace elektron::drums
 		if(m_mdLive & bit)
 		{
 			auto& md = m_mdTracks[static_cast<size_t>(_track)];
-			// A Hit that waits for its block starts now; the voice's tail, ramped, goes ahead of its blocks, so that the
-			// voice is free at once for the Track's next Hit
+			// A Hit that waits for its block starts now; the voice's tail goes ahead of its blocks, so that the voice is free
+			// at once for the Track's next Hit
 			if(md.triggered())
 			{
 				md.takeLocks();
 				md.update(*m_library.os, m_tempo, m_voices[static_cast<size_t>(_track)]);
 			}
 			t.mdRing.fade(at);
-			while(t.md.at < at + CutSamples)
-				renderVoice(_track, at);
+			t.mdFadeAt = at;
+			int blocks = 0;
+			for(int64_t p = t.md.at; p < at + CutSamples && blocks < TailBlocks; p += BlockSize)
+				renderVoice(_track, t.mdTail[blocks++]);
+			t.mdTailBlocks = std::max(t.mdTailBlocks, blocks);
+			if(t.mdTailBlocks)
+			{
+				m_mdTails |= bit;
+			}
+			else
+			{
+				m_mdChain->clear(_track);
+				t.mdFadeAt = Never;
+			}
 			m_mdLive &= ~bit;
 		}
 		if(t.lane >= 0)
@@ -502,47 +577,92 @@ namespace elektron::drums
 			{
 				// Its Hit had not begun: the lane goes on as the cut voice it was
 				lane.heir = -1;
-				lane.next = -1;
+				t.stNext = -1;
 			}
 			else
 			{
 				lane.fadeAt = (Down * at - t.phase - FirDelay) / Up;
 				t.stRing.fade(lane.fadeAt);
+				t.stFadeAt = lane.fadeAt;
 			}
 			t.lane = -1;
 		}
 	}
 
-	void Engine::renderVoice(const int _track, const int64_t _fadeAt)
+	void Engine::renderVoice(const int _track, float* _x)
 	{
-		auto& t = m_tracks[static_cast<size_t>(_track)];
 		md::voice::Voice::Block voice;
 		m_voices[static_cast<size_t>(_track)].render(voice);
-		float x[BlockSize];
 		for(int n = 0; n < BlockSize; ++n)
-			x[n] = static_cast<float>(voice[static_cast<size_t>(n)]) * (1.0f / 8388608.0f);
-		t.md.write(t.mdRing, x, t.level, _fadeAt);
+			_x[n] += static_cast<float>(voice[static_cast<size_t>(n)]) * (1.0f / 8388608.0f);
 	}
 
 	void Engine::renderMachinedrum()
 	{
 		md::voice::prepareBlock(m_mdTracks, m_voices, *m_library.os, m_tempo, m_mdBlock, m_mdMask, m_mdLive);
-		for(uint32_t bits = m_mdLive, t = 0; bits; bits >>= 1, ++t)
+		const uint32_t live = m_mdLive | m_mdTails;
+		auto& in = *m_mdIn;
+		for(uint32_t bits = live, track = 0; bits; bits >>= 1, ++track)
 		{
 			if(!(bits & 1))
 				continue;
-			renderVoice(static_cast<int>(t), Never);
-			if(m_tracks[t].md.quiet >= MachinedrumQuietBlocks)
-				m_mdLive &= ~(1u << t);
+			auto& t = m_tracks[track];
+			float x[BlockSize]{};
+			if(m_mdLive >> track & 1)
+				renderVoice(static_cast<int>(track), x);
+			if(t.mdTailBlocks)
+			{
+				for(int n = 0; n < BlockSize; ++n)
+					x[n] += t.mdTail[0][n];
+				--t.mdTailBlocks;
+				std::memmove(t.mdTail[0], t.mdTail[1], sizeof(t.mdTail) - sizeof(t.mdTail[0]));
+				std::fill_n(t.mdTail[TailBlocks - 1], BlockSize, 0.0f);
+			}
+			for(int n = 0; n < BlockSize; ++n)
+				in.s[n][track] = x[n];
+		}
+		if(live)
+			m_mdChain->process(in, static_cast<uint16_t>(live));
+		for(uint32_t bits = live, track = 0; bits; bits >>= 1, ++track)
+		{
+			if(!(bits & 1))
+				continue;
+			auto& t = m_tracks[track];
+			float x[BlockSize];
+			for(int n = 0; n < BlockSize; ++n)
+				x[n] = in.s[n][track];
+			// The ring already holds the last voice's samples there, at its own place
+			std::fill_n(x, std::exchange(t.mdHitSkip, 0), 0.0f);
+			t.md.write(t.mdRing, x, t.level, t.mdFadeAt);
+			const uint32_t bit = 1u << track;
+			if(t.md.quiet >= MachinedrumQuietBlocks)
+				m_mdLive &= ~bit;
+			if(!t.mdTailBlocks)
+				m_mdTails &= ~bit;
+			if(!((m_mdLive | m_mdTails) & bit))
+			{
+				m_mdChain->clear(static_cast<int>(track));
+				t.mdFadeAt = Never;
+			}
 		}
 		++m_mdBlock;
 	}
 
 	void Engine::renderSyntakt()
 	{
-		for(size_t s = 0; s < m_sources.size(); ++s)
+		auto& in = *m_stIn;
+		uint32_t live = 0;
+		const auto compute = [&](const size_t _track)
 		{
-			auto& source = *m_sources[s];
+			if(live >> _track & 1)
+				return;
+			live |= 1u << _track;
+			for(auto& sample : in.s)
+				sample[_track] = 0;
+		};
+		for(auto& s : m_sources)
+		{
+			auto& source = *s;
 			if(!source.used)
 				continue;
 			const Block& block = source.renderBlock();
@@ -551,32 +671,74 @@ namespace elektron::drums
 				auto& lane = source.lanes[static_cast<size_t>(l)];
 				if(lane.track < 0)
 					continue;
+				const auto track = static_cast<size_t>(lane.track);
+				auto& t = m_tracks[track];
+				compute(track);
 				if(lane.skip)
 				{
 					lane.skip = false;
 				}
+				else if(lane.fadeAt != Never && t.stFadeAt == Never)
+				{
+					// A Hit of the Track sounds: the cut voice ramps under it
+					for(int n = 0; n < BlockSize; ++n)
+						in.s[n][track] += block.s[n][l] * t.stTailGain * cutGain(t.st.at + n - lane.fadeAt);
+				}
 				else
 				{
-					float x[BlockSize];
 					for(int n = 0; n < BlockSize; ++n)
-						x[n] = block.s[n][l];
-					auto& t = m_tracks[static_cast<size_t>(lane.track)];
-					lane.run.write(t.stRing, x, t.level, lane.fadeAt);
+						in.s[n][track] += block.s[n][l];
 				}
 				if(lane.heir >= 0)
 				{
-					if(m_tracks[static_cast<size_t>(lane.track)].lane < 0)
-						m_tracks[static_cast<size_t>(lane.track)].stRing.close();
+					if(lane.heir != lane.track)
+					{
+						releaseVoice(lane.track);
+						++m_tracks[static_cast<size_t>(lane.heir)].stVoices;
+					}
 					lane.track = lane.heir;
 					lane.heir = -1;
 					lane.fadeAt = Never;
 				}
-				if(lane.next >= 0)
-				{
-					lane.run.start(lane.next, lane.nextVelocity, m_tracks[static_cast<size_t>(lane.track)].level);
-					lane.next = -1;
-				}
-				if(lane.run.at >= lane.fadeAt + CutSamples || lane.run.quiet >= SyntaktQuietBlocks)
+			}
+		}
+		for(size_t track = 0; track < Tracks; ++track)
+			if(m_tracks[track].stNext >= 0)
+			{
+				compute(track);
+				m_stChain->hit(static_cast<int>(track), m_tracks[track].stNextVelocity);
+			}
+		if(live)
+			m_stChain->process(in, static_cast<uint16_t>(live));
+		for(size_t track = 0; track < Tracks; ++track)
+		{
+			auto& t = m_tracks[track];
+			if(live >> track & 1 && t.stSounding)
+			{
+				float x[BlockSize];
+				for(int n = 0; n < BlockSize; ++n)
+					x[n] = in.s[n][track];
+				t.st.write(t.stRing, x, t.level, t.stFadeAt);
+			}
+			if(t.stNext >= 0)
+			{
+				t.stTailGain = tailGain(t.st.velocity, t.stNextGain);
+				t.st.start(t.stNext, t.stNextGain, t.level);
+				t.stNext = -1;
+				t.stSounding = true;
+				t.stFadeAt = Never;
+			}
+		}
+		for(size_t s = 0; s < m_sources.size(); ++s)
+		{
+			auto& source = *m_sources[s];
+			for(int l = 0; l < source.width; ++l)
+			{
+				const auto& lane = source.lanes[static_cast<size_t>(l)];
+				if(lane.track < 0)
+					continue;
+				const auto& t = m_tracks[static_cast<size_t>(lane.track)];
+				if(lane.fadeAt != Never ? t.st.at >= lane.fadeAt + CutSamples : t.st.quiet >= SyntaktQuietBlocks)
 					freeLane(static_cast<int>(s), l);
 			}
 		}

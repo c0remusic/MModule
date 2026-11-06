@@ -24,3 +24,8 @@ Ce ticket hérite de cette dette tant qu'une formule manque.
 ## Références
 
 Spécification §6. Ticket « Effets master ».
+
+## Noté par le ticket 12 (2026-11-06)
+
+Ajouter un drive touche l'énumération, `DriveStages`, `withStage` et `setDrive`, un `static_assert` tenant `Types`. `Chain::raised` dit qui
+se suréchantillonne, `Chain::MaxDelay` borne la latence : un nouveau drive doit y tenir, 31 + 38 + 12 = 81 sur 82 aujourd'hui.

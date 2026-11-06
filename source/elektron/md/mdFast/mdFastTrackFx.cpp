@@ -13,6 +13,9 @@ namespace md::fast
 		using dsp::acc;
 		using dsp::lim;
 		using dsp::mpy;
+		using dsp::wordOf;
+		using syntakt::fast::simd::load;
+		using syntakt::fast::simd::store;
 		using V = __m128;
 		using D = __m128d;
 
@@ -150,22 +153,6 @@ namespace md::fast
 			}
 		};
 
-		// A Block's two Tracks, and back
-		void load(const Block& _buf, const int _l, D* _x)
-		{
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				const auto two = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(&_buf.s[n][_l]));
-				_x[n] = _mm_cvtps_pd(_mm_castsi128_ps(two));
-			}
-		}
-
-		void store(Block& _buf, const int _l, const D* _x)
-		{
-			for(int n = 0; n < BlockSize; ++n)
-				_mm_storel_epi64(reinterpret_cast<__m128i*>(&_buf.s[n][_l]), _mm_castps_si128(_mm_cvtpd_ps(_x[n])));
-		}
-
 		// A sample's share of a ramp, n^2 / 1024: the running sum of X:$648
 		struct RampShare
 		{
@@ -225,7 +212,7 @@ namespace md::fast
 				const D turn = _mm_or_pd(_mm_and_pd(p, _mm_set1_pd(-0.0)), _mm_set1_pd(512.0));
 				const D c = limit(floorWord(_mm_sub_pd(p, _mm_and_pd(wraps, turn))));
 				const D moved = _mm_add_pd(a, _mm_mul_pd(out, _mm_sub_pd(c, c1)));
-				a = _mm_add_pd(moved, _mm_mul_pd(_mm_set1_pd(-0x4189 * Lsb), y1));
+				a = _mm_add_pd(moved, _mm_mul_pd(_mm_set1_pd(-wordOf(0.002) * Lsb), y1));
 				c1 = c;
 				word = floorWord(a);
 				y1 = limit(word);
@@ -236,7 +223,7 @@ namespace md::fast
 
 	// ---- EQ ----
 
-	Eq::Eq()
+	Eq::Eq(const double _rate) : m_t(tables::tables(_rate))
 	{
 		for(int l = 0; l < Lanes; ++l)
 		{
@@ -253,7 +240,7 @@ namespace md::fast
 		m_eqg[_lane] = _eqg;
 
 		using namespace tables;
-		const auto& t = tables::tables();
+		const auto& t = m_t;
 		const int f = _eqf >> 3, g = _eqg >> 7;
 
 		// The poles' radius and cosine, the zeros' the same; c0 = -r^2, c1 = rc - 1/2
@@ -275,7 +262,12 @@ namespace md::fast
 		m_k[_lane] = lim(mpy(q, lim(zz))) * Lsb;
 	}
 
-	void Eq::process(Block& _buf)
+	void Eq::clear(const int _lane)
+	{
+		m_a[_lane] = m_y1[_lane] = m_y2[_lane] = m_x1[_lane] = m_x2[_lane] = 0;
+	}
+
+	void Eq::process(Block& _buf, const uint16_t _lanes)
 	{
 		const auto biquad = [this](const int _l)
 		{
@@ -287,27 +279,23 @@ namespace md::fast
 			_b.poles.keep(limitedHigh(_b.poles.a, _b.poles.word, _b.poles.y1), m_a + _l, m_y1 + _l, m_y2 + _l);
 			_b.zeros.keep(m_x1 + _l, m_x2 + _l);
 		};
-		for(int l = 0; l < _buf.lanes; l += 4)
+		for(int l = 0; l < _buf.lanes; l += 2)
 		{
-			D x[BlockSize], y[BlockSize];
+			if(!(_lanes >> l & 3))
+				continue;
+			D x[BlockSize];
 			load(_buf, l, x);
-			load(_buf, l + 2, y);
-			Biquad first = biquad(l), second = biquad(l + 2);
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				x[n] = first.next(x[n]);
-				y[n] = second.next(y[n]);
-			}
-			keep(first, l);
-			keep(second, l + 2);
+			Biquad pair = biquad(l);
+			for(auto& sample : x)
+				sample = pair.next(sample);
+			keep(pair, l);
 			store(_buf, l, x);
-			store(_buf, l + 2, y);
 		}
 	}
 
 	// ---- filter ----
 
-	Filter::Filter()
+	Filter::Filter(const double _rate) : m_t(tables::tables(_rate))
 	{
 		for(int l = 0; l < Lanes; ++l)
 		{
@@ -325,7 +313,7 @@ namespace md::fast
 		m_fltq[_lane] = _fltq;
 
 		using namespace tables;
-		const auto& t = tables::tables();
+		const auto& t = m_t;
 
 		// P:$a4-$ba: a low edge at 0 has no resonance, nor a high edge at the top of FLTW
 		const int q = _fltq >> 7;
@@ -393,11 +381,28 @@ namespace md::fast
 		store(_buf, _l, x);
 	}
 
-	void Filter::process(Block& _buf)
+	void Filter::clear(const int _lane)
+	{
+		for(auto* words : {m_a, m_y1, m_y2})
+			for(int s = 0; s < 4; ++s)
+				words[s][_lane] = 0;
+		for(auto* words : {m_x1, m_x2})
+			for(int s = 0; s < 2; ++s)
+				words[s][_lane] = 0;
+
+		// On silence a ramp is nobody's: the words go to where they head
+		for(int k = LowC; k <= HighH; ++k)
+			m_word[k][_lane] = std::clamp(m_to[k][_lane], -1.0, LastWord);
+		m_word[HighE][_lane] = std::clamp(-2 * m_word[HighH][_lane], -1.0, LastWord);
+	}
+
+	void Filter::process(Block& _buf, const uint16_t _lanes)
 	{
 		const auto word = [](const double _word) { return std::clamp(_word, -1.0, LastWord); };
 		for(int l = 0; l < _buf.lanes; l += 2)
 		{
+			if(!(_lanes >> l & 3))
+				continue;
 			if(!m_moving[l / 2])
 			{
 				SectionWords<1> w;
@@ -451,11 +456,18 @@ namespace md::fast
 		m_period[_lane] = static_cast<float>(lim((mpy(x, x) - acc(0x20)) * 4 + acc(0x10)));
 	}
 
-	void Srr::process(Block& _buf)
+	void Srr::clear(const int _lane)
+	{
+		m_phase[_lane] = m_held[_lane] = 0;
+	}
+
+	void Srr::process(Block& _buf, const uint16_t _lanes)
 	{
 		const V step = _mm_set1_ps(m_step);
 		for(int v = 0; v < _buf.lanes; v += 4)
 		{
+			if(!(_lanes >> v & 15))
+				continue;
 			const V period = _mm_load_ps(m_period + v);
 
 			// A period of one step takes every sample, its phase put back each time: the output is the input
@@ -493,10 +505,15 @@ namespace md::fast
 		const auto& t = tables::tables();
 		const int i = _dist >> 6;
 		m_gain[_lane] = t.distGain[i] * Lsb;
-		m_out[_lane] = lim(mpy(t.distFilter[i], 0x7fdf3b)) * Lsb;
+		m_out[_lane] = lim(mpy(t.distFilter[i], wordOf(0.999))) * Lsb;
 	}
 
-	void Dist::process(Block& _buf)
+	void Dist::clear(const int _lane)
+	{
+		m_outOld[_lane] = m_a[_lane] = m_y1[_lane] = m_c1[_lane] = 0;
+	}
+
+	void Dist::process(Block& _buf, const uint16_t _lanes)
 	{
 		const auto clipper = [this](const int _l)
 		{
@@ -513,21 +530,17 @@ namespace md::fast
 			_mm_store_pd(m_c1 + _l, _c.c1);
 			_mm_store_pd(m_outOld + _l, _c.out);
 		};
-		for(int l = 0; l < _buf.lanes; l += 4)
+		for(int l = 0; l < _buf.lanes; l += 2)
 		{
-			D x[BlockSize], y[BlockSize];
+			if(!(_lanes >> l & 3))
+				continue;
+			D x[BlockSize];
 			load(_buf, l, x);
-			load(_buf, l + 2, y);
-			Clipper first = clipper(l), second = clipper(l + 2);
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				x[n] = first.next(x[n]);
-				y[n] = second.next(y[n]);
-			}
-			keep(first, l);
-			keep(second, l + 2);
+			Clipper pair = clipper(l);
+			for(auto& sample : x)
+				sample = pair.next(sample);
+			keep(pair, l);
 			store(_buf, l, x);
-			store(_buf, l + 2, y);
 		}
 	}
 }

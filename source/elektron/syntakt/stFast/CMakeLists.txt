@@ -7,7 +7,8 @@ cmake_minimum_required(VERSION 3.15)
 add_library(stFast STATIC stFastStages.h stFastStages.cpp stFastBdModern.h stFastBdModern.cpp stFastSdBasic.h
 	stFastSdBasic.cpp stFastCyAlloy.h stFastCyAlloy.cpp stFastPcCarbon.h stFastPcCarbon.cpp stFastSdVintage.h
 	stFastSdVintage.cpp stFastCpVintage.h stFastCpVintage.cpp stFastSyToy.h stFastSyToy.cpp stFastSyBits.h
-	stFastSyBits.cpp stFastSpTwinshot.h stFastSpTwinshot.cpp stFastResample.h stFastResample.cpp stFastTables.h stFastTables.cpp)
+	stFastSyBits.cpp stFastSpTwinshot.h stFastSpTwinshot.cpp stFastTrack.h stFastTrack.cpp stFastResample.h stFastResample.cpp
+	stFastTables.h stFastTables.cpp)
 target_include_directories(stFast PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 set_property(TARGET stFast PROPERTY FOLDER "Elektron/syntakt")
 
@@ -18,6 +19,13 @@ if(BUILD_TESTING)
 	set_property(TARGET stFastTablesTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stFastTablesTest COMMAND stFastTablesTest)
 	set_tests_properties(stFastTablesTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 10)
+
+	# The track stages against the exact port's (SYNTAKT_SECTION7, SYNTAKT_SECTION3: exit 77 without them)
+	add_executable(stFastTrackTest stFastTrackTest.cpp stFastMetrics.h)
+	target_link_libraries(stFastTrackTest PRIVATE stFast stEngine)
+	set_property(TARGET stFastTrackTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME stFastTrackTest COMMAND stFastTrackTest)
+	set_tests_properties(stFastTrackTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
 
 	# BD MODERN against the exact port at 48 kHz, 44.1 against 48 kHz, and its cost for 16 Tracks
 	# (SYNTAKT_SECTION7: exit 77 without it)

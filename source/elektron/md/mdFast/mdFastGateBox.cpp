@@ -82,7 +82,7 @@ namespace md::fast
 			m_lines[l].size = LineWords[l];
 			m_lines[l].write = Delays[l];
 		}
-		setWords({0x347, 0x7fdf3b, 0x32, 0, 0, 0xf4240, 0, 0});
+		setWords({0x347, static_cast<uint32_t>(dsp::wordOf(0.999)), 0x32, 0, 0, 0xf4240, 0, 0});
 	}
 
 	void GateBox::setWords(const GateBoxWords& _words)

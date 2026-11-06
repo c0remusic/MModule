@@ -756,5 +756,21 @@ namespace syntakt::fast
 		{
 			return _mm_max_ps(_mm_min_ps(_x, _mm_set1_ps(1.0f)), _mm_set1_ps(-1.0f));
 		}
+
+		// Two lanes of a Block as doubles, and back, for the stages that compute in doubles
+		inline void load(const Block& _buf, const int _l, __m128d* _x)
+		{
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				const auto two = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(&_buf.s[n][_l]));
+				_x[n] = _mm_cvtps_pd(_mm_castsi128_ps(two));
+			}
+		}
+
+		inline void store(Block& _buf, const int _l, const __m128d* _x)
+		{
+			for(int n = 0; n < BlockSize; ++n)
+				_mm_storel_epi64(reinterpret_cast<__m128i*>(&_buf.s[n][_l]), _mm_castps_si128(_mm_cvtpd_ps(_x[n])));
+		}
 	}
 }

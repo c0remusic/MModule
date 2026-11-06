@@ -38,3 +38,8 @@ Tout `md::fast` dépend de 44,1 kHz sauf `Srr`, qui prend sa fréquence (à SRR 
 critère Q15 et la spécification (§11.1, §12 point 4) exigent déjà 48 kHz : ce ticket le couvre, et il doit décider du MD à 48 kHz.
 Inchangé, il joue 8,8 % trop haut. L'anneau MD reçoit alors une lecture FIR comme celle du Syntakt, et `HitDelay` devient une
 fonction de la fréquence.
+
+## Noté par le ticket 12 (2026-11-06)
+
+`Chain` sépare débit et famille : le MD à 48 kHz passe par `Chain(48000, ...)` et `tables(rate)`, qui s'arrêtent sur tout autre débit.
+Le 96 kHz natif doit ajouter ses tables. `Oversampler` est dans sa propre paire pour le 2x hors de la chaîne.

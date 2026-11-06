@@ -21,6 +21,9 @@ namespace md::fast::dsp
 		return static_cast<int32_t>(_acc >> 24);
 	}
 
+	// A word from the fraction it stands for
+	constexpr int32_t wordOf(const double _fraction) { return static_cast<int32_t>(_fraction * 8388608 + 0.5); }
+
 	// The sign of a 24-bit word
 	constexpr int32_t sx(const uint32_t _word) { return static_cast<int32_t>(_word << 8) >> 8; }
 }

@@ -106,7 +106,10 @@ piste »).
 - **Chaîne par défaut** de la famille au premier choix d'une machine (Syntakt : drive pré, BASE/WIDTH, filtre
   Syntakt ; MD : EQ MD, filtre MD, SRR puis DIST post). Changer de machine dans la famille ne touche pas la chaîne ;
   changer de famille la recharge, en demandant si elle a été modifiée.
-- Types de filtre et de drive automatisables, avec rampe anti-clic.
+- Types de filtre et de drive automatisables, avec rampe anti-clic (amendé le 2026-11-06, ticket 12 : un bloc de
+  chauffe inaudible puis 64 échantillons de fondu ; le fondu du firmware, 32, reste celui d'un morph 2-6).
+- La chaîne tourne avant les anneaux, niveau, vélocité et fondu après elle (ticket 12). Un drive suréchantillonné sur
+  piste Syntakt décale ses Hits d'une valeur fixe, gigue 0 (chiffres dans le ticket).
 - Une piste dont la chaîne reste celle de sa famille reste fidèle à son firmware ; tout ajout est marqué « + ».
 
 ## 5. Effets d'envoi

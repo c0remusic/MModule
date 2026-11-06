@@ -30,3 +30,9 @@ Spécification §8, §9. Tickets « Paramètres hôte et sorties », « Format d
 - `Processor::sync` lit tous les paramètres à chaque bloc : à rendre piloté par changement.
 - `dataFolder` suit le nom de travail, à changer avec lui. « Elektron Drums Dev » imite la marque d'autrui : nom à trancher avant
   toute publication.
+
+## Noté par le ticket 12 (2026-11-06)
+
+Les paramètres de chaîne ne sont pas encore des paramètres hôte. `Chain` est seul propriétaire des réglages ; rajouter une lecture (
+`Chain::settings`) pour l'état, `Engine::chain` a été retiré faute d'appel. Le changement de famille recharge la chaîne sans demander :
+la question reste à l'interface. Un type d'étage automatisé à la cadence d'un bloc attend la fin de chaque fondu.

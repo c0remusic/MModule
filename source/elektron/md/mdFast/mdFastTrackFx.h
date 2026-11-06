@@ -1,15 +1,22 @@
 #pragma once
 
+#include "mdFastTables.h"
 #include "stFastStages.h"
 
 // The Machinedrum's per-Track chain (mdEngine's TrackFx, the mixer DSP's own code) in SIMD across the 16 Tracks: a
 // class per stage, so that the slot chain of ticket 12 can place each alone. Samples are the DSP's words over 2^23.
 // Parameters are its words too, a Kit value << 7 (0 to $3FFF), set between blocks; each stage starts where the DSP's
-// boot does. A stage keeps the DSP's gain, so that the firmware's order sounds as the firmware does: the EQ halves, the
-// filter quarters (and delays by 4 samples), DIST multiplies by 8 and more before it clips.
+// boot does. A stage keeps the DSP's gain, so that the firmware's order sounds as the firmware does: the EQ takes an
+// eighth (measured by edDrumsChainTest), the filter a quarter (and delays by 4 samples), DIST multiplies by 8 and more
+// before it clips.
 //
 // The stages compute as the DSP does, in doubles: the same words, the same floors (the .cpp says why). On the DSP's
 // words they equal TrackFx bit for bit. Nothing they hold can be a denormal. No stage allocates or locks in process.
+//
+// process computes the pairs (Srr: the 4-lane groups) that hold a lane of _lanes, whatever it writes on the other of a pair,
+// and clear puts a lane back to silence, its parameters taken at once: a lane a stage has not been computing starts
+// clean. _rate 44100, the OS's, or 48000 for a
+// Syntakt Track, whose frequencies then stay where the knobs say; Dist has none.
 namespace md::fast
 {
 	using syntakt::fast::Block;
@@ -21,14 +28,16 @@ namespace md::fast
 	class Eq
 	{
 	public:
-		Eq();
+		explicit Eq(double _rate = 44100);
 		void set(int _lane, int _eqf, int _eqg);
-		void process(Block& _buf);
+		void process(Block& _buf, uint16_t _lanes = 0xffff);
+		void clear(int _lane);
 
 	private:
 		alignas(16) double m_c[Lanes], m_r[Lanes], m_h[Lanes], m_e[Lanes], m_k[Lanes];
 		alignas(16) double m_a[Lanes]{}, m_y1[Lanes]{}, m_y2[Lanes]{}, m_x1[Lanes]{}, m_x2[Lanes]{};
 		int m_eqf[Lanes], m_eqg[Lanes];
+		const tables::Tables& m_t;
 	};
 
 	// P:$134-$21e: two two-pole low-passes at FLTF + FLTW, then two two-pole high-passes at FLTF, 2 samples apart, with
@@ -37,9 +46,10 @@ namespace md::fast
 	class Filter
 	{
 	public:
-		Filter();
+		explicit Filter(double _rate = 44100);
 		void set(int _lane, int _fltf, int _fltw, int _fltq);
-		void process(Block& _buf);
+		void process(Block& _buf, uint16_t _lanes = 0xffff);
+		void clear(int _lane);
 
 	private:
 		// The DSP's words, over 2^23: the sections' 2 radius cos - 1 (the high-pass's half of it, radius cos - 1/2),
@@ -55,6 +65,7 @@ namespace md::fast
 		alignas(16) double m_x1[2][Lanes]{}, m_x2[2][Lanes]{};		// the high-passes' inputs
 		bool m_moving[Lanes / 2]{};
 		int m_fltf[Lanes], m_fltw[Lanes], m_fltq[Lanes];
+		const tables::Tables& m_t;
 	};
 
 	// P:$21f-$233: a sample-and-hold on an accumulator. _rate scales its step, so that a setting keeps its frequency:
@@ -64,7 +75,8 @@ namespace md::fast
 	public:
 		explicit Srr(double _rate = 44100);
 		void set(int _lane, int _srr);
-		void process(Block& _buf);
+		void process(Block& _buf, uint16_t _lanes = 0xffff);
+		void clear(int _lane);
 
 	private:
 		alignas(16) float m_period[Lanes], m_phase[Lanes]{}, m_held[Lanes]{};
@@ -79,7 +91,8 @@ namespace md::fast
 	public:
 		Dist();
 		void set(int _lane, int _dist);
-		void process(Block& _buf);
+		void process(Block& _buf, uint16_t _lanes = 0xffff);
+		void clear(int _lane);
 
 	private:
 		alignas(16) double m_gain[Lanes], m_out[Lanes], m_outOld[Lanes]{};

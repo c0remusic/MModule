@@ -6,6 +6,7 @@
 #include <memory>
 #include <vector>
 
+#include "edDrumsChain.h"
 #include "edDrumsLibrary.h"
 #include "elektronBlock.h"
 #include "mdVoice.h"
@@ -21,6 +22,12 @@
 // enough. The Syntakt's holds 48 kHz samples, read through the 48 to 44.1 kHz FIR each Track at its own phase, which a
 // Hit sets, so that every Hit is read at the same sample positions: Tracks of the Syntakt sound the same samples
 // wherever their note falls. That per-Track read is the family's one resampler, after the sum of its machines.
+//
+// A Track's chain (edDrumsChain.h) runs before its ring, on its family's blocks, at its family's rate: its voice's time, in
+// which every Hit starts at a block, so that a block-rate stage or envelope meets a Hit the same wherever its note fell
+// and a Hit adds no latency. Level and velocity come after the chain, at the ring. A cut is one ramp of CutSamples: after
+// the chain, so that what the chain holds goes too, until a Hit of the Track sounds; from there on the old voice ramps
+// before the chain, under the new one.
 namespace elektron::drums
 {
 	constexpr int Tracks = Lanes;
@@ -60,7 +67,8 @@ namespace elektron::drums
 		// A voice's first sample sounds HitDelay samples after its note, on every output, jitter 0: the latency to report to
 		// the host. The Syntakt sets it: its machine sees a trig in a block of 48 kHz and sounds from the next, the note
 		// waits up to a block for the first, and the FIR adds its delay. A Machinedrum voice waits as long; one that
-		// starts late is held back less
+		// starts late, or whose chain delays it, is held back less. A Syntakt Track has nothing to spare: it arrives late
+		// by its chain's delay, a drive raised 2x or 4x (Chain::delay)
 		static constexpr int HitDelay = 82;
 
 		// A voice whose peak stays under Silence (-100 dB) that many blocks is off: not rendered until its next Hit. As long
@@ -72,6 +80,9 @@ namespace elektron::drums
 
 		// Every sample of a cut ramps: a Choke, a machine changed under a sounding voice
 		static constexpr int CutSamples = 64;
+
+		// The drives' rate unless told otherwise
+		static constexpr int DefaultOversampling = 2;
 
 		// _library outlives the engine
 		explicit Engine(const Library& _library);
@@ -111,8 +122,17 @@ namespace elektron::drums
 		// A lock of machine parameter _index for the Hit that follows at this sample, until the Track's next Hit
 		void lock(int _track, int _index, uint8_t _value);
 
+		// The Track's chain from here on; a machine of another family brings that family's chain. Stages that change crossfade
+		void setChain(int _track, const ChainSettings& _settings);
+
+		// The drives' rate, global, 1, 2 or 4 times the Track's
+		void setOversampling(int _factor);
+
+		// 0-127: a Hit with an accent plays at velocity 128 + 2 x amount
+		void setAccent(int _track, int _amount);
+
 		// A Hit, _velocity 1-127, and its end for a machine that holds
-		void noteOn(int _track, int _velocity);
+		void noteOn(int _track, int _velocity, bool _accent = false);
 		void noteOff(int _track);
 
 		// The next _count samples of the Outputs, _outputs holding left then right of each, nullptr for a bus the host
@@ -125,6 +145,8 @@ namespace elektron::drums
 		int lanesRendered(int _machine) const;
 
 	private:
+		static constexpr int64_t Never = std::numeric_limits<int64_t>::max() / 2;
+
 		// What a Track's voice leaves on its way out, positions counted in its family's samples. Everything before end()
 		// holds samples; past it, nothing. A write that starts before end() adds, one that starts after it leaves
 		// silence between. A window of Mirror samples can be read in one piece anywhere
@@ -162,21 +184,19 @@ namespace elektron::drums
 			void write(Ring& _ring, const float* _x, float _level, int64_t _fadeAt);
 		};
 
-		static constexpr int64_t Never = std::numeric_limits<int64_t>::max() / 2;
-
 		// A lane of a Syntakt machine, for as long as a voice holds it
 		struct Lane
 		{
 			int track = -1;
-			Run run;
 			bool skip = false;			// the block that sees its trig holds what the lane froze on
-			int64_t next = -1;			// where a Hit's sound goes, after the block that sees it
-			float nextVelocity = 0;
 			int64_t fadeAt = Never;		// a cut's, in the Track's ring: no more its Track's, whose next Hit takes another
 			int heir = -1;				// the Track taking it at the block that sees its trig, a cut voice's last
 		};
 
 		struct Source;
+
+		// As far as a Machinedrum voice cut can reach past what is written: the ramp, a Hit's wait and the voice's start
+		static constexpr int TailBlocks = 5;
 
 		struct Track
 		{
@@ -187,13 +207,27 @@ namespace elektron::drums
 			std::array<float, 2> pan{1, 1}, panNow{1, 1};
 			int output = 0;
 			uint32_t chokes = 0;
+			int accent = 0;
+			Family chainFamily = Family::Off;	// the Chain that holds its settings
 
 			// Machinedrum
 			Ring mdRing;
 			Run md;
+			int64_t mdFadeAt = Never;		// a cut's ramp, in the ring, until the Track's next Hit
+			float mdTail[TailBlocks][BlockSize]{};	// a cut voice, ahead of its blocks: its own voice is free at once
+			int mdTailBlocks = 0;
+			int mdHitSkip = 0;				// the filter's pure delay: what still comes of the last voice in a Hit's first block
 
 			// Syntakt
 			Ring stRing;
+			Run st;
+			bool stSounding = false;		// st has a place in the ring
+			int stVoices = 0;				// the lanes that hold its samples, a cut one included
+			int64_t stFadeAt = Never;		// a cut's ramp, in the ring, until the Track's next Hit
+			float stTailGain = 1;			// a cut voice's under the Hit that follows (tailGain)
+			int64_t stNext = -1;			// where the Hit the next block sees goes, -1 none
+			float stNextGain = 0;
+			int stNextVelocity = 0;			// what the chain's velocity target hears: the note's
 			int lane = -1;					// the lane its voice holds, on the machine it plays
 			int phase = 0;					// how much earlier than the family's clock its ring is read, in 1/147 sample
 			int nextPhase = 0;				// ... from output sample phaseAt, which a Hit sets
@@ -203,13 +237,15 @@ namespace elektron::drums
 		};
 
 		void cut(int _track);
-		void hitMachinedrum(int _track, int _velocity);
-		void hitSyntakt(int _track, int _velocity);
+		void hitMachinedrum(int _track, int _velocity, float _gain);
+		void hitSyntakt(int _track, int _velocity, float _gain);
 		void takeLane(int _track);
 		void freeLane(int _source, int _lane);
+		void releaseVoice(int _track);
 		Source& sourceOf(const Track& _track);
+		Chain& chainOf(const Track& _track) { return _track.chainFamily == Family::Syntakt ? *m_stChain : *m_mdChain; }
 		void renderMachinedrum();
-		void renderVoice(int _track, int64_t _fadeAt);
+		void renderVoice(int _track, float* _x);
 		void renderSyntakt();
 		void read(int _track, float* _out, int _count);
 		void mix(float* const* _outputs, int _offset, int _count);
@@ -224,6 +260,9 @@ namespace elektron::drums
 		std::vector<md::voice::Voice> m_voices;
 		uint32_t m_mdMask = 0;			// the Tracks on a Machinedrum machine
 		uint32_t m_mdLive = 0;			// ... whose voice sounds
+		uint32_t m_mdTails = 0;			// ... whose chain still has a cut voice to take
+		std::unique_ptr<Chain> m_mdChain;
+		std::unique_ptr<Block> m_mdIn;
 		uint32_t m_tempo = 120 * 24;
 		int64_t m_mdBlock = 0;			// the next block
 
@@ -231,6 +270,8 @@ namespace elektron::drums
 		std::vector<std::unique_ptr<Source>> m_sources;
 		int64_t m_stBlock = 0;
 		int64_t m_stNext = 0;			// the host sample whose reading first needs block m_stBlock
+		std::unique_ptr<Chain> m_stChain;
+		std::unique_ptr<Block> m_stIn;
 
 		int64_t m_now = 0;				// the next host sample
 	};

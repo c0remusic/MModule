@@ -8,7 +8,9 @@
 //   - Q12: a Choke and a machine change on a sounding voice, without a Hit, MID and CTR machines too;
 //   - what switching a silent voice off changes against rendering all 16 (md::voice's shared scratch, its free-running
 //     state), and what a Hit bringing its Track's ticks changes, measured;
-//   - the OS's machine table against mdProtocol's names.
+//   - the OS's machine table against mdProtocol's names;
+//   - ticket 12: a Track in its family's chain against TrackFx, word for word, and against its voice alone; Q5 on a voice
+//     with every slot off; a heavy chain's Hits at their position, what it does to latency; velocity's target, accent.
 //
 // GEARMULATOR_MD_FIRMWARE_BIN names the flash image; exit 77 without it. SP TWINSHOT plays noise made here.
 
@@ -26,6 +28,7 @@
 #include <vector>
 
 #include "Firmware.h"
+#include "TrackFx.h"
 #include "edDrumsEngine.h"
 #include "mdDrumsAllocationCounter.h"
 #include "mdProtocol/mdmachines.h"
@@ -45,7 +48,7 @@ namespace
 {
 	using namespace elektron::drums;
 	using elektron::BlockSize;
-	using syntakt::fast::bench::fft;
+	using syntakt::fast::bench::highShare;
 	using syntakt::fast::bench::Pi;
 	using Clock = std::chrono::steady_clock;
 
@@ -118,10 +121,16 @@ namespace
 		return e;
 	}
 
-	// ... hit at _note
-	Take hitAt(const Library& _library, const Machine& _machine, const int _note, const int _samples)
+	const ChainSettings Bare{};		// every slot off
+
+	// ... hit at _note, in _chain or its family's, its drives at _factor
+	Take hitAt(const Library& _library, const Machine& _machine, const int _note, const int _samples,
+		const ChainSettings* _chain = nullptr, const int _factor = Engine::DefaultOversampling)
 	{
 		auto e = engineWith(_library, _machine);
+		e->setOversampling(_factor);
+		if(_chain)
+			e->setChain(0, *_chain);
 		Take take(_samples);
 		take.render(*e, 0, _note);
 		e->noteOn(0, 127);
@@ -176,9 +185,12 @@ namespace
 	void running(const Library& _library)
 	{
 		constexpr int Cycle = 147 * 32, Spacing = 2053;
+		for(const bool bare : {true, false})
 		for(const Machine machine : {Machine{Family::Syntakt, 0}, Machine{Family::Machinedrum, 3}})
 		{
 			auto e = engineWith(_library, machine);
+			if(bare)
+				e->setChain(0, ChainSettings{});
 			// BD MODERN's jump: Hit 0 of its comparison, no sweep
 			if(machine.family == Family::Syntakt)
 				for(const int i : {3, 4, 5})
@@ -214,6 +226,9 @@ namespace
 				for(int n = from; n < from + 60; ++n)
 					if(std::abs(y[static_cast<size_t>(n)]) > std::abs(y[static_cast<size_t>(top)]))
 						top = n;
+				// Through its filter GND-IM's impulse has no slope to cross: its peak, a whole sample
+				if(!bare && machine.family == Family::Machinedrum)
+					return static_cast<double>(top - _note);
 				const float half = y[static_cast<size_t>(top)] / 2;
 				int i = top;
 				while(i > from - 20 && std::abs(y[static_cast<size_t>(i - 1)]) > std::abs(half))
@@ -227,10 +242,12 @@ namespace
 				lo = std::min(lo, c);
 				hi = std::max(hi, c);
 			}
-			std::printf("  %s on a running engine, %d Hits over the 48 kHz cycle: half its first peak %.3f to %.3f samples "
-				"after the note (jitter %.3f samples, %.5f ms)\n", nameOf(machine).c_str(), Cycle, lo, hi, hi - lo,
-				(hi - lo) / 44.1);
-			require(hi - lo < 0.02, "a Hit moved on a running engine");
+			std::printf("  %s %s on a running engine, %d Hits over the 48 kHz cycle: half its first peak %.3f to %.3f samples "
+				"after the note (jitter %.3f samples, %.5f ms)\n", nameOf(machine).c_str(), bare ? "alone" : "in its chain", Cycle, lo,
+				hi, hi - lo, (hi - lo) / 44.1);
+			// In its chain BASE/WIDTH's high-pass leaves the last Hit's tail off its zero, and the ring adds what the two Hits
+			// overlap: the half-peak moves, the Hit does not, and only at this retrigger, 46 ms
+			require(hi - lo < (bare ? 0.02 : 0.25), "a Hit moved on a running engine");
 		}
 	}
 
@@ -239,7 +256,7 @@ namespace
 	void againstHost(const Library& _library)
 	{
 		const Machine machine{Family::Syntakt, 0};
-		const auto reference = hitAt(_library, machine, 0, 4000);
+		const auto reference = hitAt(_library, machine, 0, 4000, &Bare);
 		const auto& y = reference.channel(0);
 		const auto sound = defaults(_library, machine);
 		constexpr int Compared = 2000, First = Engine::HitDelay - 24;
@@ -294,6 +311,29 @@ namespace
 		return notes;
 	}
 
+	// Every kind of stage at once, on the side the firmware does not have them, velocity moving the filter
+	ChainSettings heavyChain()
+	{
+		ChainSettings s;
+		s.drive[0] = {DriveType::Syntakt, true, 60, 127};
+		s.drive[1] = {DriveType::MdDist, false, 50, 80};
+		s.band.type = BandType::ThreeBand;
+		s.band.after = true;
+		s.band.values = {40, 80, 70, 50, 100, 70};
+		s.filter.type = FilterType::Syntakt;
+		s.filter.mode = 0;
+		s.filter.frequency = 100;
+		s.filter.resonance = 40;
+		s.filter.depth = 90;
+		s.filter.envelope.decay = 40;
+		s.amp.on = true;
+		s.amp.decay = 70;
+		s.amp.hold = 20;
+		s.velocityTarget = VelocityTarget::Frequency;
+		s.velocityDepth = -40;
+		return s;
+	}
+
 	// A mixed kit, Track t on Output t % 5, in blocks that _block gives
 	template<typename Blocks>
 	Take play(const Library& _library, const std::vector<Note>& _notes, const int _samples, Blocks&& _block)
@@ -305,6 +345,8 @@ namespace
 			e->setMachine(t, list[static_cast<size_t>((t * 7) % 40)]);
 			e->setOutput(t, t % 5);
 			e->setPan(t, t * 8);
+			if(t % 4 == 1)
+				e->setChain(t, heavyChain());
 		}
 		e->setChokes(2, 1u << 3);
 		Take take(_samples);
@@ -491,6 +533,8 @@ namespace
 				const int t = static_cast<int>(random() % Tracks);
 				if(b % 7 == 0)
 					e->setMachine(t, list[random() % list.size()]);
+				if(b % 11 == 0)
+					e->setChain(t, b % 2 ? heavyChain() : ChainSettings{});
 				e->setChokes(t, random() & 0xffff);
 				e->lock(t, 3, 100);
 				e->noteOn(t, 100);
@@ -503,29 +547,6 @@ namespace
 
 	// ---- Q12 ----
 
-	// research/19's HF: energy above 2 kHz over all of it, in 4096 samples around _cut under a Blackman-Harris window
-	double hf(const std::vector<float>& _y, const int _cut)
-	{
-		constexpr int N = 4096;
-		std::vector<std::complex<double>> a(N);
-		for(int i = 0; i < N; ++i)
-		{
-			const double w = 0.35875 - 0.48829 * std::cos(2 * Pi * i / (N - 1)) + 0.14128 * std::cos(4 * Pi * i / (N - 1))
-				- 0.01168 * std::cos(6 * Pi * i / (N - 1));
-			a[static_cast<size_t>(i)] = static_cast<double>(_y[static_cast<size_t>(_cut - N / 2 + i)]) * w;
-		}
-		fft(a);
-		double total = 0, high = 0;
-		for(int i = 1; i < N / 2; ++i)
-		{
-			const double p = std::norm(a[static_cast<size_t>(i)]);
-			total += p;
-			if(i * SampleRate / N > 2000)
-				high += p;
-		}
-		return 10 * std::log10(high / total);
-	}
-
 	// What holds near a 200 Hz sine: GND-SN, or BD MODERN held, on Track 0
 	struct Tone
 	{
@@ -536,6 +557,8 @@ namespace
 		// HF bounds, measured with 1 dB of margin. They guard what a struck voice adds to a sounding one: its restart at
 		// its block and the splice of its tail, which are the machine's own, not a cut's Q12
 		double retriggerBound, chokedHitBound;
+		double softerBound, raisedBound;					// struck again, 127 to 64; through a raised drive
+		double cutSofterBound, cutSoftestBound, cutLouderBound;	// cut and struck, 127 to 64, 127 to 1, 1 to 127
 	};
 
 	std::unique_ptr<Engine> engineWith(const Library& _library, const Tone& _tone)
@@ -552,8 +575,8 @@ namespace
 		constexpr int Start = 200, Around = 12000, Samples = 16384;
 		constexpr int Delay = Engine::HitDelay;
 		const std::array<Tone, 2> tones{{
-			{"MD sine", {Family::Machinedrum, 1}, {35, 127, 0, 0, 0, 0, 0, 0}, 0, -25.5, -23.3},
-			{"Syntakt held", {Family::Syntakt, 0}, {64, 0, 0, 0, 0, 0, 127, 127}, 79, -39.0, -40.4},
+			{"MD sine", {Family::Machinedrum, 1}, {35, 127, 0, 0, 0, 0, 0, 0}, 0, -25.0, -25.0, -23.4, -20.2, -21.9, -22.6, -36.5},
+			{"Syntakt held", {Family::Syntakt, 0}, {64, 0, 0, 0, 0, 0, 127, 127}, 79, -39.0, -41.4, -39.6, -37.7, -22.1, -23.0, -40.2},
 		}};
 		struct Cut
 		{
@@ -587,7 +610,7 @@ namespace
 			while(!(u[static_cast<size_t>(period)] >= u[static_cast<size_t>(period - 1)]
 				&& u[static_cast<size_t>(period)] >= u[static_cast<size_t>(period + 1)] && u[static_cast<size_t>(period)] > 0))
 				++period;
-			const double base = hf(u, crest);
+			const double base = highShare(u, crest, SampleRate);
 			std::printf("  Q12, %s at %.0f Hz, crest %.3f, its own HF %.1f dB:", tone.name, SampleRate / (period - crest),
 				u[static_cast<size_t>(crest)], base);
 			require(u[static_cast<size_t>(crest)] > 0.05f, "a tone to cut");
@@ -623,7 +646,7 @@ namespace
 				float rest = 0;
 				for(int n = cutAt + Engine::CutSamples + 40; n < Samples; ++n)
 					rest = std::max(rest, std::abs(y[static_cast<size_t>(n)]));
-				const double v = hf(y, cutAt);
+				const double v = highShare(y, cutAt, SampleRate);
 				std::printf(" %s %.1f,", cut.name, v);
 				require(v <= -50, std::string(tone.name) + ", " + cut.name + ": Q12, HF " + std::to_string(v) + " dB");
 				require(rest == 0, std::string(cut.name) + ": sound past the ramp");
@@ -648,7 +671,7 @@ namespace
 				float rest = 0;
 				for(int n = crest + Engine::CutSamples + 40; n < Samples; ++n)
 					rest = std::max(rest, std::abs(take.channel(0)[static_cast<size_t>(n)]));
-				const double v = hf(take.channel(0), crest);
+				const double v = highShare(take.channel(0), crest, SampleRate);
 				std::printf("    a Hit and the Hit that chokes it at one sample, %s: HF %.1f dB, %g past the ramp\n", tone.name, v,
 					rest);
 				require(rest == 0, "the choked Hit sounds past the ramp");
@@ -667,12 +690,53 @@ namespace
 				take.render(*e, Start, crest - Delay - Start + offset);
 				e->noteOn(0, 127);
 				take.render(*e, crest - Delay + offset, Samples - (crest - Delay + offset));
-				const double v = hf(take.channel(0), crest + offset);
+				const double v = highShare(take.channel(0), crest + offset, SampleRate);
 				lo = std::min(lo, v);
 				hi = std::max(hi, v);
 			}
 			std::printf("    the voice struck again at the crest, %s's own retrigger: HF %.1f to %.1f dB\n", tone.name, lo, hi);
 			require(hi <= tone.retriggerBound, std::string(tone.name) + ": a retrigger's HF " + std::to_string(hi));
+
+			// A second Hit at another velocity, the old voice cut at its sample or not: the worst of 14 places around the crest
+			const auto struck = [&](const int _first, const int _second, const bool _cut, const ChainSettings* _chain)
+			{
+				double worst = -200;
+				for(int offset = 0; offset < 40; offset += 3)
+				{
+					auto e = engineWith(_library, tone);
+					if(_chain)
+						e->setChain(0, *_chain);
+					e->setMachine(1, {Family::Machinedrum, 0});
+					e->setOutput(1, 15);
+					e->setChokes(1, _cut ? 1 : 0);
+					Take take(Samples);
+					take.render(*e, 0, Start);
+					e->noteOn(0, _first);
+					take.render(*e, Start, crest - Delay - Start + offset);
+					if(_cut)
+						e->noteOn(1, 127);
+					e->noteOn(0, _second);
+					take.render(*e, crest - Delay + offset, Samples - (crest - Delay + offset));
+					worst = std::max(worst, highShare(take.channel(0), crest + offset, SampleRate));
+				}
+				return worst;
+			};
+			for(const bool cut : {false, true})
+			{
+				const double softer = struck(127, 64, cut, nullptr), softest = struck(127, 1, cut, nullptr);
+				const double louder = struck(1, 127, cut, nullptr);
+				std::printf("    %s, %s: 127 to 127 %.1f, 127 to 64 %.1f, 127 to 1 %.1f, 1 to 127 %.1f dB\n", tone.name,
+					cut ? "cut then struck" : "struck again", struck(127, 127, cut, nullptr), softer, softest, louder);
+				require(softer <= (cut ? tone.cutSofterBound : tone.softerBound), std::string(tone.name) + ": 127 to 64");
+				require(!cut || (softest <= tone.cutSoftestBound && louder <= tone.cutLouderBound), std::string(tone.name) + ": a cut under another velocity");
+			}
+
+			// A raised drive's delay is not a pure one: its Hit keeps its first samples, the last voice's stay in them
+			ChainSettings raised;
+			raised.drive[0] = {tone.machine.family == Family::Syntakt ? DriveType::MdDist : DriveType::Syntakt, false, 1, 127};
+			const double throughRaised = struck(127, 127, false, &raised);
+			std::printf("    %s through a raised drive, struck again: HF %.1f dB\n", tone.name, throughRaised);
+			require(throughRaised <= tone.raisedBound, std::string(tone.name) + ": a raised drive's retrigger");
 		}
 	}
 
@@ -681,7 +745,7 @@ namespace
 	void fullMachine(const Library& _library)
 	{
 		constexpr int Start = 200, Around = 12000, Samples = 16384;
-		const Tone tone{"Syntakt held", {Family::Syntakt, 0}, {64, 0, 0, 0, 0, 0, 127, 127}, 79, 0, 0};
+		const Tone tone{"Syntakt held", {Family::Syntakt, 0}, {64, 0, 0, 0, 0, 0, 127, 127}, 79, 0, 0, 0, 0, 0, 0, 0};
 		const auto play = [&](const int _at, const bool _cut)
 		{
 			auto e = std::make_unique<Engine>(_library);
@@ -716,7 +780,7 @@ namespace
 			&& u[static_cast<size_t>(crest)] >= u[static_cast<size_t>(crest + 1)] && u[static_cast<size_t>(crest)] > 0))
 			++crest;
 		const auto take = play(crest - Engine::HitDelay, true);
-		const double v = hf(take.channel(0), crest);
+		const double v = highShare(take.channel(0), crest, SampleRate);
 		std::printf("  all 16 lanes of a machine held, a Track choked and struck at once: HF %.1f dB\n", v);
 		// Measured, 1 dB of margin: the machine's own fade of the block that sees the trig ends the ramp, 32 samples, not
 		// Q12's 64. Without it, the lane freed at once, -26 dB
@@ -750,10 +814,10 @@ namespace
 					return take;
 				};
 				const auto both = run(true, true), tail = run(true, false), fresh = run(false, true);
-				// One Track reads a ring at one phase, a Hit's: under a Syntakt Hit the Syntakt tail moves by a fraction of a
-				// sample. The rest adds up exactly
-				const int from = from_.family == Family::Syntakt && to.family == Family::Syntakt
-					? At + Engine::HitDelay + Engine::CutSamples + 60 : 0;
+				// One chain has one place in its ring, the Hit's from the block it starts: under the Hit the old voice's ramp,
+				// on the same family, moves with it, up to a block. Past the ramp, a fresh Hit
+				const bool sameChain = from_.family == to.family;
+				const int from = sameChain ? At + Engine::HitDelay + Engine::CutSamples : 0;
 				double worst = 0;
 				float peak = 0;
 				for(int n = from; n < Samples; ++n)
@@ -764,11 +828,10 @@ namespace
 				}
 				std::printf("  %s to %s, a Hit at once: the tail plus a fresh Hit, within %.1f dB of the peak\n",
 					nameOf(from_).c_str(), nameOf(to).c_str(), 20 * std::log10(std::max(worst, 1e-12) / peak));
-				require(worst / peak < 1e-3, "a Hit after a machine change is not a fresh one");
+				// What is left past the ramp: the chain's own memory of the last voice, its high-pass at 5 Hz, as on the machine
+				require(worst / peak < (sameChain ? 5e-3 : 1e-3), "a Hit after a machine change is not a fresh one");
 			}
 	}
-
-	// ---- what switching a silent voice off changes ----
 
 	struct VoiceSet
 	{
@@ -789,6 +852,464 @@ namespace
 				voices.emplace_back(*shared, t);
 		}
 	};
+
+	// ---- the chain on the engine ----
+
+	// Q1: a Machinedrum Track in its family's chain against TrackFx on its voice alone, word for word; the Syntakt's, whose
+	// stages' tolerances stFastTrackTest measures, against its voice alone, a high-pass at 5 Hz apart
+	void familyChains(const std::vector<uint8_t>& _flash, const Library& _library)
+	{
+		const auto os = md::fw::loadFirmwareFromFlash(_flash);
+		using md::engine::TrackFx;
+		const auto tables = std::make_unique<TrackFx::Tables>(os.firmware);
+		constexpr int Samples = 32 * 400;
+		std::array<uint32_t, 9> params{};
+		params[2] = 64 << 7;
+		params[3] = 63 << 7;
+		params[5] = 127 << 7;
+		size_t compared = 0;
+		for(const uint8_t id : {uint8_t(3), uint8_t(16), uint8_t(17), uint8_t(19), uint8_t(25), uint8_t(32), uint8_t(33), uint8_t(48), uint8_t(64), uint8_t(128)})
+		{
+			const Machine machine{Family::Machinedrum, id};
+			const auto bare = hitAt(_library, machine, 0, Samples, &Bare);
+			const auto chained = hitAt(_library, machine, 0, Samples);
+			auto fx = std::make_unique<TrackFx>(*tables);
+			auto state = std::make_unique<TrackFx::State>();
+			TrackFx::init(*state);
+			TrackFx::setParams(*state, params.data());
+			std::array<int32_t, 32> in{}, out{};
+			for(int b = 0; b < 400; ++b)
+				fx->process(*state, in.data(), out.data());
+			std::vector<int32_t> reference;
+			for(int b = 0; b < Samples / 32; ++b)
+			{
+				for(int n = 0; n < 32; ++n)
+					in[static_cast<size_t>(n)] = static_cast<int32_t>(std::lround(bare.channel(0)[static_cast<size_t>(b * 32 + n)] * 8388608.0));
+				fx->process(*state, in.data(), out.data());
+				reference.insert(reference.end(), out.begin(), out.end());
+			}
+			// TrackFx's 4 samples of delay are the chain's, and every chain's Hit takes them off its wait
+			for(int n = 0; n + Chain::MachinedrumFilterDelay < Samples; ++n)
+			{
+				const double y = chained.channel(0)[static_cast<size_t>(n)] * 2097152.0;
+				if(y != reference[static_cast<size_t>(n + Chain::MachinedrumFilterDelay)])
+					throw std::runtime_error(nameOf(machine) + ": not TrackFx's word " + std::to_string(n) + ": "
+						+ std::to_string(y) + " against " + std::to_string(reference[static_cast<size_t>(n + Chain::MachinedrumFilterDelay)]));
+				++compared;
+			}
+		}
+		std::printf("  Q1: 10 Machinedrum machines in their chain, %zu samples: TrackFx's words x 4, 0 LSB apart\n", compared);
+
+		double worst = -300;
+		for(int id = 0; id < SyntaktMachines; ++id)
+		{
+			const Machine machine{Family::Syntakt, static_cast<uint8_t>(id)};
+			const auto bare = hitAt(_library, machine, 0, 8000, &Bare), chained = hitAt(_library, machine, 0, 8000);
+			double power = 0, error = 0;
+			for(size_t n = 0; n < 8000; ++n)
+			{
+				const double a = bare.channel(0)[n], d = chained.channel(0)[n] - a;
+				power += a * a;
+				error += d * d;
+			}
+			worst = std::max(worst, 10 * std::log10(error / power));
+		}
+		std::printf("  the nine Syntakt machines in their chain against their voice alone: %.1f dB of the signal at worst (BASE/WIDTH's "
+			"5 Hz; the stages against the exact port: stFastTrackTest)\n", worst);
+		require(worst < -26, "a Syntakt machine's chain is not its voice");
+	}
+
+	// Q5: with every slot off, the voice's own samples through the rings
+	void bareVoice(const Library& _library)
+	{
+		constexpr int Blocks = 400;
+		const uint8_t id = 17;
+		VoiceSet set(_library);
+		set.tracks[0].setMachine(id, _library.mdDefaults[id]);
+		set.tracks[0].hit();
+		set.tracks[0].alignTicks(0);
+		const auto take = hitAt(_library, {Family::Machinedrum, id}, 0, Blocks * BlockSize, &Bare);
+		const auto& y = take.channel(0);
+		int first = 0;
+		while(y[static_cast<size_t>(first)] == 0)
+			++first;
+		std::vector<double> voice;
+		for(int b = 0; b < Blocks; ++b)
+		{
+			md::voice::prepareBlock(set.tracks, set.voices, *_library.os, 120 * 24, b, 1, 1);
+			md::voice::Voice::Block block;
+			set.voices[0].render(block);
+			for(const int32_t x : block)
+				voice.push_back(x / 8388608.0);
+		}
+		int firstVoice = 0;
+		while(voice[static_cast<size_t>(firstVoice)] == 0)
+			++firstVoice;
+		double error = 0;
+		for(int n = 0; first + n < static_cast<int>(y.size()); ++n)
+			error = std::max(error, std::abs(y[static_cast<size_t>(first + n)] - voice[static_cast<size_t>(firstVoice + n)]));
+		std::printf("  Q5: TRX-SD with every slot off against its voice: %.1f dBFS at worst (threshold -120); BD MODERN against its "
+			"machine above\n", 20 * std::log10(std::max(error, 1e-30)));
+		require(error < 1e-6, "Q5: a Track with every slot off is not its voice");
+	}
+
+	// Heavy chains: a Hit's samples wherever its note falls, on each family's Tracks, and where it lands
+	void chainsAtHits(const Library& _library)
+	{
+		constexpr int Delay = Engine::HitDelay, Samples = Delay + 1500;
+		const auto onset = [](const std::vector<float>& _y)
+		{
+			const float peak = peakOf(_y);
+			int n = 0;
+			while(std::abs(_y[static_cast<size_t>(n)]) < peak * 0.01f)
+				++n;
+			return n;
+		};
+		for(const Machine machine : {Machine{Family::Syntakt, 1}, Machine{Family::Syntakt, 2}, Machine{Family::Machinedrum, 17}, Machine{Family::Machinedrum, 34}})
+			for(const int factor : {1, 2, 4})
+			{
+				const auto chain = heavyChain();
+				const auto reference = hitAt(_library, machine, 0, Samples, &chain, factor);
+				for(const int position : {1, 15, 31, 33, 1021, 4703})
+					if(hitAt(_library, machine, position, position + Samples, &chain, factor).channel(0) != [&]
+					{
+						auto y = reference.channel(0);
+						y.insert(y.begin(), static_cast<size_t>(position), 0.0f);
+						return y;
+					}())
+						throw std::runtime_error(nameOf(machine) + ": a Hit in a chain moved with its note");
+			}
+
+		// What a raised drive adds: the voice's onset through a light drive, against the voice alone
+		for(const Machine machine : {Machine{Family::Syntakt, 1}, Machine{Family::Machinedrum, 17}})
+		{
+			ChainSettings raised;
+			raised.drive[0] = {machine.family == Family::Syntakt ? DriveType::MdDist : DriveType::Syntakt, false, 1, 127};
+			const int alone = onset(hitAt(_library, machine, 0, Samples, &Bare).channel(0));
+			std::printf("  %s, onset %d samples after the note alone;", nameOf(machine).c_str(), alone);
+			for(const int factor : {1, 2, 4})
+			{
+				const int shift = onset(hitAt(_library, machine, 0, Samples, &raised, factor).channel(0)) - alone;
+				std::printf(" a raised drive at %dx: %+d", factor, shift);
+				// The Syntakt has no room: late by the chain's delay. A Machinedrum Hit waits less by it
+				const int expected = machine.family == Family::Syntakt ? Oversampler::delay(factor) : factor > 1 ? -2 : 0;
+				require(shift == expected, "a raised drive's Hit, off its stated place");
+			}
+			std::printf("\n");
+		}
+		std::printf("  heavy chains on both families, off, 2x and 4x: a Hit's samples the same at 7 positions, jitter 0\n");
+	}
+
+	void velocityAndAccent(const Library& _library)
+	{
+		const Machine machine{Family::Syntakt, 3};
+		const auto play = [&](const ChainSettings& _chain, const int _velocity, const bool _accent)
+		{
+			auto e = engineWith(_library, machine);
+			e->setChain(0, _chain);
+			e->setAccent(0, 20);
+			e->noteOn(0, _velocity, _accent);
+			Take take(6000);
+			take.render(*e, 0, 6000);
+			return take;
+		};
+		// The filter's frequency follows velocity: the Hit's first differences, against its level
+		ChainSettings chain = syntaktChain();
+		chain.filter.mode = 0;
+		chain.filter.frequency = 40;
+		chain.velocityTarget = VelocityTarget::Frequency;
+		chain.velocityDepth = 80;
+		const auto brightness = [](const Take& _take)
+		{
+			double slope = 0, level = 0;
+			const auto& y = _take.channel(0);
+			for(size_t n = 1; n < y.size(); ++n)
+			{
+				slope += (y[n] - y[n - 1]) * (y[n] - y[n - 1]);
+				level += y[n] * y[n];
+			}
+			return slope / level;
+		};
+		const double soft = brightness(play(chain, 10, false)), loud = brightness(play(chain, 127, false));
+		require(loud > 4 * soft, "velocity does not reach its target");
+		chain.velocityTarget = VelocityTarget::None;
+		const double plain = brightness(play(chain, 127, false));
+		require(std::abs(plain / brightness(play(chain, 10, false)) - 1) < 1e-3, "velocity changes more than the level");
+
+		const float normal = peakOf(play(ChainSettings{}, 127, false).channel(0)), accented = peakOf(play(ChainSettings{}, 127, true).channel(0));
+		std::printf("  velocity on the filter's frequency: %.1f times the brightness from velocity 10 to 127; accent 20: %.3f times the "
+			"peak, %.3f expected\n", loud / soft, accented / normal, 168.0 / 127);
+		require(std::abs(accented / normal - 168.0f / 127) < 1e-3f, "accent");
+	}
+
+	// A closed hat choking an open hat, the two in one group
+	void chokedNeighbour(const Library& _library)
+	{
+		const Machine machine{Family::Machinedrum, 22};
+		const auto play = [&](const bool _before, const bool _bare)
+		{
+			auto e = std::make_unique<Engine>(_library);
+			for(const int t : {2, 3})
+			{
+				e->setMachine(t, machine);
+				e->setLevel(t, 127);
+				if(_bare)
+					e->setChain(t, Bare);
+			}
+			e->setOutput(2, 1);
+			e->setChokes(2, 1u << 3);
+			Take take(40000);
+			take.render(*e, 0, 1000);
+			if(_before)
+				e->noteOn(3, 127);
+			take.render(*e, 1000, 4000);
+			e->noteOn(2, 127);
+			take.render(*e, 5000, 5000);
+			e->noteOn(3, 127);
+			take.render(*e, 10000, 30000);
+			return take;
+		};
+		const auto apart = [&](const bool _bare)
+		{
+			const auto dirty = play(true, _bare), fresh = play(false, _bare);
+			double worst = 0;
+			for(size_t n = 10000; n < 40000; ++n)
+				worst = std::max<double>(worst, std::abs(dirty.channel(0)[n] - fresh.channel(0)[n]));
+			return 20 * std::log10(std::max(worst, 1e-12));
+		};
+		// The voice itself keeps something of its last Hit: the chain must add nothing to that
+		const double chained = apart(false), voice = apart(true);
+		std::printf("  an open hat struck again after its Choke, against a fresh one: apart by %.1f dB in its chain, %.1f dB alone\n", chained, voice);
+		require(chained <= voice + 1, "a choked Track came back with its group's rows");
+	}
+
+	// A chain set while the Track plays nothing
+	void chainWhileOff(const Library& _library)
+	{
+		const Machine machine{Family::Syntakt, 1};
+		ChainSettings s = syntaktChain();
+		s.filter.mode = 0;
+		s.filter.frequency = 50;
+		auto e = engineWith(_library, machine);
+		e->setMachine(0, {Family::Off, 0});
+		e->setChain(0, s);
+		e->setMachine(0, machine);
+		e->noteOn(0, 127);
+		Take take(4000);
+		take.render(*e, 0, 4000);
+		auto d = engineWith(_library, machine);
+		d->setChain(0, s);
+		d->noteOn(0, 127);
+		Take direct(4000);
+		direct.render(*d, 0, 4000);
+		const bool same = take.channel(0) == direct.channel(0);
+		std::printf("  a chain set on an Off Track plays when its machine comes back: %s\n", same ? "yes" : "no");
+		require(same, "the chain set while Off was lost");
+	}
+
+	// setChain during a Hit leaves what velocity set
+	void midHit(const Library& _library)
+	{
+		const Machine machine{Family::Syntakt, 3};
+		ChainSettings s = syntaktChain();
+		s.filter.mode = 0;
+		s.filter.frequency = 40;
+		s.filter.keyTrack = 60;
+		s.velocityTarget = VelocityTarget::Frequency;
+		s.velocityDepth = 70;
+		const auto play = [&](const bool _again)
+		{
+			auto e = engineWith(_library, machine);
+			e->setChain(0, s);
+			e->noteOn(0, 127);
+			Take take(6000);
+			take.render(*e, 0, 1000);
+			if(_again)
+				e->setChain(0, s);
+			take.render(*e, 1000, 5000);
+			return take;
+		};
+		const auto plain = play(false), rechained = play(true);
+		double worst = 0;
+		for(size_t n = 0; n < 6000; ++n)
+			worst = std::max<double>(worst, std::abs(plain.channel(0)[n] - rechained.channel(0)[n]));
+		std::printf("  setChain during a Hit, the same chain: apart by %.1f dB\n", 20 * std::log10(std::max(worst, 1e-12)));
+		require(worst == 0, "setChain lost the Hit's velocity");
+	}
+
+	// A raised drive's Hit keeps the samples it has before its onset
+	void earlySamples(const Library& _library)
+	{
+		const Machine machine{Family::Machinedrum, 17};
+		ChainSettings raised;
+		raised.drive[0] = {DriveType::Syntakt, false, 1, 127};
+		auto e = engineWith(_library, machine);
+		e->setChain(0, raised);
+		e->noteOn(0, 127);
+		Take take(2000);
+		take.render(*e, 0, 2000);
+		int first = 0;
+		while(take.channel(0)[static_cast<size_t>(first)] == 0)
+			++first;
+		const auto bare = hitAt(_library, machine, 0, 2000, &Bare);
+		int alone = 0;
+		while(bare.channel(0)[static_cast<size_t>(alone)] == 0)
+			++alone;
+		std::printf("  first sample of a raised Hit %d, of the voice alone %d\n", first, alone);
+		require(first == alone - Oversampler::delay(2), "a raised Hit lost its first samples");
+	}
+
+	// A noteOff on a Track at rest
+	void staleGateOff(const Library& _library)
+	{
+		const Machine machine{Family::Syntakt, 0};
+		ChainSettings s = syntaktChain();
+		s.amp.on = true;
+		s.amp.decay = 60;
+		auto e = engineWith(_library, machine);
+		e->setChain(0, s);
+		const auto hit = [&]
+		{
+			e->noteOn(0, 127);
+			Take take(3000);
+			take.render(*e, 0, 3000);
+			return take;
+		};
+		const auto first = hit();
+		Take rest(4096);
+		int guard = 0;
+		while(e->lanesRendered(0) && ++guard < 2000)
+			rest.render(*e, 0, 4096);
+		e->noteOff(0);
+		const auto second = hit();
+		double worst = 0;
+		for(size_t n = 0; n < 3000; ++n)
+			worst = std::max<double>(worst, std::abs(first.channel(0)[n] - second.channel(0)[n]));
+		std::printf("  a Hit after a noteOff at rest against the first: apart by %.1f dB\n", 20 * std::log10(std::max(worst, 1e-12)));
+		require(worst < 1e-3, "a stale gate-off");
+	}
+
+	// A Choke and a Hit at one sample on a machine that starts late: the tail no louder than it was
+	void tailGain(const Library& _library)
+	{
+		const Machine machine{Family::Machinedrum, 16};
+		double worst = 0;
+		for(int at = 400; at < 700; at += 3)
+		{
+			const auto render = [&](const bool _cut)
+			{
+				auto e = engineWith(_library, machine);
+				e->setChain(0, ChainSettings{});
+				e->setMachine(1, {Family::Machinedrum, 0});
+				e->setOutput(1, 15);
+				e->setChokes(1, 1);
+				Take take(4000);
+				take.render(*e, 0, 100);
+				e->noteOn(0, 127);
+				take.render(*e, 100, at - 100);
+				if(_cut)
+				{
+					e->noteOn(1, 127);
+					e->noteOn(0, 1);
+				}
+				take.render(*e, at, 4000 - at);
+				return take;
+			};
+			const auto uncut = render(false), cut = render(true);
+			// What a Hit leaves of the cut voice before its ramp: at most the voice, but what the ring holds where the Hit
+			// moved its place, which adds
+			float top = 0, tail = 0;
+			for(size_t n = static_cast<size_t>(at + Engine::HitDelay - 34); n < static_cast<size_t>(at + Engine::HitDelay); ++n)
+			{
+				top = std::max(top, std::abs(uncut.channel(0)[n]));
+				tail = std::max(tail, std::abs(cut.channel(0)[n]));
+			}
+			worst = std::max<double>(worst, tail / std::max(top, 1e-6f));
+		}
+		std::printf("  under a Hit a cut tail at worst %.3f of the uncut voice before its ramp\n", worst);
+		require(worst <= 1.014, "the ramp above 1");		// 1.012 measured; a ramp above 1 gives 1.016
+	}
+
+	// Two Hits of a Track in one 48 kHz block, the first on the later machine's source
+	void twoHitsInABlock(const Library& _library)
+	{
+		const Machine first{Family::Syntakt, 1}, second{Family::Syntakt, 0};
+		double worst = 0;
+		for(int at = 1000; at < 1033; ++at)
+		{
+			const auto play = [&](const bool _both)
+			{
+				auto e = engineWith(_library, first);
+				Take take(6000);
+				take.render(*e, 0, at);
+				if(_both)
+					e->noteOn(0, 127);
+				take.render(*e, at, 1);
+				e->setMachine(0, second);
+				e->noteOn(0, 60);
+				take.render(*e, at + 1, 6000 - at - 1);
+				return take;
+			};
+			const auto both = play(true), alone = play(false);
+			for(size_t n = 1400; n < 6000; ++n)
+				worst = std::max<double>(worst, std::abs(both.channel(0)[n] - alone.channel(0)[n]));
+		}
+		std::printf("  two Hits in one block, the later's: apart by %.1f dB at worst of 33 positions\n", 20 * std::log10(std::max(worst, 1e-12)));
+		require(worst < 1e-3, "the earlier Hit won");
+	}
+
+	// Track B takes the lane of Track A's cut voice, all lanes held: B's chain sees its Hit
+	void heirChain(const Library& _library)
+	{
+		const Machine machine{Family::Syntakt, 0};
+		const std::array<uint8_t, 8> held{64, 0, 0, 0, 0, 0, 127, 127};
+		const auto play = [&](const int _depth)
+		{
+			auto e = std::make_unique<Engine>(_library);
+			constexpr int B = Tracks - 1;
+			for(int t = 0; t < B; ++t)
+			{
+				e->setMachine(t, machine);
+				e->setLevel(t, 127);
+				e->setOutput(t, 15);
+				for(int i = 0; i < 8; ++i)
+					e->setParameter(t, i, held[static_cast<size_t>(i)]);
+			}
+			e->setMachine(B, {Family::Syntakt, 1});
+			e->setLevel(B, 127);
+			ChainSettings s = syntaktChain();
+			s.filter.mode = 0;
+			s.filter.frequency = 20;
+			s.filter.depth = _depth;
+			s.filter.envelope.decay = 50;
+			e->setChain(B, s);
+			Take take(16384);
+			take.render(*e, 0, 200);
+			for(int t = 0; t < B; ++t)
+				e->noteOn(t, 127);
+			take.render(*e, 200, 2000);
+
+			// Track 0's voice cut and struck again fills the 16 lanes; B, with no lane, takes the one Track 0 is leaving
+			e->setChokes(1, 1);
+			e->noteOn(1, 127);
+			e->noteOn(0, 127);
+			require(e->lanesRendered(0) == 16, "the lanes all held");
+			e->setMachine(B, machine);
+			for(int i = 0; i < 8; ++i)
+				e->setParameter(B, i, held[static_cast<size_t>(i)]);
+			e->noteOn(B, 127);
+			take.render(*e, 2200, 14184);
+			return take;
+		};
+		const auto moved = play(120), still = play(64);
+		double power = 0;
+		for(size_t n = 2400; n < 6000; ++n)
+			power += std::pow(moved.channel(0)[n] - still.channel(0)[n], 2);
+		std::printf("  Track B on Track A's cut lane, its filter's envelope: %.2e of difference\n", power);
+		require(power > 1e-3, "the heir's chain never saw its Hit");
+	}
+
+	// ---- what switching a silent voice off changes ----
 
 	// The 16 voices rendered every block, the product's Tracks driving them (mdVoiceCoefficientsTest holds that to the
 	// oracle), against the same Hits and random sounds: with the off ones skipped; rendered, but their scratch left as it
@@ -1048,6 +1569,18 @@ int main()
 		const auto samples = noise();
 		library.twinshot = samples.get();
 		machineTable(flash, library);
+		familyChains(flash, library);
+		chokedNeighbour(library);
+		chainWhileOff(library);
+		midHit(library);
+		earlySamples(library);
+		staleGateOff(library);
+		tailGain(library);
+		twoHitsInABlock(library);
+		heirChain(library);
+		bareVoice(library);
+		chainsAtHits(library);
+		velocityAndAccent(library);
 		hits(library);
 		running(library);
 		againstHost(library);

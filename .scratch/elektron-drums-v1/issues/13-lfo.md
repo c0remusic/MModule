@@ -25,3 +25,9 @@ Spécification §4. Ticket « Chaîne de piste » (amendement LFO).
 
 `Track::update` est la couture où un LFO s'insère. Le moteur n'a aucune position de transport : ce ticket doit lui en donner une.
 `alignTicks` met chaque piste sur sa propre phase de tick au Hit : un LFO qui vise une autre piste tombe donc sur une autre phase.
+
+## Noté par le ticket 12 (2026-11-06)
+
+`Chain::offset(lane, target)` est le seul endroit où une valeur se décale, `setDrive`, `setBand`, `setFilter` les seuls à recalculer ses
+mots, `stepEnvelopes` le chemin par bloc : la modulation y entre. Ne pas découper `configure` d'avance : mesurer d'abord le coût des mots
+de `ThreeBand` recalculés à chaque bloc. Un type d'étage modulé se fondrait en 96 échantillons : ne pas le moduler.

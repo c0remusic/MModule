@@ -74,6 +74,59 @@ namespace syntakt::fast::bench
 			p[k] = std::norm(a[k]);
 		return p;
 	}
+	// research/19's HF of a cut: of the energy in _size samples around _at under a Blackman-Harris window, in dB, what lies
+	// above 2 kHz
+	template<typename T>
+	double highShare(const std::vector<T>& _y, const int _at, const double _fs, const int _size = 4096)
+	{
+		std::vector<std::complex<double>> a(static_cast<size_t>(_size));
+		for(int i = 0; i < _size; ++i)
+		{
+			const double w = 0.35875 - 0.48829 * std::cos(2 * Pi * i / (_size - 1)) + 0.14128 * std::cos(4 * Pi * i / (_size - 1))
+				- 0.01168 * std::cos(6 * Pi * i / (_size - 1));
+			a[static_cast<size_t>(i)] = static_cast<double>(_y[static_cast<size_t>(_at - _size / 2 + i)]) * w;
+		}
+		fft(a);
+		double total = 0, high = 0;
+		for(int i = 1; i < _size / 2; ++i)
+		{
+			const double p = std::norm(a[static_cast<size_t>(i)]);
+			total += p;
+			if(i * _fs / _size > 2000)
+				high += p;
+		}
+		return db(high / total);
+	}
+
+	// The sine of _w radians a sample in _y from _from on, by least squares, and what is left
+	struct SineFit
+	{
+		double amplitude, power, residual;
+	};
+
+	inline SineFit fitSine(const std::vector<double>& _y, const double _w, const size_t _from)
+	{
+		double cc = 0, ss = 0, cs = 0, xc = 0, xs = 0;
+		for(size_t n = _from; n < _y.size(); ++n)
+		{
+			const double c = std::cos(_w * static_cast<double>(n)), s = std::sin(_w * static_cast<double>(n));
+			cc += c * c;
+			ss += s * s;
+			cs += c * s;
+			xc += _y[n] * c;
+			xs += _y[n] * s;
+		}
+		const double det = cc * ss - cs * cs, a = (xc * ss - xs * cs) / det, b = (xs * cc - xc * cs) / det;
+		double residual = 0, power = 0;
+		for(size_t n = _from; n < _y.size(); ++n)
+		{
+			const double fit = a * std::cos(_w * static_cast<double>(n)) + b * std::sin(_w * static_cast<double>(n));
+			residual += (_y[n] - fit) * (_y[n] - fit);
+			power += fit * fit;
+		}
+		return {std::hypot(a, b), power, residual};
+	}
+
 	// Energy per third octave (centres 1000 2^(k/3), k = _first .. _last), in seconds-weighted units comparable across
 	// rates: sum |X|^2 / (N fs), one-sided
 	inline std::vector<double> bands(const std::vector<double>& _x, const double _fs, const int _first, const int _last)

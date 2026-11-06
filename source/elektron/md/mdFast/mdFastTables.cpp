@@ -2,12 +2,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace md::fast::tables
 {
 	namespace
 	{
-		constexpr double Pi = 3.14159265358979323846, Rate = 44100;
+		constexpr double Pi = 3.14159265358979323846;
 		constexpr int32_t FullScale = 0x7fffff;
 
 		// The cosines round to the nearest word, away from zero at a half. eqCos alone takes a nudge: at 3 of its 2589
@@ -27,8 +28,8 @@ namespace md::fast::tables
 			return std::min(static_cast<int32_t>(std::llround(8388608.0 * decimal)), FullScale);
 		}
 
-		double cutoff(const int _i) { return 2 * Pi * 5 * std::pow(4000.0, _i / 2048.0) / Rate; }
-		double eqFrequency(const int _i) { return 2 * Pi * 20 * std::pow(1000.0, _i / 2048.0) / Rate; }
+		double cutoff(const int _i, const double _rate) { return 2 * Pi * 5 * std::pow(4000.0, _i / 2048.0) / _rate; }
+		double eqFrequency(const int _i, const double _rate) { return 2 * Pi * 20 * std::pow(1000.0, _i / 2048.0) / _rate; }
 
 		// A damping as the two offsets on a scale of _k steps per e-fold of frequency
 		void offsets(const double _b, const double _k, int16_t& _cos, int16_t& _exp)
@@ -51,16 +52,16 @@ namespace md::fast::tables
 		constexpr double BoostZero[5] = {-1.3965915, 1.3015957, 0.0309666, 0.0967734, -0.0340695};
 	}
 
-	Tables::Tables()
+	Tables::Tables(const double _rate)
 	{
 		for(int i = 0; i < static_cast<int>(cutoffCos.size()); ++i)
-			cutoffCos[i] = cosine(cutoff(i - CutoffCosBase), 0.5);
+			cutoffCos[i] = cosine(cutoff(i - CutoffCosBase, _rate), 0.5);
 		for(int i = 0; i < static_cast<int>(cutoffExp.size()); ++i)
-			cutoffExp[i] = decay(cutoff(i - CutoffExpBase));
+			cutoffExp[i] = decay(cutoff(i - CutoffExpBase, _rate));
 		for(int i = 0; i < static_cast<int>(eqCos.size()); ++i)
-			eqCos[i] = cosine(eqFrequency(i - EqCosBase), 0.5002);
+			eqCos[i] = cosine(eqFrequency(i - EqCosBase, _rate), 0.5002);
 		for(int i = 0; i < static_cast<int>(eqExp.size()); ++i)
-			eqExp[i] = decay(eqFrequency(i - EqExpBase));
+			eqExp[i] = decay(eqFrequency(i - EqExpBase, _rate));
 
 		// FLTQ: a Q of 0.501 to 2 sqrt 2 in equal ratios, b = 1 / 2Q
 		const double cutoffSteps = 2048 / std::log(4000.0), eqSteps = 2048 / std::log(1000.0);
@@ -86,9 +87,11 @@ namespace md::fast::tables
 		}
 	}
 
-	const Tables& tables()
+	const Tables& tables(const double _rate)
 	{
-		static const Tables t;
-		return t;
+		if(_rate != 44100 && _rate != 48000)
+			std::abort();
+		static const Tables at44, at48(48000);
+		return _rate == 48000 ? at48 : at44;
 	}
 }

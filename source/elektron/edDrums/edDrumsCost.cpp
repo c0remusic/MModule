@@ -9,6 +9,9 @@
 //	- both families: one Track on each Syntakt machine, 7 on the dearest Machinedrum machine, every instance and every
 //	  resampler's lane at work
 //	- the same with no Hit: what the idle engine costs
+//	- the same kits with every slot off, in their families' chains, and in a chain of ticket 12 at its dearest: two drives
+//	  raised 2x (then 4x), three bands, the filter under its envelope, on the Syntakt the amp's: the chain's cost is the
+//	  difference from every slot off. Without a chain the numbers are the engine's alone, as ticket 11 gave them
 // and the load of the other processes (GetSystemTimes minus this process). SP TWINSHOT plays near full-scale noise
 // at its top rate. The flash image: GEARMULATOR_MD_FIRMWARE_BIN.
 
@@ -76,16 +79,59 @@ namespace
 		double pct, worstUs, others;
 	};
 
+	enum class Chains
+	{
+		Bare,		// every slot off
+		Family,		// as a machine brings them
+		Dearest,
+		OneInFour,	// the dearest on one Track of each vector, every slot off on the others: a stage computes for one
+		OneInSixteen,
+		Mixing		// the dearest, its drives' MIX at 64
+	};
+
+	ChainSettings dearest(const Family _family)
+	{
+		const bool syntakt = _family == Family::Syntakt;
+		ChainSettings s;
+		s.drive[0] = {syntakt ? DriveType::MdDist : DriveType::Syntakt, false, 80, 127};
+		s.drive[1] = {syntakt ? DriveType::Syntakt : DriveType::MdDist, syntakt, 80, 127};
+		s.band.type = BandType::ThreeBand;
+		s.band.values = {40, 80, 70, 50, 100, 70};
+		s.filter.type = syntakt ? FilterType::Syntakt : FilterType::Machinedrum;
+		s.filter.mode = 0;
+		s.filter.frequency = 90;
+		s.filter.resonance = 60;
+		s.filter.depth = 100;
+		s.filter.envelope.decay = 60;
+		s.amp.on = syntakt;
+		s.amp.hold = 40;
+		s.amp.decay = 80;
+		return s;
+	}
+
 	// One run: every Track on its sound, _hits or not
-	Result once(const Library& _library, const std::array<Sound, Tracks>& _kit, const bool _hits, const double _seconds)
+	Result once(const Library& _library, const std::array<Sound, Tracks>& _kit, const bool _hits, const double _seconds,
+		const Chains _chains = Chains::Bare, const int _factor = 2)
 	{
 		auto e = std::make_unique<Engine>(_library);
+		e->setOversampling(_factor);
 		for(int t = 0; t < Tracks; ++t)
 		{
 			const auto& s = _kit[static_cast<size_t>(t)];
 			e->setMachine(t, s.machine);
 			for(int i = 0; i < 8; ++i)
 				e->setParameter(t, i, s.values[static_cast<size_t>(i)]);
+			if(_chains == Chains::Bare || (_chains == Chains::OneInFour && t % 4) || (_chains == Chains::OneInSixteen && t))
+			{
+				e->setChain(t, ChainSettings{});
+			}
+			else if(_chains != Chains::Family)
+			{
+				auto chain = dearest(s.machine.family);
+				if(_chains == Chains::Mixing)
+					chain.drive[0].mix = chain.drive[1].mix = 64;
+				e->setChain(t, chain);
+			}
 		}
 		std::array<std::array<float, HostBlock>, 2 * Outputs> buffers;
 		std::array<float*, 2 * Outputs> p{};
@@ -133,13 +179,13 @@ namespace
 	}
 
 	void scenario(const char* _name, const Library& _library, const std::array<Sound, Tracks>& _kit, const bool _hits,
-		const int _runs, const double _seconds)
+		const int _runs, const double _seconds, const Chains _chains = Chains::Bare, const int _factor = 2)
 	{
 		std::vector<double> pct;
 		double worst = 0, others = 0;
 		for(int r = 0; r < _runs; ++r)
 		{
-			const auto result = once(_library, _kit, _hits, _seconds);
+			const auto result = once(_library, _kit, _hits, _seconds, _chains, _factor);
 			pct.push_back(result.pct);
 			worst = std::max(worst, result.worstUs);
 			others = std::max(others, result.others);
@@ -266,5 +312,31 @@ int main(const int _argc, char** _argv)
 			kit[t].values = twinshotWorst(static_cast<int>(t));
 	scenario("mixed: 9 Syntakt machines, 7 MD on the dearest", library, kit, true, runs, seconds);
 	scenario("mixed, no Hit", library, kit, false, runs, seconds);
+	scenario("mixed, family chains", library, kit, true, runs, seconds, Chains::Family);
+	scenario("mixed, dearest chains, drives 2x", library, kit, true, runs, seconds, Chains::Dearest, 2);
+	scenario("mixed, dearest chains, drives 4x", library, kit, true, runs, seconds, Chains::Dearest, 4);
+
+	kit.fill(md[0].sound);
+	scenario("16 MD, family chains", library, kit, true, runs, seconds, Chains::Family);
+	scenario("16 MD, dearest chains, drives 2x", library, kit, true, runs, seconds, Chains::Dearest, 2);
+	scenario("16 MD, the dearest on 1 Track of 4, drives 2x", library, kit, true, runs, seconds, Chains::OneInFour, 2);
+	scenario("16 MD, the dearest on 1 Track of 16, drives 2x", library, kit, true, runs, seconds, Chains::OneInSixteen, 2);
+	scenario("16 MD, dearest chains, MIX 64, drives 2x", library, kit, true, runs, seconds, Chains::Mixing, 2);
+
+	for(size_t t = 0; t < Tracks; ++t)
+		kit[t] = st[t < st.size() ? t : 0].sound;
+	for(size_t t = 0; t < Tracks; ++t)
+		if(kit[t].machine.id == 8)
+			kit[t].values = twinshotWorst(static_cast<int>(t));
+	scenario("Syntakt, family chains", library, kit, true, runs, seconds, Chains::Family);
+	scenario("Syntakt, dearest chains, drives 2x", library, kit, true, runs, seconds, Chains::Dearest, 2);
+
+	// The families on alternate lanes: every vector of both chains computes for half its Tracks
+	for(size_t t = 0; t < Tracks; ++t)
+		kit[t] = t % 2 ? md[0].sound : st[(t / 2) % st.size()].sound;
+	scenario("alternating families, every slot off", library, kit, true, runs, seconds);
+	scenario("alternating families, family chains", library, kit, true, runs, seconds, Chains::Family);
+	scenario("alternating families, dearest, drives 2x", library, kit, true, runs, seconds, Chains::Dearest, 2);
+	scenario("alternating families, dearest, drives 4x", library, kit, true, runs, seconds, Chains::Dearest, 4);
 	return 0;
 }

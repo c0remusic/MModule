@@ -29,3 +29,8 @@ Spécification §5. Ticket « Sources des effets d'envoi ».
   y compris celui du Syntakt. DVOL existe sur la machine (Echo vers Gate Box) : le garder ou le laisser à 0 pour « en parallèle »
   se décide ici. L'ordre, delay avant reverb dans un bloc, reste implicite : à dire.
 - FB au-delà de 64 auto-oscille, sur la machine et dans le port.
+
+## Noté par le ticket 12 (2026-11-06)
+
+`Engine::mix` tient déjà le signal de chaque piste après niveau, avant pan : les envois s'y branchent, `Chain` ne change pas. Reste à
+décider comment les effets du Syntakt, à 48 kHz, reçoivent cette entrée.

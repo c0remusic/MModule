@@ -19,3 +19,8 @@ au garde-fou.
 ## Références
 
 Spécification §11, §12.
+
+## Noté par le ticket 12 (2026-11-06)
+
+Refaire au calme le tableau de coût du ticket 12. Le pire cas est le kit alterné (+3,67 à 2x, +5,98 à 4x) : le guide de 2 % pour la chaîne
+est à revoir ou à tenir, avec la table d'emplacements écartée. Revérifier le décalage MD de -2 sur toutes les machines.
