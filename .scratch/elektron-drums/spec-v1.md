@@ -26,7 +26,7 @@ Point de départ dans le code : ST Drums (`source/elektron/syntakt/stDrums`, `st
 - Master : compresseur et overdrive du Digitakt II, portés en avance (section 6).
 - Séquenceur interne (section 7), kits, état, sons de piste, samples et explorateur (section 8).
 - Paramètres hôte, relais Push et 16 sorties (section 9).
-- Interface complète en JUCE, d'après le mockup v12 approuvé (section 10).
+- Interface complète en JUCE, d'après la maquette Lockstep approuvée (section 10).
 
 ### Après la v1 (ticket « Ordre des jalons après la v1 »)
 
@@ -83,10 +83,11 @@ Ticket « Chaîne de piste : emplacements, ordre, routage », amendé par « Eff
 
 Squelette fixe, mono jusqu'au pan :
 
-    machine → drives pré → BAND (avant) → FILTER → BAND (après) → drives post → AMP → envois
+    machine + couche sample → drives pré → BAND (avant) → FILTER → BAND (après) → drives post → AMP → envois
 
 BAND après le filtre se place juste après lui, avant les drives post (décidé le 2026-10-25, ticket « Chaîne de
-piste »).
+piste »). La couche sample (J2) entre après la machine et avant les drives pré : elle est mélangée à la voix et passe
+par toute la chaîne (amendé le 2026-11-07, la disposition de l'interface suit cet ordre).
 
 - **Drives** : deux emplacements, chacun pré ou post filtre. Types : Off, Syntakt drive, MD DIST, MD SRR, DT2
   Overdrive (en v1 avec le master), DT2 SRR (J2). Chaque type garde ses réglages d'origine, plus un MIX sec/traité
@@ -99,7 +100,8 @@ piste »).
   la bande, profondeur 0 par défaut, et le suivi de clavier est caché.
 - **AMP** : enveloppe AHD ou ADSR, niveau, pan, accent. Pour le MD l'enveloppe reste dans la voix ; l'étage garde
   niveau, pan, accent.
-- **Vélocité** : sur le niveau par défaut, plus une destination assignable par le menu d'un knob, avec profondeur.
+- **Vélocité** : sur le niveau par défaut, plus une destination assignable dans le bloc AMP (VEL DEST), avec
+  profondeur (VEL AMT).
 - **LFO** : deux par piste, SYNC (division musicale de 1/64 à 16 mesures, pointée, triolet ; phase sur la position
   du transport, sauf en mode de trig TRIG où elle redémarre au trig) ou HZ ; SYNC par défaut. La vitesse et le
   multiplicateur des LFO Elektron se traduisent en division musicale.
@@ -142,7 +144,8 @@ Ticket « Séquenceur interne », sur « Fonctions de MoDule Seq » et « Séque
   courbe de vélocité), accent, slide, locks sur n'importe quel paramètre de la piste, sans plafond. Un pas peut
   aussi porter des locks sans trig (lock sans note). Retirer un trig retire ses locks ; un lock sans note qui n'a
   plus de lock disparaît.
-- Par pattern : swing 50-80 %, accent, slide ; mutes, fill tenu, chaînes de patterns. Le slide fait glisser les
+- Par pattern : swing 50-80 %, accent, slide ; mutes, fill tenu, chaînes de patterns dont chaque entrée peut jouer en
+  fill. Le slide fait glisser les
   paramètres verrouillés vers les valeurs du pas suivant.
 - Conditions aléatoires tirées d'une graine par passage : un rendu rejoue ce qu'on a entendu.
 - Transport de l'hôte seulement. Pattern choisi par le paramètre hôte « Pattern » ou par program change ; un pattern
@@ -196,24 +199,33 @@ Ticket « Paramètres hôte et sorties ».
 
 ## 10. Interface
 
-Ticket « Interface façon Overbridge ». Référence : mockup v12 (`mockup/v12.html`, `.css`, `.js`,
-`mockup/v12-notes.md`) et les exigences du ticket.
+Ticket « Interface façon Overbridge », amendé le 2026-11-07. Référence : la maquette Lockstep approuvée par l'utilisateur
+ce jour-là, `concepts/t.html`, avec `concepts/t-ui-spec.md`, `concepts/t-style-guide.md` et `concepts/HANDOFF.md`, qui
+font foi pour les positions, les couleurs et les gestes. Le mockup v12 ne reste la référence que des teintes par section.
 
 - JUCE seul, en C++ : composants dessinés dans `paint`, grille fixe mise à l'échelle, repeinte limitée aux zones qui
-  changent. Pas de RmlUi, de WebView ni de JavaScript.
-- Une page par piste sans sous-pages, une box par section, disposition fixe ; l'ordre des boxes dit l'ordre du
-  signal. Couleur saturée par section (table des teintes de `v12-notes.md`) ; menthe réservée à l'état global.
-- Box de pas en bas de chaque page de piste, modes Trig, Vel, Accent, Slide, liste des locks de la sélection ; gestes
-  de souris du ticket (clic pose ou retire un trig, Ctrl et Maj sélectionnent, glisser peint ; knob tourné sur un pas
-  vide sélectionné : trig portant ce lock, avec Alt : lock sans note).
-- Pages du mockup : piste (toutes les boxes à la fois), FX, Master, SEQ (lignes de locks choisies dans la liste des
-  paramètres verrouillables), Kit ; onglets Kit editor et Sound browser en tête.
-- Menu d'un knob (Vélocité, Lock) ouvert par un clic sur son nom ou un clic droit ; LFO assignés par le bouton
-  ASSIGN de leur box seulement.
-- Knobs à proportions fixes (texte de valeur, anneau, étiquette en rapport au diamètre), deux tailles (52 et 64 px),
-  valeur toujours dans l'anneau ; modulation en arc fin, lock en couleur d'accent, valeur jouée en repère.
-- Pas de rangée de pads : bouton play et LED par onglet de piste. CPU en haut à gauche, 0-100 % d'un cœur, repère à
-  15 %, ambre au-dessus, rouge au-dessus de 25 %.
+  changent. Pas de RmlUi, de WebView ni de JavaScript. Le matériel vient de plaques rendues, découpées avec `drawImage`.
+- Une unité matérielle : écran, sept touches à droite (Sound, Seq, Master, FX, Kits, Browse, Menu), Page et Follow, puis
+  16 pistes sous l'écran, chacune avec LCD, pad, pas et bande de lock. Aucun knob, tout se règle à l'écran à la souris.
+- Souris seule : ni clic droit, ni modificateur. Un clic sélectionne, pose ou ouvre ; un glissé règle.
+- Pages : Sound (une page par piste sans sous-pages, un bloc par section, l'ordre des blocs dit l'ordre du signal), Seq
+  (Detail, Overview, Patterns), Master (pistes, retours, Main et master), FX, Kits, Browse. Menu n'est pas une page :
+  un panneau sur la page en cours, taille de fenêtre, suréchantillonnage, 96 kHz natif, import du contenu Elektron.
+- Couleur saturée par section (table des teintes de `v12-notes.md`) ; ivoire réservé à l'état global, rouge au lock.
+- Cellule de valeur : nom, valeur, curseur fin. Une valeur se règle en glissant de gauche à droite ; les formes, faders
+  et barres gardent leur axe. Une liste de trois choix et plus ouvre un sélecteur, une liste de deux bascule.
+- Chaque forme se règle par ses poignées : enveloppes, courbe du filtre, Band, Drive, LFO. Une forme tenue suit la souris
+  sans lissage.
+- Pas : en Seq Detail, modes VEL, ACCENT, SLIDE. Clic pose ou retire un trig, à la vélocité maximale ; glisser
+  horizontal peint, vertical règle la vélocité. Lignes de locks choisies avec +TRIG dans les paramètres verrouillables,
+  champs du pas (note, durée, condition, micro, ratchet, vitesse, courbe) en bas de page.
+- Lock : un clic sur la bande sous un pas le met en édition, tout contrôle bougé écrit alors un lock sur les pas choisis.
+  Les noms verrouillables passent en rouge clair, un lock posé en rouge. Un lock sur un pas sans trig est le lock sans note
+  de la section 7.
+- LFO assignés par le bouton ASSIGN de leur bloc seulement, les cibles teintées à sa couleur. Sur un curseur, un point
+  suit la valeur jouée pendant la lecture.
+- Longueur commune réglable en mesures (BARS, 1 à 32) : chaque piste boucle sur sa longueur, tout repart à la fin.
+- CPU en haut à droite, après le BPM, 0-100 % d'un cœur, repère à 15 %, ambre au-dessus, rouge au-dessus de 25 %.
 - Toute machine qu'on accorde affiche la note de sa fondamentale en plus de sa fréquence, avec l'écart en cents.
 - Aucun texte redondant : l'état se lit sur le contrôle, un badge ou une infobulle.
 
@@ -303,8 +315,8 @@ Fonctions :
    avec son défaut ; l'import Elektron rapporte ce qu'il a trouvé et ce qui manque.
 8. Paramètres et sorties : chaque paramètre hôte se règle et se relit ; identifiants inchangés d'une version à
    l'autre ; les relais suivent la piste affichée ; chaque piste et chaque retour sort sur la sortie choisie.
-9. Interface : chaque box du mockup v12 a son composant, chaque paramètre son contrôle ; les gestes de la box de
-   pas du ticket « Interface façon Overbridge » marchent comme décrit.
+9. Interface : chaque bloc de la maquette Lockstep a son composant, chaque paramètre son contrôle ; les gestes de
+   `concepts/t-ui-spec.md` marchent comme décrit.
 10. Hébergement (ajout repris de MoDule, `mdDrumsVst3HostTest`, pas d'un ticket) : le VST3 se charge par
     l'hébergement VST3 de JUCE, comme Live ; mêmes échantillons quelle que soit la taille de bloc et hors ligne.
 
@@ -324,7 +336,7 @@ Moteurs d'abord : ils décident si le budget tient. L'interface avance en parall
 5. Séquenceur interne.
 6. Paramètres hôte, relais, sorties, état.
 7. Kits, sons de piste, samples, import Elektron, explorateur.
-8. Interface JUCE d'après v12.
+8. Interface JUCE d'après la maquette Lockstep.
 9. Mesures de fin : CPU, latence, « sonne pareil », Q1-Q16.
 
 Le découpage en tickets d'implémentation : [elektron-drums-v1/map.md](../elektron-drums-v1/map.md), 25 tickets.

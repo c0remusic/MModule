@@ -15,6 +15,12 @@ namespace elektron::drums
 
 		uint32_t toWord(const double _x) { return static_cast<uint32_t>(std::llround(_x * 8388608.0)) & 0xffffff; }
 
+		// _x from -1 to 1 with its peaks rounded, as it is at a _drive of 0
+		double driven(const double _x, const double _drive)
+		{
+			return _drive > 0 ? std::tanh(_drive * _x) / std::tanh(_drive) : _x;
+		}
+
 		// A raised cosine from 1 to 0 over the last _fade of _count samples, 1 before them
 		double fadeOut(const size_t _k, const size_t _count, const size_t _fade)
 		{
@@ -32,7 +38,7 @@ namespace elektron::drums
 			double phase = 0;
 			for(size_t k = 0; k < N; ++k)
 			{
-				const double wave = _drive > 0 ? std::tanh(_drive * std::sin(phase)) / std::tanh(_drive) : std::sin(phase);
+				const double wave = driven(std::sin(phase), _drive);
 				const double t = static_cast<double>(k);
 				const double rise = std::min(t / static_cast<double>(_rise), 1.0);
 				const double ring = _ringLevel * std::sin(Tau * _ringHz * t / Rate);
@@ -48,48 +54,50 @@ namespace elektron::drums
 
 		struct Band
 		{
-			double hz, level;
-			double y1 = 0, y2 = 0;
+			double hz, level, tau;
+			double y1 = 0, y2 = 0, last = 0;
 
-			// A two-pole around hz; what drives it has zeros at DC and at half the rate
-			double ring(const double _change)
+			// A two-pole around hz, driven by _white with a zero at DC; its output decays with tau samples, _t being
+			// the wave's sample. Each band takes a white of its own: bands sharing one cancel between them, and as
+			// their decays differ that notch moves and sounds like a phaser
+			double ring(const double _white, const double _t)
 			{
-				const double y = _change + 2 * 0.9 * std::cos(Tau * hz / Rate) * y1 - 0.9 * 0.9 * y2;
+				const double y = _white - last + 2 * 0.9 * std::cos(Tau * hz / Rate) * y1 - 0.9 * 0.9 * y2;
 				y2 = y1;
 				y1 = y;
-				return level * y;
+				last = _white;
+				return level * std::exp(-_t / tau) * y;
 			}
 		};
 
-		// What a struck body gives: decaying sines plus a noise through _bands that decays with _noiseTau, _peak at its
-		// highest
+		// What a struck body gives: decaying sines plus a noise through _bands, opening over _rise samples, _peak at its
+		// highest. _drive above 0 rounds its peaks, for a louder wave within the words' range
 		template<size_t N> void strike(std::array<uint32_t, N>& _words, const std::initializer_list<Mode> _modes,
-			std::vector<Band> _bands, const double _noiseTau, const size_t _fade, const double _peak)
+			std::vector<Band> _bands, const double _rise, const size_t _fade, const double _peak,
+			const double _drive = 0)
 		{
 			uint32_t state = 0x2545f491;
-			double last = 0, older = 0, highest = 0;
+			double highest = 0;
 			std::vector<double> wave(N);
 			for(size_t k = 0; k < N; ++k)
 			{
 				const double t = static_cast<double>(k);
 				double x = 0;
 				for(const Mode& m : _modes)
-					x += std::min(t / 12, 1.0) * m.level * std::exp(-t / m.tau) * std::sin(Tau * m.hz * t / Rate);
-				state ^= state << 13;
-				state ^= state >> 17;
-				state ^= state << 5;
-				const double white = static_cast<double>(state) / 2147483648.0 - 1;
+					x += m.level * std::exp(-t / m.tau) * std::sin(Tau * m.hz * t / Rate);
 				double noise = 0;
 				for(Band& band : _bands)
-					noise += band.ring(white - older);
-				older = last;
-				last = white;
-				x += std::min(t / 64, 1.0) * std::exp(-t / _noiseTau) * noise;
-				wave[k] = fadeOut(k, N, _fade) * x;
+				{
+					state ^= state << 13;
+					state ^= state >> 17;
+					state ^= state << 5;
+					noise += band.ring(static_cast<double>(state) / 2147483648.0 - 1, t);
+				}
+				wave[k] = fadeOut(k, N, _fade) * std::min(t / _rise, 1.0) * (x + noise);
 				highest = std::max(highest, std::abs(wave[k]));
 			}
 			for(size_t k = 0; k < N; ++k)
-				_words[k] = toWord(_peak * wave[k] / highest);
+				_words[k] = toWord(_peak * driven(wave[k] / highest, _drive));
 		}
 	}
 
@@ -103,8 +111,9 @@ namespace elektron::drums
 		burst(_t.xtWave, 345, 345, 1e9, 4, 0.85);
 		burst(_t.xcWave, 690, 690, 1e9, 6, 0.85, 2);
 		// TRX-SD's rattle, 128 blocks, added to its tone and noise; TRX-RS's rim, 24 blocks, before its high-passes
-		strike(_t.sdWave, {}, {{1700, 0.6}, {2800, 1.3}, {4800, 1.0}, {8500, 0.3}}, 900, 256, 0.9);
-		strike(_t.rsWave, {{490, 0.6, 900}, {905, 0.5, 600}, {1430, 0.8, 200}, {1940, 0.8, 160}, {2480, 0.6, 120}},
-			{{1100, 0.75}, {3200, 0.7}}, 150, 64, 0.98);
+		strike(_t.sdWave, {}, {{1450, 0.5, 450}, {2050, 0.8, 700}, {3200, 0.9, 950}, {4700, 1.2, 650},
+			{9000, 0.45, 950}, {14000, 0.22, 450}}, 40, 256, 0.98, 1);
+		strike(_t.rsWave, {{250, -0.7, 500}, {490, 0.5, 800}, {945, 1.1, 260}, {1063, 0.3, 110}, {1450, 1.3, 170},
+			{1825, 0.6, 200}, {2362, 0.85, 140}, {2989, 0.6, 140}, {3985, 0.5, 110}}, {{2600, 0.3, 170}}, 20, 64, 0.98);
 	}
 }
