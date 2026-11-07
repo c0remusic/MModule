@@ -293,7 +293,7 @@ namespace elektron::drums
 		m_shared->bank = m_library.bank.directory ? &m_library.bank : nullptr;
 		m_shared->trx = &m_library.trx;
 		m_shared->e12 = m_library.e12.empty() ? nullptr : m_library.e12.data();
-		m_shared->pi = m_library.pi.empty() ? nullptr : m_library.pi.data();
+		m_shared->pi = m_library.pi.data();
 		m_voices.reserve(Tracks);
 		for(uint32_t t = 0; t < Tracks; ++t)
 			m_voices.emplace_back(*m_shared, t);

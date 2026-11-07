@@ -181,7 +181,7 @@ Ticket « Format des kits et de l'état ».
   ses samples par empreinte et nom.
 - Explorateur (Sound Browser) en trois colonnes : arbre (Kits, Sons de piste, Samples par source ou par type), liste
   avec recherche et filtres, aperçu. Clic écoute, double-clic charge, glisser sur un onglet de piste ou un
-  emplacement de kit. En v1, un sample se joue sur une machine ROM du MD ; la box SAMPLE (layering) reste grisée
+  emplacement de kit. En v1, un sample se joue sur l'entrée Sampler (section 10) ; la box SAMPLE (layering) reste grisée
   jusqu'à J2. Types de samples devinés par le nom puis par une analyse simple, corrigeables.
 
 ## 9. Paramètres hôte et sorties
@@ -224,7 +224,12 @@ font foi pour les positions, les couleurs et les gestes. Le mockup v12 ne reste 
   de la section 7.
 - LFO assignés par le bouton ASSIGN de leur bloc seulement, les cibles teintées à sa couleur. Sur un curseur, un point
   suit la valeur jouée pendant la lecture.
-- Longueur commune réglable en mesures (BARS, 1 à 32) : chaque piste boucle sur sa longueur, tout repart à la fin.
+- Choix de machine : une seule entrée Sampler, avec un réglage de grain, au lieu de 48 ROM. Grains : MD (12 bits, le lecteur
+  ROM) et Digitakt II ; E12 à l'essai. ROM-01 à 48 ne paraissent plus dans l'explorateur, ils restent seulement pour relire un
+  kit Machinedrum et pour la banque d'une image. Ce que le kit garde par piste et combien de samples une piste lit :
+  ouverts, ticket 20.
+- Une couleur par piste au choix, pour s'y retrouver : la lumière de sa touche, barre LED et halo.
+- Longueur commune réglable en pas (1 à 512), sur Overview et Detail : chaque piste boucle sur sa longueur, tout repart à la fin.
 - CPU en haut à droite, après le BPM, 0-100 % d'un cœur, repère à 15 %, ambre au-dessus, rouge au-dessus de 25 %.
 - Toute machine qu'on accorde affiche la note de sa fondamentale en plus de sa fréquence, avec l'écart en cents.
 - Aucun texte redondant : l'état se lit sur le contrôle, un badge ou une infobulle.
@@ -286,9 +291,9 @@ code ni ses tables, à une exception près : la table de l'OS à $24DA14, sans f
 la Gate Box et Dynamix lisent aussi, importée tant qu'une formule manque (amendé le 2026-11-05). L'import ne lit la
 flash image qu'une fois et écrit ces données dans le dossier de données : le rendu ne la lit jamais. Écart du 2026-11-07 :
 les défauts de machine sont maison, avec ou sans image, tous les SYN à 64 pour le MD ; le plug-in lit encore l'image au
-démarrage, l'écriture dans le dossier de données attend le ticket 20. Sans image, 29 machines portées du MD et du Syntakt
-sonnent entières, TRX-BD, SD, XT, RS et XC sur des ondes faites maison, TRX-CH et OH sans leur métal,
-les autres se taisent et le
+démarrage, l'écriture dans le dossier de données attend le ticket 20. Sans image, 32 machines portées du MD et du Syntakt
+sonnent entières, dont TRX-CH, OH et CY sur leurs carrés, 10 jouent sur des données faites maison, TRX-BD, SD, XT, RS
+et XC et les P-I BD, SD, MT, ML et RS, les autres se taisent et le
 disent (`MachineData`). Le silence est provisoire : les machines à données se refont en maison, une famille à la fois.
 
 ## 12. Critères d'acceptation

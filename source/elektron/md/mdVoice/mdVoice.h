@@ -49,7 +49,7 @@ namespace md::voice
 	};
 
 	// The P-I machines' words that no formula gives (spec 11.4: their owner imports them, none is in this code), which
-	// mdVoicePiImport.h reads from the flash image and Shared::pi points at, Words of them: the ranges below of 24-bit words
+	// mdVoicePiImport.h reads from the flash image, or a caller makes in their place, and Shared::pi points at, Words of them: the ranges below of 24-bit words
 	// of the voice program, one after the other, then the OS's table OnePoleAddr, which OsTables takes. Each range holds
 	// the machine's 24 or 48 words of pitches, gains and factors, then its excitation; zeros follow on the DSP. BD, SD, MT,
 	// ML, RS in that order. The caller owns them and changes them between blocks only.

@@ -8,18 +8,19 @@
 
 namespace elektron::drums
 {
-	Library::Library() : os(std::make_unique<md::voice::OsTables>(nullptr))
+	Library::Library()
 	{
 		const auto mark = [&](const int _from, const int _to, const MachineData _data)
 		{
 			std::fill(mdData.begin() + _from, mdData.begin() + _to + 1, _data);
 		};
 		mark(48, 63, MachineData::None);		// E12
-		mark(64, 67, MachineData::None);		// P-I-BD, SD, MT, ML
-		mark(69, 69, MachineData::None);		// P-I-RS
 		markRoms();
 		makeHouseWaves(trx);
-		for(const int id : {16, 17, 18, 20, 27})		// TRX-BD, SD, XT, RS, XC
+		pi = makeHousePi();
+		os = std::make_unique<md::voice::OsTables>(pi.data());
+		// TRX-BD, SD, XT, RS, XC, P-I-BD, SD, MT, ML, RS
+		for(const int id : {16, 17, 18, 20, 27, 64, 65, 66, 67, 69})
 			mark(id, id, MachineData::House);
 	}
 

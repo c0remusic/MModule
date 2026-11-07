@@ -68,7 +68,8 @@ int main(const int _argc, char** _argv)
 	const Library house;
 	const Library real(image);
 	const std::array<uint8_t, 8> neutral{64, 64, 64, 64, 64, 64, 64, 64};
-	const std::pair<uint8_t, const char*> list[] = {{16, "BD"}, {17, "SD"}, {18, "XT"}, {20, "RS"}, {27, "XC"}};
+	const std::pair<uint8_t, const char*> list[] = {{16, "BD"}, {17, "SD"}, {18, "XT"}, {20, "RS"}, {27, "XC"},
+		{64, "PB"}, {65, "PS"}, {66, "PT"}, {67, "PL"}, {69, "PR"}};
 	for(const auto& [machine, name] : list)
 		for(int set = 0; set < 7; ++set)
 		{
