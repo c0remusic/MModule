@@ -14,14 +14,10 @@ namespace elektron::drums
 		{
 			std::fill(mdData.begin() + _from, mdData.begin() + _to + 1, _data);
 		};
-		mark(24, 24, MachineData::None);		// TRX-CY: its six waves are all it has
 		mark(48, 63, MachineData::None);		// E12
 		mark(64, 67, MachineData::None);		// P-I-BD, SD, MT, ML
 		mark(69, 69, MachineData::None);		// P-I-RS
 		markRoms();
-		// TRX-CH, OH: their metal gone
-		for(const int id : {22, 23})
-			mark(id, id, MachineData::Partial);
 		makeHouseWaves(trx);
 		for(const int id : {16, 17, 18, 20, 27})		// TRX-BD, SD, XT, RS, XC
 			mark(id, id, MachineData::House);

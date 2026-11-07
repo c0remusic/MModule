@@ -15,7 +15,7 @@ namespace elektron::drums
 {
 	// What a machine has of the data it reads: all of it, none so that it plays silence, however it is played, or part
 	// so that it plays without its sampled words. House: all of it, part of it made here, so that it sounds its own way
-	enum class MachineData : uint8_t { Whole, House, Partial, None };
+	enum class MachineData : uint8_t { Whole, House, None };
 
 	// What the machines read, built before the audio thread sees it and read-only there. Without a flash image the
 	// Machinedrum's sampled words are those made here (edDrumsHouseWaves) or zeros (spec 11.4): mdData says what that

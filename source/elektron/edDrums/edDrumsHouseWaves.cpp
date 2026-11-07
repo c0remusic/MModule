@@ -58,11 +58,12 @@ namespace elektron::drums
 			double y1 = 0, y2 = 0, last = 0, older = 0;
 
 			// A two-pole around hz, driven by _white with a zero at DC and the top octave eased; its output decays with
-			// tau samples, _t being the wave's sample. Each band takes a white of its own: bands sharing one cancel between them, and as
-			// their decays differ that notch moves and sounds like a phaser
+			// tau samples, _t being the wave's sample. Each band takes a white of its own: bands sharing one cancel
+			// between them, and as their decays differ that notch moves and sounds like a phaser
 			double ring(const double _white, const double _t)
 			{
-				const double y = _white - last + 0.17 * (last - older) + 2 * 0.9 * std::cos(Tau * hz / Rate) * y1 - 0.9 * 0.9 * y2;
+				const double change = _white - last + 0.17 * (last - older);
+				const double y = change + 2 * 0.9 * std::cos(Tau * hz / Rate) * y1 - 0.9 * 0.9 * y2;
 				y2 = y1;
 				y1 = y;
 				older = last;
@@ -104,6 +105,13 @@ namespace elektron::drums
 
 	void makeHouseWaves(md::voice::TrxTables& _t)
 	{
+		// TRX-CH's and CY's metal: six squares, each a cycle of its loop, even but for the lowest
+		for(const auto& wave : md::voice::TrxTables::ChWaves)
+		{
+			const uint32_t high = wave.offset ? wave.size / 2 : 72;
+			for(uint32_t k = 0; k < wave.size; ++k)
+				_t.chWaves[wave.offset + k] = toWord(k < high ? 0.9999 : -0.9999);
+		}
 		// TRX-BD's nine blocks, a squared cycle low enough to lead into its sines. The second wave weighs in with a packet
 		// word: a plain sine a little higher, decaying
 		burst(_t.bdWaveA, 168, 140, 1e9, 20, 0.95, 4, 12, 1550, 0.045);
