@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.15)
 
 # The instrument's engine, without JUCE: 16 Tracks of either family, syntakt::fast or md::voice (ticket 11 of
 # .scratch/elektron-drums-v1). mdEngine serves its flash image reader alone.
-add_library(edDrums STATIC edDrumsChain.h edDrumsChain.cpp edDrumsEngine.h edDrumsEngine.cpp edDrumsLfo.h edDrumsLfo.cpp
-	edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp)
+add_library(edDrums STATIC edDrumsChain.h edDrumsChain.cpp edDrumsEngine.h edDrumsEngine.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
+	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp)
 target_include_directories(edDrums PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast PRIVATE mdEngine)
 set_property(TARGET edDrums PROPERTY FOLDER "Elektron")
@@ -39,4 +39,9 @@ if(BUILD_TESTING)
 	add_executable(edDrumsCost edDrumsCost.cpp)
 	target_link_libraries(edDrumsCost PRIVATE edDrums)
 	set_property(TARGET edDrumsCost PROPERTY FOLDER "Elektron/test")
+
+	# The machines made here against the flash image's, for listening, by hand, not a test
+	add_executable(edDrumsHouseListen edDrumsHouseListen.cpp)
+	target_link_libraries(edDrumsHouseListen PRIVATE edDrums)
+	set_property(TARGET edDrumsHouseListen PROPERTY FOLDER "Elektron/test")
 endif()

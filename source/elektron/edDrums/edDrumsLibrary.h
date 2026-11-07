@@ -14,14 +14,14 @@
 namespace elektron::drums
 {
 	// What a machine has of the data it reads: all of it, none so that it plays silence, however it is played, or part
-	// so that it plays without its sampled words
-	enum class MachineData : uint8_t { Whole, Partial, None };
+	// so that it plays without its sampled words. House: all of it, part of it made here, so that it sounds its own way
+	enum class MachineData : uint8_t { Whole, House, Partial, None };
 
-	// What the machines read and the instrument does not make, built before the audio thread sees it and read-only
-	// there. Without a flash image the Machinedrum's sampled words are zeros (spec 11.4): mdData says what that leaves
-	// of each machine. Nothing of it is in the repository. P-I-RC reads the UW bank from PTCH 95 up, but what it reads
-	// there reaches no output: it stays Whole. Data made here later goes in the same fields, which the voices read
-	// whoever filled them, and marks mdData, machine by machine for trx's waves, E12 and the ROM bank. Not for pi:
+	// What the machines read, built before the audio thread sees it and read-only there. Without a flash image the
+	// Machinedrum's sampled words are those made here (edDrumsHouseWaves) or zeros (spec 11.4): mdData says what that
+	// leaves of each machine. Nothing of the image is in the repository. P-I-RC reads the UW bank from PTCH 95 up, but
+	// what it reads there reaches no output: it stays Whole. Data made here goes in the same fields, which the voices
+	// read whoever filled them, and marks mdData, machine by machine for trx's waves, E12 and the ROM bank. Not for pi:
 	// Voice::render silences all five P-I drums on one pointer, and OsTables takes its one-pole table from the same
 	// words, so that they come as one.
 	struct Library

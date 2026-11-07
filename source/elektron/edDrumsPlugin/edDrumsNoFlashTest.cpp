@@ -19,6 +19,7 @@
 
 #include "edDrumsProcessor.h"
 #include "edDrumsTestSupport.h"
+#include "mdVoiceDsp.h"
 #include "mdVoiceInternal.h"
 
 namespace
@@ -56,6 +57,31 @@ namespace
 		for(const float x : _x)
 			peak = std::max(peak, std::abs(x));
 		return peak;
+	}
+
+	// The waves made here sound, in the range a word holds, and start and end at zero: no step into a sine or out of a fade
+	void houseWavesJoin()
+	{
+		const Library library;
+		const auto& t = library.trx;
+		const auto check = [](const char* const _name, const auto& _words, const double _least)
+		{
+			const auto value = [](const uint32_t _word)
+			{
+				require(_word < 1u << 24, "a word past 24 bits");
+				return md::voice::dsp::sx(_word) / 8388608.0;
+			};
+			double peak = 0;
+			for(const uint32_t word : _words)
+				peak = std::max(peak, std::abs(value(word)));
+			require(peak >= _least, std::string(_name) + ": a wave too quiet");
+			require(value(_words.front()) == 0, std::string(_name) + ": a step in");
+			require(std::abs(value(_words.back())) < 0.001, std::string(_name) + ": a step out");
+		};
+		check("TRX-BD A", t.bdWaveA, 0.9);
+		check("TRX-BD B", t.bdWaveB, 0.05);
+		check("TRX-XT", t.xtWave, 0.5);
+		check("TRX-XC", t.xcWave, 0.5);
 	}
 
 	// What reports None plays silence however it is played: Hits and each machine's own retriggers, knobs at the ends
@@ -154,6 +180,7 @@ int main()
 	{
 		const auto roms = Processor::dataFolder().getChildFile("roms").getFullPathName().toStdString();
 		require(Library::findFlashImage(roms).empty(), "an image found");
+		houseWavesJoin();
 		noneIsSilent();
 		Processor first;
 		const auto list = first.machines();
@@ -164,7 +191,7 @@ int main()
 			require(first.machineData(static_cast<size_t>(machine.getIndex())) != MachineData::None,
 				"Track " + std::to_string(t + 1) + " starts silent");
 		}
-		int whole = 0, partial = 0, silent = 0;
+		int whole = 0, house = 0, partial = 0, silent = 0;
 		double quietest = 1;
 		int earliest = Samples;
 		std::string quietestName, silentNames;
@@ -191,7 +218,7 @@ int main()
 				quietest = peak;
 				quietestName = name;
 			}
-			(data == MachineData::Whole ? whole : partial)++;
+			(data == MachineData::Whole ? whole : data == MachineData::House ? house : partial)++;
 
 			// 1 % of its peak, as edDrumsEngineTest reads a Hit
 			const auto reached = [&](const float _x) { return std::abs(_x) >= 0.01f * peak; };
@@ -208,10 +235,10 @@ int main()
 					throw std::runtime_error(name + ": a Hit moved with its note, at " + std::to_string(at));
 			}
 		}
-		std::printf("  no image: %d machines whole, %d without their sampled words, quietest %s at %.1f dB, HitDelay %d "
-			"reported, the earliest 1 %% of a peak %d, jitter 0 at 4 positions; %d silent:%s\n", whole, partial, quietestName.c_str(),
+		std::printf("  no image: %d machines whole, %d on words made here, %d without their sampled words, quietest %s at %.1f dB, HitDelay %d "
+			"reported, the earliest 1 %% of a peak %d, jitter 0 at 4 positions; %d silent:%s\n", whole, house, partial, quietestName.c_str(),
 			20 * std::log10(quietest), HitDelay, earliest, silent, silentNames.c_str());
-		require(whole == 29 && partial == 7 && silent == 71, "another count of machines");
+		require(whole == 29 && house == 3 && partial == 4 && silent == 71, "another count of machines");
 		std::printf("PASS: the instrument plays with no image\n");
 	}
 	catch(const std::exception& _e)

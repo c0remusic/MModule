@@ -69,7 +69,7 @@ namespace elektron::drums
 
 	Processor::Processor() : AudioProcessor(buses()), m_machines(machineList())
 	{
-		// Nothing leaves the constructor: without a readable image the Machinedrum's sampled words are silence
+		// Nothing leaves the constructor: without a readable image the Machinedrum's sampled words are the house's, or silence
 		try
 		{
 			const auto image = Library::findFlashImage(dataFolder().getChildFile("roms").getFullPathName().toStdString());

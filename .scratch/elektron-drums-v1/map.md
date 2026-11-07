@@ -49,4 +49,5 @@ Ordre de la spécification (§13). `Blocked by:` en tête de chaque ticket.
 
 - Réécritures maison ciblées, avant le ticket 14 (décidé le 2026-11-07 : TRX, puis P-I, puis E12), une famille à la fois, en paires à l'aveugle contre la voix actuelle : machines qui lisent la flash (TRX à formes
   d'onde, E12, P-I, banque ROM), table `$24DA14`, machines à démarrage tardif (TRX-XT, TRX-BD, TRX-S2).
+- Idée à tester, le CPU prime : faire sortir un son traité dans sa propre piste. Un retour sur l'Out d'une piste suffit déjà pour un effet réservé à cette piste, sans coût. Un compresseur par piste, emplacement de chaîne limité à 2 ou 3, se juge après le port du compresseur DT2, sur son coût mesuré ; au-delà du budget, il n'entre pas. Un envoi pré-fader par piste reste à trancher.
 - Nom du produit.

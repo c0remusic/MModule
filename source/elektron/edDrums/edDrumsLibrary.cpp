@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "Firmware.h"
+#include "edDrumsHouseWaves.h"
 #include "mdVoicePiImport.h"
 
 namespace elektron::drums
@@ -18,9 +19,12 @@ namespace elektron::drums
 		mark(64, 67, MachineData::None);		// P-I-BD, SD, MT, ML
 		mark(69, 69, MachineData::None);		// P-I-RS
 		markRoms();
-		// TRX-BD, SD, XT, RS, CH, OH, XC: their attack or their metal gone
-		for(const int id : {16, 17, 18, 20, 22, 23, 27})
+		// TRX-SD, RS, CH, OH: their attack or their metal gone
+		for(const int id : {17, 20, 22, 23})
 			mark(id, id, MachineData::Partial);
+		makeHouseWaves(trx);
+		for(const int id : {16, 18, 27})		// TRX-BD, XT, XC
+			mark(id, id, MachineData::House);
 	}
 
 	Library::Library(const std::vector<uint8_t>& _flashImage) : Library()

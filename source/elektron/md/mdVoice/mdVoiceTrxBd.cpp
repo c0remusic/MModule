@@ -1,7 +1,7 @@
 // TRX-BD's voice code, ported as mdVoiceTrx.h says.
 //
 // TRX-BD ($1003DA, $1003E1, $100408), each block: a noise of two words that add as a Fibonacci sequence (Y:$00-$1F),
-// scaled by a decaying level; for the eight blocks after the one that follows a Hit, the attack, two sampled
+// scaled by a decaying level; for the nine blocks after the one that follows a Hit, the attack, two sampled
 // waveforms weighted by two packet words plus the noise; otherwise two sines from the sine table, the second an
 // octave below, both swept down by a decaying pitch envelope and the second scaled by its own decay, then a clipper
 // whose two thresholds move by a step each block, the amp envelope (with the noise mixed in), a shaper that bends the
@@ -78,7 +78,7 @@ namespace md::voice::trx::bd
 			y[0x1e] = lim(mul(y[0xc], x0));
 		}
 
-		// The block after a Hit, and the eight of the attack
+		// The block after a Hit, and the nine of the attack
 		if(y[0x12] != 0)
 		{
 			const int64_t a = acc(y[0x12]) - acc(1);
@@ -95,7 +95,6 @@ namespace md::voice::trx::bd
 			const uint32_t x0 = y[0xf], x1 = y[2];
 			for(uint32_t k = 0; k < 32; ++k)
 			{
-				// The attack reads 256 of the 288 words (update restarts the index with the count)
 				int64_t acc1 = shl(mul(word(t.bdWaveB, index + k), x1), 2);
 				acc1 += mul(word(t.bdWaveA, index + k), x0) + acc(noise[k]);
 				_out[k] = sx(lim(wrap56(acc1)));

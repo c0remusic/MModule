@@ -177,3 +177,13 @@ P-I-RC lit bien la banque UW à partir de PTCH 95, mais rien n'en sort : 1 500 r
 Le rendu ne lit pas l'image. Le plug-in la lit à chaque instance et cherche encore hors du dossier de données : le ticket 20 tranche. Les cinq P-I partagent un seul pointeur `pi`, avec la table `$24DA14` : une maison pour une seule P-I n'en débloque pas les quatre autres.
 
 Portage en maison estimé, rien d'essayé : TRX-BD, XT et XC, un clic de synthèse, 32 à 576 mots ; RS et SD, un travail moyen ; CH, OH et CY partagent 492 mots, six ondes, et CY redevient entière avec eux ; P-I par rapports physiques plus une courbe à nous pour `$24DA14` ; E12 et ROM demandent de nouveaux échantillons.
+
+## 2026-11-07 : attaques maison de TRX-BD, XT et XC
+
+Sans image, TRX-BD, XT et XC jouent des attaques calculées (`edDrumsHouseWaves`) : un sinus dont la hauteur descend, qui décroît et finit à zéro, saturé pour BD. Aucun mot du firmware n'y entre. Avec une image, les mots importés restent. `MachineData::House` les distingue : machine complète, son différent du firmware, donc exclue de la comparaison des machines entières. Compte sans image : 29 entières, 3 maison, 4 partielles, 71 muettes.
+
+Niveau RMS de l'attaque sur 400 échantillons, maison contre image, 21 réglages : XT -6,9 contre -6,6 dB, XC -7,6 contre -7,2 dB, BD -4,3 contre -1,8 dB. La queue est identique au dixième de dB.
+
+Écoute à l'aveugle sur 12 paires, trois réglages par machine et trois témoins identiques, tous trois notés Pareil : BD Différent sur 3 sur 3, XT Différent sur 1 sur 3 (réglage 3), XC Différent sur 0 sur 3. Aucune préférence notée : pour l'utilisateur, l'écart relève d'un réglage, pas d'un défaut. Les fichiers restent hors du dépôt.
+
+Cette écoute portait sur un BD défectueux. La revue a trouvé que TRX-BD lit 288 mots sur neuf blocs, pas 256 sur huit comme le disait son commentaire, corrigé : le dernier bloc jouait 0,73 ms de bruit seul. Le BD corrigé n'a pas été réécouté. Reste maison : RS et SD, puis CH, OH et CY, puis P-I, puis E12.

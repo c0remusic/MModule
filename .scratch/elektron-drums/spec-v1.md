@@ -274,7 +274,8 @@ la Gate Box et Dynamix lisent aussi, importée tant qu'une formule manque (amend
 flash image qu'une fois et écrit ces données dans le dossier de données : le rendu ne la lit jamais. Écart du 2026-11-07 :
 les défauts de machine sont maison, avec ou sans image, tous les SYN à 64 pour le MD ; le plug-in lit encore l'image au
 démarrage, l'écriture dans le dossier de données attend le ticket 20. Sans image, 29 machines portées du MD et du Syntakt
-sonnent entières, TRX-BD, SD, XT, RS, CH, OH et XC sonnent sans leur attaque ou leur métal, les autres se taisent et le
+sonnent entières, TRX-BD, XT et XC sur des attaques faites maison, TRX-SD, RS, CH et OH sans leur attaque ou leur métal,
+les autres se taisent et le
 disent (`MachineData`). Le silence est provisoire : les machines à données se refont en maison, une famille à la fois.
 
 ## 12. Critères d'acceptation
