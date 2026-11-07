@@ -55,16 +55,17 @@ namespace elektron::drums
 		struct Band
 		{
 			double hz, level, tau;
-			double y1 = 0, y2 = 0, last = 0;
+			double y1 = 0, y2 = 0, last = 0, older = 0;
 
-			// A two-pole around hz, driven by _white with a zero at DC; its output decays with tau samples, _t being
-			// the wave's sample. Each band takes a white of its own: bands sharing one cancel between them, and as
+			// A two-pole around hz, driven by _white with a zero at DC and the top octave eased; its output decays with
+			// tau samples, _t being the wave's sample. Each band takes a white of its own: bands sharing one cancel between them, and as
 			// their decays differ that notch moves and sounds like a phaser
 			double ring(const double _white, const double _t)
 			{
-				const double y = _white - last + 2 * 0.9 * std::cos(Tau * hz / Rate) * y1 - 0.9 * 0.9 * y2;
+				const double y = _white - last + 0.17 * (last - older) + 2 * 0.9 * std::cos(Tau * hz / Rate) * y1 - 0.9 * 0.9 * y2;
 				y2 = y1;
 				y1 = y;
+				older = last;
 				last = _white;
 				return level * std::exp(-_t / tau) * y;
 			}
@@ -111,8 +112,8 @@ namespace elektron::drums
 		burst(_t.xtWave, 345, 345, 1e9, 4, 0.85);
 		burst(_t.xcWave, 690, 690, 1e9, 6, 0.85, 2);
 		// TRX-SD's rattle, 128 blocks, added to its tone and noise; TRX-RS's rim, 24 blocks, before its high-passes
-		strike(_t.sdWave, {}, {{1450, 0.5, 450}, {2050, 0.8, 700}, {3200, 0.9, 950}, {4700, 1.2, 650},
-			{9000, 0.45, 950}, {14000, 0.22, 450}}, 40, 256, 0.98, 1);
+		strike(_t.sdWave, {}, {{1350, 0.5, 450}, {1900, 0.8, 700}, {3000, 0.9, 950}, {4400, 1.2, 650},
+			{9000, 0.35, 950}, {14000, 0.1, 450}}, 40, 256, 0.98, 1);
 		strike(_t.rsWave, {{250, -0.7, 500}, {490, 0.5, 800}, {945, 1.1, 260}, {1063, 0.3, 110}, {1450, 1.3, 170},
 			{1825, 0.6, 200}, {2362, 0.85, 140}, {2989, 0.6, 140}, {3985, 0.5, 110}}, {{2600, 0.3, 170}}, 20, 64, 0.98);
 	}
