@@ -4,7 +4,7 @@
 
 namespace elektron::drums
 {
-	// The attacks of TRX-BD, TRX-XT and TRX-XC made here, from formulas and by ear: nothing of the Machinedrum's words
-	// goes into them.
+	// The sampled waves of TRX-BD, SD, XT, RS and XC made here from formulas. Their pitches, decays and levels were
+	// tuned by ear and against measurements of the Machinedrum's output; no word of it goes into them.
 	void makeHouseWaves(md::voice::TrxTables& _tables);
 }

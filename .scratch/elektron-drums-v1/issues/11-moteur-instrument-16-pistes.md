@@ -187,3 +187,17 @@ Niveau RMS de l'attaque sur 400 échantillons, maison contre image, 21 réglages
 Écoute à l'aveugle sur 12 paires, trois réglages par machine et trois témoins identiques, tous trois notés Pareil : BD Différent sur 3 sur 3, XT Différent sur 1 sur 3 (réglage 3), XC Différent sur 0 sur 3. Aucune préférence notée : pour l'utilisateur, l'écart relève d'un réglage, pas d'un défaut. Les fichiers restent hors du dépôt.
 
 Cette écoute portait sur un BD défectueux. La revue a trouvé que TRX-BD lit 288 mots sur neuf blocs, pas 256 sur huit comme le disait son commentaire, corrigé : le dernier bloc jouait 0,73 ms de bruit seul. Le BD corrigé n'a pas été réécouté. Reste maison : RS et SD, puis CH, OH et CY, puis P-I, puis E12.
+
+## 2026-11-07 : ondes maison de TRX-SD et RS, puis rapprochées du vrai son
+
+TRX-SD et RS lisent des ondes calculées, sinus amortis plus bruit à travers quelques bandes : 4 096 mots pour SD, 768 pour RS. Compte sans image : 29 entières, 5 maison, 2 partielles (CH et OH), 71 muettes.
+
+L'utilisateur a demandé de rapprocher les cinq machines : pitch et son trop loin. Les premières attaques BD, XT et XC étaient des clics aigus, alors que le vrai son y joue un cycle carré vers 150 Hz pour BD et un demi-cycle pour XT et XC ; SD et RS manquaient d'aigus. Les hauteurs, durées et niveaux sont maintenant réglés à l'oreille et sur des mesures du rendu du firmware, soit 58 nombres dans `makeHouseWaves`, dont une partie seulement vient des mesures. Annoncés d'abord à l'utilisateur comme une trentaine, chiffre faux. Le dépôt est public. Aucun mot du firmware, aucune forme d'onde.
+
+Maison contre image, attaque sur 400 échantillons au réglage neutre : BD -1,8 contre -1,8 dB, XT -6,3 contre -6,6 dB, XC -7,1 contre -7,2 dB, SD -5,4 contre -5,4 dB, RS -18,8 contre -17,8 dB. Écart moyen sur une carte de 11 bandes par 5,8 ms, là où le son s'entend : BD 0,8 dB, SD 1,5 dB, RS 2,2 dB. La différence directe reste forte, -8,2 dB sous le son pour SD, -3,2 dB pour RS : l'enveloppe est proche, le grain du bruit non, et l'oreille l'entend.
+
+Écoute à l'aveugle sur la dernière série, 12 paires et 3 témoins : RS préféré maison sur 4 réglages sur 4, SD sur 2 sur 4, jamais l'image ; BD Pareil sur 2 réglages, préféré image sur les 2 autres ; 2 témoins Pareils, 1 témoin RS Pareil malgré une préférence notée, donc certaines préférences sont du bruit. XT et XC, sur la série d'avant : XC préféré maison sur 4 sur 4, XT sans préférence. Séries antérieures : un témoin XC, un témoin RS et un témoin BD notés Différent. L'ouïe reste près du seuil sur plusieurs paires.
+
+Clics vérifiés à la demande de l'utilisateur, sur les cinq machines et 7 réglages, premier Hit et retrigger à 3 000 échantillons : saut le plus fort et troisième différence contre l'image. La fin de l'onde XC claquait, 0,38 contre 0,16, corrigée. Plus aucune machine au-dessus de l'image de plus de 6 dB, sauf RS réglage 2 en retrigger, où l'image reste exceptionnellement basse (0,45 contre 0,20) ; RS garde un saut de 0,22 contre 0,16. Mesure seule : ces dernières retouches, fin de XC et bruit de SD et RS, n'ont pas été réécoutées.
+
+BD reste à reprendre si son attaque gêne en musique. Aller plus loin par mesure demanderait une centaine de nombres par machine : ce serait coder un échantillon, écarté. La revue a trouvé RS débordant 24 bits sur une version de travail, corrigé par la normalisation de crête ; le test refuse un saut entre deux mots voisins. CH, OH et CY viennent ensuite ; leurs ondes bouclent, `strike` ne leur convient pas.

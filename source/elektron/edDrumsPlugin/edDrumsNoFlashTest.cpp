@@ -66,22 +66,29 @@ namespace
 		const auto& t = library.trx;
 		const auto check = [](const char* const _name, const auto& _words, const double _least)
 		{
-			const auto value = [](const uint32_t _word)
-			{
-				require(_word < 1u << 24, "a word past 24 bits");
-				return md::voice::dsp::sx(_word) / 8388608.0;
-			};
+			const auto value = [](const uint32_t _word) { return md::voice::dsp::sx(_word) / 8388608.0; };
 			double peak = 0;
+			double before = 0;
 			for(const uint32_t word : _words)
+			{
 				peak = std::max(peak, std::abs(value(word)));
+				// A wave past full scale wraps: nothing it means to play jumps this far
+				require(std::abs(value(word) - before) < 1.5, std::string(_name) + ": a word wrapped");
+				before = value(word);
+			}
 			require(peak >= _least, std::string(_name) + ": a wave too quiet");
+			require(peak < 0.999, std::string(_name) + ": a wave at the end of its range");
 			require(value(_words.front()) == 0, std::string(_name) + ": a step in");
 			require(std::abs(value(_words.back())) < 0.001, std::string(_name) + ": a step out");
+			// What follows a wave starts from there: a last slope this steep clicks
+			require(std::abs(value(_words[_words.size() - 2])) < 0.2, std::string(_name) + ": a click at its end");
 		};
 		check("TRX-BD A", t.bdWaveA, 0.9);
 		check("TRX-BD B", t.bdWaveB, 0.05);
 		check("TRX-XT", t.xtWave, 0.5);
 		check("TRX-XC", t.xcWave, 0.5);
+		check("TRX-SD", t.sdWave, 0.3);
+		check("TRX-RS", t.rsWave, 0.3);
 	}
 
 	// What reports None plays silence however it is played: Hits and each machine's own retriggers, knobs at the ends
@@ -238,7 +245,7 @@ int main()
 		std::printf("  no image: %d machines whole, %d on words made here, %d without their sampled words, quietest %s at %.1f dB, HitDelay %d "
 			"reported, the earliest 1 %% of a peak %d, jitter 0 at 4 positions; %d silent:%s\n", whole, house, partial, quietestName.c_str(),
 			20 * std::log10(quietest), HitDelay, earliest, silent, silentNames.c_str());
-		require(whole == 29 && house == 3 && partial == 4 && silent == 71, "another count of machines");
+		require(whole == 29 && house == 5 && partial == 2 && silent == 71, "another count of machines");
 		std::printf("PASS: the instrument plays with no image\n");
 	}
 	catch(const std::exception& _e)

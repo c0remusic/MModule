@@ -214,6 +214,7 @@ Ticket « Interface façon Overbridge ». Référence : mockup v12 (`mockup/v12.
   valeur toujours dans l'anneau ; modulation en arc fin, lock en couleur d'accent, valeur jouée en repère.
 - Pas de rangée de pads : bouton play et LED par onglet de piste. CPU en haut à gauche, 0-100 % d'un cœur, repère à
   15 %, ambre au-dessus, rouge au-dessus de 25 %.
+- Toute machine qu'on accorde affiche la note de sa fondamentale en plus de sa fréquence, avec l'écart en cents.
 - Aucun texte redondant : l'état se lit sur le contrôle, un badge ou une infobulle.
 
 ## 11. Exigences non fonctionnelles
@@ -274,7 +275,7 @@ la Gate Box et Dynamix lisent aussi, importée tant qu'une formule manque (amend
 flash image qu'une fois et écrit ces données dans le dossier de données : le rendu ne la lit jamais. Écart du 2026-11-07 :
 les défauts de machine sont maison, avec ou sans image, tous les SYN à 64 pour le MD ; le plug-in lit encore l'image au
 démarrage, l'écriture dans le dossier de données attend le ticket 20. Sans image, 29 machines portées du MD et du Syntakt
-sonnent entières, TRX-BD, XT et XC sur des attaques faites maison, TRX-SD, RS, CH et OH sans leur attaque ou leur métal,
+sonnent entières, TRX-BD, SD, XT, RS et XC sur des ondes faites maison, TRX-CH et OH sans leur métal,
 les autres se taisent et le
 disent (`MachineData`). Le silence est provisoire : les machines à données se refont en maison, une famille à la fois.
 
