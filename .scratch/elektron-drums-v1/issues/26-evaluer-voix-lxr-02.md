@@ -1,0 +1,58 @@
+# Évaluer le port des voix LXR-02
+
+Type: HITL
+Status: ready-for-human
+Assignee: 
+Blocked by: 
+
+## Quoi
+
+Dire si les voix du LXR-02 d'Erica Synths peuvent devenir des machines d'une piste d'edDrums, à quel coût, et à quelles conditions. Rien n'est porté ici : ce ticket ne contient que l'évaluation.
+
+Sources lues : `erica-synths/lxr-desktop-app` au commit `a43cd4f` (firmware, amont) et `mcamaradev/ELABS-RLX-02-LXR02-CLONE-VST` (plug-in macOS en Rust qui compile ce même commit). Les copies locales et le banc sont dans `C:\dev\elektron-work\oracle\lxr-eval\`, hors dépôt.
+
+## Licence, vérifiée en amont
+
+- GPL-3.0-only : fichier `LICENSE`, `NOTICE.md` et en-tête SPDX de chaque fichier lu, tables comprises (`Samples.c`, `wavetable.c`, `transientTables.c`), copyright Erica Synths 2012-2026.
+- Compatible avec ce dépôt : AGPL v3 et GPL v3 se combinent par leur section 13, comme le dit déjà `NOTICE.md`.
+- La règle « rien de dérivé du firmware dans le dépôt » vise les firmwares fermés d'Elektron. Ici le fabricant publie sources et tables sous licence libre : elles peuvent entrer, avec leur notice.
+- Conditions de la section 7 du `NOTICE.md` d'Erica : les noms « Erica Synths », « LXR » et « LXR-02 » ne sont pas licenciés et ne doivent pas suggérer un lien avec Erica. Seule une mention factuelle de compatibilité est permise. Une version modifiée doit se présenter comme différente. Il faudra donc un nom de famille à nous dans l'interface, et une ligne dans `NOTICE.md` du dépôt.
+- Le matériel n'est pas sous cette licence ; la façade n'est pas à copier.
+
+## Ce que le code impose
+
+- Quatre types de voix : Drum (trois exemplaires, oscillateur FM, transitoire, filtre, distorsion), Snare, Cymbal, HiHat (fermée et ouverte). Soit quatre machines, avec 247 paramètres pour le kit entier.
+- Tout est en C et en `float`. Le code compile sous MSVC après trois retouches locales : neuf tableaux à taille variable (`int16_t mod[size]`) passés à une taille fixe, `__fp16` remplacé par `float`, et les `inline` du C99 neutralisés. `__fp16` ne sert que dans les effets, qu'on ne reprendrait pas. Tous les objets ont compilé ; l'édition de liens restait à vérifier quand l'exécution a été refusée.
+- Le moteur vit dans des globales : `voiceArray[3]`, `snareVoice`, `cymbalVoice`, `hatVoice`. Le clone contourne cela en chargeant une copie de la DLL par instance. Pour 16 pistes il faut passer ces structures en paramètre. C'est mécanique mais ça touche chaque voix : environ 100 occurrences de `voiceArray[` dans `DrumVoice.c`.
+- Les paramètres arrivent par `MidiParser.c` (55 ko), qu'on ne reprendrait pas : il faut une table des paramètres de voix vers leurs champs.
+- Le moteur tourne par blocs de 64 échantillons (`OUTPUT_DMA_SIZE`), 1,45 ms, avec les enveloppes de volume calculées par bloc (`AMP_EG_SYNC 0`) puis lissées. Le code a une variante à 32 ; `edDrums` travaille à 32. Reste à vérifier que passer à 32 ne change pas la vitesse des enveloppes : aucune constante de `Decay.c` ni de `SlopeEg2.c` ne cite la taille de bloc, mais leur cadence d'appel en dépend.
+- Chaque voix sort en `int16_t` : 16 bits, avec un dither dans le mixeur.
+- `REAL_FS` vaut 44 140 Hz, soit 1,6 cent de haut si on joue à 44,1 kHz sans rien changer. Le passer à 44 100 corrige la hauteur des oscillateurs, reste à vérifier les filtres.
+- Une piste devient une troisième `Family` à côté de `Syntakt` et `Machinedrum`, dans `edDrumsEngine.h`.
+
+## Mesuré
+
+Banc `C:\dev\elektron-work\oracle\lxr-eval\h\bench.c`, lancé avec l'accord de l'utilisateur le 2026-11-07, sur le kit d'init, MSVC `/O2 /fp:fast /arch:AVX2`, à travers le pont du clone, sur une copie locale du firmware avec les trois retouches ci-dessus et `FX/Distortion.c` renommé pour une collision de noms.
+
+- Une voix seule, sans mixeur ni effets, 64 échantillons, redéclenchée toutes les 96 blocs : Drum 2,15 à 2,19 µs, Snare 1,71 µs, Cymbal 1,90 µs, HiHat 2,01 µs, p99 sous 2,8 µs. Soit environ 1 µs pour nos 32 échantillons, dans la plage de P-I (0,44 à 1,89 µs).
+- Seize voix : environ 35 µs sur 1 451 µs de budget, 2,4 % d'un cœur à 44,1 kHz, hors chaîne de piste. Mesure extrapolée de la voix seule, pas seize voix réelles.
+- Moteur complet, six voix et effets : 14,0 µs par bloc au repos, à peine plus quand elles jouent (14,2 µs). Les voix calculent même silencieuses : le port devra les arrêter comme le font les autres machines.
+- Les pires blocs, jusqu'à 3,2 ms, restent à expliquer ou à attribuer à la machine : banc lancé sans machine calme, sur un cœur fixe.
+- Départ : la voix sonne dès le premier échantillon du bloc qui suit sa note, 1 % de la crête à 0 ou 1 échantillon, 10 % à 4 au plus. Rien à ajouter à `Engine::HitDelay` (81) : la voix attendra dans `AlignedStart` comme les autres. Une note ne tombe qu'en tête de bloc dans ce banc ; la précision à l'échantillon reste celle d'`edDrums`.
+- Attaques franches : saut de 1,07 sur une crête de 1,19 pour Cymbal, 0,62 sur 0,67 pour HiHat, 0,60 sur 1,24 pour Snare, 0,05 pour Drum 1. C'est le son du moteur d'origine, à ne pas lisser sans écoute.
+
+## Non mesuré
+
+- Passage aux blocs de 32 : vitesse des enveloppes à comparer au rendu de 64.
+- Effet de `REAL_FS` à 44 100 sur les filtres.
+- Écoute.
+
+## Plan si l'utilisateur dit oui
+
+1. Port de la voix Drum seule en machine de piste, structures passées en paramètre, blocs de 32 : rendu comparé au bit près au moteur d'origine à paramètres égaux, sans quoi l'écart se nomme.
+2. Snare, Cymbal, HiHat.
+3. Table des paramètres, valeurs de kit, page d'interface, nom de famille, `NOTICE.md`.
+
+## Écarté : ReplicantTr8s
+
+`DanimanX/ReplicantTr8s` (MIT, TR-8S) a été lu pour la même question. Ses voix ne sont pas un moteur à porter : `ACBDrumVoice.cpp`, 1 215 lignes, somme des sinus et des exponentielles écrits à la main, sans rien de la machine, quoi qu'en dise son « 1:1 ». Le firmware Roland n'y fournit que kits, patterns et noms, lus à l'exécution dans un fichier de l'utilisateur. Rien à y prendre : le son ne vient pas de la machine et les données ne pourraient pas entrer dans le dépôt.
