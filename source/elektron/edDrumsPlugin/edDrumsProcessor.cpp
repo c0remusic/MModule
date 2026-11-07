@@ -36,10 +36,12 @@ namespace elektron::drums
 			return juce::String(std::string(md::machines::find(md::MachineModel::Machinedrum, _machine.id)->name));
 		}
 
-		// Tracks 1-9 start on the Syntakt's machines, which need nothing, the others on the Machinedrum's TRX
+		// Tracks 1-8 start on the Syntakt's machines, which need nothing, Track 9 on TRX-CL for SP TWINSHOT, which
+		// needs its samples, the others on the Machinedrum's TRX, which play without an image what they can
 		int defaultMachine(const std::vector<Machine>& _list, const int _track)
 		{
-			const Machine machine = _track < SyntaktMachines ? Machine{Family::Syntakt, static_cast<uint8_t>(_track)}
+			const Machine machine = _track == SyntaktTwinshot ? Machine{Family::Machinedrum, 26}
+				: _track < SyntaktMachines ? Machine{Family::Syntakt, static_cast<uint8_t>(_track)}
 				: Machine{Family::Machinedrum, static_cast<uint8_t>(16 + _track - SyntaktMachines)};
 			return static_cast<int>(std::find(_list.begin(), _list.end(), machine) - _list.begin());
 		}
@@ -91,7 +93,7 @@ namespace elektron::drums
 				juce::AudioParameterChoiceAttributes().withAutomatable(false));
 			addParameter(p.machine);
 			m_machineSeen[static_cast<size_t>(t)] = machine;
-			const auto machineDefaults = defaults(*m_library, m_machines[static_cast<size_t>(machine)]);
+			const auto machineDefaults = defaults(m_machines[static_cast<size_t>(machine)]);
 			for(int i = 0; i < 8; ++i)
 			{
 				p.values[static_cast<size_t>(i)] = intParameter(id + "m" + juce::String(i + 1),

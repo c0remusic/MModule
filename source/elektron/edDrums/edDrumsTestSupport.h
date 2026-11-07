@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <string>
 #include <vector>
 
 #include "edDrumsEngine.h"
@@ -20,6 +21,11 @@ namespace elektron::drums::test
 			if(md::voice::coefficientsPorted(static_cast<uint8_t>(id)))
 				m.push_back({Family::Machinedrum, static_cast<uint8_t>(id)});
 		return m;
+	}
+
+	inline std::string nameOf(const Machine& _m)
+	{
+		return _m.family == Family::Syntakt ? syntaktMachineNames[_m.id] : "MD machine " + std::to_string(_m.id);
 	}
 
 	class Take

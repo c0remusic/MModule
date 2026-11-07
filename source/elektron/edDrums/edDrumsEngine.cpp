@@ -30,9 +30,10 @@ namespace elektron::drums
 		constexpr int FirDelay = Resample48To44::Latency * Down;		// Latency, in 1/147 of a 48 kHz sample
 		static_assert(Down % Up == 13 && Down / Up == 1, "a host sample steps the read by 1 sample and 13 phases");
 
-		// A Syntakt machine's neutral sound until a Kit gives it one (the firmware's defaults are not in the repository):
-		// its knobs in the middle, its drive and HOLD off
+		// A machine's neutral sound until a Kit gives it one, with or without a flash image, so that a set sounds the same:
+		// no default is a firmware's. Its knobs in the middle, a Syntakt machine's drive and HOLD off
 		constexpr std::array<uint8_t, 8> SyntaktDefaults{64, 64, 64, 64, 64, 0, 0, 64};
+		constexpr std::array<uint8_t, 8> MachinedrumDefaults{64, 64, 64, 64, 64, 64, 64, 64};
 		constexpr int VoiceHold = 6;		// HOLD among them: on, every machine's voice waits for its gate-off
 
 		// A new Sound of these starts in ADSR, its voice held: SY BITS, as SY TONE, SY CHORD and SY DUAL VCO will
@@ -46,7 +47,7 @@ namespace elektron::drums
 		constexpr int64_t SyntaktWait = BlockSize * 142 + Up * BlockSize + Up * Chain::MaxDelay + FirDelay;
 
 		// A voice reaches 1 % of its peak in its first samples, all but these, measured by edDrumsEngineTest with the
-		// defaults: TRX-BD and TRX-S2 sound a block after their trigger, TRX-XT later still, the ROM machines' filters take 8.
+		// OS's defaults: TRX-BD and TRX-S2 sound a block after their trigger, TRX-XT later still, the ROM machines' filters take 8.
 		// TRX-CB, TRX-XC, TRX-MA and P-I-ML are later than a Hit can wait, their own sound; a Syntakt machine starts in
 		// its block, up to 7 samples in. As much as a Hit holds its voice back for, in its own samples
 		constexpr int LatestStart = 38;
@@ -113,9 +114,17 @@ namespace elektron::drums
 		return false;
 	}
 
-	std::array<uint8_t, 8> defaults(const Library& _library, const Machine& _machine)
+	MachineData dataOf(const Library& _library, const Machine& _machine)
 	{
-		return _machine.family == Family::Machinedrum ? _library.mdDefaults[_machine.id] : SyntaktDefaults;
+		if(_machine.family == Family::Machinedrum)
+			return _library.mdData[_machine.id];
+		const bool twinshot = _machine.family == Family::Syntakt && _machine.id == SyntaktTwinshot;
+		return twinshot && !_library.twinshot ? MachineData::None : MachineData::Whole;
+	}
+
+	std::array<uint8_t, 8> defaults(const Machine& _machine)
+	{
+		return _machine.family == Family::Machinedrum ? MachinedrumDefaults : SyntaktDefaults;
 	}
 
 	// ---- a Syntakt machine, whichever it is ----
@@ -313,7 +322,7 @@ namespace elektron::drums
 		cut(_track);
 		t.machine = _machine;
 		t.pendingLocks = t.lockedNow = 0;
-		t.params = defaults(m_library, _machine);
+		t.params = defaults(_machine);
 		const uint32_t bit = 1u << _track;
 		if(_machine.family != Family::Off && _machine.family != t.chainFamily)
 		{

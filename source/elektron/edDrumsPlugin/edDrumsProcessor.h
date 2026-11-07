@@ -50,6 +50,10 @@ namespace elektron::drums
 
 		static juce::File dataFolder();
 
+		// The machines a Track's parameter chooses from, and what each has of its data (dataOf)
+		const std::vector<Machine>& machines() const { return m_machines; }
+		MachineData machineData(const size_t _choice) const { return dataOf(*m_library, m_machines[_choice]); }
+
 		// The audio thread's, after prepareToPlay, for a test between blocks: no host parameter reaches an LFO yet (ticket 18)
 		Engine* engine() { return m_engine.get(); }
 

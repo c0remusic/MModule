@@ -47,6 +47,6 @@ Ordre de la spécification (§13). `Blocked by:` en tête de chaque ticket.
   machine. Écoute du filtre final le 2026-11-07, BD MODERN, SY BITS et CP VINTAGE contre linéaire : rien entendu, filtre gardé.
 ## Not yet specified
 
-- Réécritures maison ciblées, après les tickets 14 à 18, une famille à la fois, en paires à l'aveugle contre la voix actuelle : machines qui lisent la flash (TRX à formes
+- Réécritures maison ciblées, avant le ticket 14 (décidé le 2026-11-07 : TRX, puis P-I, puis E12), une famille à la fois, en paires à l'aveugle contre la voix actuelle : machines qui lisent la flash (TRX à formes
   d'onde, E12, P-I, banque ROM), table `$24DA14`, machines à démarrage tardif (TRX-XT, TRX-BD, TRX-S2).
 - Nom du produit.

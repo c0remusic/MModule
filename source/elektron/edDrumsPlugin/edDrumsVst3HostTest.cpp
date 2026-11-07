@@ -316,6 +316,7 @@ namespace
 		std::vector<Machine> kit;
 		for(int t = 0; t < SyntaktMachines; ++t)
 			kit.push_back({Family::Syntakt, static_cast<uint8_t>(t)});
+		kit[SyntaktTwinshot] = {Family::Machinedrum, 26};
 		for(int t = SyntaktMachines; t < Tracks; ++t)
 			kit.push_back({Family::Machinedrum, static_cast<uint8_t>(16 + t - SyntaktMachines)});
 
@@ -386,7 +387,7 @@ namespace
 		std::printf("a block of 128: median %.3f ms, worst %.3f ms\n", ms[ms.size() / 2], ms.back());
 		require(ms.back() < g_stallMs, "a block stalled the audio thread");
 
-		// Each Track on its Out, but SP TWINSHOT's on Track 9, which has no samples here
+		// Each Track on its Out
 		instance->prepare(SampleRate, true);
 		{
 			std::vector<Note> each;
@@ -394,7 +395,7 @@ namespace
 				each.push_back({2000 + 3000 * t, t, 127});
 			const auto take = render(plugin, each, 2000 + 3000 * 16 + 3000, g_block);
 			for(int o = 0; o < Outputs; ++o)
-				require(o == 8 || take.getMagnitude(2 * o, 0, take.getNumSamples()) > 1e-4f, "Out " + std::to_string(o) + " is silent");
+				require(take.getMagnitude(2 * o, 0, take.getNumSamples()) > 1e-4f, "Out " + std::to_string(o) + " is silent");
 		}
 
 		// A sound that is not the defaults, against the engine, then through the state into another instance

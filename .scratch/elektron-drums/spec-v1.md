@@ -147,6 +147,10 @@ Ticket « Séquenceur interne », sur « Fonctions de MoDule Seq » et « Séque
 - Conditions aléatoires tirées d'une graine par passage : un rendu rejoue ce qu'on a entendu.
 - Transport de l'hôte seulement. Pattern choisi par le paramètre hôte « Pattern » ou par program change ; un pattern
   demandé part à la fin du pattern en cours.
+- Chaînes (décidé le 2026-11-07) : une suite d'entrées, chacune un pattern et un nombre de répétitions. La position dans
+  la chaîne se déduit de la position de lecture de l'hôte, de sorte qu'un arrêt puis un départ rejouent le même endroit ;
+  la chaîne boucle à sa fin ; un pattern demandé par le paramètre « Pattern » ou un program change remplace la chaîne à la
+  fin du pattern en cours. La chaîne est gardée dans l'état du projet, pas dans le kit.
 - Trigs à l'échantillon près, sans gigue ; enveloppes et LFO avancent au bloc.
 - MIDI entrant : notes 36-51 jouent les pistes 1-16 avec vélocité ; en mode LIVE, notes et mouvements de knobs
   s'enregistrent sur les pas.
@@ -267,8 +271,11 @@ de TRX-BD, TRX-SD, TRX-XT, TRX-RS et TRX-XC (mots du programme voix, amendé le 
 répertoire des machines E12, et les excitations des P-I avec leurs mots de modes (amendé le 2026-11-05), jamais son
 code ni ses tables, à une exception près : la table de l'OS à $24DA14, sans formule connue, que P-I lit et que l'Echo,
 la Gate Box et Dynamix lisent aussi, importée tant qu'une formule manque (amendé le 2026-11-05). L'import ne lit la
-flash image qu'une fois et écrit ces données dans le dossier de données : le rendu ne la lit jamais, et sans import
-ces machines se taisent.
+flash image qu'une fois et écrit ces données dans le dossier de données : le rendu ne la lit jamais. Écart du 2026-11-07 :
+les défauts de machine sont maison, avec ou sans image, tous les SYN à 64 pour le MD ; le plug-in lit encore l'image au
+démarrage, l'écriture dans le dossier de données attend le ticket 20. Sans image, 29 machines portées du MD et du Syntakt
+sonnent entières, TRX-BD, SD, XT, RS, CH, OH et XC sonnent sans leur attaque ou leur métal, les autres se taisent et le
+disent (`MachineData`). Le silence est provisoire : les machines à données se refont en maison, une famille à la fois.
 
 ## 12. Critères d'acceptation
 

@@ -104,7 +104,7 @@ Syntakt se prennent au Hit, la plus basse libre, et `setLanes` suit ; il n'y a p
 lieu de 86, et son test la comparait à elle-même. `md::fw::readMachineTable` est la seule marche, partagée avec `MachineRunner` ; le
 test contrôle ids et noms de paramètres contre `mdProtocol`, 135 machines sur les 140 qu'il nomme (5 absentes de l'OS 1.63, listées).
 `findFlashImage` et `FlashImageName` passent aussi dans `md::fw`, pour que `edDrums` ne lie pas MoDule. Aucune donnée du firmware dans
-le dépôt : `Library` lit les défauts dans la flash à l'exécution, sans flash le plug-in se tait. `/fp:strict` sur `mdVoiceRom.cpp`,
+le dépôt : `Library` lit les défauts dans la flash à l'exécution, sans flash le plug-in se tait (dépassé, voir plus bas : 2026-11-07). `/fp:strict` sur `mdVoiceRom.cpp`,
 `mdVoiceTrx.cpp` et `mdVoiceCoefficients.cpp`, qui arrondissent des doubles vers les tables de l'OS.
 
 Écartés : banc VST3 partagé (trois copies, commit à part) ; `Load` de `edDrumsCost` ; `importRomBank` ; Machine persistée en famille
@@ -165,3 +165,15 @@ Reste moins bon qu'avant : un second Hit dans la fenêtre de phase, jusqu'à 77 
 `Chain::delay` est plafonné à `Chain::MaxDelay` : pendant le déplacement d'un drive de pré à post en plein fondu, les deux places comptaient, jusqu'à 20 échantillons en 4x. Une voix peut alors arriver jusqu'à 8 échantillons en retard, le temps du fondu. Le retard de chaîne est lu au noteOn : un `setChain` dans les 59 échantillons qui suivent déplace ce Hit d'au plus 12 échantillons, sur le MD comme sur le Syntakt.
 
 Coût à 44,1 kHz, 16 voies : 1,47 µs par bloc hôte contre 1,60 à 1,70. Le coût du moteur ne bouge pas au-delà du bruit, machine chargée de 1,9 à 7,5 cœurs par d'autres programmes.
+
+## 2026-11-07 : le plug-in joue sans image
+
+Sans image, 36 des 107 machines portées sonnent : 29 entières, 7 sans leurs mots échantillonnés (TRX-BD, SD, XT, RS, CH, OH, XC, marquées `Partial`, pics de -4 à -20 dB, -3,6 à -19,1 dB contre le vrai son) ; 71 se taisent, exactement à zéro, testé sur 3 976 rendus avec retrigger. Avec l'image, 17 restent muettes : ROM-33 à -48 et SP TWINSHOT. Le code des voix et le chemin audio n'ont pas bougé. `HitDelay` reste 81, gigue 0. `edDrumsNoFlashTest` tourne sans variable ni chemin de firmware.
+
+Les défauts du MD sont maison, avec ou sans image : les huit SYN à 64. C'est une valeur neutre, pas un son réglé ; tous les sons du MD changent par rapport aux défauts d'usine, personne n'a écouté, seul le niveau est vérifié, le plus faible TRX-MA à -25,8 dB. TRX-S2 atteint 1 % de son pic à 48 échantillons au lieu de 81, `voiceStart` ayant été mesuré avec les défauts de l'OS. Track 9 démarre sur TRX-CL au lieu de SP TWINSHOT.
+
+P-I-RC lit bien la banque UW à partir de PTCH 95, mais rien n'en sort : 1 500 réglages et une banque pleine échelle ne changent aucun échantillon. La cause est déduite, pas tracée. Elle reste entière.
+
+Le rendu ne lit pas l'image. Le plug-in la lit à chaque instance et cherche encore hors du dossier de données : le ticket 20 tranche. Les cinq P-I partagent un seul pointeur `pi`, avec la table `$24DA14` : une maison pour une seule P-I n'en débloque pas les quatre autres.
+
+Portage en maison estimé, rien d'essayé : TRX-BD, XT et XC, un clic de synthèse, 32 à 576 mots ; RS et SD, un travail moyen ; CH, OH et CY partagent 492 mots, six ondes, et CY redevient entière avec eux ; P-I par rapports physiques plus une courbe à nous pour `$24DA14` ; E12 et ROM demandent de nouveaux échantillons.

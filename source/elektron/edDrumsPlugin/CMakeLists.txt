@@ -35,6 +35,14 @@ target_link_libraries(edDrumsPlugin PRIVATE edDrums mdProtocol juce_plugin_modul
 set_property(TARGET edDrumsPlugin PROPERTY FOLDER "Elektron")
 
 if(BUILD_TESTING)
+	# With no flash image, needing none (it clears what leads to one)
+	add_executable(edDrumsNoFlashTest edDrumsNoFlashTest.cpp)
+	target_link_libraries(edDrumsNoFlashTest PRIVATE edDrumsPlugin edDrums mdProtocol juce_plugin_modules)
+	target_compile_definitions(edDrumsNoFlashTest PRIVATE JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 ED_DRUMS_NAME="${ED_DRUMS_NAME}")
+	add_test(NAME edDrumsNoFlashTest COMMAND edDrumsNoFlashTest)
+	set_tests_properties(edDrumsNoFlashTest PROPERTIES TIMEOUT 300)
+	set_property(TARGET edDrumsNoFlashTest PROPERTY FOLDER "Elektron/test")
+
 	# What processBlock tells the engine of the host's transport (GEARMULATOR_MD_FIRMWARE_BIN: exit 77 without it)
 	add_executable(edDrumsProcessorTest edDrumsProcessorTest.cpp)
 	target_link_libraries(edDrumsProcessorTest PRIVATE edDrumsPlugin edDrums mdProtocol juce_plugin_modules)

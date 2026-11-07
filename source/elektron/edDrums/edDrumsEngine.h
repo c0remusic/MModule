@@ -72,13 +72,17 @@ namespace elektron::drums
 	constexpr int SyntaktMachines = 9;
 	constexpr std::array<const char*, SyntaktMachines> syntaktMachineNames{"BD MODERN", "SD BASIC", "CY ALLOY",
 		"PC CARBON", "SD VINTAGE", "CP VINTAGE", "SY TOY", "SY BITS", "SP TWINSHOT"};
+	constexpr uint8_t SyntaktTwinshot = 8;
 
 	// Whether a Track can play _machine: every Syntakt machine here, a Machinedrum one whose render is ported or a MID or
 	// CTR one, which stops the voice
 	bool playable(const Machine& _machine);
 
 	// SYN1-8 of _machine as a machine change gives them
-	std::array<uint8_t, 8> defaults(const Library& _library, const Machine& _machine);
+	std::array<uint8_t, 8> defaults(const Machine& _machine);
+
+	// What _machine has of the data it reads, which an interface can show
+	MachineData dataOf(const Library& _library, const Machine& _machine);
 
 	class Engine
 	{
