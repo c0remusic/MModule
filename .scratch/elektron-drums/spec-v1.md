@@ -228,6 +228,13 @@ font foi pour les positions, les couleurs et les gestes. Le mockup v12 ne reste 
   ROM) et Digitakt II ; E12 à l'essai. ROM-01 à 48 ne paraissent plus dans l'explorateur, ils restent seulement pour relire un
   kit Machinedrum et pour la banque d'une image. Ce que le kit garde par piste et combien de samples une piste lit :
   ouverts, ticket 20.
+- Temps du delay, page FX, même contrôle pour les deux sources : une durée en valeurs de note, DURATION, 1/32, 1/16T, 1/32D,
+  1/16, 1/8T, 1/16D, 1/8, 1/4T, 1/8D, 1/4, 1/2T, 1/4D, 1/2, 1/2D, 1/1. Glisser passe d'une valeur à l'autre, rien entre deux. Le
+  delay suit le tempo de l'hôte, triolets exacts ; les ms au tempo courant s'affichent à côté, à titre indicatif. Une bascule
+  Sync, même chose pour les deux sources : Sync coupé, le temps est libre, le même contrôle passe en Hz, continu, sans crans, une plage par
+  source : Syntakt 0,125 à 1378 Hz, Echo environ 0,45 à 339 Hz, par paliers en dessous jusqu'à 0,11 Hz.
+- Filtre du delay, de la reverb et de Band en base-width : HPF et LPF en Hz, à la place de BASE et WIDTH. HPF est la coupure du passe-haut.
+  LPF reste une coupure absolue à l'écran, le moteur la convertit en largeur au-dessus de HPF : LPF ne descend pas sous HPF.
 - Une couleur par piste au choix, pour s'y retrouver : la lumière de sa touche, barre LED et halo.
 - Longueur commune réglable en pas (1 à 512), sur Overview et Detail : chaque piste boucle sur sa longueur, tout repart à la fin.
 - CPU en haut à droite, après le BPM, 0-100 % d'un cœur, repère à 15 %, ambre au-dessus, rouge au-dessus de 25 %.

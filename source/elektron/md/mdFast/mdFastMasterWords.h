@@ -24,6 +24,9 @@ namespace md::fast
 	// without it the table is zeros, and the filter words $7FFFFF.
 	EchoWords echoWords(const voice::OsTables& _tables, const MasterValues& _values, uint32_t _tempo);
 
+	// Words 0 and 1 of the Echo's: its delay, in samples of 44.1 kHz, what echoWords works out from TIME and the tempo
+	void echoDelayWords(int32_t _delay, EchoWords& _words);
+
 	GateBoxWords gateBoxWords(const voice::OsTables& _tables, const MasterValues& _values);
 
 	// The OS's control of the two effects on its tick (11 blocks of 32 samples): the bytes slew, as all the master's do

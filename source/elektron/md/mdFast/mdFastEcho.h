@@ -30,6 +30,16 @@ namespace md::fast
 		// The words of the OS's tick, between two blocks
 		void setWords(const EchoWords& _words);
 
+		// Nothing left in the lines and the filters, so that nothing of what was sent comes back
+		void clear();
+
+		// The pointers at their target at once, for a return that was not running: they glide for seconds otherwise
+		void settle()
+		{
+			m_distance = m_targetDistance;
+			m_rate = m_targetRate;
+		}
+
 		// One block: the delay send in, the return out. _in and _out may not overlap
 		void process(const float* _inL, const float* _inR, float* _outL, float* _outR);
 

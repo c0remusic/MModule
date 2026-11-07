@@ -8,6 +8,7 @@ add_library(stFast STATIC stFastStages.h stFastStages.cpp stFastBdModern.h stFas
 	stFastSdBasic.cpp stFastCyAlloy.h stFastCyAlloy.cpp stFastPcCarbon.h stFastPcCarbon.cpp stFastSdVintage.h
 	stFastSdVintage.cpp stFastCpVintage.h stFastCpVintage.cpp stFastSyToy.h stFastSyToy.cpp stFastSyBits.h
 	stFastSyBits.cpp stFastSpTwinshot.h stFastSpTwinshot.cpp stFastTrack.h stFastTrack.cpp stFastResample.h stFastResample.cpp
+	stFastDelay.h stFastDelay.cpp stFastReverb.h stFastReverb.cpp
 	stFastResampleTaps.inc
 	stFastTables.h stFastTables.cpp)
 target_include_directories(stFast PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/../..)
@@ -92,6 +93,15 @@ if(BUILD_TESTING)
 	set_property(TARGET stFastSpTwinshotTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME stFastSpTwinshotTest COMMAND stFastSpTwinshotTest)
 	set_tests_properties(stFastSpTwinshotTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# The send delay and reverb against the exact port at 48 kHz, 44.1 against 48 kHz, and their cost
+	# (SYNTAKT_SECTION3, SYNTAKT_SECTION7: exit 77 without them)
+	add_executable(stFastSendFxTest stFastSendFxTest.cpp stFastMetrics.h)
+	target_link_libraries(stFastSendFxTest PRIVATE stFast stEngine)
+	target_include_directories(stFastSendFxTest PRIVATE ../../md/mdDrums)
+	set_property(TARGET stFastSendFxTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME stFastSendFxTest COMMAND stFastSendFxTest)
+	set_tests_properties(stFastSendFxTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 	# The resampler that brings the fast Syntakt's 48 kHz to a 44.1 kHz host (Q11): no firmware
 	add_executable(stFastResampleTest stFastResampleTest.cpp stFastBdModernHits.h stFastBench.h stFastMetrics.h)

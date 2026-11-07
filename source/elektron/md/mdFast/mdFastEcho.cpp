@@ -66,6 +66,12 @@ namespace md::fast
 		m_level = static_cast<int32_t>(_words[8]);
 	}
 
+	void Echo::clear()
+	{
+		std::fill(m_lines.begin(), m_lines.end(), 0);
+		m_highState[0] = m_highState[1] = m_highLast[0] = m_highLast[1] = m_lowState[0] = m_lowState[1] = 0;
+	}
+
 	void Echo::advancePointers()
 	{
 		// P:$346: the rate glides to its target, and the write pointer runs at it, its fraction lost at each block

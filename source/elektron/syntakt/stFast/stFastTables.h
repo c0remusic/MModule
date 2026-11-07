@@ -156,4 +156,22 @@ namespace syntakt::fast::tables
 
 	// The pitch map's exp2 (0x40059ef8, which the boot copies to RAM 0x8000a888): 2048 words. Exact
 	std::array<int32_t, 2048> exp2();
+
+	// What CPU #1's send delay and reverb read, in section 3 and not section 7, as floats at any rate in Hz:
+	// frequencies and times keep their worth where a rate other than the machine's 48 kHz moves the coefficients. At 48
+	// kHz the errors against section 3's words are stFastSendFxTest's to print; each is a law fitted to them, none a
+	// word
+
+	// Both effects' one-poles, by HPF >> 6 and (HPF + LPF) >> 6 (0x4029bffc): 1024 poles, the last ones 0
+	std::array<float, 1024> sendPoles(double _rate);
+
+	// The reverb's shelf by FREQ's byte (0x4029b7fc)
+	std::array<float, 128> reverbShelves(double _rate);
+
+	// The gain DEC's byte sets on the diffusers (0x4029b6fc, 64 words then a constant)
+	std::array<float, 128> reverbDiffusion();
+
+	// The eight gains of the reverb's feedback matrix by DEC's byte (0x401df8e0): what each line keeps of what it
+	// holds, a reverberation time's worth of its length. The same at any rate: a line's length is a time
+	std::array<std::array<float, 8>, 128> reverbMatrix();
 }

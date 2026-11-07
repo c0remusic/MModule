@@ -1569,7 +1569,8 @@ namespace
 	void sends(const Library& _library)
 	{
 		constexpr int Samples = 44100, Warm = 2000, Out = 3;
-		const auto play = [&](const int _delay, const int _reverb, const int _output, const int _block)
+		const auto play = [&](const int _delay, const int _reverb, const int _output, const int _block,
+			const SendSource _source = SendSource::Machinedrum)
 		{
 			auto e = std::make_unique<Engine>(_library);
 			e->setMachine(0, {Family::Machinedrum, 16});
@@ -1582,6 +1583,14 @@ namespace
 			for(const auto& [byte, value] : {std::pair<int, uint8_t>{md::fast::GateDec, 64}, {md::fast::GateDamp, 64},
 				{md::fast::GateLp, 127}, {md::fast::GateGate, 127}, {md::fast::GateLev, 127}})
 				fx.setGateBox(byte, value);
+			for(const auto& [byte, value] : {std::pair<int, uint8_t>{StDelayTime, 24}, {StDelayFdbk, 32},
+				{StDelayLp, 127}, {StDelayWidth, 64}})
+				fx.setSyntaktDelay(byte, value);
+			for(const auto& [byte, value] : {std::pair<int, uint8_t>{StReverbDec, 64}, {StReverbFreq, 64},
+				{StReverbLp, 127}})
+				fx.setSyntaktReverb(byte, value);
+			fx.setSource(Send::Delay, _source);
+			fx.setSource(Send::Reverb, _source);
 			fx.setOutput(Send::Delay, _output);
 			fx.setOutput(Send::Reverb, _output);
 			e->setSend(0, Send::Delay, _delay);
@@ -1613,7 +1622,351 @@ namespace
 		require(energy(play(127, 127, 0, 32).channel(0)) > energy(dry.channel(0)), "no return on Main");
 		const auto other = play(127, 127, Out, 57);
 		require(sent.channel(2 * Out) == other.channel(2 * Out), "a return moves with the host's blocks");
+		const auto syntakt = play(127, 127, Out, 32, SendSource::Syntakt);
+		for(const int channel : {0, 1})
+			require(dry.channel(channel) == syntakt.channel(channel), "the Syntakt's return on an Out reaches Main");
+		require(energy(play(127, 0, Out, 32, SendSource::Syntakt).channel(2 * Out)) > 1e-3, "no Syntakt delay");
+		require(energy(play(0, 127, Out, 32, SendSource::Syntakt).channel(2 * Out)) > 1e-3, "no Syntakt reverb");
+		require(syntakt.channel(2 * Out) == play(127, 127, Out, 57, SendSource::Syntakt).channel(2 * Out),
+			"the Syntakt's return moves with the host's blocks");
 		std::printf("PASS: the sends, none at 0, the returns where they are sent, the same whatever the blocks\n");
+	}
+
+	// ---- the sends on their own: a block of Sends here, with its input before it, is 32 samples of the engine's ----
+
+	constexpr int Frames = Sends::BlockSize;
+	constexpr double SendRate = Sends::Rate;
+	constexpr int TimeFrames = 22739;	// TIME 32 at 120 BPM at 44.1 kHz, of the Syntakt's delay
+
+	// Both effects of both machines audible, with no feedback
+	std::unique_ptr<Sends> sendsOf(const Library& _library)
+	{
+		auto fx = std::make_unique<Sends>(*_library.os, _library.trx.sine.data());
+		fx->setTempo(120 * 24);
+		fx->setEcho(md::fast::EchoTime, 32);
+		fx->setEcho(md::fast::EchoFltw, 127);
+		fx->setEcho(md::fast::EchoLev, 127);
+		for(const auto& [byte, value] : {std::pair<int, uint8_t>{md::fast::GateDec, 64}, {md::fast::GateDamp, 64},
+			{md::fast::GateLp, 127}, {md::fast::GateGate, 127}, {md::fast::GateLev, 127}})
+			fx->setGateBox(byte, value);
+		fx->setSyntaktDelay(StDelayTime, 32);
+		fx->setSyntaktDelay(StDelayWidth, 64);
+		fx->setSyntaktDelay(StDelayLp, 127);
+		fx->setSyntaktReverb(StReverbDec, 64);
+		fx->setSyntaktReverb(StReverbFreq, 64);
+		fx->setSyntaktReverb(StReverbLp, 127);
+		return fx;
+	}
+
+	void idle(Sends& _fx, const int _blocks, const bool _fed)
+	{
+		for(int b = 0; b < _blocks; ++b)
+		{
+			if(_fed)
+				_fx.input(Send::Delay, 0, 0);
+			_fx.block();
+		}
+	}
+
+	// Samples from a click sent to the delay now to the first of its return, within _most
+	int firstEcho(Sends& _fx, const int _most)
+	{
+		constexpr int At = 16;		// past where a send's gains rise from nothing in a delay's first block
+		_fx.input(Send::Delay, 0, At)[0] = 0.25f;
+		for(int b = 0; b * Frames < _most; ++b)
+		{
+			_fx.input(Send::Delay, 0, 0);
+			_fx.block();
+			const float* const left = _fx.output(Send::Delay, 0, 0);
+			const float* const right = _fx.output(Send::Delay, 1, 0);	// where the Echo's MONO at 0 gives it
+			for(int i = 0; i < Frames; ++i)
+				if(std::max(std::abs(left[i]), std::abs(right[i])) > 0.02f)
+					return b * Frames + i - At;
+		}
+		return -1;
+	}
+
+	void requireNear(const int _measured, const int _target, const int _within, const std::string& _what)
+	{
+		std::printf("  %s: first echo after %d samples, target %d\n", _what.c_str(), _measured, _target);
+		require(std::abs(_measured - _target) <= _within, _what + ": the first echo is not at its time");
+	}
+
+	// The Syntakt's delay, which does not run while Sends sleeps or the Echo plays, starts at its time; the tempo held
+	// to the OS's range; a free time on both delays
+	void sendTimes(const Library& _library)
+	{
+		auto fx = sendsOf(_library);
+		fx->setSource(Send::Delay, SendSource::Syntakt);
+		idle(*fx, 2, false);
+		requireNear(firstEcho(*fx, 2 * TimeFrames), TimeFrames, 3, "after boot");
+
+		idle(*fx, 15000, false);
+		require(!fx->sounding(), "the sends do not sleep");
+		fx->setSyntaktDelay(StDelayTime, 16);
+		idle(*fx, 100, false);
+		requireNear(firstEcho(*fx, 2 * TimeFrames), 11714, 3, "after 10 s of silence, TIME moved");
+		fx->setSyntaktDelay(StDelayTime, 32);
+		idle(*fx, 15000, false);
+
+		fx->setTempo(0);
+		idle(*fx, 15000, false);
+		requireNear(firstEcho(*fx, 200000), 90956, 3, "a tempo of 0, held to 30 BPM");
+		idle(*fx, 15000, false);
+		fx->setTempo(1000000);
+		requireNear(firstEcho(*fx, 200000), 9095, 3, "a tempo too high, held to 300 BPM");
+		idle(*fx, 15000, false);
+
+		fx->setDelayFree(4);
+		fx->setTempo(60 * 24);
+		requireNear(firstEcho(*fx, 40000), 11025, 3, "the Syntakt's, 4 Hz, whatever the tempo");
+		idle(*fx, 15000, false);
+		fx->setDelayFree(1378.125);
+		requireNear(firstEcho(*fx, 40000), 32, 3, "the Syntakt's, 1378 Hz, a block");
+		idle(*fx, 15000, false);
+		fx->setDelayFree(0.125);
+		requireNear(firstEcho(*fx, 400000), 352800, 3, "the Syntakt's, 0.125 Hz");
+		idle(*fx, 15000, false);
+		fx->setDelayFree(0);
+		fx->setTempo(120 * 24);
+		requireNear(firstEcho(*fx, 2 * TimeFrames), TimeFrames, 3, "TIME again");
+
+		const auto echoAt = [&](const double _hz, const double _seconds)
+		{
+			auto echo = sendsOf(_library);
+			echo->setDelayFree(_hz);
+			echo->setTempo(60 * 24);
+			idle(*echo, static_cast<int>(_seconds * SendRate / Frames), true);
+			return firstEcho(*echo, 800000);
+		};
+		requireNear(echoAt(4, 8), 11025, 3, "the Echo's, 4 Hz, whatever the tempo");
+		requireNear(echoAt(100, 8), 441, 3, "the Echo's, 100 Hz");
+		requireNear(echoAt(0.5, 12), 88200, 3, "the Echo's, 0.5 Hz");
+		for(const double hz : {1000.0, 0.4536, 0.4535, 0.25, 0.125})
+		{
+			const int at = echoAt(hz, 12);
+			std::printf("  the Echo asked for %.4f Hz: first echo after %d samples, %.4f Hz\n", hz, at, SendRate / at);
+		}
+		std::printf("PASS: the delays' first echoes at their times, after boot, a sleep, on a free time\n");
+	}
+
+	// A change of source fades the return out and in, and the effect left keeps nothing
+	void sendSwitch(const Library& _library)
+	{
+		constexpr float Level = 0.2f;
+		constexpr double Hz = 110;
+		const auto other = [](const SendSource _s)
+		{
+			return _s == SendSource::Syntakt ? SendSource::Machinedrum : SendSource::Syntakt;
+		};
+		const auto steps = [&](const Send _send, const SendSource _from)
+		{
+			auto fx = sendsOf(_library);
+			fx->setSource(_send, _from);
+			double phase = 0;
+			float last = 0, peak = 0;
+			const auto run = [&](const int _blocks)
+			{
+				float step = 0;
+				for(int b = 0; b < _blocks; ++b)
+				{
+					float* const left = fx->input(_send, 0, 0);
+					float* const right = fx->input(_send, 1, 0);
+					for(int i = 0; i < Frames; ++i)
+					{
+						left[i] = right[i] = Level * static_cast<float>(std::sin(phase));
+						phase += 2 * Pi * Hz / SendRate;
+					}
+					fx->block();
+					const float* const out = fx->output(_send, 0, 0);
+					for(int i = 0; i < Frames; ++i)
+					{
+						step = std::max(step, std::abs(out[i] - last));
+						last = out[i];
+						peak = std::max(peak, std::abs(out[i]));
+					}
+				}
+				return step;
+			};
+			run(static_cast<int>(2 * SendRate / Frames));
+			peak = 0;
+			const float steady = run(1000);
+			fx->setSource(_send, other(_from));
+			const float through = run(3);
+			const float bound = steady + 1.5f * peak / Frames;
+			std::printf("  %s from %s: return %.4f, its biggest step %.5f, through the change %.5f\n",
+				_send == Send::Delay ? "the delay" : "the reverb",
+				_from == SendSource::Syntakt ? "the Syntakt" : "the MD", static_cast<double>(peak),
+				static_cast<double>(steady), static_cast<double>(through));
+			require(peak > 0.05f, "no return to change");
+			require(through <= bound, "a change of source steps the return");
+		};
+		const auto tail = [&](const Send _send, const SendSource _from)
+		{
+			auto fx = sendsOf(_library);
+			fx->setEcho(md::fast::EchoFb, 100);
+			fx->setGateBox(md::fast::GateDec, 120);
+			fx->setSyntaktDelay(StDelayFdbk, 50);
+			fx->setSyntaktReverb(StReverbDec, 120);
+			fx->setSource(_send, _from);
+			idle(*fx, 100, false);
+			for(int b = 0; b < 100; ++b)
+			{
+				fx->input(_send, 0, 0)[b % Frames] = 0.5f;
+				fx->block();
+			}
+			fx->setSource(_send, other(_from));
+			idle(*fx, 4, false);
+			fx->setSource(_send, _from);
+			idle(*fx, 4, false);
+			float peak = 0;
+			for(int b = 0; b < static_cast<int>(3 * SendRate / Frames); ++b)
+			{
+				fx->block();
+				for(int i = 0; i < Frames; ++i)
+					peak = std::max(peak, std::abs(fx->output(_send, 0, 0)[i]));
+			}
+			require(peak == 0, "the tail of an effect came back with it");
+		};
+		for(const Send send : {Send::Delay, Send::Reverb})
+			for(const SendSource from : {SendSource::Machinedrum, SendSource::Syntakt})
+			{
+				steps(send, from);
+				tail(send, from);
+			}
+
+		// What the change costs the audio thread: both sends at once, the cache full of something else
+		std::vector<uint8_t> elsewhere(64 << 20);
+		double worstBlock = 0;
+		auto fx = sendsOf(_library);
+		idle(*fx, 100, true);
+		for(int run = 0; run < 16; ++run)
+		{
+			const auto to = run % 2 ? SendSource::Machinedrum : SendSource::Syntakt;
+			idle(*fx, 4, true);
+			for(auto& byte : elsewhere)
+				++byte;
+			fx->setSource(Send::Delay, to);
+			fx->setSource(Send::Reverb, to);
+			const auto t0 = Clock::now();
+			fx->block();
+			worstBlock = std::max(worstBlock, std::chrono::duration<double, std::micro>(Clock::now() - t0).count());
+		}
+		std::printf("  the block of a change of both sends: worst %.0f us of %.0f\n", worstBlock,
+			1e6 * Frames / SendRate);
+		std::printf("PASS: a change of source without a step, and no tail of the effect left\n");
+	}
+
+	// The Syntakt's bytes slew as the OS's step says: the effects as the words give them, against those words by hand.
+	// HPF's jump no longer clicks; PRE's still moves a read by whole samples at each block, printed and not bound
+	void sendSlew(const Library& _library, const bool _pre)
+	{
+		using syntakt::fast::Delay;
+		using syntakt::fast::DelayWords;
+		using syntakt::fast::Reverb;
+		using syntakt::fast::ReverbWords;
+		constexpr int Word = 127 << 8, Middle = 64 << 8;
+		auto fx = sendsOf(_library);
+		fx->setSource(Send::Delay, SendSource::Syntakt);
+		fx->setSource(Send::Reverb, SendSource::Syntakt);
+		DelayWords delayWords{32 << 8, 0, Middle, 0, 0, Word};
+		ReverbWords reverbWords{0, Middle, Middle, 0, 0, Word};
+		auto delay = std::make_unique<Delay>(SendRate);
+		auto reverb = std::make_unique<Reverb>(SendRate);
+		auto jumpedDelay = std::make_unique<Delay>(SendRate);
+		auto jumped = std::make_unique<Reverb>(SendRate);
+		const auto toRaw = [&]
+		{
+			delay->setWords(delayWords);
+			reverb->setWords(reverbWords);
+			delay->setTempo(120);
+		};
+		toRaw();
+		jumpedDelay->setWords(delayWords);
+		jumpedDelay->setTempo(120);
+		jumped->setWords(reverbWords);
+		delay->settle();
+		jumpedDelay->settle();
+		std::array<float, Frames> in{}, returned{}, right{}, l{}, r{}, jumpedOut{}, jumpedRight{}, jumpedL{}, jumpedR{};
+		const std::array<float, Frames> none{};
+		fx->block();
+		for(int b = 1; b < 100; ++b)
+		{
+			fx->block();
+			delay->process(in.data(), in.data(), returned.data(), right.data());
+			reverb->process(in.data(), in.data(), returned.data(), right.data(), l.data(), r.data());
+			jumpedDelay->process(in.data(), in.data(), jumpedOut.data(), jumpedRight.data());
+			jumped->process(in.data(), in.data(), none.data(), none.data(), jumpedL.data(), jumpedR.data());
+		}
+
+		// The delay's and the reverb's last sample, slewed and jumped, and their biggest steps
+		std::array<std::array<float, 2>, 2> before{}, steady{}, step{};
+		double phase = 0;
+		const auto slew = [](int& _word, const int _target) { _word = _target + 3 * (_word - _target) / 4; };
+		const int preTo = _pre ? 100 << 8 : 0, highPassTo = _pre ? 0 : 80 << 8, delayHighPassTo = _pre ? 0 : 100 << 8;
+		for(int b = 0; b < 2000; ++b)
+		{
+			if(b == 1400)
+			{
+				fx->setSyntaktReverb(StReverbPre, _pre ? 100 : 0);
+				fx->setSyntaktReverb(StReverbHp, _pre ? 0 : 80);
+				fx->setSyntaktDelay(StDelayHp, _pre ? 0 : 100);
+				ReverbWords now = reverbWords;
+				now.preDelay = preTo;
+				now.highPass = highPassTo;
+				jumped->setWords(now);
+				DelayWords nowDelay = delayWords;
+				nowDelay.highPass = delayHighPassTo;
+				jumpedDelay->setWords(nowDelay);
+			}
+			if(b >= 1400)
+			{
+				slew(delayWords.highPass, delayHighPassTo);
+				reverbWords.preDelay = preTo;
+				slew(reverbWords.highPass, highPassTo);
+				toRaw();
+			}
+			float* const toDelayL = fx->input(Send::Delay, 0, 0);
+			float* const toDelayR = fx->input(Send::Delay, 1, 0);
+			float* const toReverbL = fx->input(Send::Reverb, 0, 0);
+			float* const toReverbR = fx->input(Send::Reverb, 1, 0);
+			for(int i = 0; i < Frames; ++i)
+			{
+				const auto x = 0.2f * static_cast<float>(std::sin(phase));
+				phase += 2 * Pi * 110 / SendRate;
+				in[static_cast<size_t>(i)] = toDelayL[i] = toDelayR[i] = toReverbL[i] = toReverbR[i] = x;
+			}
+			fx->block();
+			delay->process(in.data(), in.data(), returned.data(), right.data());
+			reverb->process(in.data(), in.data(), returned.data(), right.data(), l.data(), r.data());
+			jumpedDelay->process(in.data(), in.data(), jumpedOut.data(), jumpedRight.data());
+			jumped->process(in.data(), in.data(), none.data(), none.data(), jumpedL.data(), jumpedR.data());
+			const float* const outDelay = fx->output(Send::Delay, 0, 0);
+			const float* const outReverb = fx->output(Send::Reverb, 0, 0);
+			for(int i = 0; i < Frames; ++i)
+			{
+				const auto n = static_cast<size_t>(i);
+				require(outDelay[i] == returned[n], "the Syntakt's delay does not slew by the step");
+				require(outReverb[i] == l[n], "the Syntakt's reverb does not slew by the step");
+				const float now[2][2] = {{returned[n], jumpedOut[n]}, {l[n], jumpedL[n]}};
+				for(size_t e = 0; e < 2; ++e)
+					for(size_t k = 0; k < 2; ++k)
+					{
+						auto& biggest = b < 1400 ? steady[e][k] : step[e][k];
+						if(b >= 1000 && b < 1500)
+							biggest = std::max(biggest, std::abs(now[e][k] - before[e][k]));
+						before[e][k] = now[e][k];
+					}
+			}
+		}
+		std::printf("  a jump of %s, the reverb's biggest step: %.5f playing, %.5f slewed, %.5f jumped\n",
+			_pre ? "PRE" : "HPF", double(steady[1][0]), double(step[1][0]), double(step[1][1]));
+		if(_pre)
+			return;
+		std::printf("  a jump of HPF, the delay's biggest step: %.5f playing, %.5f slewed, %.5f jumped\n",
+			double(steady[0][0]), double(step[0][0]), double(step[0][1]));
+		require(step[0][0] < 1.5f * steady[0][0], "a jump of the delay's HPF clicks");
+		std::printf("PASS: the Syntakt's bytes slew by the OS's step\n");
 	}
 
 	void withoutTheImage(const std::vector<uint8_t>& _flash, const Library& _library)
@@ -1712,6 +2065,10 @@ int main()
 		machineTable(flash);
 		familyChains(flash, library);
 		sends(library);
+		sendTimes(library);
+		sendSwitch(library);
+		sendSlew(library, false);
+		sendSlew(library, true);
 		chokedNeighbour(library);
 		chainWhileOff(library);
 		midHit(library);

@@ -40,6 +40,9 @@ namespace md::fast
 		// The words of the OS's tick, between two blocks
 		void setWords(const GateBoxWords& _words);
 
+		// Nothing left in the lines and the filters, the gate closed, so that nothing of what was sent comes back
+		void clear();
+
 		// One block: the reverb send and the Echo's return in, the return out. _in and _out may not overlap
 		void process(const float* _inL, const float* _inR, const float* _echoL, const float* _echoR, float* _outL,
 			float* _outR);

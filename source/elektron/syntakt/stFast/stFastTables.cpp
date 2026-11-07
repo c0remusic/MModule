@@ -1054,4 +1054,70 @@ namespace syntakt::fast::tables
 			t[i] = clamp(std::exp2(i / 2047.0) * 1073741824.0);
 		return t;
 	}
+
+	std::array<float, 1024> sendPoles(const double _rate)
+	{
+		// exp(-w R(w^2)) for w = 2 pi f / rate, f in equal ratios from 5 Hz (i from 0 to 507, the rest 0): a pole like
+		// exp(-w) low down, which bends away from it as w passes 1 and stays above zero at f past Nyquist. No form was
+		// found for R, a rational fit, within 7e-7 of section 3's words
+		constexpr double Num[3] = {1.9336640456e-02, 1.7456648594e-03, 3.2873401579e-06};
+		constexpr double Den[3] = {3.4734555223e-02, 2.7598952005e-03, 4.4201151801e-05};
+		constexpr double F0 = 4.9999679072, Octaves = 2.5523228388e-02;
+		constexpr int Poles = 508;
+		const double top = 2 * Pi * F0 * std::exp2((Poles - 1) * Octaves) / 48000;
+		std::array<float, 1024> t{};
+		for(int i = 0; i < Poles; ++i)
+		{
+			const double w = std::min(2 * Pi * F0 * std::exp2(i * Octaves) / _rate, top), z = w * w;
+			const double num = 1 + z * (Num[0] + z * (Num[1] + z * Num[2]));
+			const double den = 1 + z * (Den[0] + z * (Den[1] + z * Den[2]));
+			t[static_cast<size_t>(i)] = static_cast<float>(std::exp(-w * num / den));
+		}
+		return t;
+	}
+
+	std::array<float, 128> reverbShelves(const double _rate)
+	{
+		// A shelf's coefficient s, its pole 1 - 2 s. No form was found: a polynomial of the byte, in double within
+		// 9e-10 of section 3's words at 48 kHz, the float it is stored in within 3e-8. Another rate keeps the shelf's
+		// frequency through the bilinear transform
+		constexpr double C[11] = {0.0600124942, 0.34389039, 0.2184723795, 0.0237831892, -0.0568605301, -0.041620146,
+			0.0147425255, -0.0151546487, 0.0406171111, -0.0263860316, 0.0054143499};
+		std::array<float, 128> t{};
+		for(int i = 0; i < 128; ++i)
+		{
+			double s = 0;
+			for(int k = 10; k >= 0; --k)
+				s = s * (i / 127.0) + C[k];
+			const double hz = std::atan(s / (1 - s)) * 48000 / Pi, tangent = std::tan(Pi * hz / _rate);
+			t[static_cast<size_t>(i)] = static_cast<float>(tangent / (1 + tangent));
+		}
+		return t;
+	}
+
+	std::array<float, 128> reverbDiffusion()
+	{
+		std::array<float, 128> t{};
+		for(int i = 0; i < 128; ++i)
+			t[static_cast<size_t>(i)] = static_cast<float>(std::min(0.6 + 0.025 * std::exp(0.0255858904 * i), 0.715));
+		return t;
+	}
+
+	std::array<std::array<float, 8>, 128> reverbMatrix()
+	{
+		// 0.5 of what is a reverberation time's fall over the line, 60 dB in T seconds: T from 0.459375 s in equal
+		// ratios, faster over the last ten rows, and no fall at all at the last. These are the lengths the matrix
+		// reckons with, which the lines have but for the first (stFastReverb.cpp), at the machine's 48 kHz
+		constexpr double Lengths[8] = {2539, 3359, 4721, 7001, 2111, 3109, 4507, 6701};
+		std::array<std::array<float, 8>, 128> t{};
+		for(int i = 0; i < 128; ++i)
+		{
+			const double seconds = i < 117 ? 0.459375 * std::exp(0.0255858904 * i)
+				: 9.0535549514 * std::exp(0.1806441466 * (i - 117));
+			for(size_t j = 0; j < 8; ++j)
+				t[static_cast<size_t>(i)][j] = i == 127 ? 0.5f
+					: static_cast<float>(0.5 * std::pow(10.0, -3 * Lengths[j] / (48000 * seconds)));
+		}
+		return t;
+	}
 }

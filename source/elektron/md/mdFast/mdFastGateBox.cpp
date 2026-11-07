@@ -109,6 +109,18 @@ namespace md::fast
 		m_predelay = static_cast<int>(_words[7] / 2);
 	}
 
+	void GateBox::clear()
+	{
+		std::fill(m_memory.begin(), m_memory.end(), 0.0f);
+		m_allpassState = {};
+		m_lowState = {};
+		m_readHeld = {};
+		m_envelope = m_peak = m_gateCount = m_gateGain = 0;
+		m_highState = {};
+		m_highLast = {};
+		m_outState = {};
+	}
+
 	void GateBox::predelay(const float* _inL, const float* _inR, const float* _echoL, const float* _echoR,
 		Samples& _mono)
 	{

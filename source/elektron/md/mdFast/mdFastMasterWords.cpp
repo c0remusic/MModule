@@ -14,19 +14,7 @@ namespace md::fast
 		const int32_t delay = static_cast<int32_t>((product >> 10) * 360) / static_cast<int32_t>(_tempo);
 
 		EchoWords w{};
-		// The lines hold $17ADC words: within them the read pointer's distance sets the delay, at the step $4001, which
-		// the block's truncation brings to one word a sample; a longer delay slows both pointers instead
-		constexpr int32_t lineWords = 0x17adc;
-		if(delay < lineWords)
-		{
-			w[0] = static_cast<uint32_t>(lineWords - delay);
-			w[1] = 0x4001;
-		}
-		else
-		{
-			w[0] = 0x20;
-			w[1] = static_cast<uint32_t>(0x5ebf0000 / delay);
-		}
+		echoDelayWords(delay, w);
 		w[2] = _values[EchoMod] * 2u;
 		w[3] = (static_cast<uint32_t>(_values[EchoMfrq]) << 4) + 0x200;
 		w[4] = static_cast<uint32_t>(_values[EchoFb]) << 9;
@@ -37,6 +25,23 @@ namespace md::fast
 		w[7] = (0x3fffu - _values[EchoMono]) << 9;
 		w[8] = static_cast<uint32_t>(_values[EchoLev]) << 8;
 		return w;
+	}
+
+	void echoDelayWords(const int32_t _delay, EchoWords& _words)
+	{
+		// The lines hold $17ADC words: within them the read pointer's distance sets the delay, at the step $4001, which
+		// the block's truncation brings to one word a sample; a longer delay slows both pointers instead
+		constexpr int32_t lineWords = 0x17adc;
+		if(_delay < lineWords)
+		{
+			_words[0] = static_cast<uint32_t>(lineWords - _delay);
+			_words[1] = 0x4001;
+		}
+		else
+		{
+			_words[0] = 0x20;
+			_words[1] = static_cast<uint32_t>(0x5ebf0000 / _delay);
+		}
 	}
 
 	GateBoxWords gateBoxWords(const voice::OsTables& _tables, const MasterValues& _values)
