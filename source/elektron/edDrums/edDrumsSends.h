@@ -19,11 +19,12 @@ namespace elektron::drums
 {
 	enum class Send : uint8_t { Delay, Reverb, Chorus, Phaser };
 	constexpr int SendCount = 4;
-	// The delay's and the reverb's two, the Phaser send's two
-	enum class SendSource : uint8_t { Machinedrum, Syntakt, Phaser = Machinedrum, Flanger = Syntakt };
+	// The delay's and the reverb's two, the Phaser send's three
+	enum class SendSource : uint8_t { Machinedrum, Syntakt, Dp4, Phaser = Machinedrum, Flanger = Syntakt };
 
-	// Our chorus's and phaser's settings, 0-127, but Stages 1-6. Mode 0 phaser, else flanger, whose delay Frequency
-	// sets and which has no Stages or Spread; a change of Mode goes as a change of source does
+	// Our chorus's and phaser's settings, 0-127, but Stages 1-6. Mode 0 phaser, 1 flanger, whose delay Frequency sets
+	// and which has no Stages or Spread, 2 the DP/4's phaser: Frequency its centre, Depth its width, Spread its notch
+	// depth, no Stages. A change of Mode goes as a change of source does
 	enum ChorusByte { ChorusRate, ChorusDepth, ChorusDelay, ChorusFeedback, ChorusLevel, ChorusBytes };
 	enum PhaserByte
 	{
@@ -123,6 +124,7 @@ namespace elektron::drums
 		int32_t m_echoFree = 0;								// a free time in samples; 0: TIME's
 		std::unique_ptr<ModulatedDelay> m_chorus, m_flanger;
 		std::unique_ptr<Phaser> m_phaser;
+		std::unique_ptr<Dp4Phaser> m_dp4;
 		std::array<uint8_t, ChorusBytes> m_chorusBytes{};
 		std::array<uint8_t, PhaserBytes> m_phaserBytes{};
 		float m_chorusPlayed = 0, m_phaserPlayed = 0;		// the gain the last block ended on

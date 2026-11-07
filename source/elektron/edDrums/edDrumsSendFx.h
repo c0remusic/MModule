@@ -75,4 +75,32 @@ namespace elektron::drums
 		Stage m_state[MaxStages][2];
 		float m_last[2] = {};
 	};
+
+	// Twelve first-order allpasses, one coefficient a sine moves, the channels on either side of it, each chain fed
+	// back into the other's; then the input mixed back for the notches. Its laws are measured on what Phaser-DDL
+	// renders, an emulation of the Ensoniq DP/4's phaser, at the host's rate; without its delay line
+	class Dp4Phaser
+	{
+	public:
+		static constexpr int BlockSize = 32;
+
+		Dp4Phaser();
+
+		// 0-127. Centre, feedback and notch are signed about 64: a notch under it turns the input mixed back over
+		void set(uint8_t _center, uint8_t _width, uint8_t _rate, uint8_t _feedback, uint8_t _notch);
+		// At the settings at once
+		void settle();
+
+		void process(const float* _inL, const float* _inR, float* _outL, float* _outR);
+		void clear();
+
+	private:
+		static constexpr int Stages = 12;
+
+		float m_center = 0, m_width = 0, m_feedback = 0, m_notch = 0;
+		uint32_t m_phase = 0, m_step = 0;
+		float m_target[2] = {}, m_targetTo[2] = {}, m_coefficient[2] = {};
+		float m_state[Stages][2] = {};
+		float m_last[2] = {}, m_dcIn[2] = {}, m_dcOut[2] = {};
+	};
 }

@@ -57,3 +57,15 @@ plus tard si le besoin vient.
 
 Reste ouvert : la validation à l'écoute de l'utilisateur, critère de fin du ticket. DVOL reste à 0 pour des retours en
 parallèle. FDBK au-dessus de 64 sur le delay du Syntakt reste hors Q2.
+
+## Phaser du DP/4 (2026-11-07)
+
+À la demande de l'utilisateur, l'envoi Phaser a un troisième mode, Mode 2 : le phaser de l'Ensoniq DP/4, mesuré sur ce
+que rend Phaser-DDL de Dusty Devices, une émulation de ce phaser, à la cadence de l'hôte. Douze allpass du premier ordre
+par canal, un seul coefficient que bouge un sinus, gauche et droite de part et d'autre, chaque chaîne réinjectée dans
+l'autre, puis l'entrée remélangée pour creuser les encoches. Frequency donne le centre, Depth la largeur, Spread la
+profondeur d'encoche, signée autour de 64 ; Stages ne sert pas. Sans le delay du DDL ni son mode à 35,7 kHz.
+
+Contre le plug-in sur bruit stéréo : −37 à −52 dB d'erreur à l'arrêt, −17 à −29 dB avec le sinus sur 0,3 s, l'écart
+venant surtout de 0,5 % sur la vitesse. Coût : 0,11 % d'un cœur. Le flanger du DEEP/4 de Temecula DSP n'est pas fait :
+l'hôte de test ne charge pas ce plug-in, et l'utilisateur a choisi le phaser seul.

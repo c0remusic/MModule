@@ -1650,7 +1650,8 @@ namespace
 				take.render(*e, std::min(_block, Samples - take.at()));
 			return take;
 		};
-		for(const auto& [send, mode] : {std::pair<Send, int>{Send::Chorus, 0}, {Send::Phaser, 0}, {Send::Phaser, 1}})
+		for(const auto& [send, mode] :
+			{std::pair<Send, int>{Send::Chorus, 0}, {Send::Phaser, 0}, {Send::Phaser, 1}, {Send::Phaser, 2}})
 		{
 			const auto take = ours(send, mode, 32);
 			require(energy(take.channel(2 * Out)) > 1e-3, "no chorus, phaser or flanger");
@@ -1661,8 +1662,9 @@ namespace
 		// The sweep at its fastest, a low frequency, all the feedback: a direct form's state ran away here
 		for(const int rate : {124, 127})
 			for(const int feedback : {0, 127})
-				for(const float x : ours(Send::Phaser, 0, 32, rate, 0, feedback).channel(2 * Out))
-					require(std::isfinite(x) && std::abs(x) < 64, "the phaser runs away");
+				for(const int mode : {0, 2})
+					for(const float x : ours(Send::Phaser, mode, 32, rate, 0, feedback).channel(2 * Out))
+						require(std::isfinite(x) && std::abs(x) < 64, "the phaser runs away");
 		const auto syntakt = play(127, 127, Out, 32, SendSource::Syntakt);
 		for(const int channel : {0, 1})
 			require(dry.channel(channel) == syntakt.channel(channel), "the Syntakt's return on an Out reaches Main");

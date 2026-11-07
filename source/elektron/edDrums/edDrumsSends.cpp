@@ -12,10 +12,11 @@ namespace elektron::drums
 		  m_stReverb(std::make_unique<syntakt::fast::Reverb>(Rate)),
 		  m_chorus(std::make_unique<ModulatedDelay>(ModulatedDelay::ChorusStep)),
 		  m_flanger(std::make_unique<ModulatedDelay>(ModulatedDelay::FlangerStep)),
-		  m_phaser(std::make_unique<Phaser>())
+		  m_phaser(std::make_unique<Phaser>()), m_dp4(std::make_unique<Dp4Phaser>())
 	{
 		// Nothing fed back until said otherwise
 		m_chorusBytes[ChorusFeedback] = m_phaserBytes[PhaserFeedback] = 64;
+		m_phaserBytes[PhaserSpread] = 64;		// the DP/4's notch at its middle, nothing mixed back
 	}
 
 	void Sends::setTempo(const uint32_t _tempo)
@@ -69,6 +70,8 @@ namespace elektron::drums
 		const bool fromSyntakt = m_source[s] == SendSource::Syntakt;
 		if(_send == Send::Phaser && m_source[s] == SendSource::Flanger)
 			m_flanger->clear();
+		else if(_send == Send::Phaser && m_source[s] == SendSource::Dp4)
+			m_dp4->clear();
 		else if(_send == Send::Phaser)
 			m_phaser->clear();
 		else if(_send == Send::Reverb && fromSyntakt)
@@ -86,6 +89,13 @@ namespace elektron::drums
 		}
 		m_source[s] = m_wanted[s];
 		m_entering[s] = true;
+		// What comes in starts at its settings, not where it last ran
+		if(_send == Send::Phaser)
+		{
+			m_phaser->settle();
+			m_flanger->settle();
+			m_dp4->settle();
+		}
 	}
 
 	void Sends::setChorus(const int _byte, const uint8_t _value)
@@ -102,7 +112,9 @@ namespace elektron::drums
 		m_phaser->set(b[PhaserStages], b[PhaserFrequency], b[PhaserSpread], b[PhaserDepth], b[PhaserRate],
 			b[PhaserFeedback]);
 		m_flanger->set(b[PhaserFrequency], b[PhaserDepth], b[PhaserRate], b[PhaserFeedback]);
-		setSource(Send::Phaser, b[PhaserMode] ? SendSource::Flanger : SendSource::Phaser);
+		m_dp4->set(b[PhaserFrequency], b[PhaserDepth], b[PhaserRate], b[PhaserFeedback], b[PhaserSpread]);
+		static constexpr SendSource Modes[] = {SendSource::Phaser, SendSource::Flanger, SendSource::Dp4};
+		setSource(Send::Phaser, Modes[std::min<int>(b[PhaserMode], 2)]);
 	}
 
 	template<typename Effect>
@@ -152,6 +164,7 @@ namespace elektron::drums
 			m_echo->settle();
 			m_chorus->settle();
 			m_flanger->settle();
+			m_dp4->settle();
 			m_phaser->settle();
 		}
 
@@ -176,8 +189,11 @@ namespace elektron::drums
 		fade(Send::Reverb);
 		runOurs(Send::Chorus, *m_chorus, sendFxLevel(m_chorusBytes[ChorusLevel]), m_chorusPlayed);
 		const float phaserLevel = sendFxLevel(m_phaserBytes[PhaserLevel]);
-		if(m_source[static_cast<size_t>(Send::Phaser)] == SendSource::Flanger)
+		const auto mode = m_source[static_cast<size_t>(Send::Phaser)];
+		if(mode == SendSource::Flanger)
 			runOurs(Send::Phaser, *m_flanger, phaserLevel, m_phaserPlayed);
+		else if(mode == SendSource::Dp4)
+			runOurs(Send::Phaser, *m_dp4, phaserLevel, m_phaserPlayed);
 		else
 			runOurs(Send::Phaser, *m_phaser, phaserLevel, m_phaserPlayed);
 		fade(Send::Phaser);

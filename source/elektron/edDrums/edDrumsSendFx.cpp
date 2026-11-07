@@ -10,6 +10,16 @@ namespace elektron::drums
 	{
 		constexpr double Rate = 44100, Pi = 3.141592653589793;
 		constexpr float Glide = 0.5f;		// what a block leaves of the way to a new setting
+		constexpr float DcPole = 0.99919f;	// the DP/4's DC blocker, 5.7 Hz
+		constexpr float Smooth = 0.99518f;	// its coefficient's one-pole a sample, 4.7 ms
+		constexpr float Edge = 0.9995f;		// short of 1, where a stage would hold DC or Nyquist for ever
+
+		// The DP/4's -99 to 99 from 0-127, 0 at 64
+		double signedDp4(const uint8_t _value)
+		{
+			const int v = _value - 64;
+			return v * 99.0 / (v < 0 ? 64 : 63);
+		}
 
 		struct Knot
 		{
@@ -198,6 +208,86 @@ namespace elektron::drums
 		{
 			clear();
 			m_stages = m_stagesTo;
+		}
+	}
+
+	Dp4Phaser::Dp4Phaser()
+	{
+		set(64, 0, 0, 64, 127);
+		settle();
+	}
+
+	void Dp4Phaser::set(const uint8_t _center, const uint8_t _width, const uint8_t _rate, const uint8_t _feedback,
+		const uint8_t _notch)
+	{
+		const double center = signedDp4(_center);
+		m_center = static_cast<float>(center >= 0 ? center / 99 : center / 99.79);
+		m_width = static_cast<float>(_width * 99.0 / 127 / 99.8);
+		const double rate = _rate * 99.0 / 127;
+		const double hz = rate > 0 ? std::exp(-5.684159 + 0.040309 * rate) * std::pow(rate, 0.913459) : 0;
+		m_step = static_cast<uint32_t>(hz * BlockSize / Rate * 4294967296.0);
+		m_feedback = static_cast<float>(0.992 * signedDp4(_feedback) / 99);
+		m_notch = static_cast<float>(signedDp4(_notch) / 99);
+	}
+
+	void Dp4Phaser::settle()
+	{
+		const float swing = m_width * std::cos(static_cast<float>(m_phase >> 8) * 3.7450702829239286e-7f);
+		m_targetTo[0] = std::clamp(m_center - swing, -Edge, Edge);
+		m_targetTo[1] = std::clamp(m_center + swing, -Edge, Edge);
+		for(int c = 0; c < 2; ++c)
+			m_coefficient[c] = m_target[c] = m_targetTo[c];
+	}
+
+	void Dp4Phaser::clear()
+	{
+		for(auto& channel : m_state)
+			std::fill(std::begin(channel), std::end(channel), 0.0f);
+		m_last[0] = m_last[1] = m_dcIn[0] = m_dcIn[1] = m_dcOut[0] = m_dcOut[1] = 0;
+	}
+
+	void Dp4Phaser::process(const float* const _inL, const float* const _inR, float* const _outL, float* const _outR)
+	{
+		// The sine moves the coefficients; L on the other side of it. Its value at the block's end, a line between
+		m_phase += m_step;
+		const float swing = m_width * std::cos(static_cast<float>(m_phase >> 8) * 3.7450702829239286e-7f);
+		const float to[2] = {std::clamp(m_center - swing, -Edge, Edge), std::clamp(m_center + swing, -Edge, Edge)};
+		float step[2];
+		for(int c = 0; c < 2; ++c)
+		{
+			m_target[c] = m_targetTo[c];
+			m_targetTo[c] = to[c];
+			step[c] = (to[c] - m_target[c]) / BlockSize;
+		}
+		const float* const in[2] = {_inL, _inR};
+		float* const out[2] = {_outL, _outR};
+		for(int k = 0; k < BlockSize; ++k)
+		{
+			float v[2], x[2];
+			for(int c = 0; c < 2; ++c)
+			{
+				// A DC blocker at 5.7 Hz, then the other channel's chain fed back across, R's with its sign turned
+				const float sample = in[c][k];
+				m_dcOut[c] = sample - m_dcIn[c] + DcPole * m_dcOut[c];
+				m_dcIn[c] = sample;
+				v[c] = m_dcOut[c] + (c ? -m_feedback : m_feedback) * m_last[1 - c];
+				m_target[c] += step[c];
+				m_coefficient[c] = m_target[c] + Smooth * (m_coefficient[c] - m_target[c]);
+				x[c] = v[c];
+			}
+			for(int s = 0; s < Stages; ++s)
+				for(int c = 0; c < 2; ++c)
+				{
+					const float a = m_coefficient[c];
+					const float y = a * x[c] + m_state[s][c];
+					m_state[s][c] = x[c] - a * y;
+					x[c] = y;
+				}
+			for(int c = 0; c < 2; ++c)
+			{
+				m_last[c] = x[c];
+				out[c][k] = 0.70711f * (x[c] + m_notch * v[c]);
+			}
 		}
 	}
 }
