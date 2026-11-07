@@ -9,6 +9,7 @@
 #include "edDrumsChain.h"
 #include "edDrumsLfo.h"
 #include "edDrumsLibrary.h"
+#include "edDrumsMaster.h"
 #include "edDrumsSends.h"
 #include "elektronBlock.h"
 #include "mdVoice.h"
@@ -151,6 +152,14 @@ namespace elektron::drums
 		void setSend(int _track, Send _send, int _level);
 		// The effects the Tracks share: their settings, and which output their return goes to
 		Sends& sends() { return *m_sends; }
+		// The master on Main, off until set on: Main then as the Tracks and returns sum
+		Master& master() { return *m_master; }
+		void setMasterOn(const bool _on)
+		{
+			if(_on && !m_masterOn)
+				m_master->settle();
+			m_masterOn = _on;
+		}
 		// Beats per minute, for the Machinedrum's machines that read the tempo and for the LFOs
 		void setTempo(double _bpm);
 
@@ -324,6 +333,8 @@ namespace elektron::drums
 		uint32_t m_mdLive = 0;			// ... whose voice sounds
 		uint32_t m_mdTails = 0;			// ... whose chain still has a cut voice to take
 		std::unique_ptr<Sends> m_sends;
+		std::unique_ptr<Master> m_master;
+		bool m_masterOn = false;
 		std::unique_ptr<Chain> m_mdChain;
 		std::unique_ptr<Block> m_mdIn;
 		uint32_t m_tempo = 120 * 24;

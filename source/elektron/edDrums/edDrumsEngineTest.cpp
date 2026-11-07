@@ -1566,6 +1566,14 @@ namespace
 	// A machine that reads nothing of the image plays the same samples with and without it, at its defaults, with each
 	// knob at 0, 100 and 127, the others in the middle, and with all of them at random
 	// The sends: nothing at 0, a return on the output chosen and nowhere else, the same samples whatever the host's blocks
+	double energy(const std::vector<float>& _x)
+	{
+		double sum = 0;
+		for(const float v : _x)
+			sum += v * v;
+		return sum;
+	}
+
 	void sends(const Library& _library)
 	{
 		constexpr int Samples = 44100, Warm = 2000, Out = 3;
@@ -1601,13 +1609,6 @@ namespace
 			while(take.at() < Samples)
 				take.render(*e, std::min(_block, Samples - take.at()));
 			return take;
-		};
-		const auto energy = [](const std::vector<float>& _x)
-		{
-			double sum = 0;
-			for(const float v : _x)
-				sum += v * v;
-			return sum;
 		};
 		const auto dry = play(0, 0, 0, 32);
 		require(energy(dry.channel(2 * Out)) == 0, "no send, an Out with nothing");
@@ -1670,6 +1671,52 @@ namespace
 		require(syntakt.channel(2 * Out) == play(127, 127, Out, 57, SendSource::Syntakt).channel(2 * Out),
 			"the Syntakt's return moves with the host's blocks");
 		std::printf("PASS: the sends, none at 0, the returns where they are sent, the same whatever the blocks\n");
+	}
+
+	// ---- the master on Main ----
+
+	void master(const Library& _library)
+	{
+		constexpr int Samples = 44100;
+		const auto play = [&](const bool _on, const std::vector<std::pair<int, uint8_t>>& _bytes, const int _block)
+		{
+			auto e = std::make_unique<Engine>(_library);
+			e->setMachine(0, {Family::Machinedrum, 16});
+			e->setLevel(0, 90);
+			e->setChain(0, ChainSettings{});
+			e->setMachine(1, {Family::Machinedrum, 16});
+			e->setOutput(1, 1);
+			e->setMasterOn(_on);
+			for(const auto& [byte, value] : _bytes)
+				e->master().set(byte, value);
+			Take take(Samples);
+			e->noteOn(0, 127);
+			e->noteOn(1, 127);
+			while(take.at() < Samples)
+				take.render(*e, std::min(_block, Samples - take.at()));
+			return take;
+		};
+		const auto off = play(false, {}, 32);
+		const auto on = play(true, {}, 32);
+		float peak = 0, apart = 0;
+		for(const int c : {0, 1})
+			for(size_t i = 0; i < static_cast<size_t>(Samples); ++i)
+			{
+				peak = std::max(peak, std::abs(off.channel(c)[i]));
+				apart = std::max(apart, std::abs(on.channel(c)[i] - off.channel(c)[i]));
+			}
+		std::printf("  master: Main peak %.3f, apart %.2e\n", peak, apart);
+		require(peak > 0.1f && peak < 1, "the Hit fills Main under full scale");
+		require(apart < 1e-6f, "the master at its defaults changes Main");
+		const std::vector<std::pair<int, uint8_t>> squeezed = {{MasterThreshold, 40}, {MasterRatio, 127},
+			{MasterDrive, 64}, {MasterMakeup, 20}};
+		const auto pressed = play(true, squeezed, 32);
+		require(energy(pressed.channel(0)) < 0.5 * energy(off.channel(0)), "a low threshold does not compress");
+		require(pressed.channel(2) == off.channel(2), "the master reaches an Out");
+		require(pressed.channel(0) == play(true, squeezed, 57).channel(0), "the master moves with the host's blocks");
+		for(const float x : pressed.channel(0))
+			require(std::abs(x) <= 1, "Main past full scale");
+		std::printf("PASS: the master, nothing at its defaults, Main only, the same whatever the blocks\n");
 	}
 
 	// ---- the sends on their own: a block of Sends here, with its input before it, is 32 samples of the engine's ----
@@ -2105,6 +2152,7 @@ int main()
 		machineTable(flash);
 		familyChains(flash, library);
 		sends(library);
+		master(library);
 		sendTimes(library);
 		sendSwitch(library);
 		sendSlew(library, false);

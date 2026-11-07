@@ -295,6 +295,7 @@ namespace elektron::drums
 		m_shared->e12 = m_library.e12.empty() ? nullptr : m_library.e12.data();
 		m_shared->pi = m_library.pi.data();
 		m_sends = std::make_unique<Sends>(*m_library.os, m_library.trx.sine.data());
+		m_master = std::make_unique<Master>(Sends::Rate);
 		m_sends->setTempo(m_tempo);
 		m_voices.reserve(Tracks);
 		for(uint32_t t = 0; t < Tracks; ++t)
@@ -1004,6 +1005,7 @@ namespace elektron::drums
 			{
 				if(m_now)
 					m_sends->block();
+				m_master->block();
 				renderMachinedrum();
 			}
 			if(m_now == m_stNext)
@@ -1011,6 +1013,8 @@ namespace elektron::drums
 			const auto run = static_cast<int>(std::min({static_cast<int64_t>(_count - done),
 				m_mdBlock * BlockSize - m_now, m_stNext - m_now}));
 			mix(_outputs, done, run);
+			if(m_masterOn && _outputs[0] && _outputs[1])
+				m_master->process(_outputs[0] + done, _outputs[1] + done, run);
 			m_now += run;
 			done += run;
 		}

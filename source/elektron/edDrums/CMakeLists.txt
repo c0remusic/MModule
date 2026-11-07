@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.15)
 # .scratch/elektron-drums-v1). mdEngine serves its flash image reader alone.
 add_library(edDrums STATIC edDrumsChain.h edDrumsChain.cpp edDrumsEngine.h edDrumsEngine.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
 	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
-	edDrumsSendFx.h edDrumsSendFx.cpp edDrumsSends.h edDrumsSends.cpp)
+	edDrumsMaster.h edDrumsMaster.cpp edDrumsSendFx.h edDrumsSendFx.cpp edDrumsSends.h edDrumsSends.cpp)
 target_include_directories(edDrums PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast PRIVATE mdEngine)
 set_property(TARGET edDrums PROPERTY FOLDER "Elektron")
