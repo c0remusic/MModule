@@ -1565,6 +1565,57 @@ namespace
 
 	// A machine that reads nothing of the image plays the same samples with and without it, at its defaults, with each
 	// knob at 0, 100 and 127, the others in the middle, and with all of them at random
+	// The sends: nothing at 0, a return on the output chosen and nowhere else, the same samples whatever the host's blocks
+	void sends(const Library& _library)
+	{
+		constexpr int Samples = 44100, Warm = 2000, Out = 3;
+		const auto play = [&](const int _delay, const int _reverb, const int _output, const int _block)
+		{
+			auto e = std::make_unique<Engine>(_library);
+			e->setMachine(0, {Family::Machinedrum, 16});
+			e->setLevel(0, 127);
+			e->setChain(0, ChainSettings{});
+			auto& fx = e->sends();
+			for(const auto& [byte, value] : {std::pair<int, uint8_t>{md::fast::EchoTime, 24}, {md::fast::EchoFb, 32},
+				{md::fast::EchoFltw, 127}, {md::fast::EchoLev, 127}})
+				fx.setEcho(byte, value);
+			for(const auto& [byte, value] : {std::pair<int, uint8_t>{md::fast::GateDec, 64}, {md::fast::GateDamp, 64},
+				{md::fast::GateLp, 127}, {md::fast::GateGate, 127}, {md::fast::GateLev, 127}})
+				fx.setGateBox(byte, value);
+			fx.setOutput(Send::Delay, _output);
+			fx.setOutput(Send::Reverb, _output);
+			e->setSend(0, Send::Delay, _delay);
+			e->setSend(0, Send::Reverb, _reverb);
+			Take take(Samples);
+			take.render(*e, 0, Warm);
+			e->noteOn(0, 127);
+			while(take.at() < Samples)
+				take.render(*e, std::min(_block, Samples - take.at()));
+			return take;
+		};
+		const auto energy = [](const std::vector<float>& _x)
+		{
+			double sum = 0;
+			for(const float v : _x)
+				sum += v * v;
+			return sum;
+		};
+		const auto dry = play(0, 0, 0, 32);
+		require(energy(dry.channel(2 * Out)) == 0, "no send, an Out with nothing");
+		for(const int channel : {0, 1})
+			require(dry.channel(channel) == play(0, 0, Out, 32).channel(channel), "a send at 0 changes Main");
+		const auto sent = play(127, 127, Out, 32);
+		for(const int channel : {0, 1})
+			require(dry.channel(channel) == sent.channel(channel), "a return on an Out reaches Main");
+		require(energy(sent.channel(2 * Out)) > 1e-3, "no return on the Out chosen");
+		require(energy(play(127, 0, Out, 32).channel(2 * Out)) > 1e-3, "no delay");
+		require(energy(play(0, 127, Out, 32).channel(2 * Out)) > 1e-3, "no reverb");
+		require(energy(play(127, 127, 0, 32).channel(0)) > energy(dry.channel(0)), "no return on Main");
+		const auto other = play(127, 127, Out, 57);
+		require(sent.channel(2 * Out) == other.channel(2 * Out), "a return moves with the host's blocks");
+		std::printf("PASS: the sends, none at 0, the returns where they are sent, the same whatever the blocks\n");
+	}
+
 	void withoutTheImage(const std::vector<uint8_t>& _flash, const Library& _library)
 	{
 		const Library none;
@@ -1660,6 +1711,7 @@ int main()
 		withoutTheImage(flash, library);
 		machineTable(flash);
 		familyChains(flash, library);
+		sends(library);
 		chokedNeighbour(library);
 		chainWhileOff(library);
 		midHit(library);

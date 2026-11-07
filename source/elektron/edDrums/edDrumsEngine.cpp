@@ -294,6 +294,8 @@ namespace elektron::drums
 		m_shared->trx = &m_library.trx;
 		m_shared->e12 = m_library.e12.empty() ? nullptr : m_library.e12.data();
 		m_shared->pi = m_library.pi.data();
+		m_sends = std::make_unique<Sends>(*m_library.os, m_library.trx.sine.data());
+		m_sends->setTempo(m_tempo);
 		m_voices.reserve(Tracks);
 		for(uint32_t t = 0; t < Tracks; ++t)
 			m_voices.emplace_back(*m_shared, t);
@@ -393,9 +395,16 @@ namespace elektron::drums
 		m_tracks[static_cast<size_t>(_track)].output = std::clamp(_output, 0, Outputs - 1);
 	}
 
+	void Engine::setSend(const int _track, const Send _send, const int _level)
+	{
+		const float g = static_cast<float>(std::clamp(_level, 0, 127)) / 127.0f;
+		m_tracks[static_cast<size_t>(_track)].send[static_cast<size_t>(_send)] = g * g;
+	}
+
 	void Engine::setTempo(const double _bpm)
 	{
 		m_tempo = static_cast<uint32_t>(std::lround(std::clamp(_bpm, 30.0, 300.0) * 24.0));
+		m_sends->setTempo(m_tempo);
 		const double perSample = std::clamp(_bpm, 1.0, 1000.0) / 60 / SampleRate;
 		if(perSample == m_quartersPerSample)
 			return;
@@ -921,6 +930,7 @@ namespace elektron::drums
 	void Engine::mix(float* const* _outputs, const int _offset, const int _count)
 	{
 		alignas(16) float sum[BlockSize];
+		const int at = static_cast<int>(m_now & (BlockSize - 1));
 		for(int track = 0; track < Tracks; ++track)
 		{
 			auto& t = m_tracks[static_cast<size_t>(track)];
@@ -950,7 +960,36 @@ namespace elektron::drums
 					for(; i < _count; ++i)
 						out[i] += sum[i] * g;
 			}
+			// Each send moves a full swing in CutSamples too
+			for(int s = 0; s < SendCount; ++s)
+			{
+				const auto index = static_cast<size_t>(s);
+				float g = t.sendNow[index];
+				const float to = t.send[index];
+				if(g == 0 && to == 0)
+					continue;
+				float* const left = m_sends->input(static_cast<Send>(s), 0, at);
+				float* const right = m_sends->input(static_cast<Send>(s), 1, at);
+				for(int i = 0; i < _count; ++i)
+				{
+					left[i] += sum[i] * g * t.panNow[0];
+					right[i] += sum[i] * g * t.panNow[1];
+					const float move = to - g;
+					g = std::abs(move) <= 1.0f / CutSamples ? to : g + (move > 0 ? 1.0f : -1.0f) / CutSamples;
+				}
+				t.sendNow[index] = g;
+			}
 		}
+		if(!m_sends->sounding())
+			return;
+		for(int s = 0; s < SendCount; ++s)
+			for(int c = 0; c < 2; ++c)
+				if(float* const out = _outputs[2 * m_sends->output(static_cast<Send>(s)) + c])
+				{
+					const float* const back = m_sends->output(static_cast<Send>(s), c, at);
+					for(int i = 0; i < _count; ++i)
+						out[_offset + i] += back[i];
+				}
 	}
 
 	void Engine::render(float* const* _outputs, const int _count)
@@ -962,7 +1001,11 @@ namespace elektron::drums
 		for(int done = 0; done < _count;)
 		{
 			if(m_now == m_mdBlock * BlockSize)
+			{
+				if(m_now)
+					m_sends->block();
 				renderMachinedrum();
+			}
 			if(m_now == m_stNext)
 				renderSyntakt();
 			const auto run = static_cast<int>(std::min({static_cast<int64_t>(_count - done),

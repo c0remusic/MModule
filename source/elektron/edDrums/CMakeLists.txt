@@ -3,7 +3,8 @@ cmake_minimum_required(VERSION 3.15)
 # The instrument's engine, without JUCE: 16 Tracks of either family, syntakt::fast or md::voice (ticket 11 of
 # .scratch/elektron-drums-v1). mdEngine serves its flash image reader alone.
 add_library(edDrums STATIC edDrumsChain.h edDrumsChain.cpp edDrumsEngine.h edDrumsEngine.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
-	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp)
+	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
+	edDrumsSends.h edDrumsSends.cpp)
 target_include_directories(edDrums PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast PRIVATE mdEngine)
 set_property(TARGET edDrums PROPERTY FOLDER "Elektron")

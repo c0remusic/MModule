@@ -9,6 +9,7 @@
 #include "edDrumsChain.h"
 #include "edDrumsLfo.h"
 #include "edDrumsLibrary.h"
+#include "edDrumsSends.h"
 #include "elektronBlock.h"
 #include "mdVoice.h"
 #include "mdVoiceTrack.h"
@@ -145,6 +146,11 @@ namespace elektron::drums
 		void setPan(int _track, int _pan);
 		// 0 Main, 1-15 Out 01-15
 		void setOutput(int _track, int _output);
+		// 0-127, the gain the square of its fraction: what of the Track, after its level and pan, goes to the effect, on
+		// Main or an Out alike
+		void setSend(int _track, Send _send, int _level);
+		// The effects the Tracks share: their settings, and which output their return goes to
+		Sends& sends() { return *m_sends; }
 		// Beats per minute, for the Machinedrum's machines that read the tempo and for the LFOs
 		void setTempo(double _bpm);
 
@@ -250,6 +256,7 @@ namespace elektron::drums
 			float level = 0.62f;			// the gain of level 100, the LFOs' moves in it
 			int panValue = 64;
 			std::array<float, 2> pan{1, 1}, panNow{1, 1};
+			std::array<float, SendCount> send{}, sendNow{};
 			int output = 0;
 			uint32_t chokes = 0;
 			int accent = 0;
@@ -316,6 +323,7 @@ namespace elektron::drums
 		uint32_t m_mdMask = 0;			// the Tracks on a Machinedrum machine
 		uint32_t m_mdLive = 0;			// ... whose voice sounds
 		uint32_t m_mdTails = 0;			// ... whose chain still has a cut voice to take
+		std::unique_ptr<Sends> m_sends;
 		std::unique_ptr<Chain> m_mdChain;
 		std::unique_ptr<Block> m_mdIn;
 		uint32_t m_tempo = 120 * 24;
