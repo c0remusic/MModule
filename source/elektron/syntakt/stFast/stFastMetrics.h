@@ -522,9 +522,9 @@ namespace syntakt::fast::bench
 			_f.put(static_cast<char>(_v >> (8 * i)));
 	}
 
-	// 24-bit PCM, mono, at _fs, after _pre seconds of silence, _gain and a 20 ms fade at the end
+	// 24-bit PCM at _fs, after _pre seconds of silence, _gain and a 20 ms fade at the end; _channels interleaved
 	inline void writeWav(const std::string& _path, const std::vector<double>& _hit, const double _fs,
-		const double _gain, const double _pre)
+		const double _gain, const double _pre, const uint32_t _channels = 1)
 	{
 		std::vector<double> x(static_cast<size_t>(_pre * _fs), 0.0);
 		x.insert(x.end(), _hit.begin(), _hit.end());
@@ -535,10 +535,10 @@ namespace syntakt::fast::bench
 		f.write("WAVEfmt ", 8);
 		putLe(f, 16, 4);
 		putLe(f, 1, 2);
-		putLe(f, 1, 2);
+		putLe(f, _channels, 2);
 		putLe(f, rate, 4);
-		putLe(f, rate * 3, 4);
-		putLe(f, 3, 2);
+		putLe(f, rate * 3 * _channels, 4);
+		putLe(f, 3 * _channels, 2);
 		putLe(f, 24, 2);
 		f.write("data", 4);
 		putLe(f, data, 4);

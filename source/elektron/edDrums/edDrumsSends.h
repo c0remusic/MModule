@@ -10,15 +10,26 @@
 
 #include "mdFastEcho.h"
 #include "mdFastGateBox.h"
+#include "edDrumsSendFx.h"
 #include "mdFastMasterWords.h"
 #include "stFastDelay.h"
 #include "stFastReverb.h"
 
 namespace elektron::drums
 {
-	enum class Send : uint8_t { Delay, Reverb };
-	constexpr int SendCount = 2;
-	enum class SendSource : uint8_t { Machinedrum, Syntakt };
+	enum class Send : uint8_t { Delay, Reverb, Chorus, Phaser };
+	constexpr int SendCount = 4;
+	// The delay's and the reverb's two, the Phaser send's two
+	enum class SendSource : uint8_t { Machinedrum, Syntakt, Phaser = Machinedrum, Flanger = Syntakt };
+
+	// Our chorus's and phaser's settings, 0-127, but Stages 1-6. Mode 0 phaser, else flanger, whose delay Frequency
+	// sets and which has no Stages or Spread; a change of Mode goes as a change of source does
+	enum ChorusByte { ChorusRate, ChorusDepth, ChorusDelay, ChorusFeedback, ChorusLevel, ChorusBytes };
+	enum PhaserByte
+	{
+		PhaserMode, PhaserStages, PhaserRate, PhaserDepth, PhaserFrequency, PhaserSpread, PhaserFeedback, PhaserLevel,
+		PhaserBytes
+	};
 
 	// The Syntakt's bytes of each effect, in the order of its words
 	enum SyntaktDelayByte { StDelayTime, StDelayCross, StDelayWidth, StDelayFdbk, StDelayHp, StDelayLp, StDelayBytes };
@@ -39,6 +50,10 @@ namespace elektron::drums
 		// The effects' master bytes, md::fast's EchoByte and GateBoxByte, 0-127
 		void setEcho(const int _byte, const uint8_t _value) { m_words.setEcho(_byte, _value); }
 		void setGateBox(const int _byte, const uint8_t _value) { m_words.setGateBox(_byte, _value); }
+		// Our chorus's and phaser's bytes, 0-127, from the next block
+		void setChorus(int _byte, uint8_t _value);
+		void setPhaser(int _byte, uint8_t _value);
+
 		// The Syntakt's bytes, 0-127. Their words, value << 8, slew at each block by the OS's step
 		// (md::voice::Smoother's, rounded so that a word reaches its value), as the Echo's bytes slew at each tick.
 		// REV, the delay's return into its reverb, stays 0 until set
@@ -54,7 +69,7 @@ namespace elektron::drums
 		void setDelayFree(double _hz);
 
 		// The return fades out over the next block, the effect left is emptied, so that no tail of it can come back,
-		// and the other fades in over the block after
+		// and the other fades in over the block after. The chorus has one, so never it
 		void setSource(const Send _send, const SendSource _source) { m_wanted[static_cast<size_t>(_send)] = _source; }
 
 		// 0 Main, 1-15 Out 01-15
@@ -97,6 +112,7 @@ namespace elektron::drums
 		void giveSyntaktWords();
 		void fade(Send _send);
 		void changeSource(Send _send);
+		template<typename Effect> void runOurs(Send _send, Effect& _effect, float _level, float& _played);
 
 		md::fast::SendWords m_words;
 		std::unique_ptr<md::fast::Echo> m_echo;
@@ -105,6 +121,11 @@ namespace elektron::drums
 		std::unique_ptr<syntakt::fast::Reverb> m_stReverb;
 		std::array<int, SyntaktWords> m_stTarget{}, m_stWords{};
 		int32_t m_echoFree = 0;								// a free time in samples; 0: TIME's
+		std::unique_ptr<ModulatedDelay> m_chorus, m_flanger;
+		std::unique_ptr<Phaser> m_phaser;
+		std::array<uint8_t, ChorusBytes> m_chorusBytes{};
+		std::array<uint8_t, PhaserBytes> m_phaserBytes{};
+		float m_chorusPlayed = 0, m_phaserPlayed = 0;		// the gain the last block ended on
 		std::array<SendSource, SendCount> m_source{};		// what plays
 		std::array<SendSource, SendCount> m_wanted{};		// what setSource asks: until then, it fades out
 		std::array<bool, SendCount> m_entering{};			// what plays fades in

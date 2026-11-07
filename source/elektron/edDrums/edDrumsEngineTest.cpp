@@ -1622,6 +1622,46 @@ namespace
 		require(energy(play(127, 127, 0, 32).channel(0)) > energy(dry.channel(0)), "no return on Main");
 		const auto other = play(127, 127, Out, 57);
 		require(sent.channel(2 * Out) == other.channel(2 * Out), "a return moves with the host's blocks");
+		const auto ours = [&](const Send _send, const int _mode, const int _block, const int _rate = 64,
+			const int _frequency = 64, const int _feedback = 64)
+		{
+			auto e = std::make_unique<Engine>(_library);
+			e->setMachine(0, {Family::Machinedrum, 16});
+			e->setLevel(0, 127);
+			e->setChain(0, ChainSettings{});
+			auto& fx = e->sends();
+			for(int byte = 0; byte < ChorusBytes; ++byte)
+				fx.setChorus(byte, 64);
+			fx.setChorus(ChorusLevel, 127);
+			for(int byte = 0; byte < PhaserBytes; ++byte)
+				fx.setPhaser(byte, 64);
+			fx.setPhaser(PhaserMode, static_cast<uint8_t>(_mode));
+			fx.setPhaser(PhaserLevel, 127);
+			fx.setPhaser(PhaserRate, static_cast<uint8_t>(_rate));
+			fx.setPhaser(PhaserFrequency, static_cast<uint8_t>(_frequency));
+			fx.setPhaser(PhaserFeedback, static_cast<uint8_t>(_feedback));
+			fx.setOutput(_send, Out);
+			e->setSend(0, _send, 127);
+			Take take(Samples);
+			take.render(*e, 0, Warm);
+			e->noteOn(0, 127);
+			while(take.at() < Samples)
+				take.render(*e, std::min(_block, Samples - take.at()));
+			return take;
+		};
+		for(const auto& [send, mode] : {std::pair<Send, int>{Send::Chorus, 0}, {Send::Phaser, 0}, {Send::Phaser, 1}})
+		{
+			const auto take = ours(send, mode, 32);
+			require(energy(take.channel(2 * Out)) > 1e-3, "no chorus, phaser or flanger");
+			require(take.channel(2 * Out) == ours(send, mode, 57).channel(2 * Out), "ours move with the host's blocks");
+			for(const float x : take.channel(2 * Out))
+				require(std::isfinite(x) && std::abs(x) < 4, "ours run away");
+		}
+		// The sweep at its fastest, a low frequency, all the feedback: a direct form's state ran away here
+		for(const int rate : {124, 127})
+			for(const int feedback : {0, 127})
+				for(const float x : ours(Send::Phaser, 0, 32, rate, 0, feedback).channel(2 * Out))
+					require(std::isfinite(x) && std::abs(x) < 64, "the phaser runs away");
 		const auto syntakt = play(127, 127, Out, 32, SendSource::Syntakt);
 		for(const int channel : {0, 1})
 			require(dry.channel(channel) == syntakt.channel(channel), "the Syntakt's return on an Out reaches Main");

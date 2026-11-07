@@ -9,8 +9,13 @@ namespace elektron::drums
 		: m_words(_tables), m_echo(std::make_unique<md::fast::Echo>()),
 		  m_gateBox(std::make_unique<md::fast::GateBox>(_sine)),
 		  m_stDelay(std::make_unique<syntakt::fast::Delay>(Rate)),
-		  m_stReverb(std::make_unique<syntakt::fast::Reverb>(Rate))
+		  m_stReverb(std::make_unique<syntakt::fast::Reverb>(Rate)),
+		  m_chorus(std::make_unique<ModulatedDelay>(ModulatedDelay::ChorusStep)),
+		  m_flanger(std::make_unique<ModulatedDelay>(ModulatedDelay::FlangerStep)),
+		  m_phaser(std::make_unique<Phaser>())
 	{
+		// Nothing fed back until said otherwise
+		m_chorusBytes[ChorusFeedback] = m_phaserBytes[PhaserFeedback] = 64;
 	}
 
 	void Sends::setTempo(const uint32_t _tempo)
@@ -36,6 +41,16 @@ namespace elektron::drums
 		m_stReverb->setDelaySend(reverb[StReverbBytes]);
 	}
 
+	namespace
+	{
+		template<typename Block> void ramp(Block& _block, const float _from, const float _to)
+		{
+			for(auto& channel : _block)
+				for(size_t i = 0; i < channel.size(); ++i)
+					channel[i] *= _from + (_to - _from) * static_cast<float>(i) / static_cast<float>(channel.size());
+		}
+	}
+
 	void Sends::fade(const Send _send)
 	{
 		const auto s = static_cast<size_t>(_send);
@@ -43,9 +58,7 @@ namespace elektron::drums
 		m_entering[s] = false;
 		if(from == to && to == 1)
 			return;
-		for(auto& channel : m_out[s])
-			for(int i = 0; i < BlockSize; ++i)
-				channel[static_cast<size_t>(i)] *= from + (to - from) * static_cast<float>(i) / BlockSize;
+		ramp(m_out[s], from, to);
 	}
 
 	void Sends::changeSource(const Send _send)
@@ -54,7 +67,11 @@ namespace elektron::drums
 		if(m_wanted[s] == m_source[s])
 			return;
 		const bool fromSyntakt = m_source[s] == SendSource::Syntakt;
-		if(_send == Send::Reverb && fromSyntakt)
+		if(_send == Send::Phaser && m_source[s] == SendSource::Flanger)
+			m_flanger->clear();
+		else if(_send == Send::Phaser)
+			m_phaser->clear();
+		else if(_send == Send::Reverb && fromSyntakt)
 			m_stReverb->clear();
 		else if(_send == Send::Reverb)
 			m_gateBox->clear();
@@ -69,6 +86,33 @@ namespace elektron::drums
 		}
 		m_source[s] = m_wanted[s];
 		m_entering[s] = true;
+	}
+
+	void Sends::setChorus(const int _byte, const uint8_t _value)
+	{
+		m_chorusBytes[static_cast<size_t>(_byte)] = _value;
+		const auto& b = m_chorusBytes;
+		m_chorus->set(b[ChorusDelay], b[ChorusDepth], b[ChorusRate], b[ChorusFeedback]);
+	}
+
+	void Sends::setPhaser(const int _byte, const uint8_t _value)
+	{
+		m_phaserBytes[static_cast<size_t>(_byte)] = _value;
+		const auto& b = m_phaserBytes;
+		m_phaser->set(b[PhaserStages], b[PhaserFrequency], b[PhaserSpread], b[PhaserDepth], b[PhaserRate],
+			b[PhaserFeedback]);
+		m_flanger->set(b[PhaserFrequency], b[PhaserDepth], b[PhaserRate], b[PhaserFeedback]);
+		setSource(Send::Phaser, b[PhaserMode] ? SendSource::Flanger : SendSource::Phaser);
+	}
+
+	template<typename Effect>
+	void Sends::runOurs(const Send _send, Effect& _effect, const float _level, float& _played)
+	{
+		auto& out = m_out[static_cast<size_t>(_send)];
+		const auto& in = m_in[static_cast<size_t>(_send)];
+		_effect.process(in[0].data(), in[1].data(), out[0].data(), out[1].data());
+		ramp(out, _played, _level);
+		_played = _level;
 	}
 
 	void Sends::block()
@@ -88,24 +132,31 @@ namespace elektron::drums
 				m_gateBox->setWords(m_words.gateBox());
 		}
 
-		// The OS's step; nothing to hear in a jump when something comes to wake them
 		const bool asleep = !sounding();
 		const bool fed = m_fed;
 		m_fed = false;
+		if(asleep && !fed && m_wanted == m_source)
+			return;
+
+		// The OS's step; nothing to hear in a jump when something comes to wake them
 		// PRE jumps: a slewed read position moves in dozens of whole samples, 4.6 times the step of one jump on a tone
 		for(size_t w = 0; w < m_stWords.size(); ++w)
-			m_stWords[w] = (fed && asleep) || w == PreWord ? m_stTarget[w] : m_stTarget[w] + 3 * (m_stWords[w] - m_stTarget[w]) / 4;
+		{
+			const bool jump = asleep || w == PreWord;
+			m_stWords[w] = jump ? m_stTarget[w] : m_stTarget[w] + 3 * (m_stWords[w] - m_stTarget[w]) / 4;
+		}
 		giveSyntaktWords();
-		if(fed && asleep)
+		if(asleep)
 		{
 			m_stDelay->settle();
 			m_echo->settle();
+			m_chorus->settle();
+			m_flanger->settle();
+			m_phaser->settle();
 		}
 
 		if(fed || m_wanted != m_source)
 			m_quiet = 0;
-		else if(asleep)
-			return;
 
 		auto& delay = m_out[static_cast<size_t>(Send::Delay)];
 		auto& reverb = m_out[static_cast<size_t>(Send::Reverb)];
@@ -123,8 +174,16 @@ namespace elektron::drums
 			m_stReverb->process(reverbIn[0].data(), reverbIn[1].data(), delay[0].data(), delay[1].data(),
 				reverb[0].data(), reverb[1].data());
 		fade(Send::Reverb);
+		runOurs(Send::Chorus, *m_chorus, sendFxLevel(m_chorusBytes[ChorusLevel]), m_chorusPlayed);
+		const float phaserLevel = sendFxLevel(m_phaserBytes[PhaserLevel]);
+		if(m_source[static_cast<size_t>(Send::Phaser)] == SendSource::Flanger)
+			runOurs(Send::Phaser, *m_flanger, phaserLevel, m_phaserPlayed);
+		else
+			runOurs(Send::Phaser, *m_phaser, phaserLevel, m_phaserPlayed);
+		fade(Send::Phaser);
 		changeSource(Send::Delay);
 		changeSource(Send::Reverb);
+		changeSource(Send::Phaser);
 		for(auto& send : m_in)
 			for(auto& channel : send)
 				channel.fill(0.0f);
