@@ -12,8 +12,8 @@ namespace elektron::drums
 	// A return's gain for a mix byte, 0-127
 	float sendFxLevel(uint8_t _mix);
 
-	// A stereo line a triangle shortens, fed back, each channel on the other's side of the triangle. A flanger is this
-	// at a short delay
+	// A stereo line an LFO shortens, fed back, each channel on the other's side of the LFO. A flanger is this at a
+	// short delay
 	class ModulatedDelay
 	{
 	public:
@@ -23,8 +23,11 @@ namespace elektron::drums
 
 		explicit ModulatedDelay(double _samplesPerStep);
 
-		// 0-127. The triangle takes _depth / 128 of the delay away at its top. A change of delay glides over blocks
-		void set(uint8_t _delay, uint8_t _depth, uint8_t _rate, uint8_t _feedback);
+		enum class Shape : uint8_t { Sine, Triangle, Saw, Square, SampleHold, SampleGlide };
+
+		// 0-127. The LFO takes _depth / 128 of the delay away at its top. A change of delay glides over blocks. A saw
+		// falls; the random shapes draw a value a turn, held or glided to
+		void set(uint8_t _delay, uint8_t _depth, uint8_t _rate, uint8_t _feedback, Shape _shape = Shape::Triangle);
 
 		// At the settings at once
 		void settle();
@@ -35,7 +38,12 @@ namespace elektron::drums
 	private:
 		static constexpr uint32_t Size = 2048, Mask = Size - 1;		// the longest delay is 1,017 samples
 
+		float lfo();
+
 		const double m_samplesPerStep;
+		Shape m_shape = Shape::Triangle;
+		uint32_t m_random = 0x2545f491;
+		float m_held = 0, m_drawn = 0;
 		std::array<std::vector<float>, 2> m_lines;
 		uint32_t m_write = 0, m_phase = 0, m_step = 0;
 		float m_delay = 1, m_swing = 0, m_delayTo = 1, m_swingTo = 0, m_feedback = 0, m_feedbackTo = 0, m_top = 0;
@@ -76,18 +84,27 @@ namespace elektron::drums
 		float m_last[2] = {};
 	};
 
-	// Twelve first-order allpasses, one coefficient a sine moves, the channels on either side of it, each chain fed
-	// back into the other's; then the input mixed back for the notches. Its laws are measured on what Phaser-DDL
-	// renders, an emulation of the Ensoniq DP/4's phaser, at the host's rate; without its delay line
+	// Twelve first-order allpasses, one coefficient a sine moves, the channels together or on either side of it, each
+	// chain fed back into the other's; then the input mixed back for the notches. A delay line takes the left chain's
+	// output: its left tap, low-passed, goes back into the left chain, its right one into the right return. Its laws
+	// are measured on what Phaser-DDL renders, an emulation of the Ensoniq DP/4's phaser, at the host's rate
 	class Dp4Phaser
 	{
 	public:
 		static constexpr int BlockSize = 32;
 
+		// 0-127. Centre, feedback, notch and delay feedback are signed about 64: a notch under it turns the input mixed
+		// back over. A delay time is 0 to 1.6 s on the DP/4's steps of 1.6 ms
+		struct Settings
+		{
+			uint8_t center = 64, width = 0, rate = 0, feedback = 64, notch = 127;
+			bool outOfPhase = true;
+			uint8_t delayLeft = 0, delayRight = 0, delayFeedback = 64;
+		};
+
 		Dp4Phaser();
 
-		// 0-127. Centre, feedback and notch are signed about 64: a notch under it turns the input mixed back over
-		void set(uint8_t _center, uint8_t _width, uint8_t _rate, uint8_t _feedback, uint8_t _notch);
+		void set(const Settings& _settings);
 		// At the settings at once
 		void settle();
 
@@ -96,8 +113,13 @@ namespace elektron::drums
 
 	private:
 		static constexpr int Stages = 12;
+		static constexpr uint32_t LineSize = 1 << 17, LineMask = LineSize - 1;	// over 70,123 samples, 1.6 s
 
-		float m_center = 0, m_width = 0, m_feedback = 0, m_notch = 0;
+		float m_center = 0, m_width = 0, m_feedback = 0, m_notch = 0, m_delayFeedback = 0;
+		bool m_outOfPhase = true;
+		std::vector<float> m_line;
+		uint32_t m_write = 0, m_taps[2] = {2, 2}, m_tapsFrom[2] = {2, 2};
+		float m_lowPass[2] = {};
 		uint32_t m_phase = 0, m_step = 0;
 		float m_target[2] = {}, m_targetTo[2] = {}, m_coefficient[2] = {};
 		float m_state[Stages][2] = {};

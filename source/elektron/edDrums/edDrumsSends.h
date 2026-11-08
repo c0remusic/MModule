@@ -24,12 +24,14 @@ namespace elektron::drums
 
 	// Our chorus's and phaser's settings, 0-127, but Stages 1-6. Mode 0 phaser, 1 flanger, whose delay Frequency sets
 	// and which has no Stages or Spread, 2 the DP/4's phaser: Frequency its centre, Depth its width, Spread its notch
-	// depth, no Stages. A change of Mode goes as a change of source does
-	enum ChorusByte { ChorusRate, ChorusDepth, ChorusDelay, ChorusFeedback, ChorusLevel, ChorusBytes };
+	// depth, no Stages, and the bytes of its own: Dp4Phase 0 in phase, else out; its delay line's times and feedback.
+	// A change of Mode goes as a change of source does
+	// Shape: 0 sine, 1 triangle, 2 saw, 3 square, 4 sample and hold, 5 sample and glide
+	enum ChorusByte { ChorusRate, ChorusDepth, ChorusDelay, ChorusFeedback, ChorusLevel, ChorusShape, ChorusBytes };
 	enum PhaserByte
 	{
 		PhaserMode, PhaserStages, PhaserRate, PhaserDepth, PhaserFrequency, PhaserSpread, PhaserFeedback, PhaserLevel,
-		PhaserBytes
+		PhaserDp4Phase, PhaserDp4DelayLeft, PhaserDp4DelayRight, PhaserDp4DelayFeedback, PhaserBytes
 	};
 
 	// The Syntakt's bytes of each effect, in the order of its words

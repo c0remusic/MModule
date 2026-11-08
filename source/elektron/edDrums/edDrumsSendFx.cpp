@@ -70,8 +70,10 @@ namespace elektron::drums
 			line.assign(Size, 0.0f);
 	}
 
-	void ModulatedDelay::set(const uint8_t _delay, const uint8_t _depth, const uint8_t _rate, const uint8_t _feedback)
+	void ModulatedDelay::set(const uint8_t _delay, const uint8_t _depth, const uint8_t _rate, const uint8_t _feedback,
+		const Shape _shape)
 	{
+		m_shape = _shape;
 		m_delayTo = static_cast<float>(m_samplesPerStep * _delay + 1);
 		m_swingTo = static_cast<float>(m_samplesPerStep * _delay * _depth / 128);
 		m_step = phaseStep(_rate);
@@ -91,12 +93,43 @@ namespace elektron::drums
 			std::fill(line.begin(), line.end(), 0.0f);
 	}
 
+	float ModulatedDelay::lfo()
+	{
+		const uint32_t before = m_phase;
+		m_phase += m_step;
+		const float turn = static_cast<float>(m_phase >> 8) / 16777216.0f;
+		if(m_phase < before)
+		{
+			m_held = m_drawn;
+			m_random = m_random * 1664525u + 1013904223u;
+			m_drawn = static_cast<float>(m_random >> 8) / 16777216.0f;
+		}
+		switch(m_shape)
+		{
+		case Shape::Sine:
+			return 0.5f - 0.5f * std::cos(turn * 6.2831853f);
+		case Shape::Triangle:
+			return triangle(m_phase);
+		case Shape::Saw:
+			return 1 - turn;
+		case Shape::Square:
+			return turn < 0.5f ? 1.0f : 0.0f;
+		case Shape::SampleHold:
+			return m_drawn;
+		case Shape::SampleGlide:
+			return m_held + (m_drawn - m_held) * turn;
+		}
+		return 0;
+	}
+
 	void ModulatedDelay::process(const float* const _inL, const float* const _inR, float* const _outL,
 		float* const _outR)
 	{
-		// The triangle at each sample: a straight line between the block's ends is one, but at its turns
-		m_phase += m_step;
-		const float to = triangle(m_phase);
+		// The LFO at each sample: a straight line between the block's ends is one, but at its turns. A jump, of the
+		// square, the saw or the random shapes, spreads over 8 blocks, 5.8 ms: in 32 samples the time would bend the
+		// pitch into a click
+		constexpr float MostStep = 0.125f;
+		const float to = std::clamp(lfo(), m_top - MostStep, m_top + MostStep);
 		const float step = (to - m_top) / BlockSize;
 		m_feedback = m_feedbackTo + Glide * (m_feedback - m_feedbackTo);
 		// Delay and swing glide together, so that the time stays over a sample
@@ -211,32 +244,43 @@ namespace elektron::drums
 		}
 	}
 
-	Dp4Phaser::Dp4Phaser()
+	Dp4Phaser::Dp4Phaser() : m_line(LineSize, 0.0f)
 	{
-		set(64, 0, 0, 64, 127);
+		set(Settings{});
 		settle();
 	}
 
-	void Dp4Phaser::set(const uint8_t _center, const uint8_t _width, const uint8_t _rate, const uint8_t _feedback,
-		const uint8_t _notch)
+	void Dp4Phaser::set(const Settings& _settings)
 	{
-		const double center = signedDp4(_center);
+		const auto& s = _settings;
+		const double center = signedDp4(s.center);
 		m_center = static_cast<float>(center >= 0 ? center / 99 : center / 99.79);
-		m_width = static_cast<float>(_width * 99.0 / 127 / 99.8);
-		const double rate = _rate * 99.0 / 127;
+		m_width = static_cast<float>(s.width * 99.0 / 127 / 99.8);
+		const double rate = s.rate * 99.0 / 127;
 		const double hz = rate > 0 ? std::exp(-5.684159 + 0.040309 * rate) * std::pow(rate, 0.913459) : 0;
 		m_step = static_cast<uint32_t>(hz * BlockSize / Rate * 4294967296.0);
-		m_feedback = static_cast<float>(0.992 * signedDp4(_feedback) / 99);
-		m_notch = static_cast<float>(signedDp4(_notch) / 99);
+		m_feedback = static_cast<float>(0.992 * signedDp4(s.feedback) / 99);
+		m_notch = static_cast<float>(signedDp4(s.notch) / 99);
+		m_outOfPhase = s.outOfPhase;
+		m_delayFeedback = static_cast<float>(0.992 * signedDp4(s.delayFeedback) / 99);
+		// 0.9938 of the time shown, in samples; the right tap a sample longer, as Phaser-DDL renders it
+		const uint8_t times[2] = {s.delayLeft, s.delayRight};
+		for(int c = 0; c < 2; ++c)
+		{
+			const double ms = 1.6 * std::lround(times[c] * 1000.0 / 127);
+			m_taps[c] = static_cast<uint32_t>(std::lround(43.8245 * ms + 1.8)) + static_cast<uint32_t>(c);
+		}
 	}
 
 	void Dp4Phaser::settle()
 	{
 		const float swing = m_width * std::cos(static_cast<float>(m_phase >> 8) * 3.7450702829239286e-7f);
-		m_targetTo[0] = std::clamp(m_center - swing, -Edge, Edge);
+		m_targetTo[0] = std::clamp(m_center - (m_outOfPhase ? swing : -swing), -Edge, Edge);
 		m_targetTo[1] = std::clamp(m_center + swing, -Edge, Edge);
 		for(int c = 0; c < 2; ++c)
 			m_coefficient[c] = m_target[c] = m_targetTo[c];
+		m_tapsFrom[0] = m_taps[0];
+		m_tapsFrom[1] = m_taps[1];
 	}
 
 	void Dp4Phaser::clear()
@@ -244,14 +288,21 @@ namespace elektron::drums
 		for(auto& channel : m_state)
 			std::fill(std::begin(channel), std::end(channel), 0.0f);
 		m_last[0] = m_last[1] = m_dcIn[0] = m_dcIn[1] = m_dcOut[0] = m_dcOut[1] = 0;
+		m_lowPass[0] = m_lowPass[1] = 0;
+		// What the taps can read, not the whole line: a mode change clears this on the audio thread
+		const uint32_t reach = std::max({m_taps[0], m_taps[1], m_tapsFrom[0], m_tapsFrom[1]}) + 2;
+		for(uint32_t j = 1; j <= reach; ++j)
+			m_line[(m_write - j) & LineMask] = 0;
 	}
 
 	void Dp4Phaser::process(const float* const _inL, const float* const _inR, float* const _outL, float* const _outR)
 	{
-		// The sine moves the coefficients; L on the other side of it. Its value at the block's end, a line between
+		// The sine moves the coefficients, L on the other side of it or not. Its value at the block's end, a line
+		// between
 		m_phase += m_step;
 		const float swing = m_width * std::cos(static_cast<float>(m_phase >> 8) * 3.7450702829239286e-7f);
-		const float to[2] = {std::clamp(m_center - swing, -Edge, Edge), std::clamp(m_center + swing, -Edge, Edge)};
+		const float left = m_outOfPhase ? -swing : swing;
+		const float to[2] = {std::clamp(m_center + left, -Edge, Edge), std::clamp(m_center + swing, -Edge, Edge)};
 		float step[2];
 		for(int c = 0; c < 2; ++c)
 		{
@@ -261,9 +312,18 @@ namespace elektron::drums
 		}
 		const float* const in[2] = {_inL, _inR};
 		float* const out[2] = {_outL, _outR};
+		// A new delay time crossfades over the block, from the old tap to the new
+		const bool moved = m_tapsFrom[0] != m_taps[0] || m_tapsFrom[1] != m_taps[1];
 		for(int k = 0; k < BlockSize; ++k)
 		{
 			float v[2], x[2];
+			const float t = moved ? static_cast<float>(k + 1) / BlockSize : 1.0f;
+			for(int c = 0; c < 2; ++c)
+			{
+				const float tap = m_line[(m_write - m_taps[c]) & LineMask];
+				const float old = m_line[(m_write - m_tapsFrom[c]) & LineMask];
+				m_lowPass[c] = 0.5f * m_lowPass[c] + 0.5f * (old + t * (tap - old));
+			}
 			for(int c = 0; c < 2; ++c)
 			{
 				// A DC blocker at 5.7 Hz, then the other channel's chain fed back across, R's with its sign turned
@@ -271,6 +331,8 @@ namespace elektron::drums
 				m_dcOut[c] = sample - m_dcIn[c] + DcPole * m_dcOut[c];
 				m_dcIn[c] = sample;
 				v[c] = m_dcOut[c] + (c ? -m_feedback : m_feedback) * m_last[1 - c];
+				if(c == 0)
+					v[c] -= m_delayFeedback * m_lowPass[0];
 				m_target[c] += step[c];
 				m_coefficient[c] = m_target[c] + Smooth * (m_coefficient[c] - m_target[c]);
 				x[c] = v[c];
@@ -288,6 +350,11 @@ namespace elektron::drums
 				m_last[c] = x[c];
 				out[c][k] = 0.70711f * (x[c] + m_notch * v[c]);
 			}
+			out[1][k] += m_delayFeedback * m_lowPass[1];
+			m_line[m_write] = x[0];
+			m_write = (m_write + 1) & LineMask;
 		}
+		m_tapsFrom[0] = m_taps[0];
+		m_tapsFrom[1] = m_taps[1];
 	}
 }

@@ -1634,6 +1634,7 @@ namespace
 			for(int byte = 0; byte < ChorusBytes; ++byte)
 				fx.setChorus(byte, 64);
 			fx.setChorus(ChorusLevel, 127);
+			fx.setChorus(ChorusShape, 1);
 			for(int byte = 0; byte < PhaserBytes; ++byte)
 				fx.setPhaser(byte, 64);
 			fx.setPhaser(PhaserMode, static_cast<uint8_t>(_mode));

@@ -16,7 +16,10 @@ namespace elektron::drums
 	{
 		// Nothing fed back until said otherwise
 		m_chorusBytes[ChorusFeedback] = m_phaserBytes[PhaserFeedback] = 64;
+		m_chorusBytes[ChorusShape] = 1;
 		m_phaserBytes[PhaserSpread] = 64;		// the DP/4's notch at its middle, nothing mixed back
+		m_phaserBytes[PhaserDp4Phase] = 1;
+		m_phaserBytes[PhaserDp4DelayFeedback] = 64;
 	}
 
 	void Sends::setTempo(const uint32_t _tempo)
@@ -102,7 +105,8 @@ namespace elektron::drums
 	{
 		m_chorusBytes[static_cast<size_t>(_byte)] = _value;
 		const auto& b = m_chorusBytes;
-		m_chorus->set(b[ChorusDelay], b[ChorusDepth], b[ChorusRate], b[ChorusFeedback]);
+		m_chorus->set(b[ChorusDelay], b[ChorusDepth], b[ChorusRate], b[ChorusFeedback],
+			static_cast<ModulatedDelay::Shape>(std::min<int>(b[ChorusShape], 5)));
 	}
 
 	void Sends::setPhaser(const int _byte, const uint8_t _value)
@@ -112,7 +116,8 @@ namespace elektron::drums
 		m_phaser->set(b[PhaserStages], b[PhaserFrequency], b[PhaserSpread], b[PhaserDepth], b[PhaserRate],
 			b[PhaserFeedback]);
 		m_flanger->set(b[PhaserFrequency], b[PhaserDepth], b[PhaserRate], b[PhaserFeedback]);
-		m_dp4->set(b[PhaserFrequency], b[PhaserDepth], b[PhaserRate], b[PhaserFeedback], b[PhaserSpread]);
+		m_dp4->set({b[PhaserFrequency], b[PhaserDepth], b[PhaserRate], b[PhaserFeedback], b[PhaserSpread],
+			b[PhaserDp4Phase] != 0, b[PhaserDp4DelayLeft], b[PhaserDp4DelayRight], b[PhaserDp4DelayFeedback]});
 		static constexpr SendSource Modes[] = {SendSource::Phaser, SendSource::Flanger, SendSource::Dp4};
 		setSource(Send::Phaser, Modes[std::min<int>(b[PhaserMode], 2)]);
 	}

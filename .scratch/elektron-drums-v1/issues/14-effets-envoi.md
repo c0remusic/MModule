@@ -69,3 +69,16 @@ profondeur d'encoche, signée autour de 64 ; Stages ne sert pas. Sans le delay d
 Contre le plug-in sur bruit stéréo : −37 à −52 dB d'erreur à l'arrêt, −17 à −29 dB avec le sinus sur 0,3 s, l'écart
 venant surtout de 0,5 % sur la vitesse. Coût : 0,11 % d'un cœur. Le flanger du DEEP/4 de Temecula DSP n'est pas fait :
 l'hôte de test ne charge pas ce plug-in, et l'utilisateur a choisi le phaser seul.
+
+## Réglages ajoutés (2026-11-08)
+
+À la demande de l'utilisateur, ce qui était mesuré sans être réglable l'est devenu. Le chorus a la forme de LFO du
+Virus (sinus, triangle, scie descendante, carré, S&H, S&G, une valeur tirée par tour), triangle par défaut ; un saut de
+carré, de scie ou de S&H s'étale sur huit blocs, 5,8 ms, pour ne pas cliquer, là où le Virus saute. Le phaser du DP/4 a
+sa phase de LFO (ensemble ou opposés, opposés par défaut) et sa ligne de delay : la sortie de la chaîne gauche, une prise
+gauche passe-bas réinjectée dans la chaîne gauche, une prise droite passe-bas ajoutée au retour droit, d'un échantillon
+plus longue que la mesure ne le disait, 0 à 1,6 s par pas de 1,6 ms ramenés à 128 valeurs. Contre Phaser-DDL avec delay :
+−25 à −28 dB.
+
+Toujours pas faits : S&H et soft clip du DP/4, sync tempo des effets, types Vintage, Hyper, Air, Vibrato et Rotary du
+chorus Virus.
