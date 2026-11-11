@@ -2999,7 +2999,7 @@ namespace elektron::drums
 		const float segment = browseSegment(browseFilters().size());
 		return toPx(_button == 0 ? juce::Rectangle<float>{cx(0), 170, 6 * Col - 4, 12.5f}
 			: _button == 1 ? juce::Rectangle<float>{cx(16) + 1, 118, BrowseInfoW - 2, 9}
-			: juce::Rectangle<float>{cx(6) + segment, 33, segment, 6});
+			: juce::Rectangle<float>{cx(6) + static_cast<float>(_button - 1) * segment, 33, segment, 6});
 	}
 
 	juce::Rectangle<int> Editor::selectorItemArea(const int _item) const
@@ -3030,6 +3030,15 @@ namespace elektron::drums
 			return list;
 		}
 		const auto& entries = m_processor.sampleLibrary().entries();
+		// FACTORY's: the factory bank's samples, after the Library's entries (browseEntry)
+		if(m_browseFilter > 0 && m_browseFilter == factorySegment())
+		{
+			const auto& factory = m_processor.factorySamples();
+			for(size_t i = 0; i < factory.size(); ++i)
+				if(m_browseSearch.isEmpty() || factory[i].name.containsIgnoreCase(m_browseSearch))
+					list.push_back(static_cast<int>(entries.size() + i));
+			return list;
+		}
 		for(size_t i = 0; i < entries.size(); ++i)
 		{
 			const auto& e = entries[i];
@@ -3040,6 +3049,20 @@ namespace elektron::drums
 			list.push_back(static_cast<int>(i));
 		}
 		return list;
+	}
+
+	int Editor::factorySegment() const
+	{
+		if(m_browseTree != 2 || m_processor.factorySamples().empty())
+			return -1;
+		return std::min(m_processor.sampleLibrary().folders().size(), BrowseFolderSegments) + 1;
+	}
+
+	const SampleLibrary::Entry& Editor::browseEntry(const int _index) const
+	{
+		const auto& entries = m_processor.sampleLibrary().entries();
+		return _index < static_cast<int>(entries.size()) ? entries[static_cast<size_t>(_index)]
+			: m_processor.factorySamples()[static_cast<size_t>(_index) - entries.size()];
 	}
 
 	juce::StringArray Editor::browseFilters() const
@@ -3054,6 +3077,8 @@ namespace elektron::drums
 		const auto& folders = m_processor.sampleLibrary().folders();
 		for(int f = 0; f < std::min(folders.size(), BrowseFolderSegments); ++f)
 			filters.add(folders[f].getFileName().toUpperCase());
+		if(factorySegment() > 0)
+			filters.add("FACTORY");
 		return filters;
 	}
 
@@ -3194,7 +3219,7 @@ namespace elektron::drums
 		add.click = [this] { chooseFolder(); };
 		addHit(std::move(add));
 		// REMOVE FOLDER, by source with a folder's segment chosen: the folder leaves the Library, its files stay
-		if(m_browseTree == 2 && m_browseFilter > 0)
+		if(m_browseTree == 2 && m_browseFilter > 0 && m_browseFilter != factorySegment())
 		{
 			Hit remove;
 			remove.r = {cx(0), 170, 6 * Col - 4, 12.5f};
@@ -3229,43 +3254,43 @@ namespace elektron::drums
 		for(int i = 0; i < 15 && m_browseScroll + i < static_cast<int>(list.size()); ++i)
 		{
 			const int item = m_browseScroll + i, entry = list[static_cast<size_t>(item)];
-			const auto file = library.entries()[static_cast<size_t>(entry)].file;
+			const auto e = browseEntry(entry);
 			Hit row;
 			row.r = browseListRow(i, true).withHeight(BrowseRowH);
-			row.click = [this, item, file]
+			row.click = [this, item, e]
 			{
 				m_browseItem = item;
-				audition(file);
+				audition(e);
 			};
-			row.doubleClick = [this, item, file]
+			row.doubleClick = [this, item, e]
 			{
 				m_browseItem = item;
-				loadSample(m_track, file);
+				loadSample(m_track, e);
 			};
 			row.drag = [this, entry](float, float) { m_browseDrag = entry; };
-			row.end = [this, file]
+			row.end = [this, e]
 			{
 				m_browseDrag = -1;
 				const int k = static_cast<int>((m_press.last.x - 10) / KeyPitch);
 				if(m_press.last.y >= 244 && k >= 0 && k < 16)
-					loadSample(k, file);
+					loadSample(k, e);
 			};
 			addHit(std::move(row));
 		}
 		if(m_browseItem < static_cast<int>(list.size()))
 		{
-			const auto file = library.entries()[static_cast<size_t>(list[static_cast<size_t>(m_browseItem)])].file;
+			const auto e = browseEntry(list[static_cast<size_t>(m_browseItem)]);
 			Hit replay;
 			replay.r = {cx(16), 32, BrowseInfoW, 185};
-			replay.click = [this, file] { audition(file); };
+			replay.click = [this, e] { audition(e); };
 			addHit(std::move(replay));
 			Hit load;
 			load.r = {cx(16), 222, BrowseInfoW, 12.5f};
-			load.click = [this, file] { loadSample(m_track, file); };
+			load.click = [this, e] { loadSample(m_track, e); };
 			addHit(std::move(load));
-			// TYPE, its row in the panel (drawBrowseSample): a click opens the types, the one chosen kept as the user's
-			const auto fingerprint = library.entries()[static_cast<size_t>(list[static_cast<size_t>(m_browseItem)])]
-				.fingerprint;
+			// TYPE, its row in the panel (drawBrowseSample): a click opens the types, the one chosen kept as the user's; a
+			// factory sample is no file of the Library, and keeps its own
+			const auto fingerprint = e.fingerprint;
 			Hit type;
 			type.r = {cx(16) + 1, 118, BrowseInfoW - 2, 9};
 			type.click = [this, fingerprint]
@@ -3283,7 +3308,8 @@ namespace elektron::drums
 						toast("The type could not be kept");
 				});
 			};
-			addHit(std::move(type));
+			if(e.folder >= 0)
+				addHit(std::move(type));
 		}
 		// The Track's sample and what the audition holds
 		watch({cx(6), 23, 18 * Col, 216}, [this]
@@ -3313,7 +3339,8 @@ namespace elektron::drums
 		if(samples)
 			drawButton(_p, x, 184, 6 * Col - 4, 12.5f, "ADD FOLDER", false);
 		if(m_browseTree == 2)
-			drawButton(_p, x, 170, 6 * Col - 4, 12.5f, "REMOVE FOLDER", false, m_browseFilter > 0);
+			drawButton(_p, x, 170, 6 * Col - 4, 12.5f, "REMOVE FOLDER", false,
+				m_browseFilter > 0 && m_browseFilter != factorySegment());
 		if(samples || m_browseTree == 1)
 		{
 			const juce::String hints[]{"CLICK: LISTEN", "DOUBLE CLICK: LOAD ON TRACK " + juce::String(m_track + 1),
@@ -3414,7 +3441,7 @@ namespace elektron::drums
 		for(int i = 0; i < 15 && m_browseScroll + i < static_cast<int>(list.size()); ++i)
 		{
 			const int item = m_browseScroll + i;
-			const auto& e = entries[static_cast<size_t>(list[static_cast<size_t>(item)])];
+			const auto& e = browseEntry(list[static_cast<size_t>(item)]);
 			const auto r = browseListRow(i, true);
 			const bool on = item == m_browseItem;
 			_p.rect(x, r.getY(), BrowseListW, r.getHeight(), on ? c.c[1] : beat(i), 0.5f);
@@ -3436,7 +3463,7 @@ namespace elektron::drums
 
 		x = cx(16);
 		const bool chosen = m_browseItem < static_cast<int>(list.size());
-		const auto* e = chosen ? &entries[static_cast<size_t>(list[static_cast<size_t>(m_browseItem)])] : nullptr;
+		const auto* e = chosen ? &browseEntry(list[static_cast<size_t>(m_browseItem)]) : nullptr;
 		drawBlockTitle(_p, {x - 2, 23, 8 * Col + 2, e ? e->name.toUpperCase() : juce::String(), "bi", &c});
 		_p.frame(x, 32, BrowseInfoW, 185, c.c[1], 1.2f, 0.4f);
 		if(e)
@@ -3449,10 +3476,10 @@ namespace elektron::drums
 	{
 		const auto& library = m_processor.sampleLibrary();
 		const auto list = browseList();
-		const auto& e = library.entries()[static_cast<size_t>(list[static_cast<size_t>(m_browseItem)])];
+		const auto& e = browseEntry(list[static_cast<size_t>(m_browseItem)]);
 		const float w = BrowseInfoW - 4, top = 36, h = 76, mid = top + h / 2;
 		const auto* heard = m_processor.auditioned();
-		if(heard && m_auditionFile == e.file && !heard->pcm.empty())
+		if(heard && (e.folder < 0 ? m_auditionFactory == e.fingerprint : m_auditionFile == e.file) && !heard->pcm.empty())
 			drawWave(_p, _x + 2, mid, w, h, heard->pcm, _hue.c[4]);
 		else
 			_p.text(_x + BrowseInfoW / 2, mid + 1, "CLICK TO LISTEN", 2.8f, colour::dim, 500, Align::Centre);
@@ -3466,8 +3493,10 @@ namespace elektron::drums
 				> Sample::MaxLength / 44100.0 ? ", 12-BIT GRAIN PLAYS 1.29 S" : "")},
 			{"RATE", juce::String(e.rate / 1000, 1) + " KHZ"},
 			{"CHANNELS", channels},
-			{"FOLDER", library.folders()[e.folder].getFileName()},
-			{"FILE", e.file.getRelativePathFrom(library.folders()[e.folder])},
+			// A factory sample: its slot of the bank in the user's flash image
+			{"FOLDER", e.folder < 0 ? juce::String("FACTORY") : library.folders()[e.folder].getFileName()},
+			{"FILE", e.folder < 0 ? "FLASH IMAGE, SLOT " + e.fingerprint.fromFirstOccurrenceOf(":", false, false)
+				: e.file.getRelativePathFrom(library.folders()[e.folder])},
 			{"FINGERPRINT", e.fingerprint.toUpperCase()},
 		};
 		float y = top + h + 12;

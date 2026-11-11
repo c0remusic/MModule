@@ -2405,6 +2405,36 @@ namespace
 			stepBefore, allocated);
 		require(step <= stepBefore * 1.05f, "a sample changed under its voice clicks");
 		require(allocated == 0, "changing a sample allocates");
+
+		// The factory bank's samples on the Sampler, ROM-n's machine gone (ticket 27): factory slot 5 on Track 3 plays the
+		// samples ROM-05 played there, knobs alike; no Library sample without the image
+		require(!factorySample(none, 5), "a factory sample without the image");
+		int factory = 0;
+		for(int slot = 1; slot <= FactorySlots; ++slot)
+			factory += factorySample(_library, slot) ? 1 : 0;
+		const auto five = factorySample(_library, 5);
+		require(five && five->words.empty() && five->factory == 5, "factory slot 5 not read");
+		const auto playOn = [&](const Machine& _machine, const Sample* _sample)
+		{
+			auto e = std::make_unique<Engine>(_library);
+			e->setMachine(3, _machine);
+			e->setLevel(3, 127);
+			e->setChain(3, Bare);
+			if(_sample)
+				e->setSample(3, _sample);
+			for(int i = 0; i < 8; ++i)
+				e->setParameter(3, i, std::array<uint8_t, 8>{70, 100, 20, 0, 0, 127, 0, 64}[static_cast<size_t>(i)]);
+			Take take(Note + 60000);
+			take.render(*e, 0, Note);
+			e->noteOn(3, 127);
+			take.render(*e, Note, take.samples() - Note);
+			return take.channel(0);
+		};
+		const auto rom = playOn({Family::Machinedrum, 132}, nullptr), sampled = playOn(Sampler, &*five);
+		require(peakOf(rom) > 0.01f, "ROM-05 silent");
+		require(sampled == rom, "factory slot 5 on the Sampler plays otherwise than ROM-05");
+		std::printf("  factory samples: %d of %d slots, slot 5 on the Sampler plays ROM-05's %zu samples, peak %.3f\n",
+			factory, FactorySlots, rom.size(), peakOf(rom));
 	}
 
 	std::unique_ptr<syntakt::fast::TwinshotSamples> noise()

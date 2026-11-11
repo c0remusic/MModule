@@ -526,7 +526,8 @@ namespace elektron::drums
 			const auto at = static_cast<size_t>(m_browseDrag);
 			if(m_browseTree == 1)
 				return at < m_processor.trackSounds().entries().size() ? m_processor.trackSounds().entries()[at].name : "";
-			return at < m_processor.sampleLibrary().entries().size() ? m_processor.sampleLibrary().entries()[at].name : "";
+			return at < m_processor.sampleLibrary().entries().size() + m_processor.factorySamples().size()
+				? browseEntry(m_browseDrag).name : "";
 		};
 		if(m_browseDrag >= 0 && m_press.moved && dragged().isNotEmpty())
 		{
@@ -982,6 +983,28 @@ namespace elektron::drums
 			toast(error);
 			return;
 		}
+		sampleLoaded(_track);
+	}
+
+	// A Library sample by its file, a factory one (folder -1) by its fingerprint
+	void Editor::loadSample(const int _track, const SampleLibrary::Entry& _entry)
+	{
+		if(_entry.folder >= 0)
+		{
+			loadSample(_track, _entry.file);
+			return;
+		}
+		juce::String error;
+		if(!m_processor.loadLibrarySample(_track, _entry.fingerprint, error))
+		{
+			toast(error);
+			return;
+		}
+		sampleLoaded(_track);
+	}
+
+	void Editor::sampleLoaded(const int _track)
+	{
 		// A sample loaded puts the Track on the Sampler
 		auto* machine = trackParameter("machine", _track);
 		const float sampler = machine->convertTo0to1(static_cast<float>(m_processor.samplerChoice()));
@@ -1010,6 +1033,23 @@ namespace elektron::drums
 		if(!m_processor.auditionSample(_file, error))
 			toast(error);
 		m_auditionFile = _file;
+		m_auditionFactory.clear();
+		repaint();
+	}
+
+	void Editor::audition(const SampleLibrary::Entry& _entry)
+	{
+		if(_entry.folder >= 0)
+		{
+			audition(_entry.file);
+			return;
+		}
+		juce::String error;
+		if(!m_processor.auditionFactorySample(_entry.fingerprint.fromFirstOccurrenceOf(":", false, false).getIntValue(),
+			error))
+			toast(error);
+		m_auditionFile = juce::File();
+		m_auditionFactory = _entry.fingerprint;
 		repaint();
 	}
 
@@ -1142,6 +1182,7 @@ namespace elektron::drums
 		if(!m_processor.auditionTrackSound(_file))
 			toast(_file.getFileNameWithoutExtension() + " could not be read");
 		m_auditionFile = _file;
+		m_auditionFactory.clear();
 		repaint();
 	}
 

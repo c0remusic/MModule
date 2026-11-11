@@ -102,3 +102,27 @@ ROM 66,6 µs, VINTAGE 18,8 µs (1,18 µs par voix). Rien n'est alloué sur le fi
 
 Pas fait : charger la ROM d'une machine d'époque que l'utilisateur possède ; les noms des grains et de leurs paramètres
 attendent la table du ticket 27.
+
+## État (2026-11-11), machines ROM retirées
+
+Les machines ROM-01 à ROM-32 ont quitté la liste Machine (99 choix, 67 désormais) ; les échantillons de la banque d'usine
+sont devenus des samples du Sampler. Version 5 de l'état, version 3 des Kits. Un état antérieur à la version 5, ou un Kit
+antérieur à la version 3, dont une piste jouait ROM-n passe sur le Sampler avec l'emplacement d'usine n : Machine 1 à 8
+sont reprises telles quelles, car le Sampler est le même lecteur ROM avec les mêmes huit réglages (PTCH, DEC, HOLD, BRR,
+STRT, END, RTRG, RTIM) ; Machine 9 à 12 prennent les valeurs par défaut du Sampler (grain 12 bits), puisque ROM-n n'en
+avait pas ; un sample utilisateur que la piste gardait sous ROM-n est remplacé par la référence à l'emplacement.
+
+Le sample de la piste n'est qu'une référence (`<sample track="2" factory="5"/>`, empreinte « factory:5 ») : ni l'état ni
+le dépôt ne contiennent d'audio d'usine. Le moteur lit les mots là où la banque les tient, avec l'entrée de répertoire
+de ROM-n (`Sample::factory`, `Engine::setSample`) ; les valeurs 16 bits décodées servent au grain VINTAGE et à l'écoute.
+Mesuré : l'emplacement 5 sur le Sampler rend les mêmes 61 000 échantillons que ROM-05 (edDrumsEngineTest). Sans image,
+la piste se tait, garde sa référence dans l'état et l'éditeur affiche « Factory 05, no flash image »
+(edDrumsNoFlashTest).
+
+Browse : SAMPLES, BY SOURCE gagne un segment FACTORY après ceux des dossiers, avec les 32 emplacements de l'image (ou de
+ses mots importés), nommés FACTORY 01 à 32 puisque la banque ne porte pas de noms ; un clic les écoute, un double clic
+ou un glisser les charge sur le Sampler. Ils ne figurent ni sous ALL ni sous SAMPLES, BY TYPE (choix fait ici : ALL
+reste la liste des dossiers de l'utilisateur), et leur TYPE ne se modifie pas.
+
+Pas fait : les noms des machines et des familles (ticket à venir) ; l'extension de stockage qui remplacera « Elektron
+content » et « UW BANK ».

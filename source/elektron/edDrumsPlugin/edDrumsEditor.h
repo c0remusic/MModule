@@ -67,8 +67,8 @@ namespace elektron::drums
 		juce::Rectangle<int> browseRowArea(int _row) const;
 		int browseCount() const { return static_cast<int>(browseList().size()); }
 		juce::TextEditor& searchField() { return m_search; }
-		// Ticket 20: REMOVE FOLDER (0), the sample's TYPE row (1), the first folder's segment (2); an entry of the
-		// selector open
+		// Ticket 20: REMOVE FOLDER (0), the sample's TYPE row (1), the list's segments after ALL (2 on: the first
+		// folder's, then the next, FACTORY last); an entry of the selector open
 		juce::Rectangle<int> browseButtonArea(int _button) const;
 		juce::Rectangle<int> selectorItemArea(int _item) const;
 		// The timer's work, once
@@ -210,13 +210,20 @@ namespace elektron::drums
 		void openSelector(float _x, float _y, const juce::StringArray& _items, std::function<bool(int)> _current,
 			std::function<void(int)> _choose, std::function<bool(int)> _disabled = {}, bool _stays = false);
 		void loadSample(int _track, const juce::File& _file);
+		void loadSample(int _track, const SampleLibrary::Entry& _entry);
+		void sampleLoaded(int _track);
 		void chooseSample(int _track);
-		// Browse's samples: the list shown, indices in the Library's entries, filtered by the segment and the search; for
-		// KITS the Slots that hold one, for TRACK SOUNDS indices in their Library's entries, filtered by the search
+		// Browse's samples: the list shown, indices in the Library's entries, then past them in the factory samples' on
+		// FACTORY (browseEntry), filtered by the segment and the search; for KITS the Slots that hold one, for TRACK
+		// SOUNDS indices in their Library's entries, filtered by the search. FACTORY: the segment after the folders' of
+		// SAMPLES, BY SOURCE where the image gives factory samples, -1 for none
 		bool browseSamples() const { return m_browseTree == 2 || m_browseTree == 4; }
 		std::vector<int> browseList() const;
 		juce::StringArray browseFilters() const;
+		int factorySegment() const;
+		const SampleLibrary::Entry& browseEntry(int _index) const;
 		void audition(const juce::File& _file);
+		void audition(const SampleLibrary::Entry& _entry);
 		void addFolder(const juce::File& _folder);
 		void chooseFolder();
 		void drawBrowseSample(ui::Painter& _p, float _x, const ui::Hue& _hue);
@@ -258,6 +265,7 @@ namespace elektron::drums
 		juce::String m_browseSearch;
 		int m_browseDrag = -1;				// the Library entry a list row's drag carries
 		juce::File m_auditionFile;			// what the audition played last
+		juce::String m_auditionFactory;		// ... the factory sample's fingerprint, when it played one
 		uint32_t m_importsSeen = 0;			// the Processor's imports this editor told
 		juce::TextEditor m_search;
 		int m_kitSel = 0;					// Kits' Slot selected

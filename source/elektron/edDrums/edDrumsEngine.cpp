@@ -478,15 +478,24 @@ namespace elektron::drums
 			cut(_track);	// renders what the old voice has left ahead: its words can go
 		const uint32_t entry = 4 * (SamplerEntry + static_cast<uint32_t>(_track));
 		const uint32_t addr = SamplerAddr + static_cast<uint32_t>(_track) * Sample::SlotWords;
-		auto* slot = m_bankData.data() + (addr - md::voice::RomBank::DataAddr);
-		const size_t words = _sample ? std::min<size_t>(_sample->words.size(), Sample::MaxWords) : 0;
-		if(words)
-			std::copy_n(_sample->words.begin(), words, slot);
-		std::fill_n(slot + words, Sample::PadWords, 0u);
-		m_directory[entry] = addr;
-		m_directory[entry + 1] = words ? static_cast<uint32_t>(std::min<size_t>(_sample->pcm.size(), 2 * words)) : 0;
-		m_directory[entry + 2] = 0xffffff;		// no loop
-		m_directory[entry + 3] = words ? _sample->rateWord : 0;
+		if(_sample && _sample->factory >= 1 && _sample->factory <= FactorySlots)
+		{
+			// A factory sample plays where the bank holds it, the ROM machine's own entry: the same words, loop and rate
+			const auto from = 4 * static_cast<size_t>(_sample->factory - 1);
+			std::copy_n(m_directory.begin() + static_cast<std::ptrdiff_t>(from), 4, m_directory.begin() + entry);
+		}
+		else
+		{
+			auto* slot = m_bankData.data() + (addr - md::voice::RomBank::DataAddr);
+			const size_t words = _sample ? std::min<size_t>(_sample->words.size(), Sample::MaxWords) : 0;
+			if(words)
+				std::copy_n(_sample->words.begin(), words, slot);
+			std::fill_n(slot + words, Sample::PadWords, 0u);
+			m_directory[entry] = addr;
+			m_directory[entry + 1] = words ? static_cast<uint32_t>(std::min<size_t>(_sample->pcm.size(), 2 * words)) : 0;
+			m_directory[entry + 2] = 0xffffff;		// no loop
+			m_directory[entry + 3] = words ? _sample->rateWord : 0;
+		}
 
 		// The VINTAGE grain's, its values whole where they lie: the cut voice's tail is rendered, nothing reads the old ones
 		const auto t = static_cast<size_t>(_track);

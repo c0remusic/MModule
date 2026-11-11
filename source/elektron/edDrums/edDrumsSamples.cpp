@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstring>
 
+#include "edDrumsLibrary.h"
 #include "mdVoice.h"
 
 namespace elektron::drums
@@ -120,5 +121,35 @@ namespace elektron::drums
 		for(size_t n = 0; n < count; ++n)
 			pcm[n] = static_cast<int16_t>(p[2 * n] | p[2 * n + 1] << 8);
 		return fromPcm(std::move(name), std::move(pcm), rate);
+	}
+
+	std::optional<Sample> factorySample(const Library& _library, const int _slot)
+	{
+		if(_slot < 1 || _slot > FactorySlots || _library.directory.empty())
+			return std::nullopt;
+		// The slot's directory entry, as the ROM machine reads it: the first word's address, the length, the loop, the rate
+		const auto* entry = _library.directory.data() + 4 * static_cast<size_t>(_slot - 1);
+		const uint32_t addr = entry[0] & 0xffffff, length = entry[1] & 0xffffff;
+		if(length == 0 || addr < md::voice::RomBank::DataAddr)
+			return std::nullopt;
+		const size_t first = addr - md::voice::RomBank::DataAddr;
+		if(first >= _library.samples.size())
+			return std::nullopt;
+		const size_t count = std::min<size_t>({length, 2 * (_library.samples.size() - first), Sample::MaxSourceLength});
+		Sample s;
+		s.name = "FACTORY " + std::string(_slot < 10 ? "0" : "") + std::to_string(_slot);
+		s.factory = _slot;
+		s.rateWord = entry[3] & 0xffffff;
+		s.rate = std::clamp(static_cast<double>(s.rateWord) * 44100.0 / Sample::Unity, Sample::MinRate, Sample::MaxRate);
+		s.pcm.resize(count);
+		for(size_t n = 0; n < count; ++n)
+		{
+			const uint32_t word = _library.samples[first + n / 2];
+			const uint32_t code = (n & 1 ? word : word >> 12) & 0xfff;
+			const uint32_t v = _library.rom.decode[code] & 0xffffff;
+			s.pcm[n] = static_cast<int16_t>((static_cast<int32_t>(v ^ 0x800000) - 0x800000) >> 8);
+		}
+		s.source = std::make_shared<const std::vector<int16_t>>(s.pcm);
+		return s;
 	}
 }

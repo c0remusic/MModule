@@ -350,6 +350,28 @@ namespace
 				return _e.type == SampleLibrary::Type::Clap && _e.typeFrom == SampleLibrary::TypeFrom::User;
 			});
 			check(clap == 1, "TYPE set to CLAP on " + juce::String(static_cast<int>(clap)) + " samples");
+
+			// Ticket 27: FACTORY, the segment after the folder's, lists the factory bank's samples of the image; a
+			// double-click loads one on the Sampler, the Track's sample a reference to its slot
+			const auto& factory = processor.factorySamples();
+			if(!factory.empty())
+			{
+				click(editor, editor.browseButtonArea(3).getCentre());
+				editor.tick();
+				check(editor.browseCount() == static_cast<int>(factory.size()), "FACTORY lists "
+					+ juce::String(editor.browseCount()) + " samples, not " + juce::String(static_cast<int>(factory.size())));
+				click(editor, editor.browseRowArea(0).getCentre());
+				check(processor.auditioned() && processor.auditioned()->factory > 0, "a click auditions the factory sample");
+				doubleClick(editor, editor.browseRowArea(0).getCentre());
+				editor.tick();
+				check(processor.sampleFingerprint(0) == factory[0].fingerprint && processor.sampleName(0) == factory[0].name
+					&& juce::roundToInt(processor.parameter("t01_machine")->convertFrom0to1(
+						processor.parameter("t01_machine")->getValue())) == processor.samplerChoice(),
+					"a double-click loads " + factory[0].name + " on Track 1, on the Sampler");
+				snapshot(editor, _folder.getChildFile("browse-factory.png"));
+			}
+			else
+				std::printf("  (no flash image: FACTORY not shown)\n");
 			click(editor, editor.browseButtonArea(2).getCentre());
 			editor.tick();
 			snapshot(editor, _folder.getChildFile("browse-samples.png"));

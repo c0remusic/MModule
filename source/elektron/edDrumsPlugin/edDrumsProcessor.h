@@ -33,7 +33,9 @@
 // The Sampler (ticket 20) is the Machine list's choice where ROM-33 stood: ROM-33 to -48 left the list, its last 16,
 // and an older state on one of them loads the Sampler. OPEN DRUM's four machines follow it (ticket 26). Since state
 // version 4 and Kit version 2 the list holds none of the Machinedrum's INP, CTR, MID and RAM machines: an older state's
-// or Kit's choice is read in the list it was written with, a machine no longer offered loading as Off. A Track's sample
+// or Kit's choice is read in the list it was written with, a machine no longer offered loading as Off. Since state
+// version 5 and Kit version 3 nor does it hold ROM-01 to -32 (ticket 27): an older Track on ROM-n plays the Sampler on
+// factory slot n, a reference to the user's flash image that the state keeps without its audio. A Track's sample
 // is loaded on the message thread (loadSample), kept in the state, and reaches the audio thread through a mailbox per
 // Track.
 //
@@ -121,6 +123,11 @@ namespace elektron::drums
 		SampleLibrary& sampleLibrary() { return *m_sampleLibrary; }
 		bool loadLibrarySample(int _track, const juce::String& _fingerprint, juce::String& _error);
 		juce::String sampleFingerprint(const int _track) const { return m_sampleRefs[static_cast<size_t>(_track)]; }
+		// The factory bank's samples of the user's flash image or its words (ticket 27): an entry each slot that holds
+		// one, no file, folder -1, its fingerprint "factory:<slot>", which loadLibrarySample loads and a state or Kit
+		// keeps as a reference, never the audio. Empty without the image
+		const std::vector<SampleLibrary::Entry>& factorySamples() const { return m_factorySamples; }
+		bool auditionFactorySample(int _slot, juce::String& _error);
 
 		// Message thread. "Import my Elektron content" (edDrumsElektronImport.h) from _folder: false while one runs. The
 		// timer takes its report, gives the samples' Library the folder when it holds samples the Library lacks, and
@@ -297,6 +304,12 @@ namespace elektron::drums
 		void pruneSamples();
 		bool isKitParameter(const int _index) const { return m_kitParameter[static_cast<size_t>(_index)] != 0; }
 		void writeSound(juce::XmlElement& _xml, bool _all) const;
+		juce::XmlElement* writeSample(juce::XmlElement& _xml, int _track) const;
+		std::unique_ptr<Sample> readSample(const juce::XmlElement& _element, juce::String& _ref) const;
+		void takeRoms(juce::XmlElement& _xml, bool _state) const;
+		std::unique_ptr<juce::XmlElement> readKit(int _slot) const;
+		std::unique_ptr<juce::XmlElement> soundAsKit(const juce::XmlElement& _sound, int _track) const;
+		void sendAudition();
 		void readSound(const juce::XmlElement& _xml, bool _all);
 		void rememberKit(const juce::XmlElement* _kit);
 		std::vector<float> kitValuesOf(const juce::XmlElement& _kit) const;
@@ -364,6 +377,7 @@ namespace elektron::drums
 		void holdSource(const Sample* _sample);
 		void giveSample(int _track, const Sample* _sample);
 		std::unique_ptr<SampleLibrary> m_sampleLibrary;
+		std::vector<SampleLibrary::Entry> m_factorySamples;
 		std::unique_ptr<ElektronImport> m_import;
 		ElektronImport::Report m_lastImport;
 		uint32_t m_imports = 0;

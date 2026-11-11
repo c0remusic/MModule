@@ -180,9 +180,10 @@ namespace elektron::drums
 		// _index 0-23, Machine 1-24, _value 0-127
 		void setParameter(int _track, int _index, uint8_t _value);
 		// The sample the Track plays on the Sampler, nullptr none (silence). The ROM player's words copied into the engine's
-		// bank, without allocating; the VINTAGE grain reads _sample->source where it lies, which must outlive the engine's
-		// use of it: until a later call for the Track has returned. A voice of the Track's sounding ramps out, as where a
-		// Hit of this moment would sound; the other Tracks' go on
+		// bank, without allocating, or a factory sample's (Sample::factory) read where the bank holds it; the VINTAGE grain
+		// reads _sample->source where it lies, which must outlive the engine's use of it: until a later call for the Track
+		// has returned. A voice of the Track's sounding ramps out, as where a Hit of this moment would sound; the other
+		// Tracks' go on
 		void setSample(int _track, const Sample* _sample);
 
 		uint8_t parameter(const int _track, const int _index) const

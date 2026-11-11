@@ -33,7 +33,16 @@ namespace elektron::drums
 		// reads where it lies (Engine::setSample), no copy on the audio thread
 		std::shared_ptr<const std::vector<int16_t>> source;
 		uint32_t rateWord = Unity;
+		// A sample of the factory bank in the user's flash image (factorySample): its slot, 1 to 32, whose words the
+		// ROM player reads where the Library holds them, words left empty; 0 for a user's sample
+		int factory = 0;
 	};
+
+	struct Library;
+	// The factory bank's sample at _slot (1 to 32) of _library, as the ROM machine of that slot played it, its values
+	// decoded for the VINTAGE grain and the audition; nullopt where the Library holds no sample there (no image)
+	constexpr int FactorySlots = 32;
+	std::optional<Sample> factorySample(const Library& _library, int _slot);
 
 	// _mono (full scale 1.0) at _rate, cut to Sample::MaxSourceLength. An error that says why for no audio or a rate out of
 	// MinRate to MaxRate

@@ -204,8 +204,9 @@ int main()
 		std::string quietestName, silentNames;
 		for(const Machine machine : test::machines())
 		{
-			// ROM-33 to -48 are the Sampler's entries, not machines of the list
-			if(!playable(machine))
+			// ROM-33 to -48 are the Sampler's entries, not machines of the list; ROM-01 to -32 left it (ticket 27), their
+			// samples the Sampler's factory ones
+			if(!playable(machine) || (machine.family == Family::Machinedrum && machine.id >= 128 && machine.id < 160))
 				continue;
 			const auto name = test::nameOf(machine);
 			const auto choice = static_cast<size_t>(std::find(list.begin(), list.end(), machine) - list.begin());
@@ -248,7 +249,30 @@ int main()
 		std::printf("  no image: %d machines whole, %d on words made here, quietest %s at %.1f dB, HitDelay %d "
 			"reported, the earliest 1 %% of a peak %d, jitter 0 at 4 positions; %d silent:%s\n", whole, house, quietestName.c_str(),
 			20 * std::log10(quietest), HitDelay, earliest, silent, silentNames.c_str());
-		require(whole == 32 && house == 10 && silent == 49, "another count of machines");
+		require(whole == 32 && house == 10 && silent == 17, "another count of machines");
+
+		// Ticket 27: a Track on factory slot 5 without the image keeps its reference, says why it is silent, and a state
+		// saved again keeps the slot; Browse has no factory sample to list
+		{
+			juce::XmlElement xml("ElektronDrums");
+			xml.setAttribute("version", 5);
+			xml.setAttribute("t03_machine", first.samplerChoice());
+			auto* element = xml.createNewChildElement("sample");
+			element->setAttribute("track", 2);
+			element->setAttribute("factory", 5);
+			juce::MemoryBlock state;
+			juce::AudioProcessor::copyXmlToBinary(xml, state);
+			Processor p;
+			p.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+			require(p.sampleFingerprint(2) == "factory:5" && p.sampleName(2).contains("no flash image")
+				&& p.factorySamples().empty(), "factory slot 5 without the image: " + p.sampleName(2).toStdString());
+			juce::MemoryBlock saved;
+			p.getStateInformation(saved);
+			Processor q;
+			q.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+			require(q.sampleFingerprint(2) == "factory:5", "the reference not kept without the image");
+			std::printf("  factory slot 5 without the image: \"%s\", kept in the state\n", p.sampleName(2).toRawUTF8());
+		}
 		std::printf("PASS: the instrument plays with no image\n");
 	}
 	catch(const std::exception& _e)

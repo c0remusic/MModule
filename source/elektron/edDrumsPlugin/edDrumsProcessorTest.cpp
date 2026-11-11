@@ -1026,8 +1026,14 @@ namespace
 			v4.push_back({Family::OpenDrum, static_cast<uint8_t>(id)});
 		// ... and SOPHIE last, appended within version 4: no choice before it moved
 		v4.push_back({Family::Sophie, 0});
+		// ... of version 5: without ROM-01 to -32, the factory bank's samples on the Sampler (ticket 27)
+		std::vector<Machine> v5;
+		for(const auto& m : v4)
+			if(!(m.family == Family::Machinedrum && m.id >= 128 && m.id < 160))
+				v5.push_back(m);
+		require(v4.size() - v5.size() == 32, "ROM-01 to -32 not in version 4's list");
 		const auto& list = processor.machines();
-		require(list == v4, "the list");
+		require(list == v5, "the list");
 		require(list[static_cast<size_t>(processor.sophieChoice())] == Machine{Family::Sophie, 0}, "SOPHIE's choice");
 		{
 			// A Track put on SOPHIE starts on its Kick; a factory sound sets Machine 1-20, which the engine plays
@@ -1093,8 +1099,11 @@ namespace
 		const auto check = [&](Processor& _p, const char* _what)
 		{
 			require(machineAt(_p, "t01_machine") == trxBd && machineAt(_p, "t02_machine") == Sampler
-				&& machineAt(_p, "t03_machine") == Machine{} && machineAt(_p, "t04_machine") == Machine{}
-				&& machineAt(_p, "t05_machine") == v3[v3.size() - 2], std::string(_what) + ": a machine moved");
+				&& machineAt(_p, "t03_machine") == Machine{} && machineAt(_p, "t04_machine") == Machine{},
+				std::string(_what) + ": a machine moved");
+			// ROM-32 plays the Sampler on factory slot 32
+			require(machineAt(_p, "t05_machine") == Sampler && _p.sampleFingerprint(4) == "factory:32",
+				std::string(_what) + ": ROM-32 is not the Sampler on factory slot 32");
 		};
 		{
 			juce::XmlElement xml("ElektronDrums");
@@ -1132,11 +1141,78 @@ namespace
 			Processor b;
 			b.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
 			require(machineAt(b, "t01_machine") == Machine{Family::OpenDrum, 0} && machineAt(b, "t02_machine") == Sampler,
-				"a state of version 4");
+				"a state of version 5");
 		}
-		std::printf("PASS: Machine's %zu choices (%zu before), the Sampler where ROM-33 stood, OPEN DRUM's 4 after it, no INP,"
-			" CTR, MID or RAM; a state of version 2 or 3 and a Kit of version 1 load TRX-BD, the Sampler, ROM-32 as theirs,"
-			" CTR-AL and MID-01 as Off\n", list.size(), v3.size());
+		// Ticket 27: a state of version 4 and a Kit of version 2 on ROM-05 play the Sampler on factory slot 5, Machine 1-8
+		// carried, the 12-bit grain; the state saved again holds the slot, not its audio
+		const Machine rom05{Family::Machinedrum, 132};
+		const std::array<int, 8> knobs{70, 100, 20, 3, 5, 120, 0, 64};
+		const auto onRom = [&](juce::XmlElement& _xml)
+		{
+			_xml.setAttribute("t03_machine", at(v4, rom05));
+			_xml.setAttribute("t04_machine", at(v4, trxBd));
+			for(int i = 0; i < 8; ++i)
+				_xml.setAttribute("t03_m" + juce::String(i + 1), knobs[static_cast<size_t>(i)]);
+			_xml.setAttribute("t03_m9", 100);		// what ROM-05 had there: nothing it played
+		};
+		size_t factory = 0;
+		const auto played = [&](Processor& _p, const char* _what)
+		{
+			require(machineAt(_p, "t03_machine") == Sampler && machineAt(_p, "t04_machine") == trxBd,
+				std::string(_what) + ": ROM-05 not the Sampler");
+			require(_p.sampleFingerprint(2) == "factory:5", std::string(_what) + ": not on factory slot 5");
+			for(int i = 0; i < 8; ++i)
+				require(whole(plain(find(_p, ("t03_m" + std::to_string(i + 1)).c_str()))) == knobs[static_cast<size_t>(i)],
+					std::string(_what) + ": Machine " + std::to_string(i + 1) + " not carried");
+			require(whole(plain(find(_p, "t03_m9"))) < 64, std::string(_what) + ": not the 12-bit grain");
+			factory = _p.factorySamples().size();
+			require(factory > 0 ? _p.sampleName(2) == "FACTORY 05" : _p.sampleName(2).contains("no flash image"),
+				std::string(_what) + ": the sample's name " + _p.sampleName(2).toStdString());
+		};
+		{
+			juce::XmlElement xml("ElektronDrums");
+			xml.setAttribute("version", 4);
+			onRom(xml);
+			juce::MemoryBlock state;
+			juce::AudioProcessor::copyXmlToBinary(xml, state);
+			Processor p;
+			p.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+			played(p, "a state of version 4");
+			juce::MemoryBlock saved;
+			p.getStateInformation(saved);
+			const auto back = juce::AudioProcessor::getXmlFromBinary(saved.getData(), static_cast<int>(saved.getSize()));
+			int samples = 0;
+			for(const auto* element : back->getChildWithTagNameIterator("sample"))
+			{
+				++samples;
+				require(element->getIntAttribute("track") == 2 && element->getIntAttribute("factory") == 5
+					&& element->getAllSubText().isEmpty(), "the state holds factory audio, or another sample");
+			}
+			require(back->getIntAttribute("version") == 5 && samples == 1, "the state saved again: no factory slot");
+			Processor q;
+			q.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+			played(q, "a state of version 5");
+		}
+		{
+			Processor saver;
+			require(saver.saveKit(41), "Slot 42 saved");
+			KitBank bank(Processor::dataFolder().getChildFile("Kits"));
+			auto kit = bank.read(41);
+			require(kit != nullptr, "Slot 42 read");
+			kit->setAttribute("version", 2);
+			onRom(*kit);
+			require(bank.write(41, *kit), "Slot 42 written");
+			Processor p;
+			require(p.loadKit(41), "the Kit of version 2 not loaded");
+			played(p, "a Kit of version 2");
+			require(!p.kitDiffers(), "a Kit of version 2 loaded differs from its Slot");
+			require(bank.clear(41), "Slot 42 cleared");
+		}
+		std::printf("PASS: Machine's %zu choices (%zu before, %zu with the ROM machines), the Sampler where ROM-33 stood, OPEN"
+			" DRUM's 4 after it, no INP, CTR, MID, RAM or ROM; a state of version 2 or 3 and a Kit of version 1 load TRX-BD,"
+			" the Sampler as theirs, ROM-32 as the Sampler on factory slot 32, CTR-AL and MID-01 as Off; a state of version 4"
+			" and a Kit of version 2 on ROM-05 the Sampler on factory slot 5, its knobs carried, saved as the slot alone;"
+			" %zu factory samples\n", list.size(), v3.size(), v4.size(), factory);
 	}
 	// ---- Machine 9-24 (ticket 26) ----
 

@@ -17,16 +17,23 @@ namespace elektron::drums
 		constexpr int FirstNote = 36;	// notes 36-51: Tracks 1-16
 		constexpr int DefaultLevel = 100, DefaultNote = 60, Centre = 64;
 
-		// The Machinedrum's input, control, MIDI and RAM machines are not the instrument's
-		bool offered(const md::machines::Machine& _m)
+		constexpr int StateVersion = 5;
+
+		// The Machinedrum's input, control, MIDI and RAM machines are not the instrument's, and since state version 5 nor
+		// are its ROM machines: the factory bank's samples play on the Sampler (ticket 27)
+		bool offered(const md::machines::Machine& _m, const bool _roms)
 		{
 			const auto* family = md::machines::familyOf(md::MachineModel::Machinedrum, _m.id);
-			return !family || (family->name != "INP" && family->name != "CTR" && family->name != "MID" && family->name != "RAM");
+			return !family || (family->name != "INP" && family->name != "CTR" && family->name != "MID" && family->name != "RAM"
+				&& (_roms || family->name != "ROM"));
 		}
 
-		// Machine's choices: Off, the Syntakt's, the Machinedrum's, the Sampler, OPEN DRUM's, then SOPHIE. With _all the
-		// Machinedrum's that played before state version 4 and Kit version 2, the list those stored their choice in
-		std::vector<Machine> machineList(const bool _all = false)
+		// The lists Machine's choice was stored in: before state version 4 and Kit version 2, the Machinedrum's that
+		// played; until state version 5 and Kit version 3, with ROM-01 to -32; the list now
+		enum class ListOf { Before4, Before5, Now };
+
+		// Machine's choices: Off, the Syntakt's, the Machinedrum's, the Sampler, OPEN DRUM's, then SOPHIE
+		std::vector<Machine> machineList(const ListOf _of = ListOf::Now)
 		{
 			std::vector<Machine> list{Machine{}};
 			for(int id = 0; id < SyntaktMachines; ++id)
@@ -34,12 +41,12 @@ namespace elektron::drums
 			for(const auto& m : md::machines::machines(md::MachineModel::Machinedrum))
 			{
 				const Machine machine{Family::Machinedrum, static_cast<uint8_t>(m.id)};
-				if(m.id < 256 && playable(machine) && (_all || offered(m)))
+				if(m.id < 256 && playable(machine) && (_of == ListOf::Before4 || offered(m, _of == ListOf::Before5)))
 					list.push_back(machine);
 			}
 			// Where ROM-33 stood: ROM-33 to -48, the Sampler's entries now, were the list's last 16
 			list.push_back(Sampler);
-			if(_all)
+			if(_of == ListOf::Before4)
 				return list;
 			for(int id = 0; id < OpenDrumMachines; ++id)
 				list.push_back({Family::OpenDrum, static_cast<uint8_t>(id)});
@@ -49,19 +56,47 @@ namespace elektron::drums
 			return list;
 		}
 
-		// The choice _list gives the machine a state of _version (a Kit's if not _state) stored as _stored: before
-		// version 3 ROM-33 to -48 followed the Sampler, which plays them; a machine no longer offered is Off
+		// The machine a state of _version (a Kit's if not _state) stored as _stored: before version 3 ROM-33 to -48
+		// followed the Sampler, which plays them; Off for a choice its list lacks
+		Machine storedMachine(const int _stored, const int _version, const bool _state)
+		{
+			static const auto before4 = machineList(ListOf::Before4), before5 = machineList(ListOf::Before5),
+				now = machineList(ListOf::Now);
+			const auto& old = (_state ? _version >= 5 : _version >= 3) ? now
+				: (_state ? _version >= 4 : _version >= 2) ? before5 : before4;
+			const int sampler = static_cast<int>(before4.size()) - 1;
+			const int stored = _state && _version < 3 ? std::min(_stored, sampler) : _stored;
+			return stored < 0 || stored >= static_cast<int>(old.size()) ? Machine{} : old[static_cast<size_t>(stored)];
+		}
+
+		// ROM-n's slot of the factory bank, 1 to 32, for ROM-01 to -32; 0 for any other machine
+		int romSlot(const Machine& _machine)
+		{
+			return _machine.family == Family::Machinedrum && _machine.id >= 128 && _machine.id < 128 + FactorySlots
+				? _machine.id - 127 : 0;
+		}
+
+		// The choice _list gives the machine a state of _version (a Kit's if not _state) stored as _stored: a ROM machine
+		// the Sampler, which plays its sample (Processor::takeRoms); a machine no longer offered Off
 		int choiceOf(const std::vector<Machine>& _list, const int _stored, const int _version, const bool _state)
 		{
-			if(_state ? _version >= 4 : _version >= 2)
+			if(_state ? _version >= StateVersion : _version >= KitBank::Version)
 				return _stored;
-			static const auto old = machineList(true);
-			const int sampler = static_cast<int>(old.size()) - 1;
-			const int stored = _state && _version < 3 ? std::min(_stored, sampler) : _stored;
-			if(stored < 0 || stored > sampler)
-				return 0;
-			const auto found = std::find(_list.begin(), _list.end(), old[static_cast<size_t>(stored)]);
+			const Machine stored = storedMachine(_stored, _version, _state);
+			const auto found = std::find(_list.begin(), _list.end(), romSlot(stored) ? Sampler : stored);
 			return found == _list.end() ? 0 : static_cast<int>(found - _list.begin());
+		}
+
+		// A Track's reference to a factory sample (Sample::factory), where m_sampleRefs keeps a Library file's
+		// fingerprint: the slot it names, 0 for none
+		constexpr const char* FactoryRef = "factory:";
+		int factorySlotOf(const juce::String& _ref)
+		{
+			return _ref.startsWith(FactoryRef) ? std::clamp(_ref.substring(8).getIntValue(), 0, FactorySlots) : 0;
+		}
+		juce::String factoryRef(const int _slot)
+		{
+			return FactoryRef + juce::String(_slot);
 		}
 
 		juce::String machineName(const Machine& _machine)
@@ -106,6 +141,7 @@ namespace elektron::drums
 				for(size_t i = 0; i < _size; ++i)
 					h = (h ^ static_cast<const uint8_t*>(_data)[i]) * 1099511628211ull;
 			};
+			add(&_sample->factory, sizeof(_sample->factory));	// read where the bank holds it, not from its slot
 			add(_sample->name.data(), _sample->name.size());
 			add(&_sample->rate, sizeof(_sample->rate));
 			add(_sample->pcm.data(), _sample->pcm.size() * sizeof(int16_t));
@@ -350,6 +386,22 @@ namespace elektron::drums
 		catch(const std::exception&)
 		{
 			m_library = std::make_unique<Library>();
+		}
+		// Browse's FACTORY: the factory bank's slots that hold a sample, by what their directory entries say
+		for(int slot = 1; slot <= FactorySlots && !m_library->directory.empty(); ++slot)
+		{
+			const auto* entry = m_library->directory.data() + 4 * static_cast<size_t>(slot - 1);
+			if((entry[1] & 0xffffff) == 0)
+				continue;
+			SampleLibrary::Entry e;
+			e.name = "FACTORY " + juce::String(slot).paddedLeft('0', 2);
+			e.folder = -1;
+			e.length = static_cast<int64_t>(entry[1] & 0xffffff);
+			e.rate = std::clamp(static_cast<double>(entry[3] & 0xffffff) * 44100.0 / Sample::Unity, Sample::MinRate,
+				Sample::MaxRate);
+			e.channels = 1;
+			e.fingerprint = factoryRef(slot);
+			m_factorySamples.push_back(e);
 		}
 
 		juce::StringArray names;
@@ -929,6 +981,19 @@ namespace elektron::drums
 
 	bool Processor::loadLibrarySample(const int _track, const juce::String& _fingerprint, juce::String& _error)
 	{
+		if(const int slot = factorySlotOf(_fingerprint))
+		{
+			auto sample = factorySample(*m_library, slot);
+			if(!sample)
+			{
+				_error = "The factory samples need the Machinedrum's flash image";
+				return false;
+			}
+			m_samples[static_cast<size_t>(_track)] = std::make_unique<Sample>(std::move(*sample));
+			m_sampleRefs[static_cast<size_t>(_track)] = factoryRef(slot);
+			publishSample(_track);
+			return true;
+		}
 		const auto* entry = m_sampleLibrary->find(_fingerprint);
 		if(!entry)
 		{
@@ -947,6 +1012,26 @@ namespace elektron::drums
 			return false;
 		}
 		m_auditioned = std::make_unique<Sample>(std::move(std::get<Sample>(result)));
+		sendAudition();
+		return true;
+	}
+
+	bool Processor::auditionFactorySample(const int _slot, juce::String& _error)
+	{
+		auto sample = factorySample(*m_library, _slot);
+		if(!sample)
+		{
+			_error = "The factory samples need the Machinedrum's flash image";
+			return false;
+		}
+		m_auditioned = std::make_unique<Sample>(std::move(*sample));
+		sendAudition();
+		return true;
+	}
+
+	// m_auditioned to the audio thread, which plays it from its next block
+	void Processor::sendAudition()
+	{
 		auto mail = std::make_unique<SampleMail>();
 		mail->sample = *m_auditioned;
 		mail->serial = ++m_sampleSerial;
@@ -956,13 +1041,17 @@ namespace elektron::drums
 			m_auditionFlight.erase(std::find_if(m_auditionFlight.begin(), m_auditionFlight.end(),
 				[old](const auto& _m) { return _m.get() == old; }));
 		pruneSamples();
-		return true;
 	}
 
 	juce::String Processor::sampleName(const int _track) const
 	{
 		const auto& sample = m_samples[static_cast<size_t>(_track)];
-		return sample ? juce::String::fromUTF8(sample->name.c_str()) : juce::String();
+		if(sample)
+			return juce::String::fromUTF8(sample->name.c_str());
+		// A factory sample whose image this instrument lacks: the Track is silent, and says why
+		if(const int slot = factorySlotOf(m_sampleRefs[static_cast<size_t>(_track)]))
+			return "Factory " + juce::String(slot).paddedLeft('0', 2) + ", no flash image";
+		return {};
 	}
 
 	void Processor::clearSample(const int _track)
@@ -1496,17 +1585,83 @@ namespace elektron::drums
 				if(_all || isKitParameter(p->getParameterIndex()))
 					_xml.setAttribute(p->getParameterID(), p->convertFrom0to1(p->getValue()));
 		for(int t = 0; t < Tracks; ++t)
-			if(const auto& sample = m_samples[static_cast<size_t>(t)])
-			{
-				const auto bytes = sampleToBytes(*sample);
-				auto* element = _xml.createNewChildElement("sample");
+			if(auto* element = writeSample(_xml, t))
 				element->setAttribute("track", t);
-				// Which file of the Library it is, beside the copy that plays without it
-				element->setAttribute("name", juce::String::fromUTF8(sample->name.c_str()));
-				if(m_sampleRefs[static_cast<size_t>(t)].isNotEmpty())
-					element->setAttribute("fingerprint", m_sampleRefs[static_cast<size_t>(t)]);
-				element->addTextElement(juce::MemoryBlock(bytes.data(), bytes.size()).toBase64Encoding());
+	}
+
+	// The Track's sample as a child of _xml: its copy, which file of the Library it is beside it; a factory sample only
+	// its slot, so that no factory audio is written, and kept without the image that plays it. nullptr for none
+	juce::XmlElement* Processor::writeSample(juce::XmlElement& _xml, const int _track) const
+	{
+		const auto t = static_cast<size_t>(_track);
+		const auto& sample = m_samples[t];
+		if(const int slot = factorySlotOf(m_sampleRefs[t]))
+		{
+			auto* element = _xml.createNewChildElement("sample");
+			element->setAttribute("factory", slot);
+			return element;
+		}
+		if(!sample)
+			return nullptr;
+		const auto bytes = sampleToBytes(*sample);
+		auto* element = _xml.createNewChildElement("sample");
+		element->setAttribute("name", juce::String::fromUTF8(sample->name.c_str()));
+		if(m_sampleRefs[t].isNotEmpty())
+			element->setAttribute("fingerprint", m_sampleRefs[t]);
+		element->addTextElement(juce::MemoryBlock(bytes.data(), bytes.size()).toBase64Encoding());
+		return element;
+	}
+
+	// What writeSample wrote: the sample, nullptr for none or a factory one without the image; its reference in _ref
+	std::unique_ptr<Sample> Processor::readSample(const juce::XmlElement& _element, juce::String& _ref) const
+	{
+		_ref.clear();
+		if(const int slot = std::clamp(_element.getIntAttribute("factory"), 0, FactorySlots))
+		{
+			_ref = factoryRef(slot);
+			auto sample = factorySample(*m_library, slot);
+			return sample ? std::make_unique<Sample>(std::move(*sample)) : nullptr;
+		}
+		juce::MemoryBlock bytes;
+		if(!bytes.fromBase64Encoding(_element.getAllSubText()))
+			return nullptr;
+		auto read = sampleFromBytes(static_cast<const uint8_t*>(bytes.getData()), bytes.getSize());
+		if(!read)
+			return nullptr;
+		_ref = _element.getStringAttribute("fingerprint");
+		return std::make_unique<Sample>(std::move(*read));
+	}
+
+	// A state of a version before 5 or a Kit before 3 (_state false) whose Track played ROM-n plays the Sampler, which
+	// choiceOf gives it, on factory slot n: Machine 1-8 are the same knobs of the same ROM player; Machine 9-12 the
+	// Sampler's defaults (its 12-bit grain), which ROM-n had none of; the Track's sample element, a reference to the slot
+	void Processor::takeRoms(juce::XmlElement& _xml, const bool _state) const
+	{
+		const int version = _xml.getIntAttribute("version");
+		if(_state ? version >= StateVersion : version >= KitBank::Version)
+			return;
+		const auto defaults = allDefaults(Sampler);
+		for(int t = 0; t < Tracks; ++t)
+		{
+			const auto prefix = juce::String::formatted("t%02d_", t + 1);
+			if(!_xml.hasAttribute(prefix + "machine"))
+				continue;
+			const int slot = romSlot(storedMachine(_xml.getIntAttribute(prefix + "machine"), version, _state));
+			if(!slot)
+				continue;
+			for(int i = 8; i < vintage::SamplerParameters; ++i)
+				_xml.setAttribute(prefix + "m" + juce::String(i + 1), defaults[static_cast<size_t>(i)]);
+			for(auto* element = _xml.getChildByName("sample"); element; )
+			{
+				auto* next = element->getNextElementWithTagName("sample");
+				if(element->getIntAttribute("track", -1) == t)
+					_xml.removeChildElement(element, true);
+				element = next;
 			}
+			auto* element = _xml.createNewChildElement("sample");
+			element->setAttribute("track", t);
+			element->setAttribute("factory", slot);
+		}
 	}
 
 	void Processor::getStateInformation(juce::MemoryBlock& _data)
@@ -1514,8 +1669,9 @@ namespace elektron::drums
 		juce::XmlElement xml("ElektronDrums");
 		// 2: ticket 18's parameters; the format is the same, every parameter by ID. 3: the Sampler last of Machine's
 		// choices, the Tracks' samples and the patterns, in elements of their own. The Kit played's Slot since ticket 19.
-		// 4: Machine's choices without the Machinedrum's INP, CTR, MID and RAM machines, OPEN DRUM's after the Sampler
-		xml.setAttribute("version", 4);
+		// 4: Machine's choices without the Machinedrum's INP, CTR, MID and RAM machines, OPEN DRUM's after the Sampler.
+		// 5: without the ROM machines, a factory sample a Track's reference to it (writeSample)
+		xml.setAttribute("version", StateVersion);
 		writeSound(xml, true);
 		xml.setAttribute("kit", m_kitSlot);
 		for(int i = 0; i < SeqPatterns; ++i)
@@ -1594,13 +1750,8 @@ namespace elektron::drums
 			auto& sample = m_samples[static_cast<size_t>(t)];
 			sample.reset();
 			m_sampleRefs[static_cast<size_t>(t)].clear();
-			juce::MemoryBlock bytes;
-			if(samples[static_cast<size_t>(t)] && bytes.fromBase64Encoding(samples[static_cast<size_t>(t)]->getAllSubText()))
-				if(auto read = sampleFromBytes(static_cast<const uint8_t*>(bytes.getData()), bytes.getSize()))
-				{
-					sample = std::make_unique<Sample>(std::move(*read));
-					m_sampleRefs[static_cast<size_t>(t)] = samples[static_cast<size_t>(t)]->getStringAttribute("fingerprint");
-				}
+			if(samples[static_cast<size_t>(t)])
+				sample = readSample(*samples[static_cast<size_t>(t)], m_sampleRefs[static_cast<size_t>(t)]);
 			publishSample(t);
 		}
 	}
@@ -1611,6 +1762,7 @@ namespace elektron::drums
 		const auto xml = getXmlFromBinary(_data, _size);
 		if(!xml || !xml->hasTagName("ElektronDrums"))
 			return;
+		takeRoms(*xml, true);
 		// No block meanwhile: the audio thread sees the state whole
 		suspendProcessing(true);
 		readSound(*xml, true);
@@ -1631,7 +1783,7 @@ namespace elektron::drums
 		const int slot = xml->getIntAttribute("kit", -1);
 		m_kitSlot = KitBank::valid(slot) ? slot : -1;
 		m_kits->follow();
-		const auto kit = m_kitSlot < 0 ? nullptr : m_kits->read(m_kitSlot);
+		const auto kit = m_kitSlot < 0 ? nullptr : readKit(m_kitSlot);
 		rememberKit(kit.get());
 		prepareKits(~uint64_t{0});
 	}
@@ -1652,11 +1804,19 @@ namespace elektron::drums
 		for(const auto* element : _kit->getChildWithTagNameIterator("sample"))
 		{
 			const int t = element->getIntAttribute("track", -1);
-			juce::MemoryBlock bytes;
-			if(t >= 0 && t < Tracks && bytes.fromBase64Encoding(element->getAllSubText()))
-				if(auto read = sampleFromBytes(static_cast<const uint8_t*>(bytes.getData()), bytes.getSize()))
-					m_kitSamples[static_cast<size_t>(t)] = std::make_unique<Sample>(std::move(*read));
+			juce::String ref;
+			if(t >= 0 && t < Tracks)
+				m_kitSamples[static_cast<size_t>(t)] = readSample(*element, ref);
 		}
+	}
+
+	// A Slot's Kit as it plays: a Kit of a version before 3 on a ROM machine plays the Sampler (takeRoms)
+	std::unique_ptr<juce::XmlElement> Processor::readKit(const int _slot) const
+	{
+		auto kit = m_kits->read(_slot);
+		if(kit)
+			takeRoms(*kit, false);
+		return kit;
 	}
 
 	// _kit's values as readSound gives them, normalised by parameter index: a missing one, its default; Machine 9-24
@@ -1710,7 +1870,7 @@ namespace elektron::drums
 		const uint64_t changed = m_kits->follow();
 		if(m_kitSlot >= 0 && (changed >> m_kitSlot) & 1)
 		{
-			const auto kit = m_kits->read(m_kitSlot);
+			const auto kit = readKit(m_kitSlot);
 			rememberKit(kit.get());
 		}
 		if(changed)
@@ -1736,7 +1896,7 @@ namespace elektron::drums
 				continue;
 			std::unique_ptr<PreparedKit> kit;
 			if(wanted)
-				if(auto xml = m_kits->read(s))
+				if(auto xml = readKit(s))
 				{
 					kit = std::make_unique<PreparedKit>();
 					kit->slot = s;
@@ -1744,15 +1904,11 @@ namespace elektron::drums
 					for(const auto* element : xml->getChildWithTagNameIterator("sample"))
 					{
 						const auto t = static_cast<size_t>(element->getIntAttribute("track", -1));
-						juce::MemoryBlock bytes;
-						if(t < Tracks && bytes.fromBase64Encoding(element->getAllSubText()))
-							if(auto read = sampleFromBytes(static_cast<const uint8_t*>(bytes.getData()), bytes.getSize()))
-							{
-								kit->samples[t] = std::make_unique<Sample>(std::move(*read));
-								kit->sampleHash[t] = sampleHash(kit->samples[t].get());
-								holdSource(kit->samples[t].get());
-								kit->refs[t] = element->getStringAttribute("fingerprint");
-							}
+						if(t >= Tracks)
+							continue;
+						kit->samples[t] = readSample(*element, kit->refs[t]);
+						kit->sampleHash[t] = sampleHash(kit->samples[t].get());
+						holdSource(kit->samples[t].get());
 					}
 					kit->xml = std::move(xml);
 				}
@@ -1883,16 +2039,28 @@ namespace elektron::drums
 			const auto* p = parameter(id);
 			xml->setAttribute(suffix, p->convertFrom0to1(p->getValue()));
 		}
-		if(const auto& sample = m_samples[static_cast<size_t>(_track)])
-		{
-			const auto bytes = sampleToBytes(*sample);
-			auto* element = xml->createNewChildElement("sample");
-			element->setAttribute("name", juce::String::fromUTF8(sample->name.c_str()));
-			if(m_sampleRefs[static_cast<size_t>(_track)].isNotEmpty())
-				element->setAttribute("fingerprint", m_sampleRefs[static_cast<size_t>(_track)]);
-			element->addTextElement(juce::MemoryBlock(bytes.data(), bytes.size()).toBase64Encoding());
-		}
+		writeSample(*xml, _track);
 		return xml;
+	}
+
+	// _sound as _track's Kit would hold it: its IDs given the Track's prefix, its sample the Track's, then a ROM machine
+	// taken as a Kit's is (takeRoms)
+	std::unique_ptr<juce::XmlElement> Processor::soundAsKit(const juce::XmlElement& _sound, const int _track) const
+	{
+		auto kit = std::make_unique<juce::XmlElement>(KitBank::Tag);
+		kit->setAttribute("version", _sound.getIntAttribute("version"));
+		const auto prefix = juce::String::formatted("t%02d_", _track + 1);
+		for(int i = 0; i < _sound.getNumAttributes(); ++i)
+			if(const auto name = _sound.getAttributeName(i); parameter(prefix + name) && soundSuffix(name))
+				kit->setAttribute(prefix + name, _sound.getAttributeValue(i));
+		if(const auto* sample = _sound.getChildByName("sample"))
+		{
+			auto* element = new juce::XmlElement(*sample);
+			element->setAttribute("track", _track);
+			kit->addChildElement(element);
+		}
+		takeRoms(*kit, false);
+		return kit;
 	}
 
 	juce::File Processor::saveTrackSound(const int _track, const juce::String& _name)
@@ -1908,14 +2076,9 @@ namespace elektron::drums
 		const auto sound = m_trackSounds->read(_file);
 		if(!sound || _track < 0 || _track >= Tracks)
 			return false;
-		// The sound as this Track's Kit would hold it: its IDs given the Track's prefix, then read as a Kit is
-		juce::XmlElement kit(KitBank::Tag);
-		kit.setAttribute("version", sound->getIntAttribute("version"));
-		const auto prefix = juce::String::formatted("t%02d_", _track + 1);
-		for(int i = 0; i < sound->getNumAttributes(); ++i)
-			if(const auto name = sound->getAttributeName(i); parameter(prefix + name) && soundSuffix(name))
-				kit.setAttribute(prefix + name, sound->getAttributeValue(i));
-		const auto values = kitValuesOf(kit);
+		// The sound as this Track's Kit would hold it, then read as a Kit is
+		const auto kit = soundAsKit(*sound, _track);
+		const auto values = kitValuesOf(*kit);
 
 		// As a Kit loads: no block meanwhile, the host reads the parameters again, none told as an edit
 		// ... and no Lock of the Track outlives it: the engine takes its values again at the next block
@@ -1941,13 +2104,8 @@ namespace elektron::drums
 		auto& sample = m_samples[static_cast<size_t>(_track)];
 		sample.reset();
 		m_sampleRefs[static_cast<size_t>(_track)].clear();
-		juce::MemoryBlock bytes;
-		if(const auto* element = sound->getChildByName("sample"); element && bytes.fromBase64Encoding(element->getAllSubText()))
-			if(auto read = sampleFromBytes(static_cast<const uint8_t*>(bytes.getData()), bytes.getSize()))
-			{
-				sample = std::make_unique<Sample>(std::move(*read));
-				m_sampleRefs[static_cast<size_t>(_track)] = element->getStringAttribute("fingerprint");
-			}
+		if(const auto* element = kit->getChildByName("sample"))
+			sample = readSample(*element, m_sampleRefs[static_cast<size_t>(_track)]);
 		publishSample(_track);
 		m_stateSerial.fetch_add(1, std::memory_order_acq_rel);
 		suspendProcessing(false);
@@ -1961,12 +2119,8 @@ namespace elektron::drums
 		if(!sound)
 			return false;
 		// On Track 1 of an engine of its own at its defaults, Main alone, one Hit at velocity 100: the Sampler's length
-		juce::XmlElement kit(KitBank::Tag);
-		kit.setAttribute("version", sound->getIntAttribute("version"));
-		for(int i = 0; i < sound->getNumAttributes(); ++i)
-			if(const auto name = sound->getAttributeName(i); parameter("t01_" + name) && soundSuffix(name))
-				kit.setAttribute("t01_" + name, sound->getAttributeValue(i));
-		const auto values = kitValuesOf(kit);
+		const auto kit = soundAsKit(*sound, 0);
+		const auto values = kitValuesOf(*kit);
 		const auto plain = [&](const juce::RangedAudioParameter* _p)
 		{
 			return juce::roundToInt(_p->convertFrom0to1(values[static_cast<size_t>(_p->getParameterIndex())]));
@@ -1995,11 +2149,11 @@ namespace elektron::drums
 		for(size_t s = 0; s < p.sends.size(); ++s)
 			e.setSend(0, static_cast<Send>(s), plain(p.sends[s].parameter));
 		e.setAccent(0, plain(p.accent.parameter));
-		std::optional<Sample> sample;
-		juce::MemoryBlock bytes;
-		if(const auto* element = sound->getChildByName("sample"); element && bytes.fromBase64Encoding(element->getAllSubText()))
-			sample = sampleFromBytes(static_cast<const uint8_t*>(bytes.getData()), bytes.getSize());
-		e.setSample(0, sample ? &*sample : nullptr);
+		std::unique_ptr<Sample> sample;
+		juce::String ref;
+		if(const auto* element = kit->getChildByName("sample"))
+			sample = readSample(*element, ref);
+		e.setSample(0, sample.get());
 		e.noteOn(0, 100);
 		// The ROM player's 1.29 s; on VINTAGE the sample at its pitch and a little tail, at most what a Sample holds
 		size_t length = Sample::MaxLength;
@@ -2037,7 +2191,7 @@ namespace elektron::drums
 	{
 		jassert(juce::MessageManager::existsAndIsCurrentThread());
 		followKits();
-		const auto kit = m_kits->read(_slot);
+		const auto kit = readKit(_slot);
 		if(!kit)
 			return false;
 		// As a state loads: no block meanwhile, the host reads the parameters again, none told as an edit
