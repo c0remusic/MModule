@@ -15,7 +15,9 @@
 //   - a Kit saved, then loaded by another instance, plays the same, its sample included, no edit told; two instances
 //     on one Bank each write a Slot and keep the other's; a Kit without an ID loads that parameter's default (ticket 19);
 //   - the sequencer from a playhead at 120 BPM: Hits at their steps' samples, Locks for their step only, Pattern
-//     switching at the end of the pattern playing, patterns and samples in the state play the same (ticket 17).
+//     switching at the end of the pattern playing, patterns and samples in the state play the same (ticket 17);
+//   - a slide: Filter Freq and Machine 1 glide from the step's Locks to the next trig's, the engine's, in any host
+//     blocks, nothing allocated; no glide without SLIDE; a host note ends it.
 //
 // GEARMULATOR_MD_FIRMWARE_BIN names the flash image; exit 77 without it. With --print-ids, it prints the IDs, one a line.
 
@@ -35,6 +37,7 @@
 #include <string>
 #include <vector>
 
+#include "../md/mdDrums/mdDrumsAllocationCounter.h"
 #include "edDrumsMaster.h"
 #include "edDrumsProcessor.h"
 #include "mdProtocol/mdmachines.h"
@@ -1376,6 +1379,171 @@ namespace
 		std::printf("PASS: the sequencer plays the host's transport\n");
 	}
 
+	// A take in host blocks of _block samples, the last one shorter, with Machine 1 of Track 1 in the engine at each
+	// block's end and what processBlock allocated
+	struct SlideTake
+	{
+		Take take;
+		std::vector<std::pair<int, int>> machine1;
+		size_t allocations = 0;
+	};
+
+	SlideTake playBlocks(Processor& _processor, const int _samples, const int _block)
+	{
+		Transport transport;
+		_processor.setPlayHead(&transport);
+		_processor.prepareToPlay(SampleRate, _block);
+		SlideTake r;
+		r.take.assign(Channels, std::vector<float>(static_cast<size_t>(_samples)));
+		r.machine1.reserve(static_cast<size_t>(_samples / _block + 1));
+		juce::AudioBuffer<float> buffer(Channels, _block);
+		juce::MidiBuffer midi;
+		for(int at = 0; at < _samples; at += _block)
+		{
+			const int n = std::min(_block, _samples - at);
+			buffer.setSize(Channels, n, false, true, true);
+			transport.quarters = at / SamplesPerQuarter;
+			r.allocations += countAllocations([&] { _processor.processBlock(buffer, midi); });
+			for(int c = 0; c < Channels; ++c)
+				std::copy_n(buffer.getReadPointer(c), n, r.take[static_cast<size_t>(c)].begin() + at);
+			r.machine1.emplace_back(at + n, _processor.engine()->parameter(0, 0));
+		}
+		_processor.setPlayHead(nullptr);
+		return r;
+	}
+
+	// Track 1 on steps 0 and 4, Filter Freq and Machine 1 locked to 20 on step 0 and 100 on step 4; step 0 slides or not.
+	// A slide moves its step's Locks in a line to the next trig's, a step every 32 samples from its Hit
+	void slides(const Library& _library)
+	{
+		constexpr int Length = 210 * Block;			// 26880: steps 0 to 4 and some
+		constexpr int SlideLength = 22050;			// 4 steps of a 16th at 120 BPM
+		const int step4 = stepSample(1.0);
+		require(step4 == SlideLength, "step 4's sample");
+
+		const auto make = [](const bool _slide)
+		{
+			auto p = std::make_unique<Processor>();
+			allOutputs(*p);
+			const auto freq = indexOf(*p, "t01_flt_freq"), m1 = indexOf(*p, "t01_m1");
+			p->editSequencer([&](Sequencer& _s)
+			{
+				auto& pattern = _s.pattern(0);
+				pattern.setTrig(0, 0, true);
+				pattern.step(0, 0).slide = _slide;
+				pattern.setLock(0, 0, freq, 20);
+				pattern.setLock(0, 0, m1, 20);
+				pattern.setTrig(0, 4, true);
+				pattern.setLock(0, 4, freq, 100);
+				pattern.setLock(0, 4, m1, 100);
+			});
+			return p;
+		};
+
+		// What the processor tells its engine, as an engine driven directly is told it
+		const auto callsOf = [&](Processor& _p, const bool _slide)
+		{
+			parameters::ChainArray host{};
+			size_t f = 0;
+			for(size_t i = 0; i < host.size(); ++i)
+			{
+				host[i] = whole(plain(find(_p, juce::String("t01_") + parameters::chainSpecs[i].id)));
+				if(juce::String(parameters::chainSpecs[i].id) == "flt_freq")
+					f = i;
+			}
+			const int m1Host = whole(plain(find(_p, "t01_m1")));
+			require(m1Host != 20 && m1Host != 100 && host[f] != 20 && host[f] != 100, "a host value is a Lock's");
+			const auto withFreq = [host, f](const int _v) { auto v = host; v[f] = _v; return parameters::chainOf(v); };
+			Calls c;
+			c.emplace(0, [=](Engine& _e) { _e.setChain(0, withFreq(20)); _e.lock(0, 0, 20); _e.noteOn(0, 100); });
+			int freq = 20, m1 = m1Host;		// what the engine holds: the Hit's lock is not Machine 1's value
+			std::vector<int> ramp;
+			for(int at = 32; _slide && at <= step4; at += 32)
+			{
+				const int v = juce::roundToInt(20.0f + (100.0f - 20.0f) * (static_cast<float>(at) / static_cast<float>(SlideLength)));
+				ramp.push_back(v);
+				if(v != freq)
+					c.emplace(at, [=](Engine& _e) { _e.setChain(0, withFreq(v)); });
+				if(v != m1)
+					c.emplace(at, [=](Engine& _e) { _e.setParameter(0, 0, static_cast<uint8_t>(v)); });
+				freq = m1 = v;
+			}
+			require(!_slide || (std::is_sorted(ramp.begin(), ramp.end()) && ramp.back() == 100), "the ramp expected");
+			// The next Hit: the host's values back, then its Locks
+			c.emplace(step4, [=](Engine& _e)
+			{
+				_e.setChain(0, withFreq(host[f]));
+				if(m1 != m1Host)
+					_e.setParameter(0, 0, static_cast<uint8_t>(m1Host));
+				_e.setChain(0, withFreq(100));
+				_e.lock(0, 0, 100);
+				_e.noteOn(0, 100);
+			});
+			return std::make_pair(c, m1Host);
+		};
+
+		auto sliding = make(true);
+		const auto a = playBlocks(*sliding, Length, 37);
+		const auto b = playBlocks(*sliding, Length, 512);
+		requireSame(a.take, b.take, "a slide in blocks of 37 and of 512: ");
+		const auto [slideCalls, m1Host] = callsOf(*sliding, true);
+		requireSame(b.take, playEngine(_library, *sliding, slideCalls, Length), "the slide: ");
+		require(a.allocations == 0 && b.allocations == 0, "processBlock allocated " + std::to_string(a.allocations) + " and "
+			+ std::to_string(b.allocations) + " times");
+
+		// Machine 1 read back from the engine at each block's end: rising from 20 to 100 before step 4, the host's after
+		for(const auto* take : {&a, &b})
+		{
+			int last = 20, distinct = 0;
+			for(const auto& [end, v] : take->machine1)
+			{
+				if(end >= step4)
+				{
+					require(v == m1Host, "Machine 1 after the slide's end: " + std::to_string(v));
+					continue;
+				}
+				require(v >= last && v <= 100, "Machine 1 falls back to " + std::to_string(v) + " at " + std::to_string(end));
+				distinct += v != last;
+				last = v;
+			}
+			require(last >= 99 && distinct >= 40,"Machine 1 reached " + std::to_string(last) + " in " + std::to_string(distinct)
+				+ " steps");
+		}
+		std::printf("  a slide from step 0 to step 4: Filter Freq and Machine 1 from 20 to 100 in %d steps of 32 samples, the "
+			"engine's; the same in blocks of 37 and 512; nothing allocated\n", SlideLength / 32);
+
+		// Without SLIDE the Locks hold until step 4
+		auto held = make(false);
+		const auto c = playBlocks(*held, Length, 512);
+		requireSame(c.take, playEngine(_library, *held, callsOf(*held, false).first, Length), "the Locks without a slide: ");
+		for(const auto& [end, v] : c.machine1)
+			require(v == m1Host, "Machine 1 glides without a slide: " + std::to_string(v) + " at " + std::to_string(end));
+		const int from = firstDifference(b.take, c.take);
+		require(from > 0 && from < step4, "the slide is not heard before step 4");
+		std::printf("  without SLIDE nothing glides; the slide is heard from sample %d\n", from);
+
+		// A host note on the Track ends the slide: the host's values from it on
+		{
+			auto noted = make(true);
+			Transport transport;
+			noted->setPlayHead(&transport);
+			noted->prepareToPlay(SampleRate, Block);
+			juce::AudioBuffer<float> buffer(Channels, Block);
+			for(int at = 0; at < 100 * Block; at += Block)
+			{
+				juce::MidiBuffer midi;
+				if(at == 50 * Block)
+					midi.addEvent(juce::MidiMessage::noteOn(1, 36, static_cast<juce::uint8>(100)), 0);
+				transport.quarters = at / SamplesPerQuarter;
+				noted->processBlock(buffer, midi);
+				if(at >= 50 * Block)
+					require(noted->engine()->parameter(0, 0) == m1Host, "a host note does not end the slide");
+			}
+			noted->setPlayHead(nullptr);
+		}
+		std::printf("PASS: slides\n");
+	}
+
 	// ---- the values' units ----
 
 	// What a value's text says in its base unit: Hz, s, dB, % or a bare number, after a "Q ", "LP " or "HP "
@@ -1672,6 +1840,7 @@ int main(const int _argc, char** _argv)
 		kits(wav);
 		wav.deleteFile();
 		sequencer(library);
+		slides(library);
 		return 0;
 	}
 	catch(const std::exception& e)

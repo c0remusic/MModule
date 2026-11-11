@@ -3,6 +3,7 @@
 #include <array>
 #include <atomic>
 #include <functional>
+#include <limits>
 #include <map>
 #include <memory>
 #include <vector>
@@ -190,7 +191,9 @@ namespace elektron::drums
 		void setChainHeld(int _track);
 		void applyTarget(int _parameter);
 		void releaseLocks(int _track);
-		void applyEvent(const Event& _event);
+		void endSlide(int _track);
+		void stepSlide(int _track);
+		void applyEvent(const Event& _event, int64_t _at);
 		void publishSequencer();
 		void publishSample(int _track);
 		void pruneSamples();
@@ -272,6 +275,25 @@ namespace elektron::drums
 		std::vector<uint8_t> m_locked;
 		std::vector<float> m_lockValue;
 		std::array<std::vector<int>, Tracks> m_lockedBy;	// reserved: no allocation on the audio thread
+
+		// The audio thread's slides: a step with SLIDE moves what it locks in a line, from its Locks to the next trig's, or
+		// to the host's value where that trig locks none, over the time to that trig, a step every SlideStep samples
+		// from the slide's Hit; the Track's next Hit or Lock, host note or step, ends it
+		static constexpr int SlideStep = 32;
+		static constexpr int64_t NoSlide = std::numeric_limits<int64_t>::max();
+		struct Glide
+		{
+			int parameter = 0;
+			float from = 0, to = 0;
+		};
+		struct Slide
+		{
+			int64_t start = 0, length = 0;
+			int64_t next = NoSlide;			// the sample of its next step
+			std::vector<Glide> glides;		// reserved as m_lockedBy
+		};
+		std::array<Slide, Tracks> m_slides;
+		int64_t m_now = 0;		// samples processed since prepareToPlay
 
 		// The audio thread's transport at the block, from sync
 		double m_blockBpm = 120;

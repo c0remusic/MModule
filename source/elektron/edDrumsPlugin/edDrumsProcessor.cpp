@@ -435,6 +435,7 @@ namespace elektron::drums
 			target(p.accent.parameter, t, LockKind::Accent);
 			// Each of a Track's parameters once at most: the list never grows past this on the audio thread
 			m_lockedBy[static_cast<size_t>(t)].reserve(static_cast<size_t>(trackIds(t).size()));
+			m_slides[static_cast<size_t>(t)].glides.reserve(static_cast<size_t>(trackIds(t).size()));
 		}
 	}
 
@@ -503,6 +504,7 @@ namespace elektron::drums
 	// The Track's next Hit or Lock: what the last step locked takes the host's values again
 	void Processor::releaseLocks(const int _track)
 	{
+		endSlide(_track);
 		auto& list = m_lockedBy[static_cast<size_t>(_track)];
 		for(const int i : list)
 			m_locked[static_cast<size_t>(i)] = 0;
@@ -511,13 +513,37 @@ namespace elektron::drums
 		list.clear();
 	}
 
-	// Slides (Event::slide) are not applied yet
-	void Processor::applyEvent(const Event& _event)
+	void Processor::endSlide(const int _track)
+	{
+		auto& slide = m_slides[static_cast<size_t>(_track)];
+		slide.next = NoSlide;
+		slide.glides.clear();
+	}
+
+	// A slide's step: each value where the line stands at this sample, the last on the next trig's value
+	void Processor::stepSlide(const int _track)
+	{
+		auto& slide = m_slides[static_cast<size_t>(_track)];
+		const int64_t elapsed = std::min(slide.next - slide.start, slide.length);
+		const float f = static_cast<float>(elapsed) / static_cast<float>(slide.length);
+		for(const auto& g : slide.glides)
+		{
+			m_lockValue[static_cast<size_t>(g.parameter)] = g.from + (g.to - g.from) * f;
+			applyTarget(g.parameter);
+		}
+		slide.next = elapsed >= slide.length ? NoSlide : slide.next + SlideStep;
+	}
+
+	// _at: the event's sample since prepareToPlay
+	void Processor::applyEvent(const Event& _event, const int64_t _at)
 	{
 		const int t = _event.track;
-		// A ratchet's later Hit keeps what its step locked, and locks Machine 1-8 again, which Engine::lock holds a Hit
+		// A ratchet's later Hit keeps what its step locked, and locks Machine 1-8 again, which Engine::lock holds a Hit; it
+		// leaves its step's slide going
 		if(!_event.retrig)
 			releaseLocks(t);
+		const bool slides = _event.slide && !_event.retrig && _event.slideSamples > 0;
+		auto& slide = m_slides[static_cast<size_t>(t)];
 		for(int k = 0; k < _event.lockCount; ++k)
 		{
 			const auto& lock = _event.locks[k];
@@ -531,18 +557,41 @@ namespace elektron::drums
 			// Within the parameter's range, on its steps
 			const auto* parameter = static_cast<const juce::RangedAudioParameter*>(getParameters()[lock.parameter]);
 			const float value = parameter->convertFrom0to1(parameter->convertTo0to1(lock.value));
-			if(_event.trig && target.kind == LockKind::Machine)
-			{
-				m_engine->lock(t, target.a, static_cast<uint8_t>(juce::roundToInt(value)));
+			const bool hitLock = _event.trig && target.kind == LockKind::Machine;
+			// A ratchet's later Hit locks where its step's slide stands, not back at the slide's start
+			const float held = _event.retrig && m_locked[lock.parameter] ? m_lockValue[lock.parameter] : value;
+			if(hitLock)
+				m_engine->lock(t, target.a, static_cast<uint8_t>(juce::roundToInt(held)));
+			if(hitLock && !slides)
 				continue;
-			}
+			// A Machine 1-8 the Hit locks is held while it slides, and takes the host's value again where the slide ends
 			m_lockValue[lock.parameter] = value;
 			if(!m_locked[lock.parameter])
 			{
 				m_locked[lock.parameter] = 1;
 				m_lockedBy[static_cast<size_t>(t)].push_back(lock.parameter);
 			}
-			applyTarget(lock.parameter);
+			if(!hitLock)
+				applyTarget(lock.parameter);
+			if(!slides)
+				continue;
+			float to = parameter->convertFrom0to1(parameter->getValue());
+			for(int n = 0; n < _event.nextLockCount; ++n)
+				if(_event.nextLocks[n].parameter == lock.parameter)
+					to = parameter->convertFrom0to1(parameter->convertTo0to1(_event.nextLocks[n].value));
+			// A step may lock a parameter twice: one glide each, so that the list stays within what it reserved
+			const auto same = std::find_if(slide.glides.begin(), slide.glides.end(),
+				[&](const Glide& _g) { return _g.parameter == lock.parameter; });
+			if(same != slide.glides.end())
+				*same = {lock.parameter, value, to};
+			else
+				slide.glides.push_back({lock.parameter, value, to});
+		}
+		if(slides && !slide.glides.empty())
+		{
+			slide.start = _at;
+			slide.length = _event.slideSamples;
+			slide.next = _at + SlideStep;
 		}
 		if(_event.trig)
 			m_engine->noteOn(t, _event.velocity, _event.accent);
@@ -660,6 +709,9 @@ namespace elektron::drums
 		std::fill(m_locked.begin(), m_locked.end(), uint8_t{0});
 		for(auto& list : m_lockedBy)
 			list.clear();
+		for(int t = 0; t < Tracks; ++t)
+			endSlide(t);
+		m_now = 0;
 		if(m_engine)
 			for(int t = 0; t < Tracks; ++t)
 				if(const auto& sample = m_samples[static_cast<size_t>(t)])
@@ -869,7 +921,7 @@ namespace elektron::drums
 		}
 		const auto outputs = m_outputs;
 
-		const auto upTo = [&](const int _sample, int& _done)
+		const auto renderTo = [&](const int _sample, int& _done)
 		{
 			if(_sample <= _done)
 				return;
@@ -879,6 +931,23 @@ namespace elektron::drums
 					m_outputs[c] += _sample - _done;
 			_done = _sample;
 		};
+		// The slides' steps on the way, each at its sample, before an event at the same one
+		const auto upTo = [&](const int _sample, int& _done)
+		{
+			for(;;)
+			{
+				int64_t step = NoSlide;
+				for(const auto& slide : m_slides)
+					step = std::min(step, slide.next);
+				if(step > m_now + _sample)
+					break;
+				renderTo(static_cast<int>(step - m_now), _done);
+				for(int t = 0; t < Tracks; ++t)
+					if(m_slides[static_cast<size_t>(t)].next == step)
+						stepSlide(t);
+			}
+			renderTo(_sample, _done);
+		};
 
 		int done = 0;
 		int next = 0;	// the sequencer's next event, before a host's note at the same sample
@@ -887,7 +956,7 @@ namespace elektron::drums
 			for(; next < m_events.count && static_cast<int>(m_events.events[next].offset) <= _sample; ++next)
 			{
 				upTo(static_cast<int>(m_events.events[next].offset), done);
-				applyEvent(m_events.events[next]);
+				applyEvent(m_events.events[next], m_now + m_events.events[next].offset);
 			}
 		};
 		for(const auto metadata : _midi)
@@ -915,6 +984,7 @@ namespace elektron::drums
 		}
 		eventsUpTo(count);
 		upTo(count, done);
+		m_now += count;
 
 		// What the editor shows: the peaks fall 20 dB a second, 10^-1 of the gain
 		const float fall = static_cast<float>(std::pow(10.0, -count / SampleRate));
@@ -972,6 +1042,8 @@ namespace elektron::drums
 		std::fill(m_locked.begin(), m_locked.end(), uint8_t{0});
 		for(auto& list : m_lockedBy)
 			list.clear();
+		for(int t = 0; t < Tracks; ++t)
+			endSlide(t);
 		for(auto& p : m_tracks)
 		{
 			p.chain[0].due = true;
