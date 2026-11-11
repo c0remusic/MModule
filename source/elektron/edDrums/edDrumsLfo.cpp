@@ -171,14 +171,14 @@ namespace elektron::drums
 
 	void LfoBank::wait(const int _track, const int _target)
 	{
-		m_targets[static_cast<size_t>(_track)] |= 1u << _target;
+		m_targets[static_cast<size_t>(_track)] |= uint64_t{1} << _target;
 		m_waiting |= 1u << _track;
 	}
 
 	void LfoBank::taken(const int _track, const int _target)
 	{
 		auto& targets = m_targets[static_cast<size_t>(_track)];
-		targets &= ~(1u << _target);
+		targets &= ~(uint64_t{1} << _target);
 		if(!targets)
 			m_waiting &= ~(1u << _track);
 	}

@@ -40,7 +40,7 @@ namespace elektron::drums
 		Triplet		// two thirds as long
 	};
 
-	// What an LFO moves on the Track aimed at: SYN1-8 of its machine, its level and pan, or a value of its chain (DriveA its
+	// What an LFO moves on the Track aimed at: Machine 1-24 of its machine, its level and pan, or a value of its chain (DriveA its
 	// first drive, BandA and BandB as VelocityTarget has them). A stage's type is no target: changing one fades over 96
 	// samples. A target the Track does not hold moves nothing
 	enum class LfoTarget : uint8_t
@@ -50,8 +50,26 @@ namespace elektron::drums
 		Level,
 		Pan,
 		DriveA, DriveB, BandA, BandB, Frequency, Resonance, Width, EnvelopeDepth,
+		// Appended, so that a stored target keeps its number: Machine 9-24 of the machines that use them (OPEN DRUM's,
+		// SOPHIE's, the Sampler's VINTAGE BITS, COMPANDING and OUTPUT FILTER, a Syntakt machine's HOLD in Machine 9)
+		Machine9, Machine10, Machine11, Machine12, Machine13, Machine14, Machine15, Machine16,
+		Machine17, Machine18, Machine19, Machine20, Machine21, Machine22, Machine23, Machine24,
 		Count
 	};
+
+	// The target of Machine _index + 1 (_index 0-23), and the Machine (0-23) a target is, -1 for none
+	constexpr LfoTarget machineTarget(const int _index)
+	{
+		return static_cast<LfoTarget>(_index < 8 ? static_cast<int>(LfoTarget::Machine1) + _index
+			: static_cast<int>(LfoTarget::Machine9) + _index - 8);
+	}
+	constexpr int machineOf(const LfoTarget _target)
+	{
+		return _target >= LfoTarget::Machine1 && _target <= LfoTarget::Machine8
+			? static_cast<int>(_target) - static_cast<int>(LfoTarget::Machine1)
+			: _target >= LfoTarget::Machine9 && _target <= LfoTarget::Machine24
+			? 8 + static_cast<int>(_target) - static_cast<int>(LfoTarget::Machine9) : -1;
+	}
 
 	constexpr int LfoDivisions = 11;		// 1/64, 1/32, 1/16, 1/8, 1/4, 1/2, 1, 2, 4, 8, 16 bars
 	constexpr int LfoQuarterNote = 4;		// the division of a quarter note
@@ -140,7 +158,7 @@ namespace elektron::drums
 			return m_sum[static_cast<size_t>(_track)][static_cast<size_t>(_target)];
 		}
 		uint32_t waiting() const { return m_waiting; }			// the Tracks with a target that waits
-		uint32_t waiting(const int _track) const { return m_targets[static_cast<size_t>(_track)]; }		// its targets that wait
+		uint64_t waiting(const int _track) const { return m_targets[static_cast<size_t>(_track)]; }		// its targets that wait
 		void wait(int _track, int _target);
 		void taken(int _track, int _target);
 
@@ -163,7 +181,7 @@ namespace elektron::drums
 		std::array<Run, 2 * Tracks> m_runs;
 		uint32_t m_on = 0;			// a bit each
 		std::array<std::array<int, Targets>, Tracks> m_sum{};
-		std::array<uint32_t, Tracks> m_targets{};
+		std::array<uint64_t, Tracks> m_targets{};
 		uint32_t m_waiting = 0;
 	};
 }

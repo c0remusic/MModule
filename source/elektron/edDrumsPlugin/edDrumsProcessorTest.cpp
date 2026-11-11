@@ -819,9 +819,9 @@ namespace
 		std::printf("  %zu settings (%d parameters) each set on two sounds, %.1f s: the engine told the same plays the same;"
 			" unheard on both:%s\n", steps.size(), ids.size() - first, seconds, list.empty() ? " none" : list.c_str());
 		// The accent plays on a Hit with an accent, which no host's note gives, Pattern asks for a pattern, all empty here,
-		// and the two sounds' machines use Machine 1-8 alone
+		// and the two sounds' machines use Machine 1-8 alone, Track 1's Syntakt machine also Machine 9, its voice's HOLD
 		std::vector<std::string> expected{"accent", "pattern"};
-		for(int i = 9; i <= MachineParameters; ++i)
+		for(int i = 10; i <= MachineParameters; ++i)
 			expected.push_back("m" + std::to_string(i));
 		// Delay Duration plays while Sync is on, which both sounds leave off for TIME's sake: delay_sync's step, which
 		// turns it on, plays the processor's against the engine's, and edDrumsEngineTest's sendTimes the notes
@@ -913,6 +913,9 @@ namespace
 			{
 				if(id == "tempo")
 					break;
+				// Machine 1-8 as fresh has them are in the Syntakt's page order, which a state of version 1 is not
+				if(id.substring(3).startsWith("_m") && juce::CharacterFunctions::isDigit(id[5]))
+					continue;
 				xml.setAttribute(id, plain(find(fresh, id)));
 			}
 			xml.setAttribute("t01_machine", trxBd);
@@ -1166,7 +1169,7 @@ namespace
 					std::string(_what) + ": Machine " + std::to_string(i + 1) + " not carried");
 			require(whole(plain(find(_p, "t03_m9"))) < 64, std::string(_what) + ": not the 12-bit grain");
 			factory = _p.factorySamples().size();
-			require(factory > 0 ? _p.sampleName(2) == "FACTORY 05" : _p.sampleName(2).contains("no flash image"),
+			require(factory > 0 ? _p.sampleName(2) == "FACTORY 05" : _p.sampleName(2).contains("not in the Locker"),
 				std::string(_what) + ": the sample's name " + _p.sampleName(2).toStdString());
 		};
 		{
@@ -1188,10 +1191,29 @@ namespace
 				require(element->getIntAttribute("track") == 2 && element->getIntAttribute("factory") == 5
 					&& element->getAllSubText().isEmpty(), "the state holds factory audio, or another sample");
 			}
-			require(back->getIntAttribute("version") == 5 && samples == 1, "the state saved again: no factory slot");
+			require(back->getIntAttribute("version") == 6 && samples == 1, "the state saved again: no factory slot");
 			Processor q;
 			q.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
 			played(q, "a state of version 5");
+		}
+		// ... where ROM-05 held a Library sample: one notice names it, once, however often the state is read
+		{
+			juce::XmlElement xml("ElektronDrums");
+			xml.setAttribute("version", 4);
+			onRom(xml);
+			auto* element = xml.createNewChildElement("sample");
+			element->setAttribute("track", 2);
+			element->setAttribute("name", "kick.wav");
+			element->setAttribute("fingerprint", "f1ng3r");
+			juce::MemoryBlock state;
+			juce::AudioProcessor::copyXmlToBinary(xml, state);
+			Processor p;
+			p.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+			p.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+			const auto notices = p.takeNotices();
+			require(notices.size() == 1 && notices[0] == "Track 3: sample kick.wav replaced by Factory 05",
+				"the replaced sample's notice: " + notices.joinIntoString(" | ").toStdString());
+			require(p.takeNotices().isEmpty(), "a notice given twice");
 		}
 		{
 			Processor saver;
@@ -1206,6 +1228,18 @@ namespace
 			require(p.loadKit(41), "the Kit of version 2 not loaded");
 			played(p, "a Kit of version 2");
 			require(!p.kitDiffers(), "a Kit of version 2 loaded differs from its Slot");
+			// Saved again, the Kit holds the slot alone, no factory audio (stockage-proposition.md)
+			require(p.saveKit(41), "Slot 42 saved again");
+			const auto again = bank.read(41);
+			int samples = 0;
+			for(const auto* element : again->getChildWithTagNameIterator("sample"))
+			{
+				++samples;
+				require(element->getIntAttribute("track") == 2 && element->getIntAttribute("factory") == 5
+					&& element->getAllSubText().isEmpty() && !element->hasAttribute("fingerprint"),
+					"the Kit holds factory audio, or another sample");
+			}
+			require(samples == 1, "the Kit saved again: no factory slot");
 			require(bank.clear(41), "Slot 42 cleared");
 		}
 		std::printf("PASS: Machine's %zu choices (%zu before, %zu with the ROM machines), the Sampler where ROM-33 stood, OPEN"
@@ -1409,8 +1443,8 @@ namespace
 
 		Processor processor;
 		auto& library = processor.sampleLibrary();
-		require(library.folders().isEmpty() && library.entries().empty(), "a new data folder's Library is empty");
-		require(library.addFolder(folder), "the folder not added");
+		require(library.sources().empty() && library.entries().empty(), "a new data folder's Library is empty");
+		require(library.addSource(SampleLibrary::Kind::Linked, folder), "the folder not added");
 		waitForScan(library);
 		const auto& entries = library.entries();
 		require(entries.size() == 3, "the scan found " + std::to_string(entries.size()) + " samples, not 3");
@@ -1427,7 +1461,8 @@ namespace
 		// Another instance's Library, the same data folder: the same folders, and the same samples once scanned
 		{
 			SampleLibrary other(Processor::dataFolder());
-			require(other.folders() == library.folders(), "a second Library does not see the folder");
+			require(other.sources().size() == 1 && other.sources()[0].folder == library.sources()[0].folder,
+				"a second Library does not see the folder");
 			other.scanOnce();
 			waitForScan(other);
 			require(other.entries().size() == 3 && other.entries()[0].fingerprint == entries[0].fingerprint,
@@ -1476,9 +1511,55 @@ namespace
 		const auto heard = play(audition, {}, 2 * Length);
 		require(peakOf(heard, 0) > 0.1f && peakOf(heard, 1) > 0.1f, "the audition is silent");
 		require(peakOf(play(audition, {}, Length), 0) < Engine::Silence, "the audition plays more than once");
+
+		// IN THIS SET: the state opened where no source of the Locker holds its sample shows it there; KEEP IN LOCKER
+		// writes it into the IMPORTED source FROM SETS, whose file the Track then names, and it leaves IN THIS SET
+		const auto kickPrint = kick->fingerprint;
+		require(library.removeSource(library.indexOf(folder)), "the folder not removed");
+		{
+			Processor elsewhere;
+			elsewhere.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+			auto& lib = elsewhere.sampleLibrary();
+			lib.scanOnce();
+			waitForScan(lib);
+			const auto set = elsewhere.setSamples();
+			require(set.size() == 1 && set[0].fingerprint == kickPrint && set[0].name == "kick_01.wav"
+				&& set[0].folder == SampleLibrary::SetFolder, "IN THIS SET holds " + std::to_string(set.size()));
+			require(elsewhere.loadLibrarySample(5, kickPrint, error) && elsewhere.sampleFingerprint(5) == kickPrint,
+				"a sample of the set loaded on another Track: " + error.toStdString());
+			// What KEEP tells the host: the set changed outside its parameters, once it is kept and not before
+			struct Dirty final : juce::AudioProcessorListener
+			{
+				int marked = 0;
+				void audioProcessorParameterChanged(juce::AudioProcessor*, int, float) override {}
+				void audioProcessorChanged(juce::AudioProcessor*, const ChangeDetails& _d) override
+				{
+					marked += _d.nonParameterStateChanged ? 1 : 0;
+				}
+			} dirty;
+			elsewhere.addListener(&dirty);
+			// A file where FROM SETS' folder goes: nothing written, the Tracks keep their sample, the set unmarked
+			const auto fromSets = SampleLibrary::importedFolder(Processor::dataFolder()).getChildFile("From sets");
+			require(fromSets.getParentDirectory().createDirectory().wasOk() && fromSets.replaceWithText("in the way"),
+				"the file in FROM SETS' way");
+			require(!elsewhere.keepInLocker(kickPrint, error) && error.isNotEmpty()
+				&& elsewhere.sampleFingerprint(2) == kickPrint && elsewhere.sampleFingerprint(5) == kickPrint
+				&& dirty.marked == 0, "KEEP with its folder blocked");
+			require(fromSets.deleteFile(), "the file in the way not removed");
+			require(elsewhere.keepInLocker(kickPrint, error), "KEEP: " + error.toStdString());
+			elsewhere.removeListener(&dirty);
+			require(dirty.marked == 1, "KEEP marked the set modified " + std::to_string(dirty.marked) + " times");
+			waitForScan(lib);
+			const auto ref = elsewhere.sampleFingerprint(2);
+			const auto* kept = lib.find(ref);
+			require(kept && ref != kickPrint && elsewhere.sampleFingerprint(5) == ref
+				&& lib.sources()[static_cast<size_t>(kept->folder)].kind == SampleLibrary::Kind::Imported
+				&& kept->file.isAChildOf(SampleLibrary::importedFolder(Processor::dataFolder()))
+				&& kept->length == 13230 && elsewhere.setSamples().empty(), "KEEP did not make it an IMPORTED source's");
+		}
 		std::printf("PASS: the Library finds 3 of 5 files (lengths, rates, channels, types), a second Library the same "
-			"folder; by fingerprint plays as the file; state and Kit keep it; the audition peaks %.2f once\n",
-			peakOf(heard, 0));
+			"folder; by fingerprint plays as the file; state and Kit keep it; the audition peaks %.2f once; a set's "
+			"sample IN THIS SET, kept in the Locker\n", peakOf(heard, 0));
 		folder.deleteRecursively();
 	}
 
@@ -2557,6 +2638,31 @@ namespace
 			requireSame(take, playHit(to, 6, 64 * Block), "a Track sound on Track 7 does not play as on Track 3: ");
 			require(to.auditionTrackSound(file) && to.auditioned() && !to.auditioned()->pcm.empty(), "the audition");
 			std::printf("  a Track sound saved from Track 3 plays the same on Track 7 of another instance\n");
+		}
+
+		// A Track sound of version 3, before page order, whose LFO aims at T05's Machine 2: the sound holds Track 1 alone,
+		// so T05's machine is the set's. Where T05 plays a Machinedrum machine its Machine 2 stays; where it plays the
+		// Syntakt's, the LFO follows Machine 2's value to where it plays now
+		{
+			juce::XmlElement old(TrackSounds::Tag);
+			old.setAttribute("version", 3);
+			old.setAttribute("name", "Old LFO");
+			old.setAttribute("lfo1_track", 5);
+			old.setAttribute("lfo1_target", static_cast<int>(LfoTarget::Machine2));
+			const auto file = Processor::dataFolder().getChildFile("old-lfo.edsound");
+			require(KitBank::writeFile(file, old), "the old Track sound not written");
+			Processor machinedrum;
+			set(find(machinedrum, "t05_machine"), plain(find(machinedrum, "t10_machine")));
+			require(machinedrum.loadTrackSound(0, file), "the old Track sound not loaded");
+			require(whole(plain(find(machinedrum, "t01_lfo1_target"))) == static_cast<int>(LfoTarget::Machine2),
+				"an LFO aimed at T05's Machine 2, a Machinedrum machine, moved to "
+				+ std::to_string(plain(find(machinedrum, "t01_lfo1_target"))));
+			Processor syntakt;
+			require(syntakt.loadTrackSound(0, file), "the old Track sound not loaded on the Syntakt");
+			require(whole(plain(find(syntakt, "t01_lfo1_target"))) != static_cast<int>(LfoTarget::Machine2),
+				"an LFO aimed at T05's Machine 2, a Syntakt machine, did not follow its value");
+			file.deleteFile();
+			std::printf("  an old Track sound's LFO aimed at another Track follows the machine the set plays there\n");
 		}
 
 		// A pattern's Kit: pattern 2 loads Slot 21 (Track 2's level 30) where it starts, at step 1 of its first pass

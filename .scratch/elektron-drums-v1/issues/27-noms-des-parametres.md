@@ -69,3 +69,69 @@ reste la liste des dossiers de l'utilisateur), et leur TYPE ne se modifie pas.
 
 Pas fait : les noms des machines et des familles (ticket à venir) ; l'extension de stockage qui remplacera « Elektron
 content » et « UW BANK ».
+
+## État (2026-11-11), le plug-in s'appelle Lockstep
+
+Le plug-in s'appelle Lockstep : `ED_DRUMS_NAME` dans `edDrumsPlugin/CMakeLists.txt` donne le nom que montre l'hôte
+(`PRODUCT_NAME`, `Processor::getName`), le nom du bundle (`Lockstep.vst3` au lieu de `Elektron Drums Dev.vst3`) et celui
+du dossier de données. L'éditeur ne montrait pas le nom du plug-in : rien à y changer. La classe VST3 ne change pas :
+JUCE la fait des seuls codes `C0rm` et `Eldr`, puisque `source/juce.cmake` met `JUCE_VST3_CAN_REPLACE_VST2=0` (avec 1,
+le nom entrerait dans l'identifiant). Mesuré : le hachage de la classe que donne l'hébergement VST3 de JUCE vaut
+3065139503 pour le bundle construit sous l'ancien nom comme pour Lockstep ; edDrumsVst3HostTest l'exige, avec le nom
+« Lockstep ». Live verra donc la même entrée renommée après son analyse des plug-ins, et les sets la retrouvent ; il faut
+retirer l'ancien `Elektron Drums Dev.vst3` du dossier VST3 que Live lit, sinon deux bundles portent la même classe.
+
+Le dossier de données passe de `Documents/c0remusic/Elektron Drums Dev` à `Documents/c0remusic/Lockstep`
+(`GEARMULATOR_DATA_ROOT` à la place de Documents pour les tests). Au chargement, sur le fil des messages, avant toute
+lecture du dossier, `Processor::migrateData` copie chaque fichier de l'ancien dossier que le nouveau n'a pas (Kits,
+TrackSounds, Samples, Elektron, roms, à toute profondeur), puis écrit `Migrated.txt` dans le nouveau : ensuite plus rien
+n'est copié, pour qu'un Kit effacé par l'utilisateur ne revienne pas. L'ancien dossier n'est jamais touché. Une copie qui
+échoue n'écrit pas la marque, et le chargement suivant reprend. edDrumsNoFlashTest le vérifie dans une racine de test :
+6 fichiers copiés à l'identique dans un dossier neuf, l'ancien intact, un second chargement qui ne copie rien (ni le Kit
+effacé, ni un fichier ajouté à l'ancien), un fichier déjà présent dans le nouveau gardé.
+
+Restent montrés avec « Elektron », laissés à l'extension de stockage : « Import my Elektron content » (fenêtre de choix,
+`edDrumsEditor.cpp`), « … Elektron files not read » (`edDrumsEditor.cpp`), « IMPORT MY ELEKTRON CONTENT » et « ELEKTRON
+CONTENT » (`edDrumsEditorScreen.cpp`).
+
+## État (2026-11-11), les emplacements Syntakt jouent ce que dit leur nom
+
+Les huit emplacements Machine d'une machine Syntakt suivent désormais l'ordre de sa page SYN, celui des noms affichés :
+l'emplacement k jouait jusqu'ici l'index k - 1 de la voix (identifiant interne 17 + k), si bien que DECAY jouait SHIM,
+OVERDRIVE jouait DECAY, MOD ENV jouait HOLD et RADIO de CY ALLOY jouait MENV. L'ordre est TUNE (18), SWEEP ou SHIMMER
+(21), PUNCH (23), DECAY (25), les deux paramètres propres à la machine (19 et 20), MOD ENV (22), OVERDRIVE (26), tel
+que les descripteurs de la section 3 le donnent et que `syntakt::Syntakt` nomme les identifiants
+(`Engine::syntaktSlotOf`). OVERDRIVE devient l'étage de drive qui suit la voix sur le Syntakt (`TrackDrive`, à gain
+unité et exact à 0) ; HOLD (24) n'est sur aucune page : l'amp tient la voix, et Machine 9 le garde pour un set d'avant.
+
+Mesuré contre l'original (edDrumsSyntaktSlotsTest, écart à la valeur 0 en forme d'onde / en tiers d'octave, à 64 et 127) :
+RADIO de CY ALLOY 3.0 / 4.0 et 2.2 / 4.3 dB, comme l'original ; COMPLEX de SD VINTAGE -1.9 / 5.5 et 1.0 / 9.6 dB contre
+-1.9 / 5.5 et 0.8 / 9.6 ; OVERDRIVE de BD MODERN -2.4 / 4.3 et 4.2 / 8.4 dB, comme l'original. Avant : RADIO 3.5 / 1.2,
+COMPLEX -4.6 / 7.1, OVERDRIVE 15.3 / 13.2 dB.
+
+Version 6 de l'état, version 4 des Kits et des sons de piste, version 2 des fichiers de pattern. Un état, un Kit ou un son
+plus ancien est remis dans l'ordre à la lecture (`Processor::takePageOrder`) : chaque valeur va à l'emplacement qui la joue
+maintenant, HOLD en Machine 9, OVERDRIVE à 0 ; une LFO visant Machine 1-8 d'une piste Syntakt suit sa valeur (celle qui
+visait HOLD ne vise plus rien) ; les Locks des patterns, ceux de l'état et ceux d'un fichier importé, aussi, avec les
+machines du Kit que le pattern charge s'il en charge un. Les valeurs par défaut sont celles d'avant remises dans l'ordre
+(PUNCH et OVERDRIVE à 0). Vérifié échantillon pour échantillon entre la construction d'avant et celle d'après : le Kit
+d'usine 01, un état de version 5 (trois pistes Syntakt, un Lock sur l'ancienne Machine 4, une LFO sur l'ancienne
+Machine 2, HOLD à 127), un Kit de version 3 et les valeurs par défaut de chaque machine rendent les mêmes échantillons.
+
+Pas fait : les noms eux-mêmes restent ceux du manuel en attendant l'approbation de la table ; un Lock sur la cible d'une
+LFO (Lock de type LFO) n'est pas remis dans l'ordre.
+
+## État (2026-11-11), le LOCKER remplace « Elektron content »
+
+L'extension de stockage est faite (ticket 20, `../stockage-proposition.md`) : elle s'appelle LOCKER et tient, dans
+Browse, les dossiers liés, les packs importés, la banque d'usine (source FACTORY) et les samples d'un set (IN THIS SET).
+Les textes laissés à ce chantier ont disparu : « Import my Elektron content » et « … Elektron files not read »
+(`edDrumsEditor.cpp`), « IMPORT MY ELEKTRON CONTENT » et le bloc « ELEKTRON CONTENT » du Menu, avec UW BANK, FACTORY
+PACKS et TRANSFERS (`edDrumsEditorScreen.cpp`), « The factory samples need the Machinedrum's flash image »
+(`edDrumsProcessor.cpp`, désormais « FACTORY BANK NOT IN THE LOCKER »). Les noms internes (balise `ElektronDrums` des
+états, dossier `Elektron Drums Dev` de la migration) restent. `edDrumsEditorTest` parcourt les 544 textes dessinés sur
+Browse et le Menu : aucun ne contient ELEKTRON, MACHINEDRUM ni le mot UW.
+
+Pas fait : la page Sound montre encore « MACHINEDRUM » et « SYNTAKT » dans des valeurs de paramètres
+(`edDrumsParameters.cpp`, « Off|Syntakt|Machinedrum » et voisines) ; elles attendent la table de noms de ce ticket, et le
+balayage ne couvre donc que Browse et le Menu.

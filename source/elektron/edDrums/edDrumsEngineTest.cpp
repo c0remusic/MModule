@@ -82,6 +82,12 @@ namespace
 
 	const ChainSettings Bare{};		// every slot off
 
+	// The Machine slot of _machine that plays its voice's SYN _index: a Syntakt machine's in its page's order
+	int slotFor(const Machine& _machine, const int _index)
+	{
+		return _machine.family == Family::Syntakt ? syntaktSlotOf(_index) : _index;
+	}
+
 	// ... hit at _note, in _chain or its family's, its drives at _factor, SYN1-8 at _knobs or its defaults
 	Take hitAt(const Library& _library, const Machine& _machine, const int _note, const int _samples,
 		const ChainSettings* _chain = nullptr, const int _factor = Engine::DefaultOversampling,
@@ -92,7 +98,7 @@ namespace
 		if(_chain)
 			e->setChain(0, *_chain);
 		for(int i = 0; _knobs && i < 8; ++i)
-			e->setParameter(0, i, (*_knobs)[static_cast<size_t>(i)]);
+			e->setParameter(0, slotFor(_machine, i), (*_knobs)[static_cast<size_t>(i)]);
 		Take take(_samples);
 		take.render(*e, 0, _note);
 		e->noteOn(0, 127);
@@ -155,7 +161,7 @@ namespace
 			// BD MODERN's jump: Hit 0 of its comparison, no sweep
 			if(machine.family == Family::Syntakt)
 				for(const int i : {3, 4, 5})
-					e->setParameter(0, i, 0);
+					e->setParameter(0, syntaktSlotOf(i), 0);
 			Take take(Spacing * (Cycle + 2));
 			std::mt19937 random(5);
 			int at = 0;
@@ -219,14 +225,14 @@ namespace
 		const Machine machine{Family::Syntakt, 0};
 		const auto reference = hitAt(_library, machine, 0, 4000, &Bare);
 		const auto& y = reference.channel(0);
-		const auto sound = defaults(machine);
+		const auto sound = allDefaults(machine);
 		constexpr int Compared = 2000, First = Engine::HitDelay - syntakt::fast::Resample48To44::Latency;
 		double best = 1e9;
 		for(int block = 0; block < 147; ++block)
 		{
 			auto host = std::make_unique<syntakt::fast::Host<syntakt::fast::BdModern>>(44100.0f);
 			for(int i = 0; i < 8; ++i)
-				host->setParameter(0, i, sound[static_cast<size_t>(i)], 0);
+				host->setParameter(0, i, sound[static_cast<size_t>(syntaktSlotOf(i))], 0);
 			host->setNote(0, 60);
 			std::array<std::array<float, BlockSize>, Tracks> buffers;
 			std::array<float*, Tracks> p{};
@@ -526,7 +532,7 @@ namespace
 	{
 		auto e = engineWith(_library, _tone.machine);
 		for(int i = 0; i < 8; ++i)
-			e->setParameter(0, i, _tone.params[static_cast<size_t>(i)]);
+			e->setParameter(0, slotFor(_tone.machine, i), _tone.params[static_cast<size_t>(i)]);
 		e->setNote(0, _tone.note);
 		return e;
 	}
@@ -717,7 +723,7 @@ namespace
 				e->setOutput(t, t ? 15 : 0);
 				e->setNote(t, tone.note);
 				for(int i = 0; i < 8; ++i)
-					e->setParameter(t, i, tone.params[static_cast<size_t>(i)]);
+					e->setParameter(t, slotFor(tone.machine, i), tone.params[static_cast<size_t>(i)]);
 			}
 			Take take(Samples);
 			take.render(*e, 0, Start);
@@ -1306,7 +1312,7 @@ namespace
 				e->setLevel(t, 127);
 				e->setOutput(t, 15);
 				for(int i = 0; i < 8; ++i)
-					e->setParameter(t, i, held[static_cast<size_t>(i)]);
+					e->setParameter(t, slotFor(machine, i), held[static_cast<size_t>(i)]);
 			}
 			e->setMachine(B, {Family::Syntakt, 1});
 			e->setLevel(B, 127);
@@ -1329,7 +1335,7 @@ namespace
 			require(e->lanesRendered(0) == 16, "the lanes all held");
 			e->setMachine(B, machine);
 			for(int i = 0; i < 8; ++i)
-				e->setParameter(B, i, held[static_cast<size_t>(i)]);
+				e->setParameter(B, slotFor(machine, i), held[static_cast<size_t>(i)]);
 			e->noteOn(B, 127);
 			take.render(*e, 2200, 14184);
 			return take;

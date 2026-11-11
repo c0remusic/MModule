@@ -1,7 +1,8 @@
 // The Lockstep editor, headless at 1600 x 1000: every host parameter of a Track's Sound page, of FX and of Master has
 // exactly one control; a horizontal drag on a value cell changes its parameter inside one gesture; a click on a step
-// key toggles its trig through the sequencer; a strip's step takes a Lock from a drag instead of the parameter; Browse
-// lists a folder of samples, filters by SEARCH, loads one by a double-click and by a drag onto a Track; each
+// key toggles its trig through the sequencer; a strip's step takes a Lock from a drag instead of the parameter; Browse's
+// LOCKER takes a folder dropped, filters by SEARCH, loads a sample by a double-click, a drag onto a Track and LOAD ON
+// TRACK, renames and removes its sources, keeps a set's sample; nothing drawn on Browse and the Menu names a brand; each
 // page is rendered to a PNG (first argument: the folder, else the temporary folder's edDrumsEditor).
 
 #include <algorithm>
@@ -292,31 +293,58 @@ namespace
 			freq->setValueNotifyingHost(0.5f);
 		}
 
-		// Browse: a folder of three sounds and a text file in the Library, listed by source; SEARCH filters; a
-		// double-click loads a sample on the Track shown, a drag onto Track 6 there
+		// Browse, the LOCKER (ticket 20, stockage-proposition.md): a folder of three sounds and a text file dropped on
+		// Browse joins it linked; SEARCH filters; a double-click loads a sample on the Track shown, a drag onto Track 6
+		// there; a source chosen by its segment shows its card, RENAME names it, REMOVE SOURCE takes it out, a second
+		// click where it erases a copy; IN THIS SET's sample kept in the Locker
 		{
-			const auto samples = juce::File::getSpecialLocation(juce::File::tempDirectory)
-				.getChildFile("edDrumsEditorSamples");
-			samples.deleteRecursively();
-			samples.createDirectory();
+			using B = Editor::BrowseButton;
+			const auto temp = juce::File::getSpecialLocation(juce::File::tempDirectory);
+			const auto samples = temp.getChildFile("edDrumsEditorSamples"), pack = temp.getChildFile("edDrumsEditorPack");
+			for(const auto& f : {samples, pack})
+			{
+				f.deleteRecursively();
+				f.createDirectory();
+			}
 			juce::WavAudioFormat wav;
 			juce::AiffAudioFormat aiff;
 			writeSound(wav, samples.getChildFile("kick_01.wav"), 44100, 13230);
 			writeSound(aiff, samples.getChildFile("SD-snare.aif"), 48000, 9600);
 			writeSound(wav, samples.getChildFile("hh closed.wav"), 44100, 4410);
 			samples.getChildFile("notes.txt").replaceWithText("no audio");
+			writeSound(wav, pack.getChildFile("clap 909.wav"), 44100, 6000);
+			writeSound(wav, temp.getChildFile("edDrumsEditorElsewhere.wav"), 44100, 8000);
 			auto& library = processor.sampleLibrary();
-			check(library.addFolder(samples), "the folder added to the Library");
-			const auto until = juce::Time::getMillisecondCounter() + 20000;
-			while(!library.update() && juce::Time::getMillisecondCounter() < until)
-				juce::Thread::sleep(5);
-			check(library.entries().size() == 3, "the Library holds " + juce::String(library.entries().size())
-				+ " samples");
+			const auto settle = [&]
+			{
+				const auto until = juce::Time::getMillisecondCounter() + 20000;
+				while(!processor.takeLockerImport() && juce::Time::getMillisecondCounter() < until)
+					juce::Thread::sleep(5);
+				while((!library.update() || library.scanning()) && juce::Time::getMillisecondCounter() < until)
+					juce::Thread::sleep(5);
+				editor.tick();
+				editor.tick();
+			};
+			// A source's segment: ALL first, then the sources in their order
+			const auto segmentOf = [&](const juce::String& _name)
+			{
+				juce::StringArray names;
+				for(const auto& s : library.sources())
+					names.add(s.name.toUpperCase());
+				return names.indexOf(_name.toUpperCase()) + 1;
+			};
 
 			editor.showPage(Editor::Page::Browse);
 			click(editor, editor.browseTreeArea(2).getCentre());
 			editor.tick();
-			check(editor.browseCount() == 3 && editor.searchField().isVisible(), "SAMPLES, BY SOURCE lists "
+			editor.filesDropped({samples.getFullPathName()}, editor.browseRowArea(3).getCentre().x,
+				editor.browseRowArea(3).getCentre().y);
+			settle();
+			check(library.sources().size() == 1 && library.sources()[0].kind == SampleLibrary::Kind::Linked
+				&& library.entries().size() == 3, "a folder dropped on Browse joins the LOCKER linked, "
+				+ juce::String(library.entries().size()) + " samples");
+			const int factoryCount = static_cast<int>(processor.factorySamples().size());
+			check(editor.browseCount() == 3 + factoryCount && editor.searchField().isVisible(), "LOCKER's ALL lists "
 				+ juce::String(editor.browseCount()) + " samples, SEARCH shown");
 			auto& search = editor.searchField();
 			search.setText("snare", false);
@@ -331,7 +359,7 @@ namespace
 			search.setText({}, false);
 			search.onTextChange();
 			click(editor, editor.browseTreeArea(4).getCentre());
-			check(editor.browseCount() == 3, "SAMPLES, BY TYPE lists them all");
+			check(editor.browseCount() == 3 + factoryCount, "SAMPLES, BY TYPE lists them all, FACTORY's included");
 			drag(editor, editor.browseRowArea(0).getCentre(), editor.stepKeyArea(5).getCentre()
 				- editor.browseRowArea(0).getCentre());
 			check(processor.sampleName(5).isNotEmpty(), "a drag onto Track 6 loads " + processor.sampleName(5));
@@ -339,9 +367,8 @@ namespace
 			click(editor, editor.browseRowArea(0).getCentre());	// auditioned: its sound drawn
 			check(processor.auditioned() != nullptr, "a click auditions the sample");
 
-			// Ticket 20: a click on TYPE opens the types, CLAP chosen is the user's; REMOVE FOLDER on the folder's
-			// segment takes its samples out of the Library and leaves its files
-			click(editor, editor.browseButtonArea(1).getCentre());
+			// TYPE: a click opens the types, CLAP chosen is the user's
+			click(editor, editor.browseButtonArea(B::Type).getCentre());
 			editor.tick();
 			click(editor, editor.selectorItemArea(static_cast<int>(SampleLibrary::Type::Clap)).getCentre());
 			editor.tick();
@@ -350,16 +377,43 @@ namespace
 				return _e.type == SampleLibrary::Type::Clap && _e.typeFrom == SampleLibrary::TypeFrom::User;
 			});
 			check(clap == 1, "TYPE set to CLAP on " + juce::String(static_cast<int>(clap)) + " samples");
+			// RENAME the sample: its field over the card's title, Return keeps the name
+			click(editor, editor.browseButtonArea(B::Rename).getCentre());
+			check(editor.renameField().isVisible(), "RENAME opens its field");
+			editor.renameField().setText("Closed hat", false);
+			editor.renameField().onReturnKey();
+			editor.tick();
+			const auto renamed = std::find_if(library.entries().begin(), library.entries().end(),
+				[](const auto& _e) { return _e.name == "Closed hat"; });
+			check(!editor.renameField().isVisible() && renamed != library.entries().end()
+				&& renamed->file.getFileName() == "hh closed.wav" && renamed->file.existsAsFile(),
+				"RENAME names the first row's sample, no file renamed");
+			// LOAD ON TRACK, at the card's foot
+			click(editor, editor.browseButtonArea(B::Load).getCentre());
+			check(processor.sampleName(0) == "hh closed.wav", "LOAD ON TRACK loads " + processor.sampleName(0));
+			snapshot(editor, _folder.getChildFile("browse-samples.png"));
 
-			// Ticket 27: FACTORY, the segment after the folder's, lists the factory bank's samples of the image; a
-			// double-click loads one on the Sampler, the Track's sample a reference to its slot
+			// The source, by its segment: its card; RENAME
+			click(editor, editor.browseSegmentArea(segmentOf(samples.getFileName())).getCentre());
+			editor.tick();
+			check(editor.browseCount() == 3, "the source's segment lists its 3 samples");
+			click(editor, editor.browseButtonArea(B::Rename).getCentre());
+			editor.renameField().setText("Drums 2024", false);
+			editor.renameField().onReturnKey();
+			editor.tick();
+			check(library.sources()[0].name == "Drums 2024", "RENAME names the source " + library.sources()[0].name);
+			snapshot(editor, _folder.getChildFile("browse-locker-source.png"));
+
+			// FACTORY, a source after the folders: the factory bank's samples; a double-click loads one, the Track's
+			// sample a reference to its slot
 			const auto& factory = processor.factorySamples();
 			if(!factory.empty())
 			{
-				click(editor, editor.browseButtonArea(3).getCentre());
+				click(editor, editor.browseSegmentArea(2).getCentre());
 				editor.tick();
 				check(editor.browseCount() == static_cast<int>(factory.size()), "FACTORY lists "
 					+ juce::String(editor.browseCount()) + " samples, not " + juce::String(static_cast<int>(factory.size())));
+				snapshot(editor, _folder.getChildFile("browse-factory-source.png"));
 				click(editor, editor.browseRowArea(0).getCentre());
 				check(processor.auditioned() && processor.auditioned()->factory > 0, "a click auditions the factory sample");
 				doubleClick(editor, editor.browseRowArea(0).getCentre());
@@ -372,14 +426,49 @@ namespace
 			}
 			else
 				std::printf("  (no flash image: FACTORY not shown)\n");
-			click(editor, editor.browseButtonArea(2).getCentre());
+
+			// IN THIS SET: a sample no source holds, on Track 8; KEEP IN LOCKER makes it FROM SETS'
+			juce::String error;
+			check(processor.loadSample(7, temp.getChildFile("edDrumsEditorElsewhere.wav"), error), "a sample on Track 8");
 			editor.tick();
-			snapshot(editor, _folder.getChildFile("browse-samples.png"));
-			click(editor, editor.browseButtonArea(0).getCentre());
+			const int setSegment = editor.browseSegments() - 2;
+			click(editor, editor.browseSegmentArea(setSegment).getCentre());
 			editor.tick();
-			check(library.folders().isEmpty() && library.entries().empty() && editor.browseCount() == 0
-				&& samples.getChildFile("kick_01.wav").existsAsFile(), "REMOVE FOLDER leaves "
-				+ juce::String(static_cast<int>(library.entries().size())) + " samples, the files on the disk");
+			check(editor.browseCount() == 1, "IN THIS SET lists " + juce::String(editor.browseCount()));
+			click(editor, editor.browseRowArea(0).getCentre());
+			snapshot(editor, _folder.getChildFile("browse-set.png"));
+			click(editor, editor.browseButtonArea(B::Remove).getCentre());	// KEEP IN LOCKER
+			settle();
+			const auto* kept = library.find(processor.sampleFingerprint(7));
+			check(kept && library.sources()[static_cast<size_t>(kept->folder)].name == "FROM SETS"
+				&& library.sources()[static_cast<size_t>(kept->folder)].kind == SampleLibrary::Kind::Imported
+				&& processor.setSamples().empty(), "KEEP IN LOCKER: the sample in FROM SETS, IN THIS SET empty");
+
+			// IMPORT PACK: copied into the Locker; REMOVE SOURCE asks again, then erases the copy alone
+			check(processor.addToLocker(pack, true), "IMPORT PACK started");
+			settle();
+			const int packSource = segmentOf(pack.getFileName()) - 1;
+			check(packSource >= 0 && library.sources()[static_cast<size_t>(packSource)].kind
+				== SampleLibrary::Kind::Imported, "the pack is an IMPORTED source");
+			const auto copy = packSource >= 0 ? library.sources()[static_cast<size_t>(packSource)].folder : juce::File();
+			click(editor, editor.browseSegmentArea(packSource + 1).getCentre());
+			editor.tick();
+			click(editor, editor.browseButtonArea(B::Remove).getCentre());
+			editor.tick();
+			check(library.sources().size() == 3 && copy.isDirectory(), "a first click on REMOVE SOURCE keeps the pack");
+			snapshot(editor, _folder.getChildFile("browse-remove-again.png"));
+			click(editor, editor.browseButtonArea(B::Remove).getCentre());
+			editor.tick();
+			check(library.sources().size() == 2 && !copy.exists() && pack.getChildFile("clap 909.wav").existsAsFile(),
+				"the second click erases the pack's copy, the pack stays");
+			// The linked folder: one click, its files stay
+			click(editor, editor.browseSegmentArea(segmentOf("Drums 2024")).getCentre());
+			editor.tick();
+			click(editor, editor.browseButtonArea(B::Remove).getCentre());
+			settle();
+			check(library.sources().size() == 1 && samples.getChildFile("kick_01.wav").existsAsFile(),
+				"REMOVE SOURCE on the linked folder: it leaves, its files on the disk");
+			snapshot(editor, _folder.getChildFile("browse-locker.png"));
 		}
 
 		// Ticket 19: Kits' LOAD AT ITS START gives the pattern playing the Slot selected; Browse's KITS lists the Bank, a
@@ -502,6 +591,47 @@ namespace
 		snapshot(editor, _folder.getChildFile("kits.png"));
 		editor.showPage(Editor::Page::Browse);
 		snapshot(editor, _folder.getChildFile("browse.png"));
+		// Ticket 27's names: nothing drawn on Browse's five lists, the LOCKER's segments and the Menu names a brand, and
+		// the Menu holds WINDOW and AUDIO alone
+		{
+			juce::StringArray drawn;
+			ui::Painter::drawnTexts = &drawn;
+			const auto draw = [&]
+			{
+				editor.tick();
+				editor.createComponentSnapshot(editor.getLocalBounds(), true, 1.0f);
+			};
+			for(int tree = 0; tree < 5; ++tree)
+			{
+				click(editor, editor.browseTreeArea(tree).getCentre());
+				draw();
+				for(int s = 1; tree == 2 && s < editor.browseSegments() - 1; ++s)
+				{
+					click(editor, editor.browseSegmentArea(s).getCentre());
+					draw();
+				}
+			}
+			const int browseTexts = drawn.size();
+			editor.showMenu(true);
+			draw();
+			editor.showMenu(false);
+			ui::Painter::drawnTexts = nullptr;
+			juce::StringArray menu;
+			for(int i = browseTexts; i < drawn.size(); ++i)
+				menu.add(drawn[i]);
+			juce::StringArray branded;
+			for(const auto& t : drawn)
+			{
+				const auto words = juce::StringArray::fromTokens(t.toUpperCase(), " ,.:;()/-", "");
+				if(t.containsIgnoreCase("ELEKTRON") || t.containsIgnoreCase("MACHINEDRUM") || words.contains("UW"))
+					branded.addIfNotAlreadyThere(t);
+			}
+			check(branded.isEmpty() && drawn.contains("LOCKER") && drawn.contains("ADD FOLDER")
+				&& drawn.contains("IMPORT PACK"), "Browse and the Menu: " + juce::String(drawn.size())
+				+ " texts drawn, none names a brand" + (branded.isEmpty() ? juce::String() : ": " + branded.joinIntoString(" | ")));
+			check(menu.contains("WINDOW") && menu.contains("AUDIO") && !menu.contains("ELEKTRON CONTENT")
+				&& !menu.contains("IMPORT MY CONTENT"), "the Menu: WINDOW and AUDIO, no ELEKTRON CONTENT block");
+		}
 		editor.showPage(Editor::Page::Sound);
 		editor.setSize(Editor::SmallWidth, Editor::SmallHeight);
 		snapshot(editor, _folder.getChildFile("sound-1280.png"));

@@ -33,10 +33,26 @@ namespace elektron::drums
 		static_assert(Down % Up == 13 && Down / Up == 1, "a host sample steps the read by 1 sample and 13 phases");
 
 		// A machine's neutral sound until a Kit gives it one, with or without a flash image, so that a set sounds the same:
-		// no default is a firmware's. Its knobs in the middle, a Syntakt machine's drive and HOLD off
-		constexpr std::array<uint8_t, 8> SyntaktDefaults{64, 64, 64, 64, 64, 0, 0, 64};
+		// no default is a firmware's. Its knobs in the middle, a Syntakt machine's PUNCH and OVERDRIVE off (and its HOLD, in
+		// Machine 9)
+		constexpr std::array<uint8_t, 8> SyntaktDefaults{64, 64, 0, 64, 64, 64, 64, 0};
 		constexpr std::array<uint8_t, 8> MachinedrumDefaults{64, 64, 64, 64, 64, 64, 64, 64};
-		constexpr int VoiceHold = 6;		// HOLD among them: on, every machine's voice waits for its gate-off
+		constexpr int VoiceHold = 6;		// a Syntakt voice's index of HOLD: on, every machine's voice waits for its gate-off
+
+		// The voice's index each of a Syntakt machine's Machine 1-9 plays (syntaktSlotOf), internal id 18 + index: the SYN
+		// page's TUNE 18, SWEEP or SHIMMER 21, PUNCH 23, DECAY 25, the machine's two 19 and 20, MOD ENV 22, in the order of
+		// section 3's descriptors as syntakt::Syntakt names the ids; OVERDRIVE, 26, none (the stage after the voice); HOLD 24
+		constexpr int OverSlot = 7, HoldSlot = 8;
+		constexpr std::array<int, 9> SyntaktIndex{0, 3, 5, 7, 1, 2, 4, -1, VoiceHold};
+
+		// Whether Machine _index + 1 changes what _machine plays: the slots it uses, the Sampler's first 8 here (its 9-12
+		// read where they play), a Syntakt machine's Machine 9, its HOLD
+		bool playsSlot(const Machine& _machine, const int _index)
+		{
+			if(_machine.family == Family::Syntakt && _index == HoldSlot)
+				return true;
+			return _index < machineParameters(_machine) && !(_machine == Sampler && _index >= 8);
+		}
 		// The Sampler plays its whole sample at its pitch: PTCH in the middle, no decay, STRT 0, END 127, no retrigger
 		constexpr std::array<uint8_t, 8> SamplerDefaults{64, 127, 0, 0, 0, 127, 0, 64};
 
@@ -152,6 +168,11 @@ namespace elektron::drums
 		if(_machine == Sampler)
 			return vintage::SamplerParameters;
 		return _machine.family == Family::OpenDrum ? openDrum_machineParameters(_machine.id) : 8;
+	}
+
+	int syntaktSlotOf(const int _index)
+	{
+		return static_cast<int>(std::find(SyntaktIndex.begin(), SyntaktIndex.end(), _index) - SyntaktIndex.begin());
 	}
 
 	const char* machineParameterName(const Machine& _machine, const int _index)
@@ -403,6 +424,7 @@ namespace elektron::drums
 			m_library.twinshot);
 		for(auto& s : m_sources)
 			s->fitWidth();
+		m_stOver = std::make_unique<TrackDrive>();
 
 		setOversampling(DefaultOversampling);
 	}
@@ -427,7 +449,7 @@ namespace elektron::drums
 		if(_machine.family != Family::Off && _machine.family != t.chainFamily)
 		{
 			// The LFOs' moves go with the Track: the new chain takes them from what the old one leaves
-			for(int target = static_cast<int>(LfoTarget::DriveA); target < static_cast<int>(LfoTarget::Count); ++target)
+			for(int target = static_cast<int>(LfoTarget::DriveA); target <= static_cast<int>(LfoTarget::EnvelopeDepth); ++target)
 			{
 				chainOf(t).modulate(_track, chainTarget(static_cast<LfoTarget>(target)), 0);
 				if(t.taken[static_cast<size_t>(target)] || m_lfos.offset(_track, target))
@@ -439,6 +461,10 @@ namespace elektron::drums
 			t.held = chainOf(t).holdsVoice(_track);
 		}
 		m_stMask = _machine.family == Family::Syntakt ? m_stMask | bit : m_stMask & ~bit;
+		// OVERDRIVE at the new machine's, off but on a Syntakt one, ramping as any word of the stage does
+		setOver(_track, 0);
+		if(_machine.family == Family::Syntakt)
+			playSyntakt(_track, OverSlot);
 		m_mdMask &= ~bit;
 		if(_machine.family == Family::Machinedrum)
 		{
@@ -515,7 +541,7 @@ namespace elektron::drums
 		t.params[static_cast<size_t>(_index)] = _value;
 		t.lockValue[static_cast<size_t>(_index)] = _value;
 		// Machine 9-24 of a machine of 8 are kept, and change nothing; the Sampler's 9-12 are read where they play
-		if(_index >= machineParameters(t.machine) || (t.machine == Sampler && _index >= 8))
+		if(!playsSlot(t.machine, _index))
 			return;
 		if(t.machine.family == Family::Machinedrum)
 			m_mdTracks[static_cast<size_t>(_track)].knob(static_cast<size_t>(_index), _value);
@@ -523,8 +549,8 @@ namespace elektron::drums
 			playOpenDrum(_track, _index);
 		else if(t.machine.family == Family::Sophie)
 			playSophie(_track, _index);
-		else if(t.lane >= 0)
-			sendParameter(t, _index, _value);
+		else
+			playSyntakt(_track, _index);
 	}
 
 	void Engine::setNote(const int _track, const int _note)
@@ -599,37 +625,64 @@ namespace elektron::drums
 		return m_lfos.phase(_track, _index);
 	}
 
-	void Engine::sendParameter(const Track& _track, const int _index, const int _value)
+	void Engine::playSyntakt(const int _track, const int _slot)
 	{
-		const int word = _index == VoiceHold && _track.held ? 127 << 7
-			: wordOf(_value, _track.taken[static_cast<size_t>(LfoTarget::Machine1) + static_cast<size_t>(_index)]);
-		sourceOf(_track).setParameter(_track.lane, _index, static_cast<uint8_t>(word >> 7), static_cast<uint8_t>((word & 127) << 1));
+		auto& t = m_tracks[static_cast<size_t>(_track)];
+		// What the LFOs aimed at it add
+		const int offset = t.taken[static_cast<size_t>(machineTarget(_slot))];
+		const int value = playedValue(t, _slot);
+		if(_slot == OverSlot)
+		{
+			setOver(_track, wordOf(value, offset) << 1);
+			return;
+		}
+		if(t.lane < 0)
+			return;
+		const int index = SyntaktIndex[static_cast<size_t>(_slot)];
+		const int word = index == VoiceHold && t.held ? 127 << 7 : wordOf(value, offset);
+		sourceOf(t).setParameter(t.lane, index, static_cast<uint8_t>(word >> 7), static_cast<uint8_t>((word & 127) << 1));
+	}
+
+	void Engine::setOver(const int _track, const int _word)
+	{
+		// The same word again moves nothing: the stage need not run for it
+		auto& word = m_overWord[static_cast<size_t>(_track)];
+		if(_word == word)
+			return;
+		word = _word;
+		m_stOver->set(_track, _word);
+		const uint32_t bit = 1u << _track;
+		m_overOn = _word > 0 ? m_overOn | bit : m_overOn & ~bit;
+		m_overRun |= bit;
 	}
 
 	void Engine::takeMoves(const int _track, const bool _settle)
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
-		for(uint32_t bits = m_lfos.waiting(_track), p = 0; bits; bits >>= 1, ++p)
+		for(uint64_t bits = m_lfos.waiting(_track), p = 0; bits; bits >>= 1, ++p)
 		{
 			if(!(bits & 1))
 				continue;
 			const auto target = static_cast<LfoTarget>(p);
 			const int sum = m_lfos.offset(_track, static_cast<int>(p));
-			const int limit = target < LfoTarget::DriveA ? LfoMove : chainOf(t).moveLimit(_track, chainTarget(target));
+			const int limit = isChainTarget(target) ? chainOf(t).moveLimit(_track, chainTarget(target)) : LfoMove;
 			const int offset = t.taken[p] = _settle ? sum : t.taken[p] + std::clamp(sum - t.taken[p], -limit, limit);
 			if(offset == sum)
 				m_lfos.taken(_track, static_cast<int>(p));
-			if(target <= LfoTarget::Machine8)
+			if(const int index = machineOf(target); index >= 0)
 			{
-				const int index = static_cast<int>(p) - static_cast<int>(LfoTarget::Machine1);
+				// A Machine its machine does not read moves nothing; the Sampler's VINTAGE grain reads its 9-12 where they
+				// play (renderVintage)
+				if(!playsSlot(t.machine, index))
+					continue;
 				if(t.machine.family == Family::Machinedrum)
 					m_mdTracks[static_cast<size_t>(_track)].modulate(static_cast<size_t>(index), offset);
 				else if(t.machine.family == Family::OpenDrum)
 					playOpenDrum(_track, index);
 				else if(t.machine.family == Family::Sophie)
 					playSophie(_track, index);
-				else if(t.lane >= 0)
-					sendParameter(t, index, playedValue(t, index));
+				else if(t.machine.family == Family::Syntakt)
+					playSyntakt(_track, index);
 			}
 			else if(target == LfoTarget::Level)
 			{
@@ -659,8 +712,8 @@ namespace elektron::drums
 		auto& t = m_tracks[static_cast<size_t>(_track)];
 		chainOf(t).configure(_track, _settings);
 		t.held = chainOf(t).holdsVoice(_track);
-		if(t.lane >= 0)
-			sendParameter(t, VoiceHold, playedValue(t, VoiceHold));
+		if(t.machine.family == Family::Syntakt)
+			playSyntakt(_track, HoldSlot);
 	}
 
 	void Engine::setOversampling(const int _factor)
@@ -682,7 +735,7 @@ namespace elektron::drums
 	void Engine::lock(const int _track, const int _index, const uint8_t _value)
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
-		if(_index >= machineParameters(t.machine) || (t.machine == Sampler && _index >= 8))
+		if(!playsSlot(t.machine, _index))
 			return;
 		if(t.machine.family == Family::Machinedrum)
 		{
@@ -807,8 +860,8 @@ namespace elektron::drums
 			++t.stVoices;
 		}
 		t.lane = lane;
-		for(int i = 0; i < 8; ++i)
-			sendParameter(t, i, t.params[static_cast<size_t>(i)]);
+		for(int i = 0; i <= HoldSlot; ++i)
+			playSyntakt(_track, i);
 		source.setNote(lane, t.note);
 	}
 
@@ -832,6 +885,7 @@ namespace elektron::drums
 			return;
 		t.stRing.close();
 		m_stChain->clear(_track);
+		m_stOver->clear(_track);
 		t.stSounding = false;
 		t.stFadeAt = Never;
 	}
@@ -848,9 +902,9 @@ namespace elektron::drums
 		t.lockedNow = t.pendingLocks;
 		t.pendingLocks = 0;
 		t.lockValue = t.lockPendingValue;
-		for(int i = 0; i < 8; ++i)
+		for(int i = 0; i <= HoldSlot; ++i)
 			if(changed >> i & 1)
-				sendParameter(t, i, playedValue(t, i));
+				playSyntakt(_track, i);
 		source.trig(t.lane);
 
 		// The block that sees the trig, the next that sounds it: the voice's first sample out of its chain must be what the
@@ -929,8 +983,7 @@ namespace elektron::drums
 		const uint16_t parameter = openDrum_machineParameter(t.machine.id, _index);
 		if(parameter == OpenDrumNone)
 			return;
-		// The LFOs reach Machine 1-8
-		const int offset = _index < 8 ? t.taken[static_cast<size_t>(LfoTarget::Machine1) + static_cast<size_t>(_index)] : 0;
+		const int offset = t.taken[static_cast<size_t>(machineTarget(_index))];
 		const auto value = openDrum_machineValue(t.machine.id, _index,
 			static_cast<uint8_t>(wordOf(playedValue(t, _index), offset) >> 7));
 		if(parameter == OpenDrumOpen)
@@ -972,8 +1025,7 @@ namespace elektron::drums
 		if(_index >= sophie::MachineSlots)
 			return;
 		auto& t = m_tracks[static_cast<size_t>(_track)];
-		// The LFOs reach Machine 1-8
-		const int offset = _index < 8 ? t.taken[static_cast<size_t>(LfoTarget::Machine1) + static_cast<size_t>(_index)] : 0;
+		const int offset = t.taken[static_cast<size_t>(machineTarget(_index))];
 		sophie::setMachineValue(m_sophie->v[static_cast<size_t>(_track)], _index,
 			static_cast<uint8_t>(wordOf(playedValue(t, _index), offset) >> 7));
 	}
@@ -1013,6 +1065,11 @@ namespace elektron::drums
 				+ t.taken[static_cast<size_t>(LfoTarget::Machine1) + static_cast<size_t>(_p)], 0, 127 << 7);
 		};
 		const auto smooth = [&](const int _p) { return std::min(127.0, (word(_p) + 2) / 128.0); };
+		// The grain's Machine 10-12 with the LFOs' moves
+		const auto grain = [&](const int _p)
+		{
+			return wordOf(t.params[static_cast<size_t>(_p)], t.taken[static_cast<size_t>(machineTarget(_p))]) >> 7;
+		};
 		const auto value = [&](const int _p) { return static_cast<int>(std::lround(word(_p) / 128.0)); };
 		if(t.vtTrig)
 		{
@@ -1020,13 +1077,13 @@ namespace elektron::drums
 			const uint32_t length = m_vtLength[i];
 			const auto begin = static_cast<uint32_t>(static_cast<uint64_t>(length) * static_cast<uint32_t>(value(4)) / 128);
 			const auto end = static_cast<uint32_t>(static_cast<uint64_t>(length) * static_cast<uint32_t>(value(5)) / 127);
-			t.vt.setDac(vintage::bitsOf(t.params[vintage::BitsSlot]), vintage::companding(t.params[vintage::CompandingSlot]));
+			t.vt.setDac(vintage::bitsOf(grain(vintage::BitsSlot)), vintage::companding(grain(vintage::CompandingSlot)));
 			t.vt.trig(m_vtSource[i], begin, end, vintage::holdSeconds(value(2)) * SampleRate);
 		}
 		t.vt.setStep(m_vtRate[i] / SampleRate * std::exp2(vintage::semitones(smooth(0)) / 12));
 		t.vt.setDecay(vintage::decaySeconds(smooth(1)), SampleRate);
-		t.vt.setDac(vintage::bitsOf(t.params[vintage::BitsSlot]), vintage::companding(t.params[vintage::CompandingSlot]));
-		t.vt.setFilter(vintage::filterHz(t.params[vintage::FilterSlot]), SampleRate);
+		t.vt.setDac(vintage::bitsOf(grain(vintage::BitsSlot)), vintage::companding(grain(vintage::CompandingSlot)));
+		t.vt.setFilter(vintage::filterHz(grain(vintage::FilterSlot)), SampleRate);
 		t.vt.render(_x, BlockSize);
 	}
 
@@ -1184,6 +1241,9 @@ namespace elektron::drums
 			if(bits & 1 && m_tracks[track].st.quiet && m_stChain->ampLevel(static_cast<int>(track)) >= Silence)
 				for(auto& sample : in.s)
 					m_tracks[track].st.voiced = m_tracks[track].st.voiced || std::abs(sample[track]) >= Silence;
+		// Nothing at all while no Track's OVERDRIVE is on or ramps
+		if(m_overRun)
+			overdrive(in, live);
 		if(live)
 			m_stChain->process(in, static_cast<uint16_t>(live));
 		for(size_t track = 0; track < Tracks; ++track)
@@ -1224,6 +1284,21 @@ namespace elektron::drums
 			t.pendingLocks = 0;
 		++m_stBlock;
 		m_stNext = (Up * m_stBlock * BlockSize + Down - 1) / Down;
+	}
+
+	// OVERDRIVE, the stage the Syntakt has after the voice, on the _live Tracks where it is on or ramps: it gives its input
+	// at half (stFastTrack.h), which its groups take back to 1, at 0 exactly
+	void Engine::overdrive(Block& _in, const uint32_t _live)
+	{
+		if(const uint32_t over = _live & m_overRun)
+		{
+			m_stOver->process(_in, static_cast<uint16_t>(over));
+			for(int l = 0; l < Lanes; ++l)
+				if(over >> (l & ~3) & 15)
+					for(auto& sample : _in.s)
+						sample[l] *= 2;
+		}
+		m_overRun = (m_overRun & ~_live) | m_overOn;
 	}
 
 	void Engine::read(const int _track, float* _out, const int _count)

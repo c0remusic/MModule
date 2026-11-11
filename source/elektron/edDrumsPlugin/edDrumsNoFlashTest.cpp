@@ -15,8 +15,10 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "edDrumsEditor.h"
 #include "edDrumsProcessor.h"
 #include "edDrumsTestSupport.h"
 #include "mdVoiceDsp.h"
@@ -153,6 +155,65 @@ namespace
 		require(probes[hooks::E12Retrigger] > 0, "no retrigger played");
 	}
 
+	// Ticket 27: the data folder named Lockstep takes the old folder's files as the instrument loads, in a data root of
+	// its own; the old folder is left whole, a file the new one has is kept, and a second load copies nothing
+	void migration(const juce::File& _root)
+	{
+		_putenv_s("GEARMULATOR_DATA_ROOT", _root.getFullPathName().toRawUTF8());
+		const auto from = Processor::legacyDataFolder();
+		const auto to = Processor::dataFolder();
+		require(to.getFileName() == "Lockstep" && from.getFileName() == "Elektron Drums Dev"
+			&& from.getParentDirectory() == to.getParentDirectory(), "the folders: " + to.getFullPathName().toStdString());
+		const std::vector<std::pair<const char*, const char*>> files{{"Kits/01.edkit", "a Kit"},
+			{"TrackSounds/kick.edsound", "a sound"}, {"Samples/types.txt", "types"}, {"Elektron/notes.bin", "words"},
+			{"roms/readme.txt", "an image"}, {"deep/er/still.txt", "deep"}};
+		for(const auto& [path, text] : files)
+			require(from.getChildFile(path).create().wasOk() && from.getChildFile(path).replaceWithText(text), "the old files");
+		require(!to.exists(), "the new folder not fresh");
+		{
+			Processor p;
+		}
+		for(const auto& [path, text] : files)
+		{
+			require(to.getChildFile(path).loadFileAsString() == text, std::string(path) + " not copied");
+			require(from.getChildFile(path).loadFileAsString() == text, std::string(path) + " not left in the old folder");
+		}
+		require(to.getChildFile(Processor::MigratedMark).existsAsFile(), "no mark");
+		// The user deletes a Kit and the old folder gains a file: nothing comes over again
+		require(to.getChildFile("Kits/01.edkit").deleteFile() && from.getChildFile("Kits/02.edkit").replaceWithText("later"),
+			"the second round's files");
+		{
+			Processor p;
+		}
+		require(!to.getChildFile("Kits/01.edkit").exists() && !to.getChildFile("Kits/02.edkit").exists(),
+			"the second load copied");
+		// A file the new folder has keeps its content
+		const auto a = _root.getChildFile("a"), b = _root.getChildFile("b");
+		require(a.getChildFile("x.txt").create().wasOk() && a.getChildFile("x.txt").replaceWithText("old")
+			&& a.getChildFile("y.txt").replaceWithText("old y") && b.getChildFile("x.txt").create().wasOk()
+			&& b.getChildFile("x.txt").replaceWithText("new"), "the folders a and b");
+		require(Processor::migrateData(a, b) && b.getChildFile("x.txt").loadFileAsString() == "new"
+			&& b.getChildFile("y.txt").loadFileAsString() == "old y", "a file the new folder had");
+		// A file that cannot be copied (a file where its folder goes) is the only one tried again: one the user deleted
+		// meanwhile stays deleted; once it is copied, the mark asks nothing more
+		const auto c = _root.getChildFile("c"), d = _root.getChildFile("d");
+		require(c.getChildFile("Kits/01.edkit").create().wasOk() && c.getChildFile("Kits/01.edkit").replaceWithText("kit")
+			&& c.getChildFile("z.txt").replaceWithText("z") && d.createDirectory().wasOk()
+			&& d.getChildFile("Kits").replaceWithText("in the way"), "the folders c and d");
+		require(!Processor::migrateData(c, d) && d.getChildFile("z.txt").loadFileAsString() == "z"
+			&& d.getChildFile(Processor::MigratedMark).existsAsFile(), "a file that cannot be copied");
+		require(d.getChildFile("z.txt").deleteFile(), "z.txt not deleted");
+		require(!Processor::migrateData(c, d) && !d.getChildFile("z.txt").exists(), "a deleted file brought back");
+		require(d.getChildFile("Kits").deleteFile(), "the file in the way not removed");
+		require(Processor::migrateData(c, d) && d.getChildFile("Kits/01.edkit").loadFileAsString() == "kit"
+			&& !d.getChildFile("z.txt").exists(), "the failed file not copied once it could be");
+		require(d.getChildFile("Kits/01.edkit").deleteFile() && Processor::migrateData(c, d)
+			&& !d.getChildFile("Kits/01.edkit").exists(), "a file copied on the retry brought back again");
+		std::printf("  data folder %s takes %d files of %s, the old left whole, nothing the second time; a file that "
+			"failed tried alone until copied\n", to.getFileName().toRawUTF8(), static_cast<int>(files.size()),
+			from.getFileName().toRawUTF8());
+	}
+
 	// Track 1's Main, left, with a note _at samples in
 	std::vector<float> play(Processor& _p, const int _at)
 	{
@@ -264,8 +325,40 @@ int main()
 			juce::AudioProcessor::copyXmlToBinary(xml, state);
 			Processor p;
 			p.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
-			require(p.sampleFingerprint(2) == "factory:5" && p.sampleName(2).contains("no flash image")
+			require(p.sampleFingerprint(2) == "factory:5" && p.sampleName(2) == "Factory 05, not in the Locker"
 				&& p.factorySamples().empty(), "factory slot 5 without the image: " + p.sampleName(2).toStdString());
+			// The editor says it on Track 3's Sound page, and Browse's LOCKER names no brand
+			{
+				Editor editor(p);
+				editor.showTrack(2);
+				juce::StringArray drawn;
+				ui::Painter::drawnTexts = &drawn;
+				const auto draw = [&]
+				{
+					editor.tick();
+					editor.createComponentSnapshot(editor.getLocalBounds(), true, 1.0f);
+				};
+				draw();
+				const bool said = drawn.joinIntoString("|").containsIgnoreCase("Factory 05, not in the Locker");
+				// The Sound page's parameter names are ticket 27's table, still to approve: Browse alone is swept here
+				drawn.clear();
+				editor.showPage(Editor::Page::Browse);
+				const auto at = editor.browseTreeArea(2).getCentre().toFloat();
+				const juce::MouseEvent click(juce::Desktop::getInstance().getMainMouseSource(), at,
+					juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &editor, &editor,
+					juce::Time::getCurrentTime(), at, juce::Time::getCurrentTime(), 1, false);
+				editor.mouseDown(click);
+				editor.mouseUp(click);
+				draw();
+				ui::Painter::drawnTexts = nullptr;
+				juce::StringArray branded;
+				for(const auto& t : drawn)
+					if(t.containsIgnoreCase("ELEKTRON") || t.containsIgnoreCase("MACHINEDRUM") || t.containsIgnoreCase("FLASH IMAGE"))
+						branded.addIfNotAlreadyThere(t);
+				require(said && drawn.contains("LOCKER") && branded.isEmpty(), std::string("the editor without the image: ")
+					+ (said ? "" : "the Track's silence not said; ") + (drawn.contains("LOCKER") ? "" : "no LOCKER; ")
+					+ branded.joinIntoString(" | ").toStdString());
+			}
 			juce::MemoryBlock saved;
 			p.getStateInformation(saved);
 			Processor q;
@@ -273,6 +366,44 @@ int main()
 			require(q.sampleFingerprint(2) == "factory:5", "the reference not kept without the image");
 			std::printf("  factory slot 5 without the image: \"%s\", kept in the state\n", p.sampleName(2).toRawUTF8());
 		}
+
+		// The Kit played against a Track on factory slot 5, without the image: no sample on either side, the reference
+		// differs, Save lights. A slot out of 1-32 is no sample, not slot 32
+		{
+			const auto stateOf = [&](const int _factory)
+			{
+				juce::XmlElement xml("ElektronDrums");
+				xml.setAttribute("version", 6);
+				xml.setAttribute("kit", 0);
+				xml.setAttribute("t03_machine", first.samplerChoice());
+				if(_factory)
+				{
+					auto* element = xml.createNewChildElement("sample");
+					element->setAttribute("track", 2);
+					element->setAttribute("factory", _factory);
+				}
+				juce::MemoryBlock state;
+				juce::AudioProcessor::copyXmlToBinary(xml, state);
+				return state;
+			};
+			const auto none = stateOf(0), five = stateOf(5), forty = stateOf(40);
+			Processor kit;
+			kit.setStateInformation(none.getData(), static_cast<int>(none.getSize()));
+			require(kit.saveKit(0), "a Kit saved");
+			Processor same, slot5;
+			same.setStateInformation(none.getData(), static_cast<int>(none.getSize()));
+			slot5.setStateInformation(five.getData(), static_cast<int>(five.getSize()));
+			require(!same.kitDiffers(), "the Kit played differs from itself");
+			require(slot5.kitDiffers(), "a Track on factory slot 5 against a Kit without a sample: Save not lit");
+			Processor slot40;
+			slot40.setStateInformation(forty.getData(), static_cast<int>(forty.getSize()));
+			require(slot40.sampleFingerprint(2).isEmpty(), "factory slot 40 read as " + slot40.sampleFingerprint(2).toStdString());
+			juce::String error;
+			require(!slot40.loadLibrarySample(2, "factory:40", error) && !error.contains("flash image")
+				&& slot40.sampleFingerprint(2).isEmpty(), "factory:40 loaded as a factory slot: " + error.toStdString());
+			std::printf("  factory slot 5 against a Kit without it: Save lit; slot 40 no sample\n");
+		}
+		migration(root.getChildFile("migration"));
 		std::printf("PASS: the instrument plays with no image\n");
 	}
 	catch(const std::exception& _e)

@@ -126,3 +126,74 @@ reste la liste des dossiers de l'utilisateur), et leur TYPE ne se modifie pas.
 
 Pas fait : les noms des machines et des familles (ticket à venir) ; l'extension de stockage qui remplacera « Elektron
 content » et « UW BANK ».
+
+## État (2026-11-11), le LOCKER
+
+L'extension de stockage proposée dans `../stockage-proposition.md`, approuvée le même jour avec ses quatre
+recommandations, est faite. Elle s'appelle LOCKER et prend, dans l'arbre LIBRARY de Browse, la place de SAMPLES, BY
+SOURCE (même rang, même vert). Ses segments sont ALL, puis une source chacune (jusqu'à sept), FACTORY après les dossiers,
+IN THIS SET quand le set en porte, et `+` qui ouvre le choix de dossier. Une source choisie par son segment montre sa
+fiche dans la colonne de droite (chemin, nombre de samples, place, types les plus nombreux), avec RENAME et REMOVE
+SOURCE ; un sample choisi montre la sienne, avec TYPE, RENAME, et KEEP IN LOCKER pour un sample du set. En bas de
+LIBRARY : la place copiée et le nombre de sources, puis ADD FOLDER et IMPORT PACK.
+
+Deux gestes. ADD FOLDER (comme un dossier glissé sur Browse, et `+`) lie le dossier : rien n'est copié. IMPORT PACK
+copie les WAV, AIFF et FLAC que le LOCKER n'a pas encore, par empreinte, dans `Locker/Imported/<nom>/` du dossier de
+données, à leur place dans le pack ; la source IMPORTED compte leur place, et son retrait efface sa copie seule, au
+deuxième clic, la fiche disant ce qui sera effacé. Une source LINKED part au premier clic, ses fichiers restent. Les deux
+gestes passent par le même parcours, sur un fil à lui (`LockerImport`, l'ancien `ElektronImport` renommé) : une flash
+image trouvée donne la source FACTORY (ses seuls mots, `Locker/Factory.words`, au chargement suivant), et un toast dit
+ce qui a été trouvé (samples, déjà connus, copiés, banque d'usine, fichiers non lus). Le parcours et les copies ne
+touchent jamais le fil audio ; KEEP IN LOCKER écrit son WAV sur le fil des messages.
+
+Index : `Locker/sources.txt` (genre, chemin, nom montré, une ligne par source), relu avant chaque écriture et suivi par
+les autres instances ; `Locker/types.txt` et `Locker/names.txt` par empreinte, si bien qu'aucun fichier n'est renommé sur
+le disque et qu'un type ou un nom se donne aussi à un sample d'usine. Un dossier de données d'avant le LOCKER est repris
+une fois : `Samples/folders.txt` devient des sources LINKED, `Samples/types.txt` est copié, `Elektron/Machinedrum.words`
+est déplacé en `Locker/Factory.words`.
+
+FACTORY est une source comme les autres : ALL et SAMPLES, BY TYPE la comprennent désormais (ses 32 emplacements y sont
+OTHER tant que l'utilisateur n'a pas choisi). La retirer efface ses mots ; elle n'est retirable que si le LOCKER les
+tient (une banque lue dans `roms` ou par la variable ne l'est pas). Un set garde la copie et l'empreinte des samples de
+l'utilisateur ; un sample d'usine n'y est que `factory="n"`, jamais d'audio, dans l'état comme dans un Kit. IN THIS SET
+liste les samples des pistes qu'aucune source n'a par empreinte, une fois le LOCKER lu ; KEEP IN LOCKER écrit le sample
+en WAV dans la source IMPORTED « FROM SETS », et les pistes qui le tenaient portent l'empreinte de ce fichier.
+
+Le Menu n'a plus le bloc ELEKTRON CONTENT ni IMPORT MY CONTENT : il garde WINDOW et AUDIO. Le bouton IMPORT MY ELEKTRON
+CONTENT et le segment FACTORY à part ont disparu. Les textes montrés ne nomment plus de marque : « FACTORY BANK NOT IN
+THE LOCKER » à la place de « The factory samples need the Machinedrum's flash image », « Factory 05, not in the Locker »
+pour une piste dont la banque manque.
+
+Vérifié : `edDrumsSampleLibraryTest` (source LINKED ajoutée, renommée puis retirée, fichiers intacts ; IMPORT PACK copie
+3 samples, WAV, AIFF et FLAC, un doublon et un texte laissés, 51 973 octets comptés, retrait qui efface la copie seule ;
+type, nom de sample et nom de source repris par un rescan et une deuxième instance ; listes et mots d'avant repris ; avec
+l'image, ses seuls mots écrits, 1 864 Ko, FACTORY à 32 emplacements, retirée avec ses mots) ; `edDrumsProcessorTest`
+(un Kit réécrit sur l'emplacement 5 ne tient que `factory="5"` ; un état ouvert sans la source de son sample le montre
+sous IN THIS SET, le charge sur une autre piste, et KEEP en fait un sample de FROM SETS) ; `edDrumsNoFlashTest` (sans
+image, la piste sur l'emplacement 5 se tait, garde sa référence, et l'éditeur dit « Factory 05, not in the Locker » ;
+Browse ne nomme aucune marque) ; `edDrumsEditorTest` à la souris (LOCKER dans l'arbre, dossier glissé, SEARCH, double
+clic, glisser, TYPE, RENAME d'un sample et d'une source, LOAD ON TRACK, FACTORY, IN THIS SET et KEEP IN LOCKER, IMPORT
+PACK, REMOVE SOURCE en deux clics pour une copie et en un pour un lien ; Menu sans ELEKTRON CONTENT ; 544 textes dessinés
+sur les cinq listes de Browse, les segments du LOCKER et le Menu, aucun ne contenant ELEKTRON, MACHINEDRUM ni le mot UW).
+
+Pas fait : ADD FOLDER et IMPORT PACK ouvrent le choix de dossier natif, que le test ne peut pas cliquer : il passe par le
+glisser et par `Processor::addToLocker`. FACTORY ne se renomme pas (son nom n'est dans aucune liste). Le rapport du
+dernier parcours (`Processor::lastImport`, `imports`) reste, puisque le toast le lit. Les formats propres aux machines
+d'origine (projets, sons, SysEx) restent comptés et non lus.
+
+## État (2026-11-11)
+
+Corrections de la relecture du LOCKER. IMPORT PACK a désormais des bornes (`LockerImport::Bounds`) : au plus autant de
+fichiers que le scan en liste (`SampleLibrary::MostFiles`, 20 000), un fichier d'au plus 160 Mo (le plus que lit
+`readSampleFile`, 10,9 s de 8 canaux en flottants 32 bits à 384 kHz, fait 134 Mo) et 4 Go en tout ; ce qui dépasse est
+compté (`Report::left`) et le toast le dit. Chaque fichier est copié à côté (`.part`) un mégaoctet à la fois, puis
+renommé : une instance fermée pendant la copie arrête le parcours au mégaoctet suivant, efface le fichier coupé, et le
+destructeur attend la fin du travail sans limite de temps (mesuré : 5 ms pendant une copie de 150 Mo). Un dossier
+d'Imported que la liste ne connaît pas et qui contient un fichier est repris comme source IMPORTED au chargement
+(`SampleLibrary::adoptImported`) ; le dossier vide d'un import qui n'a rien copié est effacé. La migration du dossier de
+données écrit toujours sa marque, avec les fichiers qui n'ont pas pu être copiés, seuls réessayés ensuite : un fichier
+effacé par l'utilisateur, ni `Factory.words` après REMOVE, ne revient plus. KEEP IN LOCKER ne fuit plus le flux si le
+writer échoue, efface le fichier raté et signale à l'hôte que le set a changé (`withNonParameterStateChanged`). Un son de
+piste ancien dont un LFO vise une autre piste suit la machine que le set y joue. Tests : `edDrumsSampleLibraryTest`
+(bornes, reprise, copie interrompue), `edDrumsNoFlashTest` (migration avec un échec), `edDrumsProcessorTest` (LFO vers
+T05, KEEP bloqué puis réussi), `edDrumsEditorTest` : verts. Le garde-fou du dépôt n'a pas tourné.

@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <utility>
 #include <variant>
+
+#include <juce_audio_formats/juce_audio_formats.h>
 
 #include "edDrumsEditor.h"
 #include "edDrumsSampleFiles.h"
@@ -17,7 +20,7 @@ namespace elektron::drums
 		constexpr int FirstNote = 36;	// notes 36-51: Tracks 1-16
 		constexpr int DefaultLevel = 100, DefaultNote = 60, Centre = 64;
 
-		constexpr int StateVersion = 5;
+		constexpr int StateVersion = 6;
 
 		// The Machinedrum's input, control, MIDI and RAM machines are not the instrument's, and since state version 5 nor
 		// are its ROM machines: the factory bank's samples play on the Sampler (ticket 27)
@@ -90,9 +93,14 @@ namespace elektron::drums
 		// A Track's reference to a factory sample (Sample::factory), where m_sampleRefs keeps a Library file's
 		// fingerprint: the slot it names, 0 for none
 		constexpr const char* FactoryRef = "factory:";
+		// A slot of the factory bank, 1 to FactorySlots; 0, no sample, for any other number
+		int factorySlot(const int _slot)
+		{
+			return _slot >= 1 && _slot <= FactorySlots ? _slot : 0;
+		}
 		int factorySlotOf(const juce::String& _ref)
 		{
-			return _ref.startsWith(FactoryRef) ? std::clamp(_ref.substring(8).getIntValue(), 0, FactorySlots) : 0;
+			return _ref.startsWith(FactoryRef) ? factorySlot(_ref.substring(8).getIntValue()) : 0;
 		}
 		juce::String factoryRef(const int _slot)
 		{
@@ -361,12 +369,16 @@ namespace elektron::drums
 
 	Processor::Processor() : AudioProcessor(buses()), m_machines(machineList())
 	{
-		// Nothing leaves the constructor: the words an import kept (ticket 20), else an image found, else the
-		// Machinedrum's sampled words are the house's, or silence
+		// The host makes the instrument on its message thread: the old data folder's files come over before anything
+		// reads the new one
+		migrateData(legacyDataFolder(), dataFolder());
+		// Nothing leaves the constructor: the words the Locker keeps (ticket 20), else an image found, else the
+		// sampled words are the house's, or silence
 		try
 		{
 			ImageWords words;
-			if(ElektronImport::readWords(ElektronImport::wordsFile(dataFolder()), words))
+			LockerImport::takeOldWords(dataFolder());
+			if(LockerImport::readWords(LockerImport::wordsFile(dataFolder()), words))
 			{
 				m_library = std::make_unique<Library>(words);
 				m_libraryFromWords = true;
@@ -387,7 +399,7 @@ namespace elektron::drums
 		{
 			m_library = std::make_unique<Library>();
 		}
-		// Browse's FACTORY: the factory bank's slots that hold a sample, by what their directory entries say
+		// The Locker's FACTORY: the factory bank's slots that hold a sample, by what their directory entries say
 		for(int slot = 1; slot <= FactorySlots && !m_library->directory.empty(); ++slot)
 		{
 			const auto* entry = m_library->directory.data() + 4 * static_cast<size_t>(slot - 1);
@@ -395,7 +407,7 @@ namespace elektron::drums
 				continue;
 			SampleLibrary::Entry e;
 			e.name = "FACTORY " + juce::String(slot).paddedLeft('0', 2);
-			e.folder = -1;
+			e.folder = SampleLibrary::FactoryFolder;
 			e.length = static_cast<int64_t>(entry[1] & 0xffffff);
 			e.rate = std::clamp(static_cast<double>(entry[3] & 0xffffff) * 44100.0 / Sample::Unity, Sample::MinRate,
 				Sample::MaxRate);
@@ -572,7 +584,8 @@ namespace elektron::drums
 		m_kits = std::make_unique<KitBank>(dataFolder().getChildFile("Kits"));
 		m_trackSounds = std::make_unique<TrackSounds>(dataFolder().getChildFile("TrackSounds"));
 		m_sampleLibrary = std::make_unique<SampleLibrary>(dataFolder());
-		m_import = std::make_unique<ElektronImport>(dataFolder());
+		m_sampleLibrary->adoptImported();
+		m_import = std::make_unique<LockerImport>(dataFolder());
 		startTimerHz(20);
 	}
 
@@ -986,7 +999,7 @@ namespace elektron::drums
 			auto sample = factorySample(*m_library, slot);
 			if(!sample)
 			{
-				_error = "The factory samples need the Machinedrum's flash image";
+				_error = "FACTORY BANK NOT IN THE LOCKER";
 				return false;
 			}
 			m_samples[static_cast<size_t>(_track)] = std::make_unique<Sample>(std::move(*sample));
@@ -994,13 +1007,29 @@ namespace elektron::drums
 			publishSample(_track);
 			return true;
 		}
-		const auto* entry = m_sampleLibrary->find(_fingerprint);
-		if(!entry)
+		if(const auto* entry = m_sampleLibrary->find(_fingerprint))
+			return loadSample(_track, entry->file, _error);
+		// IN THIS SET: another Track's copy
+		if(const int from = trackHolding(_fingerprint); from >= 0)
 		{
-			_error = "No sample of the library has fingerprint " + _fingerprint;
-			return false;
+			if(from != _track)
+			{
+				m_samples[static_cast<size_t>(_track)] = std::make_unique<Sample>(*m_samples[static_cast<size_t>(from)]);
+				m_sampleRefs[static_cast<size_t>(_track)] = _fingerprint;
+				publishSample(_track);
+			}
+			return true;
 		}
-		return loadSample(_track, entry->file, _error);
+		_error = "No sample of the Locker has fingerprint " + _fingerprint;
+		return false;
+	}
+
+	int Processor::trackHolding(const juce::String& _fingerprint) const
+	{
+		for(size_t t = 0; t < m_samples.size(); ++t)
+			if(m_samples[t] && _fingerprint.isNotEmpty() && m_sampleRefs[t] == _fingerprint)
+				return static_cast<int>(t);
+		return -1;
 	}
 
 	bool Processor::auditionSample(const juce::File& _file, juce::String& _error)
@@ -1021,11 +1050,139 @@ namespace elektron::drums
 		auto sample = factorySample(*m_library, _slot);
 		if(!sample)
 		{
-			_error = "The factory samples need the Machinedrum's flash image";
+			_error = "FACTORY BANK NOT IN THE LOCKER";
 			return false;
 		}
 		m_auditioned = std::make_unique<Sample>(std::move(*sample));
 		sendAudition();
+		return true;
+	}
+
+	const std::vector<SampleLibrary::Entry>& Processor::factorySamples()
+	{
+		if(m_factoryGeneration != m_sampleLibrary->generation())
+		{
+			m_factoryGeneration = m_sampleLibrary->generation();
+			m_factoryDressed = m_factorySamples;
+			for(auto& e : m_factoryDressed)
+				m_sampleLibrary->dress(e);
+		}
+		return m_factoryDressed;
+	}
+
+	bool Processor::removeFactory()
+	{
+		if(!m_libraryFromWords || !LockerImport::wordsFile(dataFolder()).deleteFile())
+			return false;
+		m_factorySamples.clear();
+		m_factoryDressed.clear();
+		return true;
+	}
+
+	int64_t Processor::factoryBytes() const
+	{
+		const auto words = LockerImport::wordsFile(dataFolder());
+		return m_libraryFromWords && words.existsAsFile() ? words.getSize() : 0;
+	}
+
+	const std::vector<SampleLibrary::Entry>& Processor::setSamples()
+	{
+		// Rebuilt only when what it is made of changes, so that the editor's references stay
+		m_sampleLibrary->scanOnce();
+		const bool known = m_sampleLibrary->known();
+		juce::String key(known ? static_cast<int>(m_sampleLibrary->generation()) : -1);
+		for(const auto& ref : m_sampleRefs)
+			key << "/" << ref;
+		if(key == m_setKey)
+			return m_setSamples;
+		m_setKey = key;
+		m_setSamples.clear();
+		for(size_t t = 0; known && t < m_samples.size(); ++t)
+		{
+			const auto& sample = m_samples[t];
+			const auto& ref = m_sampleRefs[t];
+			const auto listed = [&](const SampleLibrary::Entry& _e) { return _e.fingerprint == ref; };
+			if(!sample || ref.isEmpty() || factorySlotOf(ref) || m_sampleLibrary->find(ref)
+				|| std::any_of(m_setSamples.begin(), m_setSamples.end(), listed))
+				continue;
+			SampleLibrary::Entry e;
+			e.name = juce::String::fromUTF8(sample->name.c_str());
+			e.folder = SampleLibrary::SetFolder;
+			e.length = static_cast<int64_t>(sample->pcm.size());
+			e.rate = sample->rate;
+			e.channels = 1;
+			e.bytes = 2 * e.length;
+			e.fingerprint = ref;
+			e.type = SampleLibrary::guessType(e.name);
+			m_setSamples.push_back(e);
+		}
+		return m_setSamples;
+	}
+
+	bool Processor::auditionSetSample(const juce::String& _fingerprint, juce::String& _error)
+	{
+		const int t = trackHolding(_fingerprint);
+		if(t < 0)
+		{
+			_error = "No Track holds that sample any more";
+			return false;
+		}
+		m_auditioned = std::make_unique<Sample>(*m_samples[static_cast<size_t>(t)]);
+		sendAudition();
+		return true;
+	}
+
+	bool Processor::keepInLocker(const juce::String& _fingerprint, juce::String& _error)
+	{
+		const int t = trackHolding(_fingerprint);
+		if(t < 0)
+		{
+			_error = "No Track holds that sample any more";
+			return false;
+		}
+		const auto& sample = *m_samples[static_cast<size_t>(t)];
+		// Its 16-bit values at its rate, as the state keeps them: a WAV of the Locker's own
+		const auto folder = SampleLibrary::importedFolder(dataFolder()).getChildFile("From sets");
+		auto name = juce::File::createLegalFileName(juce::String::fromUTF8(sample.name.c_str())).upToLastOccurrenceOf(".",
+			false, false);
+		if(name.isEmpty())
+			name = "Sample";
+		const auto file = folder.getNonexistentChildFile(name, ".wav", false);
+		{
+			juce::AudioBuffer<float> buffer(1, static_cast<int>(sample.pcm.size()));
+			for(size_t n = 0; n < sample.pcm.size(); ++n)
+				buffer.setSample(0, static_cast<int>(n), static_cast<float>(sample.pcm[n]) / 32768.0f);
+			juce::WavAudioFormat wav;
+			std::unique_ptr<juce::AudioFormatWriter> writer;
+			if(folder.createDirectory().wasOk())
+			{
+				// The writer owns the stream once made; the stream is ours until then
+				auto stream = std::make_unique<juce::FileOutputStream>(file);
+				if(stream->openedOk())
+					writer.reset(wav.createWriterFor(stream.get(), sample.rate, 1, 16, {}, 0));
+				if(writer)
+					stream.release();
+			}
+			const bool written = writer && writer->writeFromAudioSampleBuffer(buffer, 0, buffer.getNumSamples());
+			writer.reset();
+			if(!written)
+			{
+				file.deleteFile();
+				_error = "The sample could not be written to " + folder.getFullPathName();
+				return false;
+			}
+		}
+		const auto fingerprint = SampleLibrary::fingerprintOf(file);
+		if(!m_sampleLibrary->addSource(SampleLibrary::Kind::Imported, folder, "FROM SETS"))
+		{
+			_error = "The Locker's list could not be written";
+			return false;
+		}
+		for(size_t i = 0; i < m_sampleRefs.size(); ++i)
+			if(m_sampleRefs[i] == _fingerprint)
+				m_sampleRefs[i] = fingerprint;
+		// The set's state names the Tracks' samples: the host saves it again
+		updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
 		return true;
 	}
 
@@ -1048,9 +1205,9 @@ namespace elektron::drums
 		const auto& sample = m_samples[static_cast<size_t>(_track)];
 		if(sample)
 			return juce::String::fromUTF8(sample->name.c_str());
-		// A factory sample whose image this instrument lacks: the Track is silent, and says why
+		// A factory sample whose bank this instrument's Locker lacks: the Track is silent, and says why
 		if(const int slot = factorySlotOf(m_sampleRefs[static_cast<size_t>(_track)]))
-			return "Factory " + juce::String(slot).paddedLeft('0', 2) + ", no flash image";
+			return "Factory " + juce::String(slot).paddedLeft('0', 2) + ", not in the Locker";
 		return {};
 	}
 
@@ -1122,12 +1279,68 @@ namespace elektron::drums
 		return base.getChildFile("c0remusic").getChildFile(ED_DRUMS_NAME);
 	}
 
-	bool Processor::importElektron(const juce::File& _folder)
+	juce::File Processor::legacyDataFolder()
+	{
+		return dataFolder().getSiblingFile("Elektron Drums Dev");
+	}
+
+	bool Processor::migrateData(const juce::File& _from, const juce::File& _to)
+	{
+		const auto mark = _to.getChildFile(MigratedMark);
+		if(!_from.isDirectory())
+			return true;
+		// The mark's first line names _from, each other one a file that could not be copied, which a later load tries
+		// alone: a mark of one line, nothing more
+		juce::StringArray paths;
+		if(mark.existsAsFile())
+		{
+			mark.readLines(paths);
+			paths.remove(0);
+			paths.removeEmptyStrings();
+			if(paths.isEmpty())
+				return true;
+		}
+		else
+			for(const auto& file : _from.findChildFiles(juce::File::findFiles, true, "*", juce::File::FollowSymlinks::no))
+				paths.add(file.getRelativePathFrom(_from));
+		juce::StringArray failed;
+		for(const auto& path : paths)
+		{
+			const auto file = _from.getChildFile(path), target = _to.getChildFile(path);
+			if(!file.existsAsFile() || target.exists())
+				continue;
+			if(!target.getParentDirectory().createDirectory().wasOk() || !file.copyFileTo(target))
+				failed.add(path);
+		}
+		failed.insert(0, _from.getFullPathName());
+		return _to.createDirectory().wasOk() && mark.replaceWithText(failed.joinIntoString("\n") + "\n")
+			&& failed.size() == 1;
+	}
+
+	bool Processor::addToLocker(const juce::File& _folder, const bool _copy)
 	{
 		std::set<juce::String> known;
 		for(const auto& e : m_sampleLibrary->entries())
 			known.insert(e.fingerprint);
-		return m_import->start(_folder, std::move(known));
+		// A copy in a folder of its own under Imported, named after the folder imported
+		const auto copy = _copy ? SampleLibrary::importedFolder(dataFolder()).getNonexistentChildFile(
+			juce::File::createLegalFileName(_folder.getFileName()), {}, true) : juce::File();
+		return m_import->start(_folder, std::move(known), copy);
+	}
+
+	bool Processor::takeLockerImport()
+	{
+		if(!m_import->take(m_lastImport))
+			return false;
+		const auto& r = m_lastImport;
+		if(r.copy != juce::File() && r.copied > 0)
+			m_sampleLibrary->addSource(SampleLibrary::Kind::Imported, r.copy, r.folder.getFileName());
+		else if(r.copy != juce::File())
+			r.copy.deleteRecursively();	// the folder addToLocker made, which nothing was copied into
+		else if(r.copy == juce::File() && r.audio > r.known)
+			m_sampleLibrary->addSource(SampleLibrary::Kind::Linked, r.folder);
+		++m_imports;
+		return true;
 	}
 
 	void Processor::timerCallback()
@@ -1138,12 +1351,7 @@ namespace elektron::drums
 		takeLive();
 		takeKitSwitch();
 		m_sampleLibrary->update();
-		if(m_import->take(m_lastImport))
-		{
-			if(m_lastImport.audio > m_lastImport.known)
-				m_sampleLibrary->addFolder(m_lastImport.folder);
-			++m_imports;
-		}
+		takeLockerImport();
 		if(++m_kitFollow >= 10)
 		{
 			followKits();
@@ -1616,8 +1824,11 @@ namespace elektron::drums
 	std::unique_ptr<Sample> Processor::readSample(const juce::XmlElement& _element, juce::String& _ref) const
 	{
 		_ref.clear();
-		if(const int slot = std::clamp(_element.getIntAttribute("factory"), 0, FactorySlots))
+		if(_element.hasAttribute("factory"))
 		{
+			const int slot = factorySlot(_element.getIntAttribute("factory"));
+			if(!slot)
+				return nullptr;
 			_ref = factoryRef(slot);
 			auto sample = factorySample(*m_library, slot);
 			return sample ? std::make_unique<Sample>(std::move(*sample)) : nullptr;
@@ -1638,7 +1849,7 @@ namespace elektron::drums
 	void Processor::takeRoms(juce::XmlElement& _xml, const bool _state) const
 	{
 		const int version = _xml.getIntAttribute("version");
-		if(_state ? version >= StateVersion : version >= KitBank::Version)
+		if(_state ? version >= 5 : version >= 3)
 			return;
 		const auto defaults = allDefaults(Sampler);
 		for(int t = 0; t < Tracks; ++t)
@@ -1655,12 +1866,134 @@ namespace elektron::drums
 			{
 				auto* next = element->getNextElementWithTagName("sample");
 				if(element->getIntAttribute("track", -1) == t)
+				{
+					// A Library file's: the log and the editor say which, to load it again from the Library
+					if(const auto fingerprint = element->getStringAttribute("fingerprint"); fingerprint.isNotEmpty())
+						notice("Track " + juce::String(t + 1) + ": sample " + element->getStringAttribute("name")
+							+ " replaced by Factory " + juce::String(slot).paddedLeft('0', 2), "fingerprint " + fingerprint);
 					_xml.removeChildElement(element, true);
+				}
 				element = next;
 			}
 			auto* element = _xml.createNewChildElement("sample");
 			element->setAttribute("track", t);
 			element->setAttribute("factory", slot);
+		}
+	}
+
+	void Processor::notice(const juce::String& _text, const juce::String& _detail) const
+	{
+		if(m_noticesGiven.contains(_text))
+			return;
+		m_noticesGiven.add(_text);
+		m_notices.add(_text);
+		juce::Logger::writeToLog(_text + " (" + _detail + ")");
+	}
+
+	juce::StringArray Processor::takeNotices()
+	{
+		return std::exchange(m_notices, {});
+	}
+
+	// A state of a version before 6 or a Kit before 4 (_state false) played a Syntakt Track's Machine k at its voice's
+	// index k - 1, which Machine k no longer is (syntaktSlotOf): each value goes where it plays now, the voice's HOLD into
+	// Machine 9, OVERDRIVE, which it did not reach, off; an LFO aimed at Machine 1-8 of a Syntakt Track follows its value,
+	// one on HOLD at Machine 9; so do a state's Locks (takePageOrderLocks). The voice gets the words it got. A Track
+	// sound's Kit (_sound its Track) holds that Track alone: an LFO aimed at another follows the machine the set plays there
+	void Processor::takePageOrder(juce::XmlElement& _xml, const bool _state, const int _sound) const
+	{
+		const int version = _xml.getIntAttribute("version");
+		if(_state ? version >= StateVersion : version >= KitBank::Version)
+			return;
+		std::array<bool, Tracks> syntakt{};
+		for(int t = 0; t < Tracks; ++t)
+		{
+			const auto machine = _sound >= 0 && t != _sound
+				? m_machines[static_cast<size_t>(m_tracks[static_cast<size_t>(t)].machine->getIndex())]
+				: machineIn(_xml, t, _state);
+			syntakt[static_cast<size_t>(t)] = machine.family == Family::Syntakt;
+		}
+		for(int t = 0; t < Tracks; ++t)
+		{
+			if(!syntakt[static_cast<size_t>(t)])
+				continue;
+			const auto prefix = juce::String::formatted("t%02d_m", t + 1);
+			std::array<juce::String, 8> old;
+			for(int i = 0; i < 8; ++i)
+			{
+				old[static_cast<size_t>(i)] = _xml.getStringAttribute(prefix + juce::String(i + 1));
+				_xml.removeAttribute(prefix + juce::String(i + 1));
+			}
+			_xml.setAttribute(prefix + "9", 0);
+			for(int i = 0; i < 8; ++i)
+				if(old[static_cast<size_t>(i)].isNotEmpty())
+					_xml.setAttribute(prefix + juce::String(syntaktSlotOf(i) + 1), old[static_cast<size_t>(i)]);
+			_xml.setAttribute(prefix + "8", 0);
+		}
+		for(int t = 0; t < Tracks; ++t)
+			for(int l = 1; l <= 2; ++l)
+			{
+				const auto id = juce::String::formatted("t%02d_lfo%d_", t + 1, l);
+				const int aimed = juce::roundToInt(_xml.getDoubleAttribute(id + "track"));
+				const int target = juce::roundToInt(_xml.getDoubleAttribute(id + "target"));
+				const int track = aimed > 0 && aimed <= Tracks ? aimed - 1 : t;
+				if(!syntakt[static_cast<size_t>(track)] || target < static_cast<int>(LfoTarget::Machine1)
+					|| target > static_cast<int>(LfoTarget::Machine8))
+					continue;
+				const int slot = syntaktSlotOf(target - static_cast<int>(LfoTarget::Machine1));
+				_xml.setAttribute(id + "target", static_cast<int>(machineTarget(slot)));
+			}
+		if(!_state)
+			return;
+		for(auto* pattern : _xml.getChildWithTagNameIterator("pattern"))
+			takePageOrderLocks(*pattern, [&](const int _track) { return syntakt[static_cast<size_t>(_track)]; });
+	}
+
+	// The machine _xml (a state's if _state, else a Kit's) puts Track _track on, as readSound reads it: one it lacks the
+	// parameter's default
+	Machine Processor::machineIn(const juce::XmlElement& _xml, const int _track, const bool _state) const
+	{
+		const auto id = juce::String::formatted("t%02d_machine", _track + 1);
+		if(!_xml.hasAttribute(id))
+			return m_machines[static_cast<size_t>(defaultMachine(m_machines, _track))];
+		return storedMachine(_xml.getIntAttribute(id), _xml.getIntAttribute("version"), _state);
+	}
+
+	// A pattern of before page order (takePageOrder), its Locks on Machine 1-8 of a Track _syntakt says played a Syntakt
+	// machine there: each on the Machine that plays its value now. A pattern that loads a Kit at its start, the Kit's
+	// machines
+	void Processor::takePageOrderLocks(juce::XmlElement& _pattern, const std::function<bool(int)>& _syntakt) const
+	{
+		std::unique_ptr<juce::XmlElement> kit;
+		if(const int slot = _pattern.getIntAttribute("kit", -1); KitBank::valid(slot))
+			kit = readKit(slot);
+		const auto syntakt = [&](const int _track)
+		{
+			return kit ? machineIn(*kit, _track, false).family == Family::Syntakt : _syntakt(_track);
+		};
+		for(auto* step : _pattern.getChildWithTagNameIterator("step"))
+		{
+			juce::StringArray locks;
+			for(const auto& pair : juce::StringArray::fromTokens(step->getStringAttribute("locks"), false))
+			{
+				const int colon = pair.indexOfChar(':');
+				const int parameter = colon > 0 ? pair.substring(0, colon).getIntValue() : -1;
+				if(parameter < 0 || parameter >= static_cast<int>(m_lockTargets.size()))
+				{
+					locks.add(pair);
+					continue;
+				}
+				const auto& target = m_lockTargets[static_cast<size_t>(parameter)];
+				if(target.kind != LockKind::Machine || target.a >= 8 || !syntakt(target.track))
+				{
+					locks.add(pair);
+					continue;
+				}
+				const auto* moved = m_tracks[static_cast<size_t>(target.track)].values[static_cast<size_t>(syntaktSlotOf(target.a))];
+				locks.add(juce::String(moved->getParameterIndex()) + pair.substring(colon));
+			}
+			if(!locks.isEmpty())
+				step->setAttribute("locks", locks.joinIntoString(" "));
 		}
 	}
 
@@ -1670,7 +2003,8 @@ namespace elektron::drums
 		// 2: ticket 18's parameters; the format is the same, every parameter by ID. 3: the Sampler last of Machine's
 		// choices, the Tracks' samples and the patterns, in elements of their own. The Kit played's Slot since ticket 19.
 		// 4: Machine's choices without the Machinedrum's INP, CTR, MID and RAM machines, OPEN DRUM's after the Sampler.
-		// 5: without the ROM machines, a factory sample a Track's reference to it (writeSample)
+		// 5: without the ROM machines, a factory sample a Track's reference to it (writeSample). 6: a Syntakt machine's
+		// Machine 1-8 in its SYN page's order (takePageOrder)
 		xml.setAttribute("version", StateVersion);
 		writeSound(xml, true);
 		xml.setAttribute("kit", m_kitSlot);
@@ -1763,6 +2097,7 @@ namespace elektron::drums
 		if(!xml || !xml->hasTagName("ElektronDrums"))
 			return;
 		takeRoms(*xml, true);
+		takePageOrder(*xml, true);
 		// No block meanwhile: the audio thread sees the state whole
 		suspendProcessing(true);
 		readSound(*xml, true);
@@ -1798,15 +2133,16 @@ namespace elektron::drums
 		m_kitValues.assign(m_kitParameter.size(), 0.0f);
 		for(auto& s : m_kitSamples)
 			s.reset();
+		for(auto& r : m_kitRefs)
+			r.clear();
 		if(!_kit)
 			return;
 		m_kitValues = kitValuesOf(*_kit);
 		for(const auto* element : _kit->getChildWithTagNameIterator("sample"))
 		{
 			const int t = element->getIntAttribute("track", -1);
-			juce::String ref;
 			if(t >= 0 && t < Tracks)
-				m_kitSamples[static_cast<size_t>(t)] = readSample(*element, ref);
+				m_kitSamples[static_cast<size_t>(t)] = readSample(*element, m_kitRefs[static_cast<size_t>(t)]);
 		}
 	}
 
@@ -1815,7 +2151,10 @@ namespace elektron::drums
 	{
 		auto kit = m_kits->read(_slot);
 		if(kit)
+		{
 			takeRoms(*kit, false);
+			takePageOrder(*kit, false);
+		}
 		return kit;
 	}
 
@@ -1993,7 +2332,7 @@ namespace elektron::drums
 	bool Processor::exportPattern(const int _pattern, const juce::File& _file) const
 	{
 		juce::XmlElement file(PatternTag);
-		file.setAttribute("version", 1);
+		file.setAttribute("version", 2);	// 2: its Locks on a Syntakt machine's Machine 1-8 in page order
 		if(auto pattern = patternXml(m_edited->pattern(_pattern), _pattern))
 			file.addChildElement(pattern.release());
 		return KitBank::writeFile(_file, file);
@@ -2004,7 +2343,14 @@ namespace elektron::drums
 		const auto file = KitBank::readFile(_file, PatternTag);
 		if(!file)
 			return false;
-		const auto* xml = file->getChildByName("pattern");
+		auto* xml = file->getChildByName("pattern");
+		// A pattern of before page order: its Locks where the Tracks' machines play them now
+		if(xml && file->getIntAttribute("version") < 2)
+			takePageOrderLocks(*xml, [this](const int _track)
+			{
+				return m_machines[static_cast<size_t>(m_tracks[static_cast<size_t>(_track)].machine->getIndex())].family
+					== Family::Syntakt;
+			});
 		editSequencer([&](Sequencer& _s)
 		{
 			_s.pattern(_pattern) = Pattern();
@@ -2060,6 +2406,7 @@ namespace elektron::drums
 			kit->addChildElement(element);
 		}
 		takeRoms(*kit, false);
+		takePageOrder(*kit, false, _track);
 		return kit;
 	}
 
@@ -2256,11 +2603,12 @@ namespace elektron::drums
 		for(size_t i = 0; i < m_kitValues.size(); ++i)
 			if(m_kitParameter[i] && std::abs(getParameters()[static_cast<int>(i)]->getValue() - m_kitValues[i]) > 1e-5f)
 				return true;
+		// ... and the samples, a factory one by its slot alone: without the image it plays nothing, its reference stays
 		for(size_t t = 0; t < m_samples.size(); ++t)
 		{
 			const auto* a = m_samples[t].get();
 			const auto* b = m_kitSamples[t].get();
-			if(!a != !b || (a && (a->name != b->name || a->rate != b->rate || a->pcm != b->pcm)))
+			if(m_sampleRefs[t] != m_kitRefs[t] || !a != !b || (a && (a->name != b->name || a->rate != b->rate || a->pcm != b->pcm)))
 				return true;
 		}
 		return false;

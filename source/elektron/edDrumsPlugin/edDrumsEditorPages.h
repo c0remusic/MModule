@@ -65,6 +65,8 @@ namespace elektron::drums::ui
 		static juce::String faceName();
 		// The face at a cap height in mm, for a mm-scaled Graphics: a component in pixels scales its height
 		static juce::Font font(float _cap, int _weight);
+		// For a test: where set, every text drawn is added to it (the sweep of names shown, ticket 27)
+		static inline juce::StringArray* drawnTexts = nullptr;
 	};
 
 	// A value cell bound to a host parameter: its name, its value, and for a continuous one a thin cursor. Dragged

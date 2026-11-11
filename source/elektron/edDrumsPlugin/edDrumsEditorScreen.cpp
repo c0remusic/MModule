@@ -2927,12 +2927,15 @@ namespace elektron::drums
 	}
 
 	// LIBRARY's entries, each in its hue (t.js browse()); MACHINES and the two lists of samples have an engine behind
-	// them. The list: 16 rows, or 15 under the segments of a list of samples (ALL, then its folders or its types)
+	// them. The list: 16 rows, or 15 under the segments of a list of samples (ALL, then the LOCKER's sources or the
+	// types)
 	namespace
 	{
 		constexpr float BrowseRowH = 12.9f, BrowseListW = 10 * Col - 4, BrowseInfoW = 8 * Col - 4;
 		constexpr int BrowseFolderSegments = 7;
-		const char* const browseTreeNames[]{"KITS", "TRACK SOUNDS", "SAMPLES, BY SOURCE", "MACHINES", "SAMPLES, BY TYPE"};
+		const char* const browseTreeNames[]{"KITS", "TRACK SOUNDS", "LOCKER", "MACHINES", "SAMPLES, BY TYPE"};
+		// The LIBRARY column's buttons, the card's two side by side
+		constexpr float AddFolderY = 170, ImportPackY = 184, CardButtonY = 201, ButtonH = 12.5f;
 
 		const Hue& browseHue(const int _tree)
 		{
@@ -2950,16 +2953,29 @@ namespace elektron::drums
 			return {cx(6), (_samples ? 41 : 32) + static_cast<float>(_row) * BrowseRowH, BrowseListW, BrowseRowH - 0.7f};
 		}
 
-		// The mockup's 22 mm, up to 30 for a few folders' names, less where many share the list's width
+		// The card's RENAME (0) and REMOVE SOURCE or KEEP IN LOCKER (1)
+		juce::Rectangle<float> cardButton(const int _i)
+		{
+			const float w = (BrowseInfoW - 6) / 2;
+			return {cx(16) + 2 + static_cast<float>(_i) * (w + 2), CardButtonY, w, ButtonH};
+		}
+
+		// The mockup's 22 mm, up to 30 for a few sources' names (IN THIS SET whole), fewer where many share the list
 		float browseSegment(const int _count)
 		{
-			return std::min(_count > 4 ? 22.0f : 30.0f, BrowseListW / static_cast<float>(_count));
+			return std::min(_count > 6 ? 22.0f : 30.0f, BrowseListW / static_cast<float>(_count));
 		}
 
 		juce::String lengthText(const int64_t _frames, const double _rate)
 		{
 			const double s = static_cast<double>(_frames) / _rate;
 			return s < 1 ? juce::String(juce::roundToInt(s * 1000)) + " MS" : juce::String(s, 2) + " S";
+		}
+
+		juce::String bytesText(const int64_t _bytes)
+		{
+			const double kb = static_cast<double>(_bytes) / 1024;
+			return kb < 1000 ? juce::String(juce::roundToInt(kb)) + " KB" : juce::String(kb / 1024, 1) + " MB";
 		}
 
 		// What an audition played, _w mm wide about _mid, _h high: min and max a column, 0.5 mm wide
@@ -2994,12 +3010,24 @@ namespace elektron::drums
 		return toPx(browseListRow(_row, browseSamples()));
 	}
 
-	juce::Rectangle<int> Editor::browseButtonArea(const int _button) const
+	juce::Rectangle<int> Editor::browseButtonArea(const BrowseButton _button) const
+	{
+		switch(_button)
+		{
+		case BrowseButton::AddFolder: return toPx({cx(0), AddFolderY, 6 * Col - 4, ButtonH});
+		case BrowseButton::ImportPack: return toPx({cx(0), ImportPackY, 6 * Col - 4, ButtonH});
+		case BrowseButton::Type: return toPx({cx(16) + 1, 118, BrowseInfoW - 2, 9});
+		case BrowseButton::Rename: return toPx(cardButton(0));
+		case BrowseButton::Remove: return toPx(cardButton(1));
+		case BrowseButton::Load: return toPx({cx(16), 222, BrowseInfoW, ButtonH});
+		}
+		return {};
+	}
+
+	juce::Rectangle<int> Editor::browseSegmentArea(const int _segment) const
 	{
 		const float segment = browseSegment(browseFilters().size());
-		return toPx(_button == 0 ? juce::Rectangle<float>{cx(0), 170, 6 * Col - 4, 12.5f}
-			: _button == 1 ? juce::Rectangle<float>{cx(16) + 1, 118, BrowseInfoW - 2, 9}
-			: juce::Rectangle<float>{cx(6) + static_cast<float>(_button - 1) * segment, 33, segment, 6});
+		return toPx({cx(6) + static_cast<float>(_segment) * segment, 33, segment, 6});
 	}
 
 	juce::Rectangle<int> Editor::selectorItemArea(const int _item) const
@@ -3029,56 +3057,80 @@ namespace elektron::drums
 					list.push_back(static_cast<int>(i));
 			return list;
 		}
+		// The sources' entries, then FACTORY's, then IN THIS SET's (browseEntry): ALL and the types hold the first two
 		const auto& entries = m_processor.sampleLibrary().entries();
-		// FACTORY's: the factory bank's samples, after the Library's entries (browseEntry)
-		if(m_browseFilter > 0 && m_browseFilter == factorySegment())
+		const auto& factory = m_processor.factorySamples();
+		const int segment = lockerSegment();
+		const auto add = [&](const SampleLibrary::Entry& _e, const size_t _index)
 		{
-			const auto& factory = m_processor.factorySamples();
-			for(size_t i = 0; i < factory.size(); ++i)
-				if(m_browseSearch.isEmpty() || factory[i].name.containsIgnoreCase(m_browseSearch))
-					list.push_back(static_cast<int>(entries.size() + i));
+			if(m_browseSearch.isEmpty() || _e.name.containsIgnoreCase(m_browseSearch))
+				list.push_back(static_cast<int>(_index));
+		};
+		if(segment == SetSegment)
+		{
+			const auto& set = m_processor.setSamples();
+			for(size_t i = 0; i < set.size(); ++i)
+				add(set[i], entries.size() + factory.size() + i);
 			return list;
 		}
-		for(size_t i = 0; i < entries.size(); ++i)
+		for(size_t i = 0; i < entries.size() + factory.size(); ++i)
 		{
-			const auto& e = entries[i];
-			if(m_browseFilter > 0 && (m_browseTree == 2 ? e.folder : static_cast<int>(e.type)) != m_browseFilter - 1)
+			const auto& e = i < entries.size() ? entries[i] : factory[i - entries.size()];
+			if(m_browseTree == 4 ? m_browseFilter > 0 && static_cast<int>(e.type) != m_browseFilter - 1
+				: segment != AllSegment && e.folder != (segment == FactorySegment ? SampleLibrary::FactoryFolder : segment))
 				continue;
-			if(m_browseSearch.isNotEmpty() && !e.name.containsIgnoreCase(m_browseSearch))
-				continue;
-			list.push_back(static_cast<int>(i));
+			add(e, i);
 		}
 		return list;
 	}
 
-	int Editor::factorySegment() const
+	std::vector<int> Editor::lockerSegments() const
 	{
-		if(m_browseTree != 2 || m_processor.factorySamples().empty())
-			return -1;
-		return std::min(m_processor.sampleLibrary().folders().size(), BrowseFolderSegments) + 1;
+		std::vector<int> segments{AllSegment};
+		const int sources = static_cast<int>(m_processor.sampleLibrary().sources().size());
+		for(int s = 0; s < std::min(sources, BrowseFolderSegments); ++s)
+			segments.push_back(s);
+		if(!m_processor.factorySamples().empty())
+			segments.push_back(FactorySegment);
+		if(!m_processor.setSamples().empty())
+			segments.push_back(SetSegment);
+		segments.push_back(AddSegment);
+		return segments;
+	}
+
+	int Editor::lockerSegment() const
+	{
+		if(m_browseTree != 2)
+			return AllSegment;
+		const auto segments = lockerSegments();
+		return m_browseFilter >= 0 && m_browseFilter < static_cast<int>(segments.size())
+			? segments[static_cast<size_t>(m_browseFilter)] : AllSegment;
 	}
 
 	const SampleLibrary::Entry& Editor::browseEntry(const int _index) const
 	{
 		const auto& entries = m_processor.sampleLibrary().entries();
-		return _index < static_cast<int>(entries.size()) ? entries[static_cast<size_t>(_index)]
-			: m_processor.factorySamples()[static_cast<size_t>(_index) - entries.size()];
+		const auto& factory = m_processor.factorySamples();
+		const auto i = static_cast<size_t>(_index);
+		return i < entries.size() ? entries[i] : i < entries.size() + factory.size() ? factory[i - entries.size()]
+			: m_processor.setSamples()[i - entries.size() - factory.size()];
 	}
 
 	juce::StringArray Editor::browseFilters() const
 	{
-		juce::StringArray filters{"ALL"};
+		juce::StringArray filters;
 		if(m_browseTree == 4)
 		{
+			filters.add("ALL");
 			for(int t = 0; t < SampleLibrary::Types; ++t)
 				filters.add(SampleLibrary::typeName(static_cast<SampleLibrary::Type>(t)));
 			return filters;
 		}
-		const auto& folders = m_processor.sampleLibrary().folders();
-		for(int f = 0; f < std::min(folders.size(), BrowseFolderSegments); ++f)
-			filters.add(folders[f].getFileName().toUpperCase());
-		if(factorySegment() > 0)
-			filters.add("FACTORY");
+		const auto& sources = m_processor.sampleLibrary().sources();
+		for(const int s : lockerSegments())
+			filters.add(s == AllSegment ? juce::String("ALL") : s == FactorySegment ? juce::String("FACTORY")
+				: s == SetSegment ? juce::String("IN THIS SET") : s == AddSegment ? juce::String("+")
+				: sources[static_cast<size_t>(s)].name.toUpperCase());
 		return filters;
 	}
 
@@ -3092,15 +3144,10 @@ namespace elektron::drums
 			{
 				m_browseTree = tree;
 				m_browseItem = m_browseScroll = m_browseFilter = 0;
+				m_removeArmed = AllSegment;
 			};
 			addHit(std::move(row));
 		}
-		// Ticket 20: IMPORT MY ELEKTRON CONTENT, under every tree
-		Hit import;
-		import.r = {cx(0), 222, 6 * Col - 4, 12.5f};
-		import.click = [this] { chooseImport(); };
-		addHit(std::move(import));
-		watch({cx(0), 222, 6 * Col - 4, 12.5f}, [this] { return static_cast<uint64_t>(m_processor.importing()); });
 		if(m_browseTree <= 1)
 		{
 			// KITS: a click chooses, a double-click or LOAD KIT loads. TRACK SOUNDS: a click auditions, a double-click
@@ -3211,41 +3258,41 @@ namespace elektron::drums
 			return;
 		}
 
-		// The samples: the Library scanned once Browse shows them
+		// The samples: the Locker scanned once Browse shows them. ADD FOLDER links a folder, IMPORT PACK copies one
 		auto& library = m_processor.sampleLibrary();
 		library.scanOnce();
 		Hit add;
-		add.r = {cx(0), 184, 6 * Col - 4, 12.5f};
-		add.click = [this] { chooseFolder(); };
+		add.r = {cx(0), AddFolderY, 6 * Col - 4, ButtonH};
+		add.click = [this] { chooseFolder(false); };
 		addHit(std::move(add));
-		// REMOVE FOLDER, by source with a folder's segment chosen: the folder leaves the Library, its files stay
-		if(m_browseTree == 2 && m_browseFilter > 0 && m_browseFilter != factorySegment())
+		Hit pack;
+		pack.r = {cx(0), ImportPackY, 6 * Col - 4, ButtonH};
+		pack.click = [this] { chooseFolder(true); };
+		addHit(std::move(pack));
+		watch({cx(0), 150, 6 * Col - 4, 48}, [this]
 		{
-			Hit remove;
-			remove.r = {cx(0), 170, 6 * Col - 4, 12.5f};
-			remove.click = [this]
-			{
-				const auto folder = m_processor.sampleLibrary().folders()[m_browseFilter - 1];
-				if(!m_processor.sampleLibrary().removeFolder(folder))
-				{
-					toast(folder.getFileName() + " could not be removed");
-					return;
-				}
-				m_browseFilter = m_browseItem = m_browseScroll = 0;
-				toast(folder.getFileName() + " left the Library, its files stay on the disk");
-			};
-			addHit(std::move(remove));
-		}
+			return mix(static_cast<uint64_t>(m_processor.importing() ? 1 : 0), m_processor.sampleLibrary().generation());
+		});
 		const auto filters = browseFilters();
+		const auto segments = lockerSegments();
 		const float segment = browseSegment(filters.size());
 		for(int i = 0; i < filters.size(); ++i)
 		{
 			Hit s;
 			s.r = {cx(6) + static_cast<float>(i) * segment, 33, segment, 6};
-			s.click = [this, i]
+			const bool plus = m_browseTree == 2 && segments[static_cast<size_t>(i)] == AddSegment;
+			s.click = [this, i, plus]
 			{
+				if(plus)
+				{
+					chooseFolder(false);
+					return;
+				}
 				m_browseFilter = i;
-				m_browseItem = m_browseScroll = 0;
+				// LOCKER: a source chosen shows its card until a sample is
+				m_browseItem = m_browseTree == 2 ? -1 : 0;
+				m_browseScroll = 0;
+				m_removeArmed = AllSegment;
 			};
 			addHit(std::move(s));
 		}
@@ -3277,19 +3324,19 @@ namespace elektron::drums
 			};
 			addHit(std::move(row));
 		}
-		if(m_browseItem < static_cast<int>(list.size()))
+		if(m_browseItem >= 0 && m_browseItem < static_cast<int>(list.size()))
 		{
 			const auto e = browseEntry(list[static_cast<size_t>(m_browseItem)]);
 			Hit replay;
-			replay.r = {cx(16), 32, BrowseInfoW, 185};
+			replay.r = {cx(16), 32, BrowseInfoW, CardButtonY - 33};
 			replay.click = [this, e] { audition(e); };
 			addHit(std::move(replay));
 			Hit load;
 			load.r = {cx(16), 222, BrowseInfoW, 12.5f};
 			load.click = [this, e] { loadSample(m_track, e); };
 			addHit(std::move(load));
-			// TYPE, its row in the panel (drawBrowseSample): a click opens the types, the one chosen kept as the user's; a
-			// factory sample is no file of the Library, and keeps its own
+			// TYPE, its row in the panel (drawBrowseSample): a click opens the types, the one chosen kept as the user's,
+			// by fingerprint, a factory sample's too; one of the set has no file to keep it by
 			const auto fingerprint = e.fingerprint;
 			Hit type;
 			type.r = {cx(16) + 1, 118, BrowseInfoW - 2, 9};
@@ -3301,6 +3348,9 @@ namespace elektron::drums
 				openSelector(cx(16) + 29, 120, types, [this, fingerprint](const int _t)
 				{
 					const auto* e = m_processor.sampleLibrary().find(fingerprint);
+					for(const auto& f : m_processor.factorySamples())
+						if(f.fingerprint == fingerprint)
+							e = &f;
 					return e && static_cast<int>(e->type) == _t;
 				}, [this, fingerprint](const int _t)
 				{
@@ -3308,8 +3358,79 @@ namespace elektron::drums
 						toast("The type could not be kept");
 				});
 			};
-			if(e.folder >= 0)
+			if(e.folder != SampleLibrary::SetFolder)
 				addHit(std::move(type));
+			// RENAME the sample, by fingerprint; KEEP IN LOCKER one of the set
+			Hit rename;
+			rename.r = cardButton(0);
+			rename.click = [this, fingerprint, name = e.name]
+			{
+				startRename(name, [this, fingerprint](const juce::String& _name)
+				{
+					if(!m_processor.sampleLibrary().renameSample(fingerprint, _name))
+						toast("The name could not be kept");
+				});
+			};
+			if(e.folder != SampleLibrary::SetFolder)
+				addHit(std::move(rename));
+			Hit keep;
+			keep.r = cardButton(1);
+			keep.click = [this, fingerprint, name = e.name]
+			{
+				juce::String error;
+				if(!m_processor.keepInLocker(fingerprint, error))
+				{
+					toast(error);
+					return;
+				}
+				m_browseFilter = m_browseItem = m_browseScroll = 0;
+				toast(name + " kept in the Locker, in FROM SETS");
+			};
+			if(e.folder == SampleLibrary::SetFolder)
+				addHit(std::move(keep));
+		}
+		else if(const int s = lockerSegment(); m_browseItem < 0 && s != AllSegment && s != SetSegment)
+		{
+			// The source's card: RENAME, and REMOVE SOURCE, a second click where it erases the Locker's copy
+			if(s >= 0)
+			{
+				Hit rename;
+				rename.r = cardButton(0);
+				rename.click = [this, s]
+				{
+					startRename(m_processor.sampleLibrary().sources()[static_cast<size_t>(s)].name, [this, s](const juce::String& _n)
+					{
+						if(!m_processor.sampleLibrary().renameSource(s, _n))
+							toast("The name could not be kept");
+					});
+				};
+				addHit(std::move(rename));
+			}
+			Hit remove;
+			remove.r = cardButton(1);
+			remove.click = [this, s]
+			{
+				auto& library = m_processor.sampleLibrary();
+				const bool erases = s == FactorySegment
+					|| library.sources()[static_cast<size_t>(s)].kind == SampleLibrary::Kind::Imported;
+				if(erases && m_removeArmed != s)
+				{
+					m_removeArmed = s;
+					return;
+				}
+				m_removeArmed = AllSegment;
+				const auto name = s == FactorySegment ? juce::String("FACTORY") : library.sources()[static_cast<size_t>(s)].name;
+				const bool removed = s == FactorySegment ? m_processor.removeFactory() : library.removeSource(s);
+				if(!removed)
+				{
+					toast(name + " could not be removed");
+					return;
+				}
+				m_browseFilter = m_browseItem = m_browseScroll = 0;
+				toast(erases ? name + " left the Locker, its copy erased" : name + " left the Locker, its files stay on the disk");
+			};
+			if(s >= 0 || m_processor.libraryFromWords())
+				addHit(std::move(remove));
 		}
 		// The Track's sample and what the audition holds
 		watch({cx(6), 23, 18 * Col, 216}, [this]
@@ -3337,10 +3458,22 @@ namespace elektron::drums
 			_p.text(r.getX() + 2.4f, r.getY() + 8, browseTreeNames[i], 3.2f, on ? h.c[4] : colour::mid, on ? 600 : 500);
 		}
 		if(samples)
-			drawButton(_p, x, 184, 6 * Col - 4, 12.5f, "ADD FOLDER", false);
-		if(m_browseTree == 2)
-			drawButton(_p, x, 170, 6 * Col - 4, 12.5f, "REMOVE FOLDER", false,
-				m_browseFilter > 0 && m_browseFilter != factorySegment());
+		{
+			// The Locker: what it copied into the data folder, its sources; then its two gestures
+			const auto& library = m_processor.sampleLibrary();
+			int64_t copied = m_processor.factoryBytes();
+			for(size_t s = 0; s < library.sources().size(); ++s)
+				if(library.sources()[s].kind == SampleLibrary::Kind::Imported)
+					copied += library.sourceBytes(static_cast<int>(s));
+			const int sources = static_cast<int>(library.sources().size()) + (m_processor.factorySamples().empty() ? 0 : 1);
+			_p.text(x, 159, "LOCKER  " + bytesText(copied) + " IMPORTED,", 2.8f, colour::mid, 600);
+			_p.text(x, 164.6f, juce::String(sources) + (sources == 1 ? " SOURCE" : " SOURCES"), 2.8f, colour::mid, 600);
+			const bool reading = m_processor.importing();
+			drawButton(_p, x, AddFolderY, 6 * Col - 4, ButtonH, reading ? "READING THE FOLDER" : "ADD FOLDER", false,
+				!reading);
+			drawButton(_p, x, ImportPackY, 6 * Col - 4, ButtonH, reading ? "READING THE FOLDER" : "IMPORT PACK", false,
+				!reading);
+		}
 		if(samples || m_browseTree == 1)
 		{
 			const juce::String hints[]{"CLICK: LISTEN", "DOUBLE CLICK: LOAD ON TRACK " + juce::String(m_track + 1),
@@ -3348,9 +3481,6 @@ namespace elektron::drums
 			for(int i = 0; i < 3; ++i)
 				_p.text(x, 202 + static_cast<float>(i) * 5.6f, hints[i], 2.6f, colour::dim);
 		}
-		const bool importing = m_processor.importing();
-		drawButton(_p, x, 222, 6 * Col - 4, 12.5f, importing ? "IMPORTING" : "IMPORT MY ELEKTRON CONTENT", false,
-			!importing);
 
 		x = cx(6);
 		if(m_browseTree <= 1)
@@ -3426,11 +3556,10 @@ namespace elektron::drums
 
 		// The list of samples: its title, SEARCH (a TextEditor over the title line), the segments, the rows
 		const auto& library = m_processor.sampleLibrary();
-		const auto& entries = library.entries();
 		const auto list = browseList();
 		drawBlockTitle(_p, {x - 2, 23, 10 * Col + 2, browseTreeNames[m_browseTree], "bs", &c});
 		_p.text(x + BrowseListW, 29.2f, juce::String(static_cast<int>(list.size())), 2.8f, c.c[4], 500, Align::Right);
-		// A folder's name cut to its segment
+		// A source's name cut to its segment
 		auto filters = browseFilters();
 		const float segment = browseSegment(filters.size());
 		for(auto& f : filters)
@@ -3438,6 +3567,12 @@ namespace elektron::drums
 				f = f.dropLastCharacters(1);
 		drawSegments(_p, x, 33, segment, filters, m_browseFilter, &c);
 		const auto played = m_processor.sampleFingerprint(m_track);
+		const auto sourceName = [&](const SampleLibrary::Entry& _e)
+		{
+			return _e.folder == SampleLibrary::FactoryFolder ? juce::String("FACTORY")
+				: _e.folder == SampleLibrary::SetFolder ? juce::String("IN THIS SET")
+				: library.sources()[static_cast<size_t>(_e.folder)].name.toUpperCase();
+		};
 		for(int i = 0; i < 15 && m_browseScroll + i < static_cast<int>(list.size()); ++i)
 		{
 			const int item = m_browseScroll + i;
@@ -3450,28 +3585,111 @@ namespace elektron::drums
 			_p.text(x + 2.4f, r.getY() + 8, e.name, 3.2f, on ? colour::ink : colour::mid, on ? 600 : 500);
 			const bool here = e.fingerprint == played;
 			const auto tag = here ? juce::String("ON TRACK") : m_browseTree == 2 ? juce::String(SampleLibrary::typeName(e.type))
-				: library.folders()[e.folder].getFileName().toUpperCase();
+				: sourceName(e);
 			_p.text(x + BrowseListW - 3, r.getY() + 8, tag, 2.8f, here ? c.c[4] : colour::dim, 500, Align::Right);
 		}
 		if(list.empty())
 		{
-			const auto why = library.folders().isEmpty() ? "DROP A FOLDER OF SAMPLES HERE, OR ADD FOLDER"
-				: library.scanning() ? "SCANNING THE FOLDERS" : entries.empty() ? "NO WAV, AIFF OR FLAC FILE IN THE FOLDERS"
-				: "NOTHING MATCHES";
+			const auto why = library.sources().empty() && m_processor.factorySamples().empty()
+				? "DROP A FOLDER OF SAMPLES HERE, OR ADD FOLDER" : library.scanning() ? "SCANNING THE LOCKER"
+				: m_browseSearch.isEmpty() ? "NO WAV, AIFF OR FLAC FILE HERE" : "NOTHING MATCHES";
 			_p.text(x + BrowseListW / 2, 126, why, 2.8f, colour::dim, 500, Align::Centre);
 		}
 
 		x = cx(16);
-		const bool chosen = m_browseItem < static_cast<int>(list.size());
+		const bool chosen = m_browseItem >= 0 && m_browseItem < static_cast<int>(list.size());
 		const auto* e = chosen ? &browseEntry(list[static_cast<size_t>(m_browseItem)]) : nullptr;
-		drawBlockTitle(_p, {x - 2, 23, 8 * Col + 2, e ? e->name.toUpperCase() : juce::String(), "bi", &c});
-		_p.frame(x, 32, BrowseInfoW, 185, c.c[1], 1.2f, 0.4f);
 		if(e)
+		{
+			drawBlockTitle(_p, {x - 2, 23, 8 * Col + 2, m_rename.isVisible() ? juce::String() : e->name.toUpperCase(), "bi", &c});
+			_p.frame(x, 32, BrowseInfoW, 185, c.c[1], 1.2f, 0.4f);
 			drawBrowseSample(_p, x, c);
+		}
+		else
+			drawLockerSource(_p, x, c);
 		drawButton(_p, x, 222, BrowseInfoW, 12.5f, "LOAD ON TRACK " + juce::String(m_track + 1), e != nullptr, e != nullptr);
 	}
 
-	// The sample chosen: its sound as the audition plays it, once heard, then what the Library knows of it
+	// The card of the segment chosen while no sample is: ALL the Locker's, a source's, FACTORY's or IN THIS SET's
+	void Editor::drawLockerSource(Painter& _p, const float _x, const Hue& _hue)
+	{
+		const auto& library = m_processor.sampleLibrary();
+		const int s = lockerSegment();
+		std::vector<const SampleLibrary::Entry*> held;
+		for(const int i : browseList())
+			held.push_back(&browseEntry(i));
+		if(m_browseTree != 2 || held.empty() && s == AllSegment)
+		{
+			drawBlockTitle(_p, {_x - 2, 23, 8 * Col + 2, {}, "bi", &_hue});
+			_p.frame(_x, 32, BrowseInfoW, 185, _hue.c[1], 1.2f, 0.4f);
+			return;
+		}
+		const auto* source = s >= 0 ? &library.sources()[static_cast<size_t>(s)] : nullptr;
+		const juce::String name = s == AllSegment ? "LOCKER" : s == FactorySegment ? "FACTORY" : s == SetSegment
+			? "IN THIS SET" : source->name.toUpperCase();
+		const juce::String kind = s == AllSegment ? "" : s == FactorySegment ? "FACTORY" : s == SetSegment ? "IN THIS SET"
+			: source->kind == SampleLibrary::Kind::Imported ? "IMPORTED" : "LINKED";
+		drawBlockTitle(_p, {_x - 2, 23, 8 * Col + 2, m_rename.isVisible() ? juce::String() : name, "bi", &_hue});
+		if(!m_rename.isVisible())
+			_p.text(_x + BrowseInfoW, 29.2f, kind, 2.8f, _hue.c[4], 500, Align::Right);
+		_p.frame(_x, 32, BrowseInfoW, 185, _hue.c[1], 1.2f, 0.4f);
+
+		// Its samples by type, the most first
+		std::array<int, SampleLibrary::Types> types{};
+		int64_t bytes = 0;
+		for(const auto* e : held)
+		{
+			++types[static_cast<size_t>(e->type)];
+			bytes += e->bytes;
+		}
+		juce::StringArray typeText;
+		for(int n = 0; n < 3; ++n)
+		{
+			const auto most = std::max_element(types.begin(), types.end());
+			if(*most == 0)
+				break;
+			typeText.add(juce::String(SampleLibrary::typeName(static_cast<SampleLibrary::Type>(most - types.begin())))
+				+ " " + juce::String(*most));
+			*most = 0;
+		}
+		const bool erases = s == FactorySegment || (source && source->kind == SampleLibrary::Kind::Imported);
+		const int64_t space = s == FactorySegment ? m_processor.factoryBytes() : bytes;
+		const juce::String path = s == AllSegment ? juce::String(library.sources().size()) + " FOLDERS"
+			+ (m_processor.factorySamples().empty() ? "" : ", THE FACTORY BANK")
+			: s == FactorySegment ? (m_processor.libraryFromWords() ? "THE FACTORY BANK, KEPT BY THE LOCKER"
+				: "THE FACTORY BANK, READ FROM YOUR FLASH IMAGE")
+			: s == SetSegment ? juce::String("THE SAMPLES THIS SET HOLDS") : source->folder.getFullPathName();
+		const juce::String spaceText = s == SetSegment ? "IN THE SET, " + bytesText(bytes)
+			: s == FactorySegment && !m_processor.libraryFromWords() ? juce::String("READ FROM THE IMAGE")
+			: s == AllSegment || erases ? "COPIED, " + bytesText(space) : "LINKED, " + bytesText(space);
+		std::vector<std::pair<juce::String, juce::String>> rows{{"PATH", path},
+			{"SAMPLES", juce::String(static_cast<int>(held.size()))}, {"SPACE", spaceText},
+			{"TYPES", typeText.joinIntoString("  ")}};
+		if(s == FactorySegment)
+			rows.emplace_back("ALSO", "GIVES SOME MACHINES THEIR WAVES");
+		if(s == SetSegment)
+			rows.emplace_back("KEEP", "CHOOSE A SAMPLE, THEN KEEP IN LOCKER");
+		if(m_removeArmed == s && erases)
+			rows.emplace_back("REMOVE", "ERASES " + bytesText(space) + " FROM THE LOCKER");
+		float y = 48;
+		for(const auto& [label, value] : rows)
+		{
+			auto v = value;
+			while(v.length() > 1 && _p.textWidth(v, 3.2f, 600) > BrowseInfoW - 33)
+				v = "..." + v.substring(4);
+			_p.text(_x + 3, y, label, 2.8f, colour::mid);
+			_p.text(_x + 30, y, v, 3.2f, label == "REMOVE" ? colour::lock : colour::ink, 600);
+			y += 9;
+		}
+		if(s == AllSegment || s == SetSegment)
+			return;
+		const auto b0 = cardButton(0), b1 = cardButton(1);
+		drawButton(_p, b0.getX(), b0.getY(), b0.getWidth(), b0.getHeight(), "RENAME", false, s >= 0);
+		drawButton(_p, b1.getX(), b1.getY(), b1.getWidth(), b1.getHeight(), m_removeArmed == s ? "REMOVE: CLICK AGAIN"
+			: "REMOVE SOURCE", m_removeArmed == s, s >= 0 || m_processor.libraryFromWords());
+	}
+
+	// The sample chosen: its sound as the audition plays it, once heard, then what the Locker knows of it
 	void Editor::drawBrowseSample(Painter& _p, const float _x, const Hue& _hue)
 	{
 		const auto& library = m_processor.sampleLibrary();
@@ -3479,12 +3697,13 @@ namespace elektron::drums
 		const auto& e = browseEntry(list[static_cast<size_t>(m_browseItem)]);
 		const float w = BrowseInfoW - 4, top = 36, h = 76, mid = top + h / 2;
 		const auto* heard = m_processor.auditioned();
-		if(heard && (e.folder < 0 ? m_auditionFactory == e.fingerprint : m_auditionFile == e.file) && !heard->pcm.empty())
+		if(heard && (e.folder < 0 ? m_auditionRef == e.fingerprint : m_auditionFile == e.file) && !heard->pcm.empty())
 			drawWave(_p, _x + 2, mid, w, h, heard->pcm, _hue.c[4]);
 		else
 			_p.text(_x + BrowseInfoW / 2, mid + 1, "CLICK TO LISTEN", 2.8f, colour::dim, 500, Align::Centre);
 
 		const juce::String channels = e.channels == 1 ? "MONO" : e.channels == 2 ? "STEREO" : juce::String(e.channels);
+		const bool set = e.folder == SampleLibrary::SetFolder, factory = e.folder == SampleLibrary::FactoryFolder;
 		const juce::String rows[][2]{
 			// Guessed by its name or its sound until the user sets it, a click on the row
 			{"TYPE", juce::String(SampleLibrary::typeName(e.type)) + (e.typeFrom == SampleLibrary::TypeFrom::User
@@ -3493,10 +3712,12 @@ namespace elektron::drums
 				> Sample::MaxLength / 44100.0 ? ", 12-BIT GRAIN PLAYS 1.29 S" : "")},
 			{"RATE", juce::String(e.rate / 1000, 1) + " KHZ"},
 			{"CHANNELS", channels},
-			// A factory sample: its slot of the bank in the user's flash image
-			{"FOLDER", e.folder < 0 ? juce::String("FACTORY") : library.folders()[e.folder].getFileName()},
-			{"FILE", e.folder < 0 ? "FLASH IMAGE, SLOT " + e.fingerprint.fromFirstOccurrenceOf(":", false, false)
-				: e.file.getRelativePathFrom(library.folders()[e.folder])},
+			{"SOURCE", factory ? juce::String("FACTORY") : set ? juce::String("IN THIS SET")
+				: library.sources()[static_cast<size_t>(e.folder)].name},
+			// A factory sample: its slot of the bank; one of the set: no file
+			{"FILE", factory ? "FACTORY BANK, SLOT " + e.fingerprint.fromFirstOccurrenceOf(":", false, false)
+				: set ? juce::String("NONE: THE SET HOLDS IT") : e.file.getRelativePathFrom(
+					library.sources()[static_cast<size_t>(e.folder)].folder)},
 			{"FINGERPRINT", e.fingerprint.toUpperCase()},
 		};
 		float y = top + h + 12;
@@ -3508,6 +3729,10 @@ namespace elektron::drums
 		}
 		if(e.fingerprint == m_processor.sampleFingerprint(m_track))
 			_p.text(_x + 3, y + 3, "ON TRACK " + juce::String(m_track + 1), 2.8f, _hue.c[4], 600);
+		const auto b0 = cardButton(0), b1 = cardButton(1);
+		drawButton(_p, b0.getX(), b0.getY(), b0.getWidth(), b0.getHeight(), "RENAME", false, !set);
+		if(set)
+			drawButton(_p, b1.getX(), b1.getY(), b1.getWidth(), b1.getHeight(), "KEEP IN LOCKER", false, true);
 	}
 
 	// The Track sound chosen: its Hit as the audition rendered it, once heard, then its machine and file
@@ -3549,7 +3774,7 @@ namespace elektron::drums
 		}
 	}
 
-	// ---- the Menu panel, over the third row ----
+	// ---- the Menu panel, over the third row: WINDOW and AUDIO; the samples are Browse's LOCKER ----
 
 	void Editor::buildMenu()
 	{
@@ -3582,15 +3807,6 @@ namespace elektron::drums
 		Cell os = cellOf(m_processor.parameter("oversampling"), "OVERSAMPLING", cx(13), r1, 2 * Col, hue::k, "menu");
 		os.labels = {"OFF", "2X", "4X"};
 		addCell(os);
-		// ELEKTRON CONTENT: IMPORT MY CONTENT, and its cells redrawn as an import runs and ends
-		Hit import;
-		import.r = {cx(18), r1 + 19, 4 * Col - 4, 7};
-		import.click = [this] { chooseImport(); };
-		addHit(std::move(import));
-		watch({cx(18), r1 - 1, 6 * Col, 28}, [this]
-		{
-			return mix(m_processor.imports(), m_processor.importing() ? 1 : 0);
-		});
 	}
 
 	void Editor::drawMenu(Painter& _p)
@@ -3614,16 +3830,6 @@ namespace elektron::drums
 		cell(10, "SIZE", getWidth() == Width ? "1600 X 1000" : "1280 X 800", colour::ink);
 		head(13, 5, "AUDIO", hue::k);
 		cell(15, "96 KHZ NATIVE", "OFF", colour::dim);
-		head(18, 6, "ELEKTRON CONTENT", hue::y);
-		const char* content[]{"UW BANK", "FACTORY PACKS", "TRANSFERS"};
-		for(int i = 0; i < 3; ++i)
-		{
-			const auto v = elektronContent(i);
-			cell(18 + 2 * static_cast<float>(i), content[i], v, v == "NOT IMPORTED" ? colour::dim
-				: v == "MISSING" ? colour::mid : colour::ink);
-		}
-		const bool importing = m_processor.importing();
-		drawButton(_p, cx(18), r1 + 19, 4 * Col - 4, 7, importing ? "IMPORTING" : "IMPORT MY CONTENT", false, !importing);
 		for(const auto& c : m_cells)
 			if(c.section == "menu")
 				drawCell(_p, c);

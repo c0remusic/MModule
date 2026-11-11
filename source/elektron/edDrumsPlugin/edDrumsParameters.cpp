@@ -424,7 +424,8 @@ namespace elektron::drums::parameters
 		{"track", "Track", 0, Tracks, "Own|T01|T02|T03|T04|T05|T06|T07|T08|T09|T10|T11|T12|T13|T14|T15|T16"},
 		{"target", "Target", 0, static_cast<int>(LfoTarget::Count) - 1, "None|Machine 1|Machine 2|Machine 3|Machine 4"
 			"|Machine 5|Machine 6|Machine 7|Machine 8|Level|Pan|Drive A|Drive B|Band A|Band B|Frequency|Resonance|Width"
-			"|Env Depth"},
+			"|Env Depth|Machine 9|Machine 10|Machine 11|Machine 12|Machine 13|Machine 14|Machine 15|Machine 16|Machine 17"
+			"|Machine 18|Machine 19|Machine 20|Machine 21|Machine 22|Machine 23|Machine 24"},
 	}};
 
 	const std::array<Spec, SendCount> sendSpecs{{

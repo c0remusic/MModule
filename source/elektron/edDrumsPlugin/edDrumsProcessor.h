@@ -10,9 +10,9 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
-#include "edDrumsElektronImport.h"
 #include "edDrumsEngine.h"
 #include "edDrumsKits.h"
+#include "edDrumsLockerImport.h"
 #include "edDrumsParameters.h"
 #include "edDrumsSampleLibrary.h"
 #include "edDrumsSequencer.h"
@@ -21,8 +21,8 @@
 // The instrument: the engine (elektron::drums::Engine) as a plain JUCE AudioProcessor, VST3. Notes 36-51 on any channel
 // hit Tracks 1-16 with their velocity, their note-off ends a held voice; outputs Main and Out 01-15, stereo. It runs at
 // 44.1 kHz, the one rate both families are right at: at any other it plays silence, reporting no latency, until ticket
-// 16. As the instrument loads it reads the Machinedrum's words an import kept in the data folder
-// (edDrumsElektronImport.h), else its flash image, from the variable GEARMULATOR_MD_FIRMWARE_BIN or the data folder's roms.
+// 16. As the instrument loads it reads the factory bank's words the LOCKER keeps in the data folder
+// (edDrumsLockerImport.h), else its flash image, from the variable GEARMULATOR_MD_FIRMWARE_BIN or the data folder's roms.
 //
 // The parameters of a Track, the IDs t01_*, the names "T01 ...": Machine and Chokes, which a host does not automate,
 // Machine 1-8, Note, Level, Pan, Output; then Tempo; then, appended by ticket 18 (edDrumsParameters.h), each Track's
@@ -80,6 +80,13 @@ namespace elektron::drums
 		void setStateInformation(const void* _data, int _size) override;
 
 		static juce::File dataFolder();
+		// The data folder before the name Lockstep (ticket 27), beside dataFolder()
+		static juce::File legacyDataFolder();
+		// Message thread. Copies each file of _from that _to lacks, at its place, then writes _to's MigratedMark, after
+		// which it copies nothing more: a file the user deletes later is not brought back. _from is left as it is. False
+		// when a file could not be copied; the mark lists those, and the next load tries them alone.
+		static bool migrateData(const juce::File& _from, const juce::File& _to);
+		static constexpr const char* MigratedMark = "Migrated.txt";
 
 		// The machines a Track's parameter chooses from, and what each has of its data (dataOf)
 		const std::vector<Machine>& machines() const { return m_machines; }
@@ -117,25 +124,41 @@ namespace elektron::drums
 		juce::String sampleName(int _track) const;
 		void clearSample(int _track);
 
-		// Message thread. The samples' Library (edDrumsSampleLibrary.h), which the timer follows. A Library sample on a
-		// Track by its fingerprint, as loadSample loads its file. A Track's sample's fingerprint, which the state and a
-		// Kit keep beside its copy: empty for none
+		// Message thread. The LOCKER's sources (edDrumsSampleLibrary.h), which the timer follows. A sample of the Locker
+		// on a Track by its fingerprint, as loadSample loads its file: one of a source, of FACTORY or IN THIS SET. A
+		// Track's sample's fingerprint, which the state and a Kit keep beside its copy: empty for none
 		SampleLibrary& sampleLibrary() { return *m_sampleLibrary; }
 		bool loadLibrarySample(int _track, const juce::String& _fingerprint, juce::String& _error);
 		juce::String sampleFingerprint(const int _track) const { return m_sampleRefs[static_cast<size_t>(_track)]; }
-		// The factory bank's samples of the user's flash image or its words (ticket 27): an entry each slot that holds
-		// one, no file, folder -1, its fingerprint "factory:<slot>", which loadLibrarySample loads and a state or Kit
-		// keeps as a reference, never the audio. Empty without the image
-		const std::vector<SampleLibrary::Entry>& factorySamples() const { return m_factorySamples; }
+		// The Locker's FACTORY source, the factory bank of the user's flash image or its words (ticket 27): an entry each
+		// slot that holds one, no file, folder FactoryFolder, its fingerprint "factory:<slot>", named and typed as the
+		// user chose (SampleLibrary::dress), which loadLibrarySample loads and a state or Kit keeps as a reference, never
+		// the audio. Empty without the image, or once removed
+		const std::vector<SampleLibrary::Entry>& factorySamples();
 		bool auditionFactorySample(int _slot, juce::String& _error);
+		// FACTORY taken out of the Locker: its words file erased, its samples gone from the list; the machines whose
+		// waves it gave play the house's from the next load. False where the bank is read from an image the Locker does
+		// not hold (the data folder's roms, the variable)
+		bool removeFactory();
+		int64_t factoryBytes() const;
 
-		// Message thread. "Import my Elektron content" (edDrumsElektronImport.h) from _folder: false while one runs. The
-		// timer takes its report, gives the samples' Library the folder when it holds samples the Library lacks, and
-		// counts the reports taken. The Library of an image's words imported plays from the instrument's next load.
-		// libraryFromWords: the engine plays the words imported
-		bool importElektron(const juce::File& _folder);
+		// Message thread. IN THIS SET: the samples the Tracks hold that no source of the Locker has by fingerprint (a set
+		// or Kit made elsewhere), once the Locker's scan is known, one entry each, folder SetFolder, no file. Kept in the
+		// Locker: the sample written as a WAV into the IMPORTED source "From sets", the Tracks that hold it then holding
+		// that file's fingerprint
+		const std::vector<SampleLibrary::Entry>& setSamples();
+		bool auditionSetSample(const juce::String& _fingerprint, juce::String& _error);
+		bool keepInLocker(const juce::String& _fingerprint, juce::String& _error);
+
+		// Message thread. ADD FOLDER (_copy false: linked) or IMPORT PACK (copied into the Locker's Imported) of _folder,
+		// walked by LockerImport: false while a walk runs. The timer takes its report, gives the Locker the folder, or
+		// its copy, when it holds samples the Locker lacks, and counts the reports taken, for the editor's toast. A flash
+		// image found plays from the instrument's next load. libraryFromWords: the engine plays the words the Locker keeps
+		bool addToLocker(const juce::File& _folder, bool _copy);
+		// The timer's, which a test calls: a walk ended, its report taken
+		bool takeLockerImport();
 		bool importing() const { return m_import->running(); }
-		const ElektronImport::Report& lastImport() const { return m_lastImport; }
+		const LockerImport::Report& lastImport() const { return m_lastImport; }
 		uint32_t imports() const { return m_imports; }
 		bool libraryFromWords() const { return m_libraryFromWords; }
 
@@ -143,6 +166,10 @@ namespace elektron::drums
 		// Track, from the next block; false and why when it cannot be read. What it played last, nullptr for none
 		bool auditionSample(const juce::File& _file, juce::String& _error);
 		const Sample* auditioned() const { return m_auditioned.get(); }
+
+		// Message thread. What the user should hear of once, for the editor to show: a Library sample of an old ROM-n
+		// Track, replaced by the factory slot it played (takeRoms), which the log names by fingerprint. Taken, they are gone
+		juce::StringArray takeNotices();
 
 		// Message thread. _edit changes the message thread's copy, which the audio thread takes whole at its next block
 		void editSequencer(const std::function<void(Sequencer&)>& _edit);
@@ -307,6 +334,10 @@ namespace elektron::drums
 		juce::XmlElement* writeSample(juce::XmlElement& _xml, int _track) const;
 		std::unique_ptr<Sample> readSample(const juce::XmlElement& _element, juce::String& _ref) const;
 		void takeRoms(juce::XmlElement& _xml, bool _state) const;
+		void notice(const juce::String& _text, const juce::String& _detail) const;
+		void takePageOrder(juce::XmlElement& _xml, bool _state, int _sound = -1) const;
+		void takePageOrderLocks(juce::XmlElement& _pattern, const std::function<bool(int)>& _syntakt) const;
+		Machine machineIn(const juce::XmlElement& _xml, int _track, bool _state) const;
 		std::unique_ptr<juce::XmlElement> readKit(int _slot) const;
 		std::unique_ptr<juce::XmlElement> soundAsKit(const juce::XmlElement& _sound, int _track) const;
 		void sendAudition();
@@ -376,10 +407,16 @@ namespace elektron::drums
 		std::array<std::shared_ptr<const std::vector<int16_t>>, Tracks> m_engineSources;
 		void holdSource(const Sample* _sample);
 		void giveSample(int _track, const Sample* _sample);
+		// The first Track whose sample has _fingerprint, -1 for none
+		int trackHolding(const juce::String& _fingerprint) const;
 		std::unique_ptr<SampleLibrary> m_sampleLibrary;
-		std::vector<SampleLibrary::Entry> m_factorySamples;
-		std::unique_ptr<ElektronImport> m_import;
-		ElektronImport::Report m_lastImport;
+		// FACTORY's entries as the bank holds them, and dressed as the Locker's generation last given; IN THIS SET's, and
+		// what they were made of (the Tracks' references and the Locker's generation)
+		std::vector<SampleLibrary::Entry> m_factorySamples, m_factoryDressed, m_setSamples;
+		uint32_t m_factoryGeneration = ~0u;
+		juce::String m_setKey;
+		std::unique_ptr<LockerImport> m_import;
+		LockerImport::Report m_lastImport;
 		uint32_t m_imports = 0;
 		bool m_libraryFromWords = false;
 
@@ -453,6 +490,10 @@ namespace elektron::drums
 		bool m_kitHeld = false;		// m_kitValues and m_kitSamples hold the Slot's Kit: false for an empty Slot
 		std::vector<float> m_kitValues;
 		std::array<std::unique_ptr<Sample>, Tracks> m_kitSamples;
+		std::array<juce::String, Tracks> m_kitRefs;		// their references, as m_sampleRefs
+
+		// takeNotices's, and every one given, so that a Kit read again does not give its own twice
+		mutable juce::StringArray m_notices, m_noticesGiven;
 		int m_kitFollow = 0;		// the timer's ticks since it last followed the Bank
 
 		// The Kits read ahead for the patterns' starts: the message thread's, by Slot; the pointers the audio thread

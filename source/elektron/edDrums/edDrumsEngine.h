@@ -51,7 +51,13 @@ namespace elektron::drums
 		&& chainTarget(LfoTarget::Frequency) == VelocityTarget::Frequency && chainTarget(LfoTarget::Resonance) == VelocityTarget::Resonance
 		&& chainTarget(LfoTarget::Width) == VelocityTarget::Width && chainTarget(LfoTarget::EnvelopeDepth) == VelocityTarget::EnvelopeDepth,
 		"an LFO's chain targets are VelocityTarget's, in its order");
-	static_assert(static_cast<int>(LfoTarget::Count) - static_cast<int>(LfoTarget::EnvelopeDepth) == 1, "the chain's targets end the list");
+	// Whether _target is a value of the chain: DriveA to EnvelopeDepth, before Machine 9-24
+	constexpr bool isChainTarget(const LfoTarget _target)
+	{
+		return _target >= LfoTarget::DriveA && _target <= LfoTarget::EnvelopeDepth;
+	}
+	static_assert(static_cast<int>(LfoTarget::Machine9) - static_cast<int>(LfoTarget::EnvelopeDepth) == 1,
+		"Machine 9-24 follow the chain's targets");
 
 	constexpr int Tracks = Lanes;
 	static_assert(LfoBank::Tracks == Tracks, "an LFO bank is the engine's");
@@ -116,6 +122,13 @@ namespace elektron::drums
 
 	// How many of Machine 1-24 _machine uses, from Machine 1 on
 	int machineParameters(const Machine& _machine);
+
+	// A Syntakt machine's Machine 1-8 follow its SYN page (state version 6, Kit version 4): TUNE, SWEEP or SHIMMER, PUNCH,
+	// DECAY, the machine's two, MOD ENV, OVERDRIVE, as the editor labels them. Its voice reads internal ids 18-25 at its
+	// indices 0-7; OVERDRIVE, id 26, is the drive stage after the voice; HOLD, id 24, is on no page (the amp holds the
+	// voice), and Machine 9 keeps it for a set from before. The slot (0-8) that plays the voice's index _index (0-7):
+	// where Machine _index + 1 of before plays now
+	int syntaktSlotOf(int _index);
 	// The name _machine gives Machine _index, nullptr where the interface has its own or none
 	const char* machineParameterName(const Machine& _machine, int _index);
 
@@ -373,7 +386,10 @@ namespace elektron::drums
 		void hitSyntakt(int _track, int _velocity, float _gain);
 		void takeMoves(int _track, bool _settle = false);
 		void modulate(uint32_t _tracks, double _seconds);
-		void sendParameter(const Track& _track, int _index, int _value);
+		// Machine _slot + 1 of a Syntakt Track to what plays it: its voice's index, or the OVERDRIVE stage
+		void playSyntakt(int _track, int _slot);
+		void setOver(int _track, int _word);
+		void overdrive(Block& _in, uint32_t _live);
 		static int playedValue(const Track& _track, const int _index)
 		{
 			return (_track.lockedNow >> _index & 1 ? _track.lockValue : _track.params)[static_cast<size_t>(_index)];
@@ -437,6 +453,10 @@ namespace elektron::drums
 		int64_t m_stNext = 0;			// the host sample whose reading first needs block m_stBlock
 		std::unique_ptr<Chain> m_stChain;
 		std::unique_ptr<Block> m_stIn;
+		// OVERDRIVE, the drive stage after a Syntakt voice: the Tracks whose word is above 0, and those it runs on
+		std::unique_ptr<syntakt::fast::TrackDrive> m_stOver;
+		uint32_t m_overOn = 0, m_overRun = 0;
+		std::array<int, Tracks> m_overWord{};	// the word each Track's stage was last given
 
 		LfoBank m_lfos;
 		uint32_t m_stMask = 0;			// the Tracks on a Syntakt machine: the others' LFOs and moves go by the Machinedrum's blocks

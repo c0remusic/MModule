@@ -308,11 +308,18 @@ namespace
 		formats.getFormat(0)->findAllTypesForFile(found, _bundle.getFullPathName());
 		require(found.size() == 1, "the VST3 does not hold one plug-in");
 		const auto& description = *found[0];
-		std::printf("%s by %s %s, %s, %s\n", description.name.toRawUTF8(), description.manufacturerName.toRawUTF8(),
-			description.version.toRawUTF8(), description.category.toRawUTF8(),
-			description.isInstrument ? "instrument" : "effect");
+		std::printf("%s by %s %s, %s, %s, class hash %u\n", description.name.toRawUTF8(),
+			description.manufacturerName.toRawUTF8(), description.version.toRawUTF8(), description.category.toRawUTF8(),
+			description.isInstrument ? "instrument" : "effect", static_cast<uint32_t>(description.uniqueId));
 		require(description.name == ED_DRUMS_NAME && description.manufacturerName == "c0remusic"
 			&& description.isInstrument, "the VST3 is not the instrument");
+		// Ticket 27: named Lockstep, the class of before, whose ID JUCE makes from the manufacturer's and the plug-in's
+		// codes alone (JUCE_VST3_CAN_REPLACE_VST2=0): the sets saved as Elektron Drums Dev find it. The hash of the class
+		// ID that JUCE's VST3 hosting gives, read on 2026-11-11 from the bundle built as Elektron Drums Dev
+		constexpr uint32_t ClassHash = 3065139503u;
+		require(description.name == "Lockstep" && static_cast<uint32_t>(description.uniqueId) == ClassHash,
+			"not Lockstep of the same class: " + description.name.toStdString() + ", "
+			+ std::to_string(static_cast<uint32_t>(description.uniqueId)));
 
 		constexpr int Samples = 150000;
 		const auto notes = pattern(Samples, 1);

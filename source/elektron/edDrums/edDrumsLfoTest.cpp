@@ -83,8 +83,10 @@ namespace
 	void setTone(Engine& _e, const int _track, const Tone& _tone)
 	{
 		_e.setMachine(_track, _tone.machine);
+		// params by the voice's index: a Syntakt machine's slot in its page's order
 		for(int i = 0; i < 8; ++i)
-			_e.setParameter(_track, i, _tone.params[static_cast<size_t>(i)]);
+			_e.setParameter(_track, _tone.machine.family == Family::Syntakt ? syntaktSlotOf(i) : i,
+				_tone.params[static_cast<size_t>(i)]);
 		_e.setNote(_track, _tone.note);
 		_e.setLevel(_track, 127);
 	}
@@ -885,7 +887,8 @@ namespace
 		{
 			return hitAt(_library, _machine, 0, [&](Engine& _e)
 			{
-				for(int i = 0; i < 8; ++i)
+				// Machine 1-24, the targets an LFO reaches
+				for(int i = 0; i < MachineParameters; ++i)
 					_e.setParameter(0, i, static_cast<uint8_t>(_value));
 				_e.setLevel(0, _target == LfoTarget::Level ? _value : 100);
 				_e.setPan(0, _target == LfoTarget::Pan ? _value : 64);

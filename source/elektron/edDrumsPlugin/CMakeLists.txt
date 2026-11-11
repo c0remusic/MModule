@@ -1,13 +1,14 @@
 cmake_minimum_required(VERSION 3.15)
 
-# The instrument as a VST3, a plain JUCE AudioProcessor with JUCE's generic editor until the interface's tickets. Its
-# name is a working one, here alone: the product's is still open on the map of .scratch/elektron-drums-v1.
-set(ED_DRUMS_NAME "Elektron Drums Dev")
+# The instrument as a VST3, a plain JUCE AudioProcessor. Its name, Lockstep since 2026-11-11 (ticket 27 of
+# .scratch/elektron-drums-v1), is the host's, the bundle's file name and the data folder's; the VST3 class stays the one
+# PLUGIN_MANUFACTURER_CODE and PLUGIN_CODE make, so that the sets saved before load it.
+set(ED_DRUMS_NAME "Lockstep")
 project(edDrumsPlugin VERSION ${CMAKE_PROJECT_VERSION})
 
 set(SOURCES edDrumsProcessor.cpp edDrumsProcessor.h edDrumsParameters.cpp edDrumsParameters.h edDrumsSampleFiles.cpp
 	edDrumsSampleFiles.h edDrumsSampleLibrary.cpp edDrumsSampleLibrary.h edDrumsKits.cpp edDrumsKits.h
-	edDrumsTrackSounds.cpp edDrumsTrackSounds.h edDrumsElektronImport.cpp edDrumsElektronImport.h)
+	edDrumsTrackSounds.cpp edDrumsTrackSounds.h edDrumsLockerImport.cpp edDrumsLockerImport.h)
 
 juce_add_plugin(edDrumsPlugin
 	COMPANY_NAME "c0remusic"
@@ -45,8 +46,8 @@ if(BUILD_TESTING)
 	set_tests_properties(edDrumsNoFlashTest PROPERTIES TIMEOUT 300)
 	set_property(TARGET edDrumsNoFlashTest PROPERTY FOLDER "Elektron/test")
 
-	# The samples' Library and the Elektron import on files it writes itself; with GEARMULATOR_MD_FIRMWARE_BIN, also an
-	# image's words imported
+	# The Locker's sources and what it reads of a folder, on files it writes itself; with GEARMULATOR_MD_FIRMWARE_BIN,
+	# also an image's words imported
 	add_executable(edDrumsSampleLibraryTest edDrumsSampleLibraryTest.cpp)
 	target_link_libraries(edDrumsSampleLibraryTest PRIVATE edDrumsPlugin edDrums mdProtocol juce_plugin_modules)
 	target_compile_definitions(edDrumsSampleLibraryTest PRIVATE JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
@@ -64,6 +65,16 @@ if(BUILD_TESTING)
 	add_test(NAME edDrumsProcessorTest COMMAND edDrumsProcessorTest)
 	set_tests_properties(edDrumsProcessorTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
 	set_property(TARGET edDrumsProcessorTest PROPERTY FOLDER "Elektron/test")
+
+	# A Syntakt machine's Machine 1-8 in its SYN page's order: against the original (SYNTAKT_SECTION3, SYNTAKT_SECTION7),
+	# and the states and Kits of before (GEARMULATOR_MD_FIRMWARE_BIN: exit 77 without it)
+	add_executable(edDrumsSyntaktSlotsTest edDrumsSyntaktSlotsTest.cpp)
+	target_link_libraries(edDrumsSyntaktSlotsTest PRIVATE edDrumsPlugin edDrums stEngine mdProtocol juce_plugin_modules)
+	target_compile_definitions(edDrumsSyntaktSlotsTest PRIVATE JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+		ED_DRUMS_NAME="${ED_DRUMS_NAME}")
+	add_test(NAME edDrumsSyntaktSlotsTest COMMAND edDrumsSyntaktSlotsTest)
+	set_tests_properties(edDrumsSyntaktSlotsTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+	set_property(TARGET edDrumsSyntaktSlotsTest PROPERTY FOLDER "Elektron/test")
 endif()
 
 if(BUILD_TESTING AND TARGET edDrumsPlugin_VST3)

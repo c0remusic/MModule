@@ -57,6 +57,17 @@ namespace elektron::drums
 		};
 		m_search.onEscapeKey = [this] { m_search.clear(); };
 		addChildComponent(m_search);
+		// RENAME's field, over the card's title line as SEARCH is over the list's: Return or a click elsewhere keeps the
+		// name, Escape gives it up
+		for(const auto id : {juce::TextEditor::backgroundColourId, juce::TextEditor::textColourId,
+			juce::TextEditor::outlineColourId, juce::TextEditor::focusedOutlineColourId})
+			m_rename.setColour(id, m_search.findColour(id));
+		m_rename.setColour(juce::CaretComponent::caretColourId, colour::ink);
+		m_rename.setInputRestrictions(40);
+		m_rename.onReturnKey = [this] { endRename(true); };
+		m_rename.onFocusLost = [this] { endRename(true); };
+		m_rename.onEscapeKey = [this] { endRename(false); };
+		addChildComponent(m_rename);
 		setSize(Width, Height);
 		layout();
 		startTimerHz(30);
@@ -160,6 +171,9 @@ namespace elektron::drums
 		font.setHeight(font.getHeight() * scale());
 		m_search.applyFontToAllText(font, true);
 		m_search.setIndents(juce::roundToInt(2.4f * scale()), juce::roundToInt(0.6f * scale()));
+		m_rename.setBounds(toPx({cx(16), 24.6f, 8 * Col - 4, 6.4f}));
+		m_rename.applyFontToAllText(font, true);
+		m_rename.setIndents(juce::roundToInt(2.4f * scale()), juce::roundToInt(0.6f * scale()));
 		repaint();
 	}
 
@@ -174,6 +188,10 @@ namespace elektron::drums
 			<< m_armedLine << "/" << m_browseItem << "/" << m_browseScroll << "/" << getWidth() << "/" << m_browseTree << "/"
 			<< m_browseFilter << "/" << m_browseSearch << "/" << static_cast<int>(m_processor.sampleLibrary().generation())
 			<< "/" << static_cast<int>(m_processor.trackSounds().generation()) << "/";
+		// The LOCKER: FACTORY, IN THIS SET, the source whose REMOVE asks again, the walks ended
+		if(m_page == Page::Browse && browseSamples())
+			key << m_processor.factorySamples().size() << "," << m_processor.setSamples().size() << "," << m_removeArmed
+				<< "," << static_cast<int>(m_processor.imports()) << "/";
 		// Browse's KITS: a row each Slot that holds a Kit
 		if(m_page == Page::Browse && m_browseTree == 0)
 			for(int i = 0; i < Processor::KitSlots; ++i)
@@ -219,6 +237,8 @@ namespace elektron::drums
 		if(m_selector.open)
 			buildSelector();
 		m_search.setVisible(m_page == Page::Browse && (browseSamples() || m_browseTree == 1) && !m_menu);
+		if(m_rename.isVisible() && (m_page != Page::Browse || m_browseTree != 2 || m_menu))
+			endRename(false);
 		for(auto& r : m_regions)
 			r.last = r.state();
 		m_key = layoutKey();
@@ -305,12 +325,15 @@ namespace elektron::drums
 			m_toastUntil = 0;
 			repaint(toPx({ScreenX, 195, ScreenW, 20}));
 		}
-		// An import ended: what it found and what it missed
+		// A walk of the Locker's ended: what it found and what it missed
 		if(m_importsSeen != m_processor.imports())
 		{
 			m_importsSeen = m_processor.imports();
-			toast(importSummary());
+			toast(lockerSummary());
 		}
+		// A sample an old set no longer plays, once
+		if(const auto notices = m_processor.takeNotices(); !notices.isEmpty())
+			toast(notices.joinIntoString("; "));
 	}
 
 	// ---- the hardware ----
@@ -527,7 +550,7 @@ namespace elektron::drums
 			if(m_browseTree == 1)
 				return at < m_processor.trackSounds().entries().size() ? m_processor.trackSounds().entries()[at].name : "";
 			return at < m_processor.sampleLibrary().entries().size() + m_processor.factorySamples().size()
-				? browseEntry(m_browseDrag).name : "";
+				+ m_processor.setSamples().size() ? browseEntry(m_browseDrag).name : "";
 		};
 		if(m_browseDrag >= 0 && m_press.moved && dragged().isNotEmpty())
 		{
@@ -564,6 +587,8 @@ namespace elektron::drums
 	{
 		if(_e.mods.isPopupMenu())
 			return;
+		// A click beside RENAME's field keeps its name: the editor takes no focus from it
+		endRename(true);
 		const auto mm = toMm(_e.position);
 		int found = -1;
 		for(int i = static_cast<int>(m_hits.size()) - 1; i >= 0; --i)
@@ -941,14 +966,14 @@ namespace elektron::drums
 
 	void Editor::filesDropped(const juce::StringArray& _files, const int _x, const int _y)
 	{
-		// A folder on Browse is imported (ticket 20): its samples join the Library, a flash image in it gives its words
+		// A folder on Browse is ADD FOLDER (ticket 20): it joins the Locker linked, a flash image in it gives FACTORY
 		if(m_page == Page::Browse)
 		{
 			bool folders = false;
 			for(const auto& f : _files)
 				if(juce::File(f).isDirectory())
 				{
-					startImport(juce::File(f));
+					startLocker(juce::File(f), false);
 					folders = true;
 					break;
 				}
@@ -986,7 +1011,7 @@ namespace elektron::drums
 		sampleLoaded(_track);
 	}
 
-	// A Library sample by its file, a factory one (folder -1) by its fingerprint
+	// A sample of a source by its file, a factory one or one of the set by its fingerprint
 	void Editor::loadSample(const int _track, const SampleLibrary::Entry& _entry)
 	{
 		if(_entry.folder >= 0)
@@ -1033,7 +1058,7 @@ namespace elektron::drums
 		if(!m_processor.auditionSample(_file, error))
 			toast(error);
 		m_auditionFile = _file;
-		m_auditionFactory.clear();
+		m_auditionRef.clear();
 		repaint();
 	}
 
@@ -1045,94 +1070,87 @@ namespace elektron::drums
 			return;
 		}
 		juce::String error;
-		if(!m_processor.auditionFactorySample(_entry.fingerprint.fromFirstOccurrenceOf(":", false, false).getIntValue(),
-			error))
+		const bool played = _entry.folder == SampleLibrary::SetFolder
+			? m_processor.auditionSetSample(_entry.fingerprint, error)
+			: m_processor.auditionFactorySample(_entry.fingerprint.fromFirstOccurrenceOf(":", false, false).getIntValue(),
+				error);
+		if(!played)
 			toast(error);
 		m_auditionFile = juce::File();
-		m_auditionFactory = _entry.fingerprint;
+		m_auditionRef = _entry.fingerprint;
 		repaint();
 	}
 
-	void Editor::addFolder(const juce::File& _folder)
+	void Editor::chooseFolder(const bool _copy)
 	{
-		if(!m_processor.sampleLibrary().addFolder(_folder))
+		m_chooser = std::make_unique<juce::FileChooser>(_copy ? "Import a pack into the Locker: its samples are copied"
+			: "Add a folder to the Locker: linked where it lies, nothing copied");
+		juce::Component::SafePointer<Editor> self(this);
+		m_chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+			[self, _copy](const juce::FileChooser& _c)
+			{
+				if(self && _c.getResult().isDirectory())
+					self->startLocker(_c.getResult(), _copy);
+			});
+	}
+
+	void Editor::startLocker(const juce::File& _folder, const bool _copy)
+	{
+		if(!m_processor.addToLocker(_folder, _copy))
 		{
-			toast(_folder.getFileName() + " could not be added");
+			toast(m_processor.importing() ? "The Locker reads a folder: wait for its end"
+				: _folder.getFileName() + " cannot be read");
 			return;
 		}
 		m_browseTree = 2;
 		m_browseFilter = 0;
 		m_browseItem = m_browseScroll = 0;
-		toast("Scanning " + _folder.getFileName());
+		toast((_copy ? "Importing " : "Reading ") + _folder.getFileName());
 		layout();
 		repaint();
 	}
 
-	void Editor::chooseFolder()
-	{
-		m_chooser = std::make_unique<juce::FileChooser>("Add a sample folder");
-		juce::Component::SafePointer<Editor> self(this);
-		m_chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
-			[self](const juce::FileChooser& _c)
-			{
-				if(self && _c.getResult().isDirectory())
-					self->addFolder(_c.getResult());
-			});
-	}
-
-	void Editor::chooseImport()
-	{
-		m_chooser = std::make_unique<juce::FileChooser>("Import my Elektron content: a folder of packs, Transfer's exports "
-			"or a Machinedrum flash image");
-		juce::Component::SafePointer<Editor> self(this);
-		m_chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
-			[self](const juce::FileChooser& _c)
-			{
-				if(self && _c.getResult().isDirectory())
-					self->startImport(_c.getResult());
-			});
-	}
-
-	void Editor::startImport(const juce::File& _folder)
-	{
-		if(!m_processor.importElektron(_folder))
-		{
-			toast(m_processor.importing() ? "An import runs: wait for its end" : _folder.getFileName() + " cannot be read");
-			return;
-		}
-		toast("Importing " + _folder.getFileName());
-		repaint();
-	}
-
-	// UW BANK, FACTORY PACKS, TRANSFERS: NOT IMPORTED until an import ran in this instance, then what the last found.
-	// UW BANK says IMPORTED once the engine plays the words imported, AT NEXT LOAD while the words wait for it
-	juce::String Editor::elektronContent(const int _cell) const
-	{
-		const auto& r = m_processor.lastImport();
-		const bool ran = m_processor.imports() > 0;
-		if(_cell == 0)
-			return m_processor.libraryFromWords() ? "IMPORTED"
-				: ElektronImport::wordsFile(Processor::dataFolder()).existsAsFile() ? "AT NEXT LOAD"
-				: ran ? "MISSING" : "NOT IMPORTED";
-		if(!ran)
-			return "NOT IMPORTED";
-		const int n = _cell == 1 ? r.audio : r.unread;
-		return n == 0 ? juce::String("MISSING") : juce::String(n) + (_cell == 1 ? " FOUND" : " NOT READ");
-	}
-
-	juce::String Editor::importSummary() const
+	// What a walk found: its samples, those the Locker had, those copied; a factory bank; the files not read
+	juce::String Editor::lockerSummary() const
 	{
 		const auto& r = m_processor.lastImport();
 		if(r.error.isNotEmpty())
 			return r.error;
 		juce::StringArray parts;
-		parts.add(r.image.isNotEmpty() ? "UW bank from " + r.image + ", plays at next load"
-			: r.refused > 0 ? "no OS 1.63 image among " + juce::String(r.refused) + " image-sized files" : "no UW image");
-		parts.add(r.audio == 0 ? juce::String("no sample") : juce::String(r.audio) + " samples"
-			+ (r.known > 0 ? ", " + juce::String(r.known) + " already in the Library" : juce::String()));
+		parts.add(r.audio == 0 ? juce::String("no sample") : juce::String(r.audio) + (r.audio == 1 ? " sample" : " samples")
+			+ (r.known > 0 ? ", " + juce::String(r.known) + " already in the Locker" : juce::String())
+			+ (r.copy != juce::File() ? ", " + juce::String(r.copied) + " copied" : juce::String())
+			+ (r.left > 0 ? ", " + juce::String(r.left) + " left out (too large or too many)" : juce::String()));
+		if(r.image.isNotEmpty())
+			parts.add("factory bank from " + r.image + ", in the Locker at next load");
+		else if(r.refused > 0)
+			parts.add("no factory bank among " + juce::String(r.refused) + " image-sized files");
 		if(r.unread > 0)
-			parts.add(juce::String(r.unread) + " Elektron files not read");
+			parts.add(juce::String(r.unread) + " files not read");
 		return r.folder.getFileName() + ": " + parts.joinIntoString("; ");
+	}
+
+	void Editor::startRename(const juce::String& _text, std::function<void(const juce::String&)> _done)
+	{
+		m_renameDone = std::move(_done);
+		m_rename.setText(_text, false);
+		m_rename.setVisible(true);
+		m_rename.grabKeyboardFocus();
+		m_rename.selectAll();
+	}
+
+	void Editor::endRename(const bool _keep)
+	{
+		// Taken first: hiding the field takes its focus, which calls this again
+		auto done = std::move(m_renameDone);
+		m_renameDone = nullptr;
+		if(!done)
+			return;
+		const auto text = m_rename.getText().trim();
+		m_rename.setVisible(false);
+		if(_keep && text.isNotEmpty())
+			done(text);
+		repaint();
 	}
 
 	void Editor::toast(const juce::String& _text)
@@ -1182,7 +1200,7 @@ namespace elektron::drums
 		if(!m_processor.auditionTrackSound(_file))
 			toast(_file.getFileNameWithoutExtension() + " could not be read");
 		m_auditionFile = _file;
-		m_auditionFactory.clear();
+		m_auditionRef.clear();
 		repaint();
 	}
 

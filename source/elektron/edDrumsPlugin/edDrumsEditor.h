@@ -18,9 +18,9 @@
 // Every value change is one host gesture (beginChangeGesture, setValueNotifyingHost, endChangeGesture). A 30 Hz timer
 // reads the parameters and what the Processor reports, and repaints only the areas whose state changed. A sample file
 // dropped on a Track's LCD or pad, or on the Sound page's Sample block, loads into that Track's Sampler. A folder
-// dropped on Browse, or chosen by ADD FOLDER, joins the samples' Library, which Browse lists by folder and by type:
-// a click on a sample auditions it, a double-click loads it on the Track shown, a drag onto one of the 16 Tracks there;
-// SEARCH is a TextEditor, the one control typed into.
+// dropped on Browse, or chosen by ADD FOLDER (linked) or IMPORT PACK (copied), joins the LOCKER, which Browse lists by
+// source and by type: a click on a sample auditions it, a double-click loads it on the Track shown, a drag onto one of
+// the 16 Tracks there; SEARCH and RENAME's field are TextEditors, the controls typed into.
 //
 // Lock edit: a click on a Track's strip selects its step and opens Sound, where a cell dragged writes a Lock on the
 // steps selected (Processor's sequencer, the parameter's index and plain value) instead of the parameter.
@@ -61,15 +61,20 @@ namespace elektron::drums
 		juce::Rectangle<int> kitSlotArea(int _slot) const;
 		juce::Rectangle<int> kitActionArea(int _action) const;
 		int kitSelected() const { return m_kitSel; }
-		// Browse: a LIBRARY entry's row (MACHINES 3, SAMPLES BY SOURCE 2, BY TYPE 4), a list row, the list's length,
-		// the search field
+		// Browse: a LIBRARY entry's row (MACHINES 3, LOCKER 2, SAMPLES BY TYPE 4), a list row, the list's length, the
+		// search field, the field RENAME opens over the card's title line
 		juce::Rectangle<int> browseTreeArea(int _tree) const;
 		juce::Rectangle<int> browseRowArea(int _row) const;
 		int browseCount() const { return static_cast<int>(browseList().size()); }
 		juce::TextEditor& searchField() { return m_search; }
-		// Ticket 20: REMOVE FOLDER (0), the sample's TYPE row (1), the list's segments after ALL (2 on: the first
-		// folder's, then the next, FACTORY last); an entry of the selector open
-		juce::Rectangle<int> browseButtonArea(int _button) const;
+		juce::TextEditor& renameField() { return m_rename; }
+		// Ticket 20: ADD FOLDER, the sample's TYPE row, IMPORT PACK, the card's RENAME, the card's REMOVE SOURCE or KEEP
+		// IN LOCKER, LOAD ON TRACK; a segment of the list (0 ALL, then LOCKER's sources, FACTORY, IN THIS SET, + last); an entry of the
+		// selector open
+		enum class BrowseButton { AddFolder, Type, ImportPack, Rename, Remove, Load };
+		juce::Rectangle<int> browseButtonArea(BrowseButton _button) const;
+		juce::Rectangle<int> browseSegmentArea(int _segment) const;
+		int browseSegments() const { return browseFilters().size(); }
 		juce::Rectangle<int> selectorItemArea(int _item) const;
 		// The timer's work, once
 		void tick();
@@ -213,26 +218,28 @@ namespace elektron::drums
 		void loadSample(int _track, const SampleLibrary::Entry& _entry);
 		void sampleLoaded(int _track);
 		void chooseSample(int _track);
-		// Browse's samples: the list shown, indices in the Library's entries, then past them in the factory samples' on
-		// FACTORY (browseEntry), filtered by the segment and the search; for KITS the Slots that hold one, for TRACK
-		// SOUNDS indices in their Library's entries, filtered by the search. FACTORY: the segment after the folders' of
-		// SAMPLES, BY SOURCE where the image gives factory samples, -1 for none
+		// Browse's samples: the list shown, indices in the Locker's entries, then past them in FACTORY's, then past
+		// those in IN THIS SET's (browseEntry), filtered by the segment and the search; for KITS the Slots that hold
+		// one, for TRACK SOUNDS indices in their Library's entries, filtered by the search. LOCKER's segments: what
+		// each stands for, ALL, a source's index, FACTORY, IN THIS SET, or + (ADD FOLDER)
+		static constexpr int AllSegment = -1, FactorySegment = -2, SetSegment = -3, AddSegment = -4;
 		bool browseSamples() const { return m_browseTree == 2 || m_browseTree == 4; }
 		std::vector<int> browseList() const;
 		juce::StringArray browseFilters() const;
-		int factorySegment() const;
+		std::vector<int> lockerSegments() const;
+		int lockerSegment() const;
 		const SampleLibrary::Entry& browseEntry(int _index) const;
 		void audition(const juce::File& _file);
 		void audition(const SampleLibrary::Entry& _entry);
-		void addFolder(const juce::File& _folder);
-		void chooseFolder();
 		void drawBrowseSample(ui::Painter& _p, float _x, const ui::Hue& _hue);
-		// Ticket 20: "Import my Elektron content" from a folder chosen or dropped on Browse; what Menu's ELEKTRON
-		// CONTENT shows of the imports (UW BANK, FACTORY PACKS, TRANSFERS); the toast of an import ended
-		void chooseImport();
-		void startImport(const juce::File& _folder);
-		juce::String elektronContent(int _cell) const;
-		juce::String importSummary() const;
+		// Ticket 20, the LOCKER: ADD FOLDER (_copy false) or IMPORT PACK of a folder chosen, or dropped on Browse; the
+		// toast of a walk ended; the card of the source chosen; RENAME's field opened on _text, _done given its text
+		void chooseFolder(bool _copy);
+		void startLocker(const juce::File& _folder, bool _copy);
+		juce::String lockerSummary() const;
+		void drawLockerSource(ui::Painter& _p, float _x, const ui::Hue& _hue);
+		void startRename(const juce::String& _text, std::function<void(const juce::String&)> _done);
+		void endRename(bool _keep);
 		void renameKit(int _slot);
 		// Ticket 19: a Track sound's name asked, then saved from the Track shown; one loaded on a Track; one auditioned;
 		// a file chosen for a Kit's or a pattern's import (_save false) or export
@@ -265,9 +272,11 @@ namespace elektron::drums
 		juce::String m_browseSearch;
 		int m_browseDrag = -1;				// the Library entry a list row's drag carries
 		juce::File m_auditionFile;			// what the audition played last
-		juce::String m_auditionFactory;		// ... the factory sample's fingerprint, when it played one
+		juce::String m_auditionRef;			// ... the fingerprint of a sample of no file (FACTORY, IN THIS SET)
 		uint32_t m_importsSeen = 0;			// the Processor's imports this editor told
-		juce::TextEditor m_search;
+		int m_removeArmed = AllSegment;		// the LOCKER segment whose REMOVE SOURCE asks again
+		juce::TextEditor m_search, m_rename;
+		std::function<void(const juce::String&)> m_renameDone;
 		int m_kitSel = 0;					// Kits' Slot selected
 		int m_kitDelete = -1;				// the Slot whose DELETE asks again
 		juce::String m_toast;

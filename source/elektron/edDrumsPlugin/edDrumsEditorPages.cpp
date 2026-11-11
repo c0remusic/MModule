@@ -107,6 +107,8 @@ namespace elektron::drums::ui
 	{
 		if(_text.isEmpty())
 			return;
+		if(drawnTexts)
+			drawnTexts->add(_text);
 		// The minus sign U+2212, which Bahnschrift lacks: its en dash there
 		const auto text = face().name == "Bahnschrift" ? _text.replace(juce::String::fromUTF8("\xe2\x88\x92"),
 			juce::String::fromUTF8("\xe2\x80\x93")) : _text;

@@ -142,11 +142,33 @@ namespace elektron::drums
 		return juce::String::toHexString(static_cast<juce::int64>(h)).paddedLeft('0', 16);
 	}
 
+	namespace
+	{
+		const char* kindName(const SampleLibrary::Kind _kind)
+		{
+			return _kind == SampleLibrary::Kind::Imported ? "IMPORTED" : "LINKED";
+		}
+	}
+
 	SampleLibrary::SampleLibrary(juce::File _dataFolder) : m_dataFolder(std::move(_dataFolder))
 	{
-		m_folders = readList();
+		// Before the Locker: the folders' list becomes LINKED sources, the types come over, the old files stay
+		const auto samples = m_dataFolder.getChildFile("Samples");
+		if(!listFile().existsAsFile() && samples.getChildFile("folders.txt").existsAsFile())
+		{
+			juce::StringArray lines;
+			samples.getChildFile("folders.txt").readLines(lines);
+			for(const auto& line : lines)
+				if(const auto path = line.trim(); juce::File::isAbsolutePath(path) && indexOf(juce::File(path)) < 0)
+					m_sources.push_back({Kind::Linked, juce::File(path), juce::File(path).getFileName()});
+			writeList();
+		}
+		if(!typesFile().existsAsFile() && samples.getChildFile("types.txt").existsAsFile()
+			&& typesFile().getParentDirectory().createDirectory().wasOk())
+			samples.getChildFile("types.txt").copyFileTo(typesFile());
+		m_sources = readList();
 		m_listWritten = listFile().getLastModificationTime();
-		readTypes();
+		readUser();
 	}
 
 	SampleLibrary::~SampleLibrary()
@@ -158,63 +180,104 @@ namespace elektron::drums
 
 	juce::File SampleLibrary::listFile() const
 	{
-		return m_dataFolder.getChildFile("Samples").getChildFile("folders.txt");
+		return lockerFolder(m_dataFolder).getChildFile("sources.txt");
 	}
 
-	juce::Array<juce::File> SampleLibrary::readList() const
+	// "KIND<tab>path<tab>name" a line
+	std::vector<SampleLibrary::Source> SampleLibrary::readList() const
 	{
-		juce::Array<juce::File> folders;
+		std::vector<Source> sources;
 		const auto file = listFile();
-		// A list of folders is a few KB: a bigger file is not one
+		// A list of sources is a few KB: a bigger file is not one
 		if(!file.existsAsFile() || file.getSize() > (1 << 20))
-			return folders;
+			return sources;
 		juce::StringArray lines;
 		file.readLines(lines);
 		for(const auto& line : lines)
 		{
-			const auto path = line.trim();
-			if(juce::File::isAbsolutePath(path))
-				folders.addIfNotAlreadyThere(juce::File(path));
+			const auto fields = juce::StringArray::fromTokens(line, "\t", "");
+			if(fields.size() < 2 || (fields[0] != "LINKED" && fields[0] != "IMPORTED"))
+				continue;
+			const auto path = fields[1].trim();
+			if(!juce::File::isAbsolutePath(path))
+				continue;
+			const juce::File folder(path);
+			if(std::any_of(sources.begin(), sources.end(), [&](const Source& _s) { return _s.folder == folder; }))
+				continue;
+			const auto name = fields.size() > 2 ? fields[2].trim() : juce::String();
+			sources.push_back({fields[0] == "IMPORTED" ? Kind::Imported : Kind::Linked, folder,
+				name.isNotEmpty() ? name : folder.getFileName()});
 		}
-		return folders;
-	}
-
-	bool SampleLibrary::addFolder(const juce::File& _folder)
-	{
-		if(!_folder.isDirectory())
-			return false;
-		m_folders = readList();
-		if(!m_folders.contains(_folder))
-		{
-			m_folders.add(_folder);
-			if(!writeList())
-				return false;
-		}
-		m_listWritten = listFile().getLastModificationTime();
-		scan();
-		return true;
+		return sources;
 	}
 
 	bool SampleLibrary::writeList()
 	{
 		juce::StringArray lines;
-		for(const auto& f : m_folders)
-			lines.add(f.getFullPathName());
+		for(const auto& s : m_sources)
+			lines.add(juce::String(kindName(s.kind)) + "\t" + s.folder.getFullPathName() + "\t"
+				+ s.name.removeCharacters("\t\r\n"));
 		const auto file = listFile();
-		return file.getParentDirectory().createDirectory() && file.replaceWithText(lines.joinIntoString("\n") + "\n");
+		if(!file.getParentDirectory().createDirectory() || !file.replaceWithText(lines.joinIntoString("\n") + "\n"))
+			return false;
+		m_listWritten = file.getLastModificationTime();
+		return true;
 	}
 
-	bool SampleLibrary::removeFolder(const juce::File& _folder)
+	int SampleLibrary::indexOf(const juce::File& _folder) const
 	{
-		m_folders = readList();
-		const int index = m_folders.indexOf(_folder);
+		for(size_t i = 0; i < m_sources.size(); ++i)
+			if(m_sources[i].folder == _folder)
+				return static_cast<int>(i);
+		return -1;
+	}
+
+	bool SampleLibrary::addSource(const Kind _kind, const juce::File& _folder, const juce::String& _name)
+	{
+		if(!_folder.isDirectory() || (_kind == Kind::Imported && !_folder.isAChildOf(importedFolder(m_dataFolder))))
+			return false;
+		m_sources = readList();
+		if(indexOf(_folder) < 0)
+		{
+			m_sources.push_back({_kind, _folder, _name.trim().isNotEmpty() ? _name.trim() : _folder.getFileName()});
+			if(!writeList())
+				return false;
+		}
+		scan();
+		return true;
+	}
+
+	void SampleLibrary::adoptImported()
+	{
+		m_sources = readList();
+		for(const auto& item : juce::RangedDirectoryIterator(importedFolder(m_dataFolder), false, "*",
+			juce::File::findDirectories))
+		{
+			const auto& folder = item.getFile();
+			if(indexOf(folder) >= 0)
+				continue;
+			const juce::RangedDirectoryIterator files(folder, true, "*", juce::File::findFiles);
+			if(files != juce::RangedDirectoryIterator())
+				addSource(Kind::Imported, folder);
+		}
+	}
+
+	bool SampleLibrary::removeSource(const int _index)
+	{
+		if(_index < 0 || _index >= static_cast<int>(m_sources.size()))
+			return false;
+		const auto gone = m_sources[static_cast<size_t>(_index)];
+		m_sources = readList();
+		const int index = indexOf(gone.folder);
 		if(index < 0)
 			return false;
-		m_folders.remove(index);
+		m_sources.erase(m_sources.begin() + index);
 		if(!writeList())
 			return false;
-		m_listWritten = listFile().getLastModificationTime();
-		// Its entries go now, the others keep their folder's new index, until the scan's
+		// The Locker's own copy goes with it, never a folder outside the Locker's
+		if(gone.kind == Kind::Imported && gone.folder.isAChildOf(importedFolder(m_dataFolder)))
+			gone.folder.deleteRecursively();
+		// Its entries go now, the others keep their source's new index, until the scan's
 		m_entries.erase(std::remove_if(m_entries.begin(), m_entries.end(), [index](const Entry& _e)
 		{
 			return _e.folder == index;
@@ -227,58 +290,111 @@ namespace elektron::drums
 		return true;
 	}
 
-	juce::File SampleLibrary::typesFile() const
+	bool SampleLibrary::renameSource(const int _index, const juce::String& _name)
 	{
-		return m_dataFolder.getChildFile("Samples").getChildFile("types.txt");
+		const auto name = _name.trim().removeCharacters("\t\r\n");
+		if(_index < 0 || _index >= static_cast<int>(m_sources.size()) || name.isEmpty())
+			return false;
+		const auto folder = m_sources[static_cast<size_t>(_index)].folder;
+		m_sources = readList();
+		const int index = indexOf(folder);
+		if(index < 0)
+			return false;
+		m_sources[static_cast<size_t>(index)].name = name;
+		if(!writeList())
+			return false;
+		++m_generation;
+		return true;
 	}
 
-	// "fingerprint TYPE" a line
-	void SampleLibrary::readTypes()
+	juce::File SampleLibrary::typesFile() const
+	{
+		return lockerFolder(m_dataFolder).getChildFile("types.txt");
+	}
+
+	juce::File SampleLibrary::namesFile() const
+	{
+		return lockerFolder(m_dataFolder).getChildFile("names.txt");
+	}
+
+	// "fingerprint TYPE" a line; "fingerprint<tab>name" a line
+	void SampleLibrary::readUser()
 	{
 		m_userTypes.clear();
-		const auto file = typesFile();
-		m_typesWritten = file.getLastModificationTime();
-		if(!file.existsAsFile() || file.getSize() > (4 << 20))
-			return;
-		juce::StringArray lines;
-		file.readLines(lines);
-		for(const auto& line : lines)
+		m_userNames.clear();
+		const auto read = [](const juce::File& _file, juce::Time& _written)
+		{
+			juce::StringArray lines;
+			_written = _file.getLastModificationTime();
+			if(_file.existsAsFile() && _file.getSize() <= (4 << 20))
+				_file.readLines(lines);
+			return lines;
+		};
+		for(const auto& line : read(typesFile(), m_typesWritten))
 		{
 			const auto fingerprint = line.upToFirstOccurrenceOf(" ", false, false).trim();
 			const auto name = line.fromFirstOccurrenceOf(" ", false, false).trim();
 			for(int t = 0; t < Types; ++t)
-				if(fingerprint.length() == 16 && name == typeName(static_cast<Type>(t)))
+				if(fingerprint.isNotEmpty() && name == typeName(static_cast<Type>(t)))
 					m_userTypes[fingerprint] = static_cast<Type>(t);
+		}
+		for(const auto& line : read(namesFile(), m_namesWritten))
+		{
+			const auto fingerprint = line.upToFirstOccurrenceOf("\t", false, false).trim();
+			const auto name = line.fromFirstOccurrenceOf("\t", false, false).trim();
+			if(fingerprint.isNotEmpty() && name.isNotEmpty())
+				m_userNames[fingerprint] = name;
 		}
 	}
 
-	void SampleLibrary::applyTypes()
+	void SampleLibrary::applyUser(Entry& _entry) const
 	{
-		for(auto& e : m_entries)
+		if(const auto it = m_userTypes.find(_entry.fingerprint); it != m_userTypes.end())
 		{
-			const auto it = m_userTypes.find(e.fingerprint);
-			if(it != m_userTypes.end())
-			{
-				e.type = it->second;
-				e.typeFrom = TypeFrom::User;
-			}
+			_entry.type = it->second;
+			_entry.typeFrom = TypeFrom::User;
 		}
+		if(const auto it = m_userNames.find(_entry.fingerprint); it != m_userNames.end())
+			_entry.name = it->second;
+	}
+
+	void SampleLibrary::dress(Entry& _entry) const
+	{
+		applyUser(_entry);
+	}
+
+	bool SampleLibrary::writeUser(const juce::File& _file, const juce::StringArray& _lines, juce::Time& _written)
+	{
+		if(!_file.getParentDirectory().createDirectory() || !_file.replaceWithText(_lines.joinIntoString("\n") + "\n"))
+			return false;
+		_written = _file.getLastModificationTime();
+		for(auto& e : m_entries)
+			applyUser(e);
+		++m_generation;
+		return true;
 	}
 
 	bool SampleLibrary::setType(const juce::String& _fingerprint, const Type _type)
 	{
-		readTypes();
+		readUser();
 		m_userTypes[_fingerprint] = _type;
 		juce::StringArray lines;
 		for(const auto& [fingerprint, type] : m_userTypes)
 			lines.add(fingerprint + " " + typeName(type));
-		const auto file = typesFile();
-		if(!file.getParentDirectory().createDirectory() || !file.replaceWithText(lines.joinIntoString("\n") + "\n"))
+		return writeUser(typesFile(), lines, m_typesWritten);
+	}
+
+	bool SampleLibrary::renameSample(const juce::String& _fingerprint, const juce::String& _name)
+	{
+		const auto name = _name.trim().removeCharacters("\t\r\n");
+		if(_fingerprint.isEmpty() || name.isEmpty())
 			return false;
-		m_typesWritten = file.getLastModificationTime();
-		applyTypes();
-		++m_generation;
-		return true;
+		readUser();
+		m_userNames[_fingerprint] = name;
+		juce::StringArray lines;
+		for(const auto& [fingerprint, n] : m_userNames)
+			lines.add(fingerprint + "\t" + n);
+		return writeUser(namesFile(), lines, m_namesWritten);
 	}
 
 	void SampleLibrary::scanOnce()
@@ -289,18 +405,20 @@ namespace elektron::drums
 
 	void SampleLibrary::follow()
 	{
-		// Another instance's correction of a type
-		if(typesFile().getLastModificationTime() != m_typesWritten)
+		// Another instance's type or name
+		if(typesFile().getLastModificationTime() != m_typesWritten || namesFile().getLastModificationTime() != m_namesWritten)
 		{
-			readTypes();
-			applyTypes();
+			readUser();
+			for(auto& e : m_entries)
+				applyUser(e);
 			++m_generation;
 		}
 		const auto written = listFile().getLastModificationTime();
 		if(written == m_listWritten)
 			return;
 		m_listWritten = written;
-		m_folders = readList();
+		m_sources = readList();
+		++m_generation;
 		if(m_scanned)
 			scan();
 	}
@@ -309,7 +427,9 @@ namespace elektron::drums
 	{
 		m_scanned = true;
 		const juce::ScopedLock lock(m_lock);
-		m_scanFolders = m_folders;
+		m_scanFolders.clear();
+		for(const auto& s : m_sources)
+			m_scanFolders.add(s.folder);
 		if(m_busy.load(std::memory_order_acquire))
 		{
 			m_again = true;
@@ -318,7 +438,7 @@ namespace elektron::drums
 		m_busy.store(true, std::memory_order_release);
 		if(!m_pool)
 			m_pool = std::make_unique<juce::ThreadPool>(juce::ThreadPoolOptions{}.withNumberOfThreads(1)
-				.withThreadName("Sample library scan").withDesiredThreadPriority(juce::Thread::Priority::background));
+				.withThreadName("Locker scan").withDesiredThreadPriority(juce::Thread::Priority::background));
 		m_pool->addJob([this] { run(); });
 	}
 
@@ -359,6 +479,7 @@ namespace elektron::drums
 					e.length = reader->lengthInSamples;
 					e.rate = reader->sampleRate;
 					e.channels = static_cast<int>(reader->numChannels);
+					e.bytes = item.getFileSize();
 					e.fingerprint = fingerprintOf(file);
 					e.type = guessType(e.name);
 					if(e.type == Type::Other)
@@ -376,7 +497,7 @@ namespace elektron::drums
 				return _a.folder != _b.folder ? _a.folder < _b.folder
 					: _a.file.getFullPathName().compareNatural(_b.file.getFullPathName()) < 0;
 			});
-			// Done unless asked again, which scan() asks under the same lock: a pass whose folders changed meanwhile
+			// Done unless asked again, which scan() asks under the same lock: a pass whose sources changed meanwhile
 			// (one removed shifts the others' index) is not shown
 			const juce::ScopedLock lock(m_lock);
 			if(!m_again)
@@ -400,7 +521,8 @@ namespace elektron::drums
 			m_found.clear();
 			m_ready.store(false, std::memory_order_release);
 		}
-		applyTypes();
+		for(auto& e : m_entries)
+			applyUser(e);
 		++m_generation;
 		return true;
 	}
@@ -413,5 +535,14 @@ namespace elektron::drums
 			if(e.fingerprint == _fingerprint)
 				return &e;
 		return nullptr;
+	}
+
+	int64_t SampleLibrary::sourceBytes(const int _index) const
+	{
+		int64_t bytes = 0;
+		for(const auto& e : m_entries)
+			if(e.folder == _index)
+				bytes += e.bytes;
+		return bytes;
 	}
 }
