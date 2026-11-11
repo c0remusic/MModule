@@ -237,6 +237,10 @@ namespace elektron::drums::ui
 				return "OFF";
 			return juce::String(plain, plain >= 100 ? 0 : plain >= 10 ? 1 : 2) + " Hz";
 		}
+		// In its unit where the parameter has one (parameters::valueText), else the number, signed where it can be
+		const auto unit = parameter->getText(_normalised, 0);
+		if(unit != juce::String(n))
+			return unit;
 		juce::String text = (r.start < 0 && n > 0 ? "+" : "") + juce::String(n);
 		if(n < 0)
 			text = juce::String::fromUTF8("\xe2\x88\x92") + juce::String(-n);	// U+2212

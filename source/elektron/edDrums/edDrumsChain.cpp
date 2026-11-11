@@ -431,8 +431,8 @@ namespace elektron::drums
 		const int a = offset(_lane, VelocityTarget::BandA), b = offset(_lane, VelocityTarget::BandB);
 		auto& s = bandAt(_place);
 		const auto word = [&](const size_t _i, const int _offset) { return wordOf(band.values[_i], _offset); };
-		const auto hz = [](const int _v) { return 20 * std::pow(1000.0, _v / 127.0); };
-		const auto db = [](const double _v) { return (_v - 64) * 18.0 / 63; };
+		const auto hz = ThreeBand::hz;
+		const auto db = ThreeBand::db;
 		switch(band.type)
 		{
 		case BandType::BaseWidth:

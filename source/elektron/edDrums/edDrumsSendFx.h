@@ -12,6 +12,16 @@ namespace elektron::drums
 	// A return's gain for a mix byte, 0-127
 	float sendFxLevel(uint8_t _mix);
 
+	// The laws below by byte, 0-127, for those who show them: the chorus's, the phaser's and the flanger's LFO in Hz;
+	// the phaser's Q by Spread and its allpasses' frequency in Hz on the Frequency byte's scale (a byte, or between
+	// two as the sweep moves); the DP/4's LFO in Hz, a delay's time in ms, and its -99 to 99 of a signed byte
+	double sendFxRateHz(uint8_t _rate);
+	double phaserQ(uint8_t _spread);
+	double phaserHz(double _frequency);
+	double dp4RateHz(uint8_t _rate);
+	double dp4DelayMs(uint8_t _time);
+	double dp4Signed(uint8_t _value);
+
 	// A stereo line an LFO shortens, fed back, each channel on the other's side of the LFO. A flanger is this at a
 	// short delay
 	class ModulatedDelay

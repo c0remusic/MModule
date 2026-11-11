@@ -42,9 +42,7 @@ namespace elektron::drums
 		// A triangle's phase for a block, whole turns in 32 bits
 		uint32_t phaseStep(const uint8_t _rate)
 		{
-			static constexpr Knot Hz[] = {{0, 0.00175}, {4, 0.01}, {8, 0.0197}, {28, 0.0886}, {92, 2.003}, {108, 4.811},
-				{120, 13.9}, {124, 28.02}, {127, 50.07}};
-			return static_cast<uint32_t>(knots(Hz, _rate) * ModulatedDelay::BlockSize / Rate * 4294967296.0);
+			return static_cast<uint32_t>(sendFxRateHz(_rate) * ModulatedDelay::BlockSize / Rate * 4294967296.0);
 		}
 
 		// 0 to 1 and back in a turn
@@ -53,6 +51,41 @@ namespace elektron::drums
 			const uint32_t rising = _phase >> 31 ? ~_phase : _phase;
 			return static_cast<float>(rising) / 2147483648.0f;
 		}
+	}
+
+	double sendFxRateHz(const uint8_t _rate)
+	{
+		static constexpr Knot Hz[] = {{0, 0.00175}, {4, 0.01}, {8, 0.0197}, {28, 0.0886}, {92, 2.003}, {108, 4.811},
+			{120, 13.9}, {124, 28.02}, {127, 50.07}};
+		return knots(Hz, _rate);
+	}
+
+	double phaserQ(const uint8_t _spread)
+	{
+		static constexpr Knot Q[] = {{0, 2.83}, {16, 1.92}, {32, 1.35}, {64, 0.8}, {96, 0.5}, {127, 0.29}};
+		return knots(Q, _spread);
+	}
+
+	double phaserHz(const double _frequency)
+	{
+		const double v = _frequency;
+		return std::pow(2.0, 4.916 + v * (0.07693 - 8.98e-6 * v));
+	}
+
+	double dp4RateHz(const uint8_t _rate)
+	{
+		const double rate = _rate * 99.0 / 127;
+		return rate > 0 ? std::exp(-5.684159 + 0.040309 * rate) * std::pow(rate, 0.913459) : 0;
+	}
+
+	double dp4DelayMs(const uint8_t _time)
+	{
+		return 1.6 * std::lround(_time * 1000.0 / 127);
+	}
+
+	double dp4Signed(const uint8_t _value)
+	{
+		return signedDp4(_value);
 	}
 
 	float sendFxLevel(const uint8_t _mix)
@@ -167,11 +200,10 @@ namespace elektron::drums
 	void Phaser::set(const int _stages, const uint8_t _frequency, const uint8_t _spread, const uint8_t _depth,
 		const uint8_t _rate, const uint8_t _feedback)
 	{
-		static constexpr Knot Q[] = {{0, 2.83}, {16, 1.92}, {32, 1.35}, {64, 0.8}, {96, 0.5}, {127, 0.29}};
 		m_stagesTo = std::clamp(_stages, 1, MaxStages);
 		m_frequency = _frequency;
 		m_depth = static_cast<float>(127 - _frequency) * _depth / 127;
-		m_dampingTo = static_cast<float>(1 / knots(Q, _spread));
+		m_dampingTo = static_cast<float>(1 / phaserQ(_spread));
 		m_step = phaseStep(_rate);
 		m_feedbackTo = 0.9375f * (static_cast<float>(_feedback) - 64) / 64;
 	}
@@ -197,8 +229,7 @@ namespace elektron::drums
 		// The triangle runs on the byte's scale, nearly equal ratios of Hz; new coefficients each block
 		m_phase += m_step;
 		m_sweep += (1 - Glide) * (m_frequency + m_depth * triangle(m_phase) - m_sweep);
-		const double v = m_sweep;
-		const double hz = std::pow(2.0, 4.916 + v * (0.07693 - 8.98e-6 * v));
+		const double hz = phaserHz(m_sweep);
 		m_damping = m_dampingTo + Glide * (m_damping - m_dampingTo);
 		m_feedback = m_feedbackTo + Glide * (m_feedback - m_feedbackTo);
 		float a1[2], a2[2], a3[2];
@@ -256,8 +287,7 @@ namespace elektron::drums
 		const double center = signedDp4(s.center);
 		m_center = static_cast<float>(center >= 0 ? center / 99 : center / 99.79);
 		m_width = static_cast<float>(s.width * 99.0 / 127 / 99.8);
-		const double rate = s.rate * 99.0 / 127;
-		const double hz = rate > 0 ? std::exp(-5.684159 + 0.040309 * rate) * std::pow(rate, 0.913459) : 0;
+		const double hz = dp4RateHz(s.rate);
 		m_step = static_cast<uint32_t>(hz * BlockSize / Rate * 4294967296.0);
 		m_feedback = static_cast<float>(0.992 * signedDp4(s.feedback) / 99);
 		m_notch = static_cast<float>(signedDp4(s.notch) / 99);
@@ -267,7 +297,7 @@ namespace elektron::drums
 		const uint8_t times[2] = {s.delayLeft, s.delayRight};
 		for(int c = 0; c < 2; ++c)
 		{
-			const double ms = 1.6 * std::lround(times[c] * 1000.0 / 127);
+			const double ms = dp4DelayMs(times[c]);
 			m_taps[c] = static_cast<uint32_t>(std::lround(43.8245 * ms + 1.8)) + static_cast<uint32_t>(c);
 		}
 	}

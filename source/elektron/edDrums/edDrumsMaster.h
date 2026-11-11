@@ -21,6 +21,17 @@ namespace elektron::drums
 		MasterVolume, MasterBytes
 	};
 
+	// The laws of the bytes, for those who show them: the threshold in dB, the ratio's x to 1, attack and release in ms,
+	// the makeup's dB under the compressor's fixed +24 dB, the detector's edge in Hz (the Filter's side of 64 says
+	// which), the drive's gain into its clip
+	double masterThresholdDb(uint8_t _value);
+	double masterRatio(uint8_t _value);
+	double masterAttackMs(uint8_t _value);
+	double masterReleaseMs(uint8_t _value);
+	double masterMakeupDb(uint8_t _value);
+	double masterFilterHz(uint8_t _value);
+	double masterDriveGain(uint8_t _value);
+
 	class Master
 	{
 	public:

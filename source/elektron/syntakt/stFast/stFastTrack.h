@@ -142,6 +142,16 @@ namespace syntakt::fast
 		double m_value[Lanes]{}, m_count[Lanes]{};
 	};
 
+	// The laws the two envelopes' tables hold by value 0-127, at _rate, for those who show them in seconds: HOLD in
+	// samples, which the amp's decay and release also take to fall to 1/10 (127: held); its attack in samples, 1 at 0;
+	// the filter envelope's attack and decay time constant in blocks (decay 0 and 127: none and held), its delay in
+	// blocks
+	double ampHoldSamples(int _value, double _rate = MachineRate);
+	double ampAttackSamples(int _value, double _rate = MachineRate);
+	double envelopeAttackBlocks(int _value, double _rate = MachineRate);
+	double envelopeDecayBlocks(int _value, double _rate = MachineRate);
+	double envelopeDelayBlocks(int _value, double _rate = MachineRate);
+
 	// The cutoff word from FREQ, ENV and KEY's words and the note, as 0x400956bc computes them, _envelope 0 to 1
 	int32_t filterCutoff(int _freq, int _depth, int _keyTrack, int _note, double _envelope);
 }

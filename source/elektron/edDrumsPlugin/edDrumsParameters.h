@@ -1,6 +1,8 @@
 #pragma once
 
 #include <array>
+#include <functional>
+#include <string>
 
 #include "edDrumsEngine.h"
 
@@ -77,4 +79,16 @@ namespace elektron::drums::parameters
 	ChainSettings chainOf(const ChainArray& _values);
 	LfoArray valuesOf(const LfoSettings& _settings);
 	LfoSettings lfoOf(const LfoArray& _values);
+
+	// The value of another parameter by its ID, a Track's without its "tNN_": the same Track's, or a shared one
+	using Other = std::function<int(const char* _id)>;
+
+	// What the host and the editor show of an integer parameter's _value: Hz, dB, seconds, notes, % or Q where the engine's
+	// law gives the unit (some depend on another parameter: a filter's or drive's type, the band's, the phaser's mode),
+	// else the number. _id as in Other
+	std::string valueText(const std::string& _id, int _value, const Other& _other);
+
+	// The value from _min to _max whose text is _text, the nearest to the parameter's own value among those that show it;
+	// else the one whose text's number is nearest to the number _text starts with
+	int valueOf(const std::string& _id, const std::string& _text, int _min, int _max, const Other& _other);
 }

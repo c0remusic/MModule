@@ -468,16 +468,24 @@ namespace syntakt::fast
 
 	// ---- the amp's envelope ----
 
+	double ampHoldSamples(const int _value, const double _rate)
+	{
+		return logCurve(HoldCurve, _value) * (_rate / MachineRate);
+	}
+
+	double ampAttackSamples(const int _value, const double _rate)
+	{
+		return _value == 0 ? 1 : _value < AttackLong ? ampHoldSamples(_value, _rate) / 7 : attackSeconds(_value) * _rate;
+	}
+
 	TrackAmp::TrackAmp(const double _rate)
 	{
-		const double scale = _rate / MachineRate;
 		for(int i = 0; i < 128; ++i)
 		{
-			const double hold = logCurve(HoldCurve, i) * scale;
+			const double hold = ampHoldSamples(i, _rate);
 			m_hold[i] = static_cast<int>(std::lround(hold));
 			m_decay[i] = i == 127 ? 1.0f : static_cast<float>(std::exp(-std::log(10.0) / hold));
-			const double attack = i == 0 ? 1 : i < AttackLong ? hold / 7 : attackSeconds(i) * _rate;
-			m_attack[i] = static_cast<float>(1 / attack);
+			m_attack[i] = static_cast<float>(1 / ampAttackSamples(i, _rate));
 		}
 	}
 
@@ -609,17 +617,31 @@ namespace syntakt::fast
 
 	// ---- the filter's envelope ----
 
+	double envelopeDecayBlocks(const int _value, const double _rate)
+	{
+		return logCurve(EnvelopeDecay, _value) * (_rate / MachineRate);
+	}
+
+	double envelopeAttackBlocks(const int _value, const double _rate)
+	{
+		return logCurve(EnvelopeAttack, _value) * (_rate / MachineRate);
+	}
+
+	double envelopeDelayBlocks(const int _value, const double _rate)
+	{
+		// A block a step, then a cubic, 3 s at 127
+		const double d = _value;
+		const double cubic = d * (d * (d * 0.0021948812 + 0.00050997472) - 0.039009488) + 0.3582401;
+		return (_value <= 21 ? d : cubic) * (_rate / MachineRate);
+	}
+
 	FilterEnvelope::FilterEnvelope(const double _rate)
 	{
-		const double scale = _rate / MachineRate;
 		for(int i = 0; i < 128; ++i)
 		{
-			m_decay[i] = i == 0 ? 0 : i == 127 ? 1 : std::exp(-1 / (logCurve(EnvelopeDecay, i) * scale));
-			m_attack[i] = 1 / (logCurve(EnvelopeAttack, i) * scale);
-			// A block a step, then a cubic, 3 s at 127
-			const double d = i;
-			const double cubic = d * (d * (d * 0.0021948812 + 0.00050997472) - 0.039009488) + 0.3582401;
-			m_delay[i] = (i <= 21 ? d : cubic) * scale;
+			m_decay[i] = i == 0 ? 0 : i == 127 ? 1 : std::exp(-1 / envelopeDecayBlocks(i, _rate));
+			m_attack[i] = 1 / envelopeAttackBlocks(i, _rate);
+			m_delay[i] = envelopeDelayBlocks(i, _rate);
 		}
 	}
 

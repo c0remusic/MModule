@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 
 #include "edDrumsOversampler.h"
@@ -136,6 +137,10 @@ namespace elektron::drums
 		{
 			float a1 = 0, a2 = 0, a3 = 0, m0 = 1, m1 = 0, m2 = 0;
 		};
+
+		// A band's frequency by its value, 20 Hz to 20 kHz, and its gain by its value (or between two), +-18 dB about 64
+		static double hz(const int _value) { return 20 * std::pow(1000.0, _value / 127.0); }
+		static double db(const double _value) { return (_value - 64) * 18.0 / 63; }
 
 		static Words lowShelf(double _hz, double _db, double _rate);
 		static Words bell(double _hz, double _db, double _rate);

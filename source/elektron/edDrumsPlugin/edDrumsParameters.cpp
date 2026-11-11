@@ -1,6 +1,13 @@
 #include "edDrumsParameters.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <limits>
+#include <numeric>
+
+#include "edDrumsMaster.h"
 
 namespace elektron::drums::parameters
 {
@@ -18,6 +25,333 @@ namespace elektron::drums::parameters
 		{
 			return static_cast<int>(std::lround(_value));
 		}
+
+		// ---- the texts of the values ----
+
+		double significant(const double _x)
+		{
+			if(_x == 0 || !std::isfinite(_x))
+				return _x;
+			const double scale = std::pow(10.0, 2 - std::floor(std::log10(std::abs(_x))));
+			return std::round(_x * scale) / scale;
+		}
+
+		// Three significant figures and the unit: "440 Hz", "12.5 ms", "0 ms"
+		std::string withUnit(const double _x, const char* _unit)
+		{
+			const double r = significant(_x);
+			const int decimals = r == 0 ? 0 : std::clamp(2 - static_cast<int>(std::floor(std::log10(std::abs(r)))), 0, 5);
+			char text[40];
+			std::snprintf(text, sizeof(text), "%.*f%s%s", decimals, r, *_unit ? " " : "", _unit);
+			return text;
+		}
+
+		std::string seconds(const double _s)
+		{
+			if(!std::isfinite(_s))
+				return "INF";
+			return significant(_s * 1000) < 1000 ? withUnit(_s * 1000, "ms") : withUnit(_s, "s");
+		}
+
+		std::string hertz(const double _hz)
+		{
+			return significant(_hz) < 1000 ? withUnit(_hz, "Hz") : withUnit(_hz / 1000, "kHz");
+		}
+
+		std::string decibels(const double _db, const bool _signed = false)
+		{
+			if(!std::isfinite(_db))
+				return "-inf dB";
+			const double r = std::round(_db * 10) / 10;
+			char text[40];
+			std::snprintf(text, sizeof(text), "%s%.1f dB", _signed && r > 0 ? "+" : "", r == 0 ? 0.0 : r);
+			return text;
+		}
+
+		// An amplitude's gain in dB
+		std::string gain(const double _gain, const bool _signed = false)
+		{
+			return decibels(_gain > 0 ? 20 * std::log10(_gain) : -std::numeric_limits<double>::infinity(), _signed);
+		}
+
+		std::string signedNumber(const long _value)
+		{
+			return (_value > 0 ? "+" : "") + std::to_string(_value);
+		}
+
+		// A length in 128ths of a whole note, as the fraction it reduces to
+		std::string noteLength(const int _128ths)
+		{
+			if(_128ths == 0)
+				return "0";
+			const int g = std::gcd(_128ths, 128);
+			return std::to_string(_128ths / g) + "/" + std::to_string(128 / g);
+		}
+
+		// The level of a Track or a send, as Engine::gainOf and Engine::setSend take it: the square of its fraction
+		std::string squared(const int _value)
+		{
+			const double g = _value / 127.0;
+			return gain(g * g);
+		}
+
+		// syntakt::fast::Multimode: its cutoff word's index in 512 steps a 4400th of the way from 5 Hz (Tables::cosX);
+		// FREQ's word as Chain::setFilter gives it, no envelope, no key tracking
+		double syntaktCutoffHz(const int _value)
+		{
+			const int index = syntakt::fast::filterCutoff(_value << 8, 0x4000, 0, 48, 0) >> 22;
+			return 5 * std::pow(4400.0, index / 512.0);
+		}
+
+		// md::fast::Filter: FLTF's word >> 3 on the 2048 steps from 5 Hz to 20 kHz of tables::cutoff
+		double mdCutoffHz(const int _value)
+		{
+			return 5 * std::pow(4000.0, ((_value << 7) >> 3) / 2048.0);
+		}
+
+		// The edge the low-pass sits above FLTF's (Filter::set's lowEdge), in octaves of that scale
+		double mdWidthOctaves(const int _value)
+		{
+			return ((_value << 7) >> 3) / 2048.0 * std::log2(4000.0);
+		}
+
+		// md::fast::Eq: EQF's word >> 3 on the 2048 steps from 20 Hz to 20 kHz of tables::eqFrequency
+		double mdEqHz(const int _value)
+		{
+			return 20 * std::pow(1000.0, ((_value << 7) >> 3) / 2048.0);
+		}
+
+		// md::fast::Srr's period in steps of 16 a sample: the rate it holds samples at
+		double srrHz(const int _value)
+		{
+			const double x = (_value << 7) + 0x4000;
+			return 44100.0 * 16 / ((x * x / 8388608.0 - 0x20) * 4 + 0x10);
+		}
+
+		// md::fast::Dist's gain, tables::distGain at DIST x 2 after the DSP's shift of 9
+		double mdDistGain(const int _value)
+		{
+			return 512 * std::pow(64.0, (2 * _value - 255) / 255.0);
+		}
+
+		// syntakt::fast::TrackDrive's gain into its clip: 0.1535 at 0, plus the word's square (its DriveFloor)
+		double syntaktDriveGain(const int _value)
+		{
+			const double u = (_value << 8) / 32768.0;
+			return 0.1535 + (1 - 0.1535) * u * u;
+		}
+
+		// syntakt::fast::FilterEnvelope's blocks of 32 at 48 kHz in seconds
+		double blocks(const double _blocks)
+		{
+			return _blocks * elektron::BlockSize / syntakt::fast::MachineRate;
+		}
+
+		// A signed byte as the DP/4 shows it, -99 to 99 (Dp4Phaser)
+		std::string dp4(const int _value)
+		{
+			return signedNumber(std::lround(dp4Signed(static_cast<uint8_t>(_value))));
+		}
+
+		double numberIn(const std::string& _text, bool& _found)
+		{
+			const char* start = _text.c_str();
+			char* end = nullptr;
+			double x = std::strtod(start, &end);
+			_found = end != start;
+			while(*end == ' ')
+				++end;
+			if(*end == 'k')
+				x *= 1000;
+			else if(end[0] == 'm' && end[1] == 's')
+				x /= 1000;
+			return x;
+		}
+	}
+
+	std::string valueText(const std::string& _id, const int _v, const Other& _other)
+	{
+		const auto is = [&_id](const char* _s) { return _id == _s; };
+		const auto starts = [&_id](const char* _s) { return _id.rfind(_s, 0) == 0; };
+		const auto ends = [&_id](const std::string& _s)
+		{
+			return _id.size() >= _s.size() && _id.compare(_id.size() - _s.size(), _s.size(), _s) == 0;
+		};
+		const double inf = std::numeric_limits<double>::infinity();
+		namespace st = syntakt::fast;
+
+		// A Track's level and pan, its sends (Engine::setLevel, setPan, setSend)
+		if(is("level") || starts("send_"))
+			return squared(_v);
+		if(is("pan"))
+			return _v == 64 ? "C" : _v < 64 ? "L" + std::to_string(64 - _v) : "R" + std::to_string(_v - 64);
+
+		// The chain (Chain::setDrive, setBand, setFilter, its TrackAmp and FilterEnvelope)
+		if(starts("drv") && ends("_amount"))
+		{
+			switch(static_cast<DriveType>(_other((_id.substr(0, 5) + "type").c_str())))
+			{
+			case DriveType::Syntakt:	return gain(syntaktDriveGain(_v), true);
+			case DriveType::MdDist:		return gain(mdDistGain(_v), true);
+			case DriveType::MdSrr:		return hertz(srrHz(_v));
+			default:					return std::to_string(_v);
+			}
+		}
+		if(starts("drv") && ends("_mix"))
+			return withUnit(100.0 * _v / 127, "%");
+		if(starts("band_") && _id.size() == 6)
+		{
+			const int band = _id[5] - '1';
+			switch(static_cast<BandType>(_other("band_type")))
+			{
+			case BandType::ThreeBand:	return band % 2 ? decibels(ThreeBand::db(_v), true) : hertz(ThreeBand::hz(_v));
+			case BandType::MdEq:		return band == 0 ? hertz(mdEqHz(_v)) : std::to_string(_v);
+			default:					return std::to_string(_v);
+			}
+		}
+		const auto filter = [&] { return static_cast<FilterType>(_other("flt_type")); };
+		if(is("flt_freq") && filter() == FilterType::Syntakt)
+			return hertz(syntaktCutoffHz(_v));
+		if(is("flt_freq") && filter() == FilterType::Machinedrum)
+			return hertz(mdCutoffHz(_v));
+		// RESO and FLTQ: a Q in equal ratios (Multimode::Tables, md::fast::tables' resonance offsets)
+		if(is("flt_res") && filter() == FilterType::Syntakt)
+			return "Q " + withUnit(0.501 * std::pow(std::sqrt(500.0) / 0.501, _v / 127.0), "");
+		if(is("flt_res") && filter() == FilterType::Machinedrum)
+			return "Q " + withUnit(0.501 * std::pow(2 * std::sqrt(2.0) / 0.501, _v / 127.0), "");
+		if(is("flt_width") && filter() == FilterType::Machinedrum)
+			return withUnit(mdWidthOctaves(_v), "oct");
+		if(is("fenv_delay"))
+			return seconds(blocks(st::envelopeDelayBlocks(_v)));
+		if(is("fenv_attack"))
+			return seconds(blocks(st::envelopeAttackBlocks(_v)));
+		if(is("fenv_decay") || is("fenv_release"))
+			return seconds(_v == 0 ? 0 : _v == 127 ? inf : blocks(st::envelopeDecayBlocks(_v)));
+		if(is("fenv_sustain"))
+			return withUnit(100.0 * _v / 127, "%");
+		if(is("fenv_depth"))
+			return signedNumber(_v - 64);
+		if(is("amp_attack"))
+			return seconds(_v == 0 ? 0 : st::ampAttackSamples(_v) / st::MachineRate);
+		if(is("amp_hold") || is("amp_decay") || is("amp_release"))
+			return seconds(_v == 127 ? inf : st::ampHoldSamples(_v) / st::MachineRate);
+		if(is("amp_sustain"))
+			return gain(_v / 128.0);
+
+		// The Echo (md::fast::echoWords: TIME in 128ths of 4 beats, 127 a whole; FB doubled in the loop) and the Gate Box
+		// (Y:$18C / 2 frames of pre-delay, DEC's row of reverberation times, mdFastGateBox.cpp)
+		if(is("echo_time"))
+			return noteLength(_v == 127 ? 128 : _v);
+		if(is("echo_fb"))
+			return withUnit(100.0 * _v / 64, "%");
+		if(is("gate_pred"))
+			return seconds(((_v << 7) & 0xfffe) / 2 / 44100.0);
+		if(is("gate_dec"))
+			return seconds(0.4 * std::pow(10.0, ((_v << 7) >> 8) / 63.0));
+
+		// The Syntakt's (Delay::targetFrames: TIME + 1 in 128ths; its FDBK; Reverb::process's pre-delay at 48 kHz and
+		// its shelf's GAIN at Nyquist)
+		if(is("delay_time"))
+			return noteLength(_v + 1);
+		if(is("delay_fdbk"))
+			return withUnit(100 * 66053.0 * std::min(_v << 8, 0x7f00) / 2147483648.0, "%");
+		if(is("reverb_pre"))
+		{
+			const int64_t pre = _v << 8;
+			return seconds(static_cast<double>(std::min<int64_t>((2 * pre * pre) >> 17, 0x4000 - 0x25) + 0x25)
+				/ st::MachineRate);
+		}
+		if(is("reverb_gain"))
+			return gain((_v << 8) / 32768.0);
+
+		// Our chorus and phaser (edDrumsSendFx.cpp)
+		if(is("chorus_rate"))
+			return hertz(sendFxRateHz(static_cast<uint8_t>(_v)));
+		if(is("chorus_depth"))
+			return withUnit(100.0 * _v / 128, "%");
+		if(is("chorus_delay"))
+			return seconds((ModulatedDelay::ChorusStep * _v + 1) / 44100);
+		if(is("chorus_fdbk"))
+			return withUnit(100 * (_v - 64) / 65.6, "%");
+		if(is("chorus_level") || is("phaser_level"))
+			return gain(sendFxLevel(static_cast<uint8_t>(_v)));
+		const auto mode = [&] { return _other("phaser_mode"); };
+		if(is("phaser_rate"))
+			return hertz(mode() == 2 ? dp4RateHz(static_cast<uint8_t>(_v)) : sendFxRateHz(static_cast<uint8_t>(_v)));
+		if(is("phaser_freq"))
+		{
+			if(mode() == 0)
+				return hertz(phaserHz(_v));
+			if(mode() == 1)
+				return seconds((ModulatedDelay::FlangerStep * _v + 1) / 44100);
+			return dp4(_v);
+		}
+		if(is("phaser_spread") && mode() != 1)
+			return mode() == 0 ? "Q " + withUnit(phaserQ(static_cast<uint8_t>(_v)), "") : dp4(_v);
+		if(is("phaser_fdbk"))
+		{
+			if(mode() == 0)
+				return withUnit(100 * 0.9375 * (_v - 64) / 64, "%");
+			if(mode() == 1)
+				return withUnit(100 * (_v - 64) / 65.6, "%");
+			return dp4(_v);
+		}
+		if(is("phaser_dp4_left") || is("phaser_dp4_right"))
+			return seconds(dp4DelayMs(static_cast<uint8_t>(_v)) / 1000);
+		if(is("phaser_dp4_fdbk"))
+			return dp4(_v);
+
+		// The master (edDrumsMaster.cpp). Makeup with the compressor's fixed x 16; the drive's mix is 0 at 0
+		const auto byte = static_cast<uint8_t>(_v);
+		if(is("master_threshold"))
+			return decibels(masterThresholdDb(byte));
+		if(is("master_ratio"))
+			return withUnit(masterRatio(byte), "") + ":1";
+		if(is("master_attack"))
+			return seconds(masterAttackMs(byte) / 1000);
+		if(is("master_release"))
+			return seconds(masterReleaseMs(byte) / 1000);
+		if(is("master_makeup"))
+			return decibels(20 * std::log10(16.0) + masterMakeupDb(byte), true);
+		if(is("master_filter"))
+			return (_v < 64 ? "LP " : "HP ") + hertz(masterFilterHz(byte));
+		if(is("master_drive"))
+			return _v == 0 ? "OFF" : gain(masterDriveGain(byte));
+		if(is("master_volume"))
+			return squared(_v);
+
+		return std::to_string(_v);
+	}
+
+	int valueOf(const std::string& _id, const std::string& _text, const int _min, const int _max, const Other& _other)
+	{
+		const int own = _other(_id.c_str());
+		const auto first = _text.find_first_not_of(' '), last = _text.find_last_not_of(' ');
+		const std::string text = first == std::string::npos ? std::string() : _text.substr(first, last - first + 1);
+		int found = _min - 1;
+		for(int v = _min; v <= _max; ++v)
+			if(valueText(_id, v, _other) == text && (found < _min || std::abs(v - own) < std::abs(found - own)))
+				found = v;
+		if(found >= _min)
+			return found;
+
+		bool number = false;
+		const double wanted = numberIn(text, number);
+		if(!number)
+			return std::clamp(own, _min, _max);
+		double best = std::numeric_limits<double>::infinity();
+		found = own;
+		for(int v = _min; v <= _max; ++v)
+		{
+			bool has = false;
+			const double x = numberIn(valueText(_id, v, _other), has);
+			if(has && std::abs(x - wanted) < best)
+			{
+				best = std::abs(x - wanted);
+				found = v;
+			}
+		}
+		return std::clamp(found, _min, _max);
 	}
 
 	const std::array<Spec, ChainValues> chainSpecs{{

@@ -35,6 +35,7 @@
 #include <string>
 #include <vector>
 
+#include "edDrumsMaster.h"
 #include "edDrumsProcessor.h"
 #include "mdProtocol/mdmachines.h"
 
@@ -1374,6 +1375,263 @@ namespace
 		std::printf("  the state: %zu bytes; patterns, Locks and the sample restored play the same\n", state.getSize());
 		std::printf("PASS: the sequencer plays the host's transport\n");
 	}
+
+	// ---- the values' units ----
+
+	// What a value's text says in its base unit: Hz, s, dB, % or a bare number, after a "Q ", "LP " or "HP "
+	double measure(const juce::String& _text)
+	{
+		const auto t = _text.trim();
+		if(t.startsWith("-inf"))
+			return -std::numeric_limits<double>::infinity();
+		if(t == "INF")
+			return std::numeric_limits<double>::infinity();
+		int at = 0;
+		while(at < t.length() && !(juce::CharacterFunctions::isDigit(t[at]) || t[at] == '-' || t[at] == '+'))
+			++at;
+		const auto rest = t.substring(at);
+		if(rest.containsChar('/'))		// a note's length, in wholes
+			return rest.upToFirstOccurrenceOf("/", false, false).getDoubleValue()
+				/ rest.fromFirstOccurrenceOf("/", false, false).getDoubleValue();
+		const double x = rest.getDoubleValue();
+		const auto unit = rest.fromFirstOccurrenceOf(" ", false, false);
+		if(unit.startsWith("k"))
+			return x * 1000;
+		if(unit == "ms")
+			return x / 1000;
+		return x;
+	}
+
+	// The text of _id at _value, as the host asks for it
+	juce::String textAt(Processor& _processor, const juce::String& _id, const int _value)
+	{
+		auto& p = find(_processor, _id);
+		return p.getText(p.convertTo0to1(static_cast<float>(_value)), 0);
+	}
+
+	// The text at _value within three significant figures of _expected (dB within 0.05)
+	void requireValue(Processor& _processor, const juce::String& _id, const int _value, const double _expected)
+	{
+		const auto text = textAt(_processor, _id, _value);
+		const double shown = measure(text);
+		const bool same = std::isinf(_expected) ? shown == _expected
+			: std::abs(shown - _expected) <= std::max(0.0051 * std::abs(_expected), text.endsWith("dB") ? 0.051 : 1e-9);
+		require(same, (_id + " at " + juce::String(_value) + " shows " + text + ", the engine's " + juce::String(_expected))
+			.toStdString());
+	}
+
+	void requireValues(Processor& _processor, const juce::String& _id, const std::function<double(int)>& _engine)
+	{
+		for(const int v : {0, 64, 127})
+			requireValue(_processor, _id, v, _engine(v));
+	}
+
+	// Every value of _p shown and read back as the host does: the same step; a float, the same text
+	void roundTrip(juce::RangedAudioParameter& _p)
+	{
+		const auto before = _p.getValue();
+		if(dynamic_cast<juce::AudioParameterFloat*>(&_p))
+		{
+			for(const float v : {0.0f, 0.25f, 0.5f, 1.0f})
+			{
+				const auto text = _p.getText(v, 0);
+				require(_p.getText(_p.getValueForText(text), 0) == text, (_p.getParameterID() + ": " + text).toStdString());
+			}
+			return;
+		}
+		const auto& r = _p.getNormalisableRange();
+		for(int v = juce::roundToInt(r.start); v <= juce::roundToInt(r.end); ++v)
+		{
+			const float normalised = _p.convertTo0to1(static_cast<float>(v));
+			_p.setValue(normalised);
+			const auto text = _p.getText(normalised, 0);
+			const int back = juce::roundToInt(_p.convertFrom0to1(_p.getValueForText(text)));
+			require(back == v, (_p.getParameterID() + " " + juce::String(v) + " shows " + text + ", read back as "
+				+ juce::String(back)).toStdString());
+		}
+		_p.setValue(before);
+	}
+
+	void units()
+	{
+		Processor processor;
+		namespace st = syntakt::fast;
+		const double inf = std::numeric_limits<double>::infinity();
+		const auto db = [](const double _gain) { return _gain > 0 ? 20 * std::log10(_gain) : -std::numeric_limits<double>::infinity(); };
+		const auto choose = [&](const juce::String& _id, const int _value) { set(find(processor, _id), _value); };
+
+		// Every parameter of Track 1 and the shared ones at their defaults (the other Tracks' are Track 1's)
+		int checked = 0;
+		for(auto* parameter : processor.getParameters())
+		{
+			auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter);
+			if(p && (!p->getParameterID().startsWith("t") || p->getParameterID().startsWith("t01_")
+				|| p->getParameterID() == "tempo"))
+			{
+				roundTrip(*p);
+				++checked;
+			}
+		}
+
+		// Level, sends, pan: Engine::gainOf and setSend take the square of the fraction, panOf 64 as the centre
+		const auto squared = [&](const int _v) { return db(_v / 127.0 * (_v / 127.0)); };
+		requireValues(processor, "t01_level", squared);
+		requireValues(processor, "t01_send_reverb", squared);
+		require(textAt(processor, "t01_pan", 0) == "L64" && textAt(processor, "t01_pan", 64) == "C"
+			&& textAt(processor, "t01_pan", 127) == "R63", "pan");
+
+		// The Syntakt's filter: the cutoff word Chain::setFilter computes, on Multimode's scale; RESO's Q
+		choose("t01_flt_type", static_cast<int>(FilterType::Syntakt));
+		requireValues(processor, "t01_flt_freq", [](const int _v)
+		{
+			return 5 * std::pow(4400.0, (st::filterCutoff(wordOf(_v, 0) << 1, 64 << 8, 0, 60, 0) >> 22) / 512.0);
+		});
+		requireValues(processor, "t01_flt_res", [](const int _v) { return 0.501 * std::pow(std::sqrt(500.0) / 0.501, _v / 127.0); });
+		roundTrip(find(processor, "t01_flt_freq"));
+		roundTrip(find(processor, "t01_flt_res"));
+
+		// The Machinedrum's: the frequency of the pole radius the DSP's table holds at FLTF's word >> 3
+		const auto& md = md::fast::tables::tables(44100);
+		const auto fromRadius = [](const int32_t _word, const double _rate)
+		{
+			return -std::log(_word / 8388608.0) * _rate / (2 * 3.14159265358979323846);
+		};
+		choose("t01_flt_type", static_cast<int>(FilterType::Machinedrum));
+		requireValues(processor, "t01_flt_freq", [&](const int _v)
+		{
+			return fromRadius(md.cutoffExp[static_cast<size_t>((wordOf(_v, 0) >> 3) + md::fast::tables::CutoffExpBase)], 44100);
+		});
+		requireValues(processor, "t01_flt_width", [](const int _v) { return (wordOf(_v, 0) >> 3) / 2048.0 * std::log2(4000.0); });
+		roundTrip(find(processor, "t01_flt_freq"));
+		roundTrip(find(processor, "t01_flt_width"));
+
+		// The envelopes, at 48 kHz in seconds; the amp's decay measured on a TrackAmp: the blocks it takes to fall to 1/10
+		requireValues(processor, "t01_amp_hold", [&](const int _v) { return _v == 127 ? inf : st::ampHoldSamples(_v) / 48000; });
+		requireValues(processor, "t01_amp_attack", [](const int _v) { return _v == 0 ? 0 : st::ampAttackSamples(_v) / 48000; });
+		requireValues(processor, "t01_fenv_attack", [](const int _v) { return st::envelopeAttackBlocks(_v) * 32 / 48000; });
+		requireValues(processor, "t01_fenv_decay", [&](const int _v)
+		{
+			return _v == 0 ? 0 : _v == 127 ? inf : st::envelopeDecayBlocks(_v) * 32 / 48000;
+		});
+		requireValues(processor, "t01_fenv_delay", [](const int _v) { return st::envelopeDelayBlocks(_v) * 32 / 48000; });
+		requireValues(processor, "t01_amp_sustain", [&](const int _v) { return db(_v / 128.0); });
+		{
+			st::TrackAmp amp(st::MachineRate);
+			amp.set(0, 0, 0, 64, 0, 0, false);
+			amp.trig(0);
+			st::Block block{};
+			int samples = 0;
+			do
+			{
+				for(auto& s : block.s)
+					s[0] = 1;
+				amp.process(block, 1);
+				samples += st::BlockSize;
+			} while(amp.level(0) > 0.1f && samples < 48000 * 60);
+			const double shown = measure(textAt(processor, "t01_amp_decay", 64));
+			require(std::abs(shown * 48000 - samples) <= 3 * st::BlockSize + st::ampHoldSamples(0),
+				"amp decay 64: " + std::to_string(samples) + " samples to 1/10, shown " + std::to_string(shown));
+		}
+		{
+			st::FilterEnvelope envelope(st::MachineRate);
+			st::FilterEnvelope::Setting s;
+			s.attack = 64;
+			envelope.step(0, s, true, false);
+			int steps = 0;
+			while(envelope.step(0, s, false, false) < 1 && steps < 100000)
+				++steps;
+			const double shown = measure(textAt(processor, "t01_fenv_attack", 64)) * 48000 / 32;
+			require(std::abs(shown - (steps + 1)) <= 1.5, "filter attack 64: " + std::to_string(steps + 1) + " blocks");
+		}
+
+		// The drives: TrackDrive's gain into its clip, Dist's table after its shift, Srr's held rate
+		choose("t01_drv1_type", static_cast<int>(DriveType::Syntakt));
+		requireValues(processor, "t01_drv1_amount", [&](const int _v)
+		{
+			const double u = (wordOf(_v, 0) << 1) / 32768.0;
+			return db(0.1535 + 0.8465 * u * u);
+		});
+		roundTrip(find(processor, "t01_drv1_amount"));
+		choose("t01_drv1_type", static_cast<int>(DriveType::MdDist));
+		requireValues(processor, "t01_drv1_amount", [&](const int _v)
+		{
+			return db(md.distGain[static_cast<size_t>(wordOf(_v, 0) >> 6)] / 8388608.0 * 512);
+		});
+		roundTrip(find(processor, "t01_drv1_amount"));
+		choose("t01_drv1_type", static_cast<int>(DriveType::MdSrr));
+		requireValues(processor, "t01_drv1_amount", [](const int _v)
+		{
+			const double x = wordOf(_v, 0) + 0x4000;
+			return 44100.0 * 16 / ((x * x / 8388608 - 32) * 4 + 16);
+		});
+		roundTrip(find(processor, "t01_drv1_amount"));
+		requireValues(processor, "t01_drv1_mix", [](const int _v) { return 100.0 * _v / 127; });
+
+		// The bands: ThreeBand's laws, the EQ's pole radius table at EQF's word >> 3
+		choose("t01_band_type", static_cast<int>(BandType::ThreeBand));
+		requireValues(processor, "t01_band_3", [](const int _v) { return ThreeBand::hz(_v); });
+		requireValues(processor, "t01_band_4", [](const int _v) { return ThreeBand::db(_v); });
+		for(int b = 1; b <= 6; ++b)
+			roundTrip(find(processor, "t01_band_" + juce::String(b)));
+		choose("t01_band_type", static_cast<int>(BandType::MdEq));
+		requireValues(processor, "t01_band_1", [&](const int _v)
+		{
+			return fromRadius(md.eqExp[static_cast<size_t>((wordOf(_v, 0) >> 3) + md::fast::tables::EqExpBase)], 44100);
+		});
+		roundTrip(find(processor, "t01_band_1"));
+
+		// The delays' times in 128ths of a whole note, from their frames at 120 BPM (2 s a whole); the Gate Box's
+		const auto wholes = [](const double _samples, const double _rate) { return std::round(_samples / _rate / 2 * 128); };
+		requireValues(processor, "delay_time", [&](const int _v)
+		{
+			return wholes(static_cast<double>((static_cast<uint32_t>((_v << 8) + 0x100) * 48000u >> 10) * 900 / 14400), 48000)
+				/ 128;
+		});
+		requireValues(processor, "echo_time", [&](const int _v)
+		{
+			uint32_t product = static_cast<uint32_t>(_v << 7) * 44100u;
+			if((_v << 7) > 0x3f3d)
+				product += 128 * 44100u;
+			return wholes(static_cast<double>((product >> 10) * 360 / 2880), 44100) / 128;
+		});
+		require(textAt(processor, "delay_time", 31) == "1/4" && textAt(processor, "echo_time", 32) == "1/4", "a quarter");
+		requireValues(processor, "gate_dec", [](const int _v) { return 0.4 * std::pow(10.0, (_v >> 1) / 63.0); });
+		requireValues(processor, "gate_pred", [](const int _v) { return _v * 64 / 44100.0; });
+		requireValues(processor, "reverb_pre", [](const int _v) { return (_v * _v + 37) / 48000.0; });
+		requireValues(processor, "delay_fdbk", [](const int _v) { return 100 * 66053.0 * (_v << 8) / 2147483648.0; });
+
+		// Our chorus and phaser, their laws in edDrumsSendFx
+		requireValues(processor, "chorus_rate", [](const int _v) { return sendFxRateHz(static_cast<uint8_t>(_v)); });
+		requireValues(processor, "chorus_delay", [](const int _v) { return (8.0 * _v + 1) / 44100; });
+		requireValues(processor, "chorus_level", [&](const int _v) { return db(sendFxLevel(static_cast<uint8_t>(_v))); });
+		requireValues(processor, "phaser_freq", [](const int _v) { return phaserHz(_v); });
+		choose("phaser_mode", 1);
+		requireValues(processor, "phaser_freq", [](const int _v) { return (32.0 / 127 * _v + 1) / 44100; });
+		roundTrip(find(processor, "phaser_freq"));
+		choose("phaser_mode", 2);
+		requireValues(processor, "phaser_rate", [](const int _v) { return dp4RateHz(static_cast<uint8_t>(_v)); });
+		requireValues(processor, "phaser_dp4_left", [](const int _v) { return dp4DelayMs(static_cast<uint8_t>(_v)) / 1000; });
+		require(textAt(processor, "phaser_freq", 0) == "-99" && textAt(processor, "phaser_freq", 127) == "+99", "DP/4");
+		for(const char* id : {"phaser_rate", "phaser_freq", "phaser_spread", "phaser_fdbk"})
+			roundTrip(find(processor, id));
+
+		// The master
+		requireValues(processor, "master_threshold", [](const int _v) { return masterThresholdDb(static_cast<uint8_t>(_v)); });
+		requireValues(processor, "master_attack", [](const int _v) { return masterAttackMs(static_cast<uint8_t>(_v)) / 1000; });
+		requireValues(processor, "master_release", [](const int _v) { return masterReleaseMs(static_cast<uint8_t>(_v)) / 1000; });
+		requireValues(processor, "master_makeup", [](const int _v) { return 24.0823996531 * _v / 127; });
+		requireValues(processor, "master_volume", squared);
+		require(textAt(processor, "master_ratio", 0) == "1.50:1" && textAt(processor, "master_ratio", 127) == "20.0:1",
+			"ratio " + textAt(processor, "master_ratio", 0).toStdString());
+		require(textAt(processor, "master_filter", 0) == "LP 20.0 Hz" && textAt(processor, "master_filter", 127) == "HP 20.0 kHz",
+			"filter " + textAt(processor, "master_filter", 0).toStdString());
+
+		std::printf("  e.g. FLTF 64 %s, Hold 64 %s, Echo TIME 32 %s, threshold 64 %s\n",
+			textAt(processor, "t01_flt_freq", 64).toRawUTF8(), textAt(processor, "t01_amp_hold", 64).toRawUTF8(),
+			textAt(processor, "echo_time", 32).toRawUTF8(), textAt(processor, "master_threshold", 64).toRawUTF8());
+		std::printf("PASS: the values' units: %d parameters read back, every family at 0, 64 and 127 as the engine has it\n",
+			checked);
+	}
 }
 
 int main(const int _argc, char** _argv)
@@ -1398,6 +1656,7 @@ int main(const int _argc, char** _argv)
 	_putenv_s("GEARMULATOR_DATA_ROOT", root.getFullPathName().toRawUTF8());
 	try
 	{
+		units();
 		transport();
 		{
 			Processor processor;

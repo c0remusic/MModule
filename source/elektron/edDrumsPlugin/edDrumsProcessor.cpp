@@ -172,10 +172,31 @@ namespace elektron::drums
 		}
 
 		juce::AudioParameterInt* intParameter(const juce::String& _id, const juce::String& _name, const int _max,
-			const int _default, const bool _automatable = true)
+			const int _default, const bool _automatable = true,
+			const juce::AudioParameterIntAttributes& _attributes = juce::AudioParameterIntAttributes())
 		{
-			return new juce::AudioParameterInt({_id, 1}, _name, 0, _max, _default,
-				juce::AudioParameterIntAttributes().withAutomatable(_automatable));
+			return new juce::AudioParameterInt({_id, 1}, _name, 0, _max, _default, _attributes.withAutomatable(_automatable));
+		}
+
+		// The value's text in its unit, parameters::valueText's, for the parameter _prefix + _id, the others it depends on
+		// read from the same Track's or the shared ones
+		juce::AudioParameterIntAttributes unitsOf(const Processor* _processor, const juce::String& _prefix,
+			const std::string& _id, const int _min, const int _max)
+		{
+			const parameters::Other other = [_processor, _prefix](const char* _other)
+			{
+				const auto* p = _processor->parameter(_prefix + _other);
+				return p ? juce::roundToInt(p->convertFrom0to1(p->getValue())) : 0;
+			};
+			return juce::AudioParameterIntAttributes()
+				.withStringFromValueFunction([other, _id](const int _value, int)
+				{
+					return juce::String(parameters::valueText(_id, _value, other));
+				})
+				.withValueFromStringFunction([other, _id, _min, _max](const juce::String& _text)
+				{
+					return parameters::valueOf(_id, _text.toStdString(), _min, _max, other);
+				});
 		}
 	}
 
@@ -221,8 +242,10 @@ namespace elektron::drums
 				add(p.values[static_cast<size_t>(i)], Section::Machine, t);
 			}
 			add(p.note = intParameter(id + "note", name + "Note", 127, DefaultNote), Section::Machine, t);
-			add(p.level = intParameter(id + "level", name + "Level", 127, DefaultLevel), Section::Amp, t);
-			add(p.pan = intParameter(id + "pan", name + "Pan", 127, Centre), Section::Amp, t);
+			add(p.level = intParameter(id + "level", name + "Level", 127, DefaultLevel, true,
+				unitsOf(this, id, "level", 0, 127)), Section::Amp, t);
+			add(p.pan = intParameter(id + "pan", name + "Pan", 127, Centre, true, unitsOf(this, id, "pan", 0, 127)),
+				Section::Amp, t);
 			add(p.output = intParameter(id + "output", name + "Output", Outputs - 1, 0), Section::Sends, t);
 			add(p.chokes = intParameter(id + "chokes", name + "Chokes", 0xffff, 0, false), Section::Machine, t);
 		}
@@ -360,7 +383,12 @@ namespace elektron::drums
 			p = new juce::AudioParameterChoice({_id, 1}, _name, juce::StringArray::fromTokens(_spec.choices, "|", ""),
 				_default);
 		else
-			p = new juce::AudioParameterInt({_id, 1}, _name, _spec.min, _spec.max, _default);
+		{
+			// A Track's ID after its "tNN_"
+			const auto prefix = _track >= 0 ? _id.substring(0, 4) : juce::String();
+			p = new juce::AudioParameterInt({_id, 1}, _name, _spec.min, _spec.max, _default,
+				unitsOf(this, prefix, _id.substring(prefix.length()).toStdString(), _spec.min, _spec.max));
+		}
 		_watched.parameter = add(p, _section, _track);
 		m_watched.push_back(&_watched);
 	}
