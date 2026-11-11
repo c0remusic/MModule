@@ -10,6 +10,7 @@
 #include "edDrumsLfo.h"
 #include "edDrumsLibrary.h"
 #include "edDrumsMaster.h"
+#include "edDrumsSamples.h"
 #include "edDrumsSends.h"
 #include "elektronBlock.h"
 #include "mdVoice.h"
@@ -76,6 +77,11 @@ namespace elektron::drums
 		"PC CARBON", "SD VINTAGE", "CP VINTAGE", "SY TOY", "SY BITS", "SP TWINSHOT"};
 	constexpr uint8_t SyntaktTwinshot = 8;
 
+	// The Sampler, of the Machinedrum's family: the Track's own sample (Engine::setSample) through the ROM machines'
+	// player, SYN1-8 theirs (PTCH, DEC, HOLD, BRR, STRT, END, RTRG, RTIM). Track t plays it as ROM-33 + t, at that
+	// entry of the bank, so that ROM-33 to -48 are not machines of their own here. An id no Machinedrum machine has
+	constexpr Machine Sampler{Family::Machinedrum, 192};
+
 	// Whether a Track can play _machine: every Syntakt machine here, a Machinedrum one whose render is ported or a MID or
 	// CTR one, which stops the voice
 	bool playable(const Machine& _machine);
@@ -133,6 +139,11 @@ namespace elektron::drums
 
 		// _index 0-7 of the machine's page, _value 0-127
 		void setParameter(int _track, int _index, uint8_t _value);
+		// The sample the Track plays on the Sampler, nullptr none (silence). Copied into the engine's bank, without
+		// allocating: _sample need only last the call. A voice of the Track's sounding ramps out, as where a Hit of this
+		// moment would sound; the other Tracks' go on
+		void setSample(int _track, const Sample* _sample);
+
 		uint8_t parameter(const int _track, const int _index) const
 		{
 			return m_tracks[static_cast<size_t>(_track)].params[static_cast<size_t>(_index)];
@@ -328,6 +339,9 @@ namespace elektron::drums
 		// Machinedrum
 		std::array<md::voice::Track, Tracks> m_mdTracks;
 		std::unique_ptr<md::voice::Shared> m_shared;
+		// The ROM player's bank: the Library's, then from SamplerAddr a slot of Sample::SlotWords per Track
+		std::vector<uint32_t> m_directory, m_bankData;
+		md::voice::RomBank m_bank;
 		std::vector<md::voice::Voice> m_voices;
 		uint32_t m_mdMask = 0;			// the Tracks on a Machinedrum machine
 		uint32_t m_mdLive = 0;			// ... whose voice sounds

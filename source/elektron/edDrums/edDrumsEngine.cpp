@@ -35,6 +35,14 @@ namespace elektron::drums
 		constexpr std::array<uint8_t, 8> SyntaktDefaults{64, 64, 64, 64, 64, 0, 0, 64};
 		constexpr std::array<uint8_t, 8> MachinedrumDefaults{64, 64, 64, 64, 64, 64, 64, 64};
 		constexpr int VoiceHold = 6;		// HOLD among them: on, every machine's voice waits for its gate-off
+		// The Sampler plays its whole sample at its pitch: PTCH in the middle, no decay, STRT 0, END 127, no retrigger
+		constexpr std::array<uint8_t, 8> SamplerDefaults{64, 127, 0, 0, 0, 127, 0, 64};
+
+		// Where Track t's sample lies in the ROM player's bank, past the factory's, and the entry of ROM-33 + t
+		constexpr uint32_t SamplerAddr = 0x190000;
+		constexpr uint32_t SamplerEntry = 48;
+		constexpr uint8_t Rom33 = 176;
+		static_assert(SamplerAddr + Tracks * Sample::SlotWords <= 0x200000, "the voice DSP's 2M words hold the slots");
 
 		// A new Sound of these starts in ADSR, its voice held: SY BITS, as SY TONE, SY CHORD and SY DUAL VCO will
 		bool startsSustained(const Machine& _machine)
@@ -56,7 +64,7 @@ namespace elektron::drums
 		{
 			if(_machine.family != Family::Machinedrum)
 				return 0;
-			const uint8_t id = _machine.id;
+			const uint8_t id = _machine == Sampler ? Rom33 : _machine.id;
 			return id == 16 ? 34 : id == 18 ? LatestStart : id == 29 ? 33 : (id >= 128 && id < 160) || (id >= 176 && id < 192) ? 8 : 0;
 		}
 
@@ -109,13 +117,19 @@ namespace elektron::drums
 		{
 		case Family::Off:			return true;
 		case Family::Syntakt:		return _machine.id < SyntaktMachines;
-		case Family::Machinedrum:	return md::voice::playable(_machine.id);
+		case Family::Machinedrum:
+			// ROM-33 to -48's entries are the Sampler's
+			return _machine == Sampler || (md::voice::playable(_machine.id) && (_machine.id < Rom33 || _machine.id >= Rom33 + 16));
 		}
 		return false;
 	}
 
 	MachineData dataOf(const Library& _library, const Machine& _machine)
 	{
+		if(_machine == Sampler)
+			return MachineData::Whole;
+		if(!playable(_machine))
+			return MachineData::None;
 		if(_machine.family == Family::Machinedrum)
 			return _library.mdData[_machine.id];
 		const bool twinshot = _machine.family == Family::Syntakt && _machine.id == SyntaktTwinshot;
@@ -124,6 +138,8 @@ namespace elektron::drums
 
 	std::array<uint8_t, 8> defaults(const Machine& _machine)
 	{
+		if(_machine == Sampler)
+			return SamplerDefaults;
 		return _machine.family == Family::Machinedrum ? MachinedrumDefaults : SyntaktDefaults;
 	}
 
@@ -290,7 +306,17 @@ namespace elektron::drums
 		static_assert(FirTaps == Ring::Mirror, "a window of the ring is a row of the FIR");
 
 		m_shared->tables = &m_library.rom;
-		m_shared->bank = m_library.bank.directory ? &m_library.bank : nullptr;
+		// The bank is the engine's, the Library's words copied, so that each Track's sample has its slot
+		using md::voice::RomBank;
+		m_directory.assign(RomBank::DirectoryWords, 0);
+		std::copy(m_library.directory.begin(), m_library.directory.end(), m_directory.begin());
+		m_bankData.assign(SamplerAddr - RomBank::DataAddr + Tracks * Sample::SlotWords, 0);
+		std::copy_n(m_library.samples.begin(), std::min<size_t>(m_library.samples.size(), SamplerAddr - RomBank::DataAddr),
+			m_bankData.begin());
+		for(int t = 0; t < Tracks; ++t)		// ROM-33 to -48's entries are the Tracks' samples, none yet
+			setSample(t, nullptr);
+		m_bank = {m_directory.data(), m_bankData.data(), m_bankData.size()};
+		m_shared->bank = &m_bank;
 		m_shared->trx = &m_library.trx;
 		m_shared->e12 = m_library.e12.empty() ? nullptr : m_library.e12.data();
 		m_shared->pi = m_library.pi.data();
@@ -346,13 +372,30 @@ namespace elektron::drums
 		if(_machine.family == Family::Machinedrum)
 		{
 			auto& md = m_mdTracks[static_cast<size_t>(_track)];
-			md.setMachine(_machine.id, t.params);
+			md.setMachine(_machine == Sampler ? static_cast<uint8_t>(Rom33 + _track) : _machine.id, t.params);
 			md.clearMachineLocks();
 			// What it took while on no Machinedrum machine went nowhere
 			for(size_t i = 0; i < 8; ++i)
 				md.modulate(i, t.taken[static_cast<size_t>(LfoTarget::Machine1) + i]);
 			m_mdMask |= bit;
 		}
+	}
+
+	void Engine::setSample(const int _track, const Sample* _sample)
+	{
+		if(m_tracks[static_cast<size_t>(_track)].machine == Sampler)
+			cut(_track);	// renders what the old voice has left ahead: its words can go
+		const uint32_t entry = 4 * (SamplerEntry + static_cast<uint32_t>(_track));
+		const uint32_t addr = SamplerAddr + static_cast<uint32_t>(_track) * Sample::SlotWords;
+		auto* slot = m_bankData.data() + (addr - md::voice::RomBank::DataAddr);
+		const size_t words = _sample ? std::min<size_t>(_sample->words.size(), Sample::MaxWords) : 0;
+		if(words)
+			std::copy_n(_sample->words.begin(), words, slot);
+		std::fill_n(slot + words, Sample::PadWords, 0u);
+		m_directory[entry] = addr;
+		m_directory[entry + 1] = words ? static_cast<uint32_t>(std::min<size_t>(_sample->pcm.size(), 2 * words)) : 0;
+		m_directory[entry + 2] = 0xffffff;		// no loop
+		m_directory[entry + 3] = words ? _sample->rateWord : 0;
 	}
 
 	void Engine::setParameter(const int _track, const int _index, const uint8_t _value)

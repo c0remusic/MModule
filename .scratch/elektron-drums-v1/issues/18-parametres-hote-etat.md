@@ -40,3 +40,10 @@ la question reste à l'interface. Un type d'étage automatisé à la cadence d'u
 ## Noté par le ticket 13 (2026-11-06)
 
 `setLfo` est idempotent, les paramètres hôte restent la vérité : pas de relecture à ajouter dans `Engine`. Retirer alors `Processor::engine()` : `edDrumsVst3HostTest` entendra les LFO suivre le transport. Un retarget automatisé est déjà couvert par la pente à la cible.
+
+## État (2026-11-08)
+
+Version réduite faite : 1 267 paramètres hôte (75 par piste, le reste partagé), identifiants figés dans
+`edDrumsPlugin/edDrumsParameterIds.txt` et vérifiés par `edDrumsProcessorTest`, chaîne, LFO, envois, effets d'envoi et
+master compris. État version 3, valeurs par identifiant, défaut pour un identifiant absent ; il garde aussi les 128
+patterns et le sample de chaque piste. Pas faits : relais Push, compression de l'état.

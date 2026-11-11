@@ -2,9 +2,12 @@ cmake_minimum_required(VERSION 3.15)
 
 # The instrument's engine, without JUCE: 16 Tracks of either family, syntakt::fast or md::voice (ticket 11 of
 # .scratch/elektron-drums-v1). mdEngine serves its flash image reader alone.
-add_library(edDrums STATIC edDrumsChain.h edDrumsChain.cpp edDrumsEngine.h edDrumsEngine.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
+add_library(edDrums STATIC edDrumsChain.h edDrumsChain.cpp
+	edDrumsEngine.h edDrumsEngine.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
 	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
-	edDrumsMaster.h edDrumsMaster.cpp edDrumsSendFx.h edDrumsSendFx.cpp edDrumsSends.h edDrumsSends.cpp)
+	edDrumsMaster.h edDrumsMaster.cpp edDrumsSamples.h edDrumsSamples.cpp
+	edDrumsSendFx.h edDrumsSendFx.cpp edDrumsSends.h edDrumsSends.cpp
+	edDrumsSequencer.h edDrumsSequencer.cpp)
 target_include_directories(edDrums PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast PRIVATE mdEngine)
 set_property(TARGET edDrums PROPERTY FOLDER "Elektron")
@@ -35,6 +38,13 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsLfoTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsLfoTest COMMAND edDrumsLfoTest)
 	set_tests_properties(edDrumsLfoTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# The internal sequencer's core: steps at their sample whatever the block size, conditions, locks, jumps (ticket 17)
+	add_executable(edDrumsSequencerTest edDrumsSequencerTest.cpp)
+	target_link_libraries(edDrumsSequencerTest PRIVATE edDrums)
+	set_property(TARGET edDrumsSequencerTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsSequencerTest COMMAND edDrumsSequencerTest)
+	set_tests_properties(edDrumsSequencerTest PROPERTIES TIMEOUT 120)
 
 	# What 16 Tracks of both families cost at their worst, by hand, not a test: edDrumsCost [RUNS] [SECONDS]
 	add_executable(edDrumsCost edDrumsCost.cpp)

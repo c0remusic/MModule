@@ -33,3 +33,13 @@ moteur n'en a pas. L'identité de deux rendus ne tient que depuis la même phase
 
 `Engine::position()` continue au tempo quand l'hôte est arrêté, pour les LFO : ce n'est pas « l'hôte joue ». Porter `isPlaying` depuis `sync`, et lire `position()` en lecture seulement : sa tolérance donne les échantillons
 indépendants des blocs du critère 6.
+
+## État (2026-11-08)
+
+Cœur fait (`edDrums/edDrumsSequencer.*`, test `edDrumsSequencerTest`) et branché au plug-in : 128 patterns de 64 pas,
+longueur et échelle par piste (1/8 à 2x), swing, micro-timing ±23/24, ratchets qui gardent les locks du pas, onze types
+de condition (probabilité et A:B à tout réglage, FILL, PRE, NEI, 1ST et leurs négations) tirées d'une graine, locks sans
+plafond, locks sans note, mutes, changement de pattern à la fin du pattern en cours par le paramètre « Pattern » ou un
+program change. Les événements tombent au même échantillon quelle que soit la taille de bloc. Le plug-in le passe au
+thread audio par trois copies, sans verrou ni allocation. Pas faits : slides (le pas les porte, rien ne les joue), mode
+LIVE, chaînes, export MIDI, note et durée par pas ; l'état ne garde pas mutes, fill ni graine.

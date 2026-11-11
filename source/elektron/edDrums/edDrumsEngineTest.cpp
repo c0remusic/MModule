@@ -2119,6 +2119,159 @@ namespace
 		require(rcFrom(loud) == rcFrom(none), "P-I-RC hears the UW bank");
 	}
 
+	// ---- the Sampler (ticket 20) ----
+
+	Sample sine(const double _hz, const double _rate, const int _length, const char* _name)
+	{
+		// A last sample of 0: the player holds the last one, and a sample that ends off 0 fades from there in some 300
+		std::vector<float> x(static_cast<size_t>(_length) + 1, 0.0f);
+		for(int n = 0; n < _length; ++n)
+			x[static_cast<size_t>(n)] = static_cast<float>(0.5 * std::sin(2 * Pi * _hz * n / _rate));
+		auto made = makeSample(_name, x, _rate);
+		require(std::holds_alternative<Sample>(made), "makeSample refuses a sine");
+		return std::get<Sample>(std::move(made));
+	}
+
+	// Its first and last samples above 1 % of its peak, and its frequency from its rising zero crossings in between
+	struct Measure
+	{
+		int onset = -1, end = -1;
+		double hz = 0;
+	};
+
+	Measure measure(const std::vector<float>& _y)
+	{
+		Measure m;
+		const float peak = peakOf(_y);
+		for(int n = 0; n < static_cast<int>(_y.size()); ++n)
+			if(std::abs(_y[static_cast<size_t>(n)]) >= 0.01f * peak)
+			{
+				m.end = n;
+				if(m.onset < 0)
+					m.onset = n;
+			}
+		double first = -1, last = -1;
+		int crossings = 0;
+		for(int n = m.onset + 200; n < m.end - 200; ++n)
+		{
+			const float a = _y[static_cast<size_t>(n - 1)], b = _y[static_cast<size_t>(n)];
+			if(a < 0 && b >= 0)
+			{
+				last = n - 1 + a / (a - b);
+				if(first < 0)
+					first = last;
+				++crossings;
+			}
+		}
+		m.hz = crossings > 1 ? (crossings - 1) * SampleRate / (last - first) : 0;
+		return m;
+	}
+
+	// Track 0 on the Sampler, its sample _sample, hit at _note, Main and Out 01 rendered
+	Take samplerHit(const Library& _library, const Sample& _sample, const int _note, const int _samples)
+	{
+		auto e = engineWith(_library, Sampler);
+		e->setChain(0, Bare);
+		e->setSample(0, &_sample);
+		Take take(_samples);
+		take.render(*e, 0, _note);
+		e->noteOn(0, 127);
+		take.render(*e, _note, _samples - _note);
+		return take;
+	}
+
+	void sampler(const Library& _library)
+	{
+		const Library none;
+		constexpr int Note = 1000, Length = 22050;
+		const auto a = sine(1000, 44100, Length, "sine 1000");
+		const auto lowRate = sine(1000, 22050, Length, "sine 1000 at 22 kHz");
+
+		// The state's copy gives the same words back; bytes that are not one give none
+		const auto bytes = sampleToBytes(a);
+		const auto back = sampleFromBytes(bytes.data(), bytes.size());
+		require(back && back->words == a.words && back->name == a.name && back->rate == a.rate
+			&& back->rateWord == a.rateWord, "a Sample through its bytes differs");
+		require(!sampleFromBytes(bytes.data(), bytes.size() - 1), "cut bytes make a Sample");
+		require(std::holds_alternative<std::string>(makeSample("x", {0.5f}, 96000)), "96 kHz taken");
+
+		for(const Library* library : {&_library, &none})
+		{
+			const char* which = library == &none ? "without the image" : "with the image";
+			const auto take = samplerHit(*library, a, Note, Note + Engine::HitDelay + Length + 4000);
+			const auto m = measure(take.channel(0));
+			std::printf("  Sampler %s: onset %d after its note, %d samples long, %.2f Hz for 1000\n", which,
+				m.onset - Note, m.end - m.onset + 1, m.hz);
+			require(m.onset - Note >= Engine::HitDelay && m.onset - Note <= Engine::HitDelay + 3,
+				"the Sampler's Hit is not at HitDelay");
+			require(std::abs(m.end - m.onset + 1 - Length) <= 32, "the Sampler plays another length");
+			require(std::abs(m.hz - 1000) < 1, "the Sampler plays another pitch");
+			if(library == &none)
+				require(take.channel(0) == samplerHit(_library, a, Note, take.samples()).channel(0),
+					"the Sampler sounds otherwise without the image");
+
+			const auto slow = measure(samplerHit(*library, lowRate, Note, Note + 200 + 2 * Length + 4000).channel(0));
+			std::printf("  ... a sample at 22.05 kHz: %d samples long, %.2f Hz for 1000\n", slow.end - slow.onset + 1, slow.hz);
+			require(std::abs(slow.end - slow.onset + 1 - 2 * Length) <= 64 && std::abs(slow.hz - 1000) < 1,
+				"a sample at its own rate plays otherwise");
+		}
+
+		// Two Tracks, each its own sample on its own output; then Track 0's changed while Track 1 sounds, and while it
+		// sounds itself: Track 1's samples do not move, Track 0's ramp, nothing allocated
+		const auto b = sine(1500, 44100, Length, "sine 1500");
+		const auto two = [&](const bool _change, size_t* _allocated)
+		{
+			auto e = engineWith(_library, Sampler);
+			e->setMachine(1, Sampler);
+			e->setLevel(1, 127);
+			e->setOutput(1, 1);
+			for(int t = 0; t < 2; ++t)
+				e->setChain(t, Bare);
+			e->setSample(0, &a);
+			e->setSample(1, &b);
+			Take take(Note + Length + 4000);
+			take.render(*e, 0, Note);
+			e->noteOn(0, 127);
+			e->noteOn(1, 127);
+			const auto played = countAllocations([&]
+			{
+				take.render(*e, Note, 6000);
+				if(_change)
+					e->setSample(0, &lowRate);
+				take.render(*e, Note + 6000, 2000);
+				if(_change)
+					e->setSample(0, &b);
+				take.render(*e, take.samples() - take.at());
+			});
+			if(_allocated)
+				*_allocated = played;
+			return take;
+		};
+		const auto kept = two(false, nullptr);
+		const auto m0 = measure(kept.channel(0)), m1 = measure(kept.channel(2));
+		std::printf("  two Tracks: %.2f and %.2f Hz for 1000 and 1500\n", m0.hz, m1.hz);
+		require(std::abs(m0.hz - 1000) < 1 && std::abs(m1.hz - 1500) < 1.5, "two Tracks do not play their own samples");
+		size_t allocated = 0;
+		const auto changed = two(true, &allocated);
+		require(changed.channel(2) == kept.channel(2), "Track 1 moves as Track 0's sample changes");
+		const auto& y = changed.channel(0);
+		float step = 0, stepBefore = 0;
+		for(size_t n = 1; n < y.size(); ++n)
+		{
+			const float d = std::abs(y[n] - y[n - 1]);
+			step = std::max(step, d);
+			if(n < Note + 6000)
+				stepBefore = std::max(stepBefore, d);
+		}
+		const int changedAt = Note + 6000 + Engine::HitDelay;
+		require(peakOf(std::vector<float>(y.begin() + changedAt + Engine::CutSamples, y.begin() + changedAt + 1900)) == 0,
+			"Track 0 sounds on after its sample changed");
+		std::printf("  a sample changed under its voice: largest step %.4f against %.4f before, %zu allocations\n", step,
+			stepBefore, allocated);
+		require(step <= stepBefore * 1.05f, "a sample changed under its voice clicks");
+		require(allocated == 0, "changing a sample allocates");
+	}
+
 	std::unique_ptr<syntakt::fast::TwinshotSamples> noise()
 	{
 		auto s = std::make_unique<syntakt::fast::TwinshotSamples>();
@@ -2151,6 +2304,7 @@ int main()
 		Library library(flash);
 		const auto samples = noise();
 		library.twinshot = samples.get();
+		sampler(library);
 		withoutTheImage(flash, library);
 		machineTable(flash);
 		familyChains(flash, library);

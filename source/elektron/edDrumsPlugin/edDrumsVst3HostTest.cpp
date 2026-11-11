@@ -1,7 +1,7 @@
 // The instrument as a host loads it: the built VST3 through JUCE's VST3 hosting, with a data folder of its own
 // (GEARMULATOR_DATA_ROOT), against the engine driven directly with the same calls:
 //
-//   - the class, an instrument by c0remusic; Main and 15 stereo Outs; the parameters and their VST3 IDs, Machine and
+//   - the class, an instrument by c0remusic; Main and 15 stereo Outs; the 1267 parameters and their VST3 IDs, Machine and
 //     Chokes the ones a host does not automate;
 //   - at 44.1 kHz the latency reported is HitDelay; every channel is the engine's, sample for sample, each Track on its
 //     Out, in blocks of 128, of 32, of random sizes, Main alone as with all the Outs;
@@ -41,7 +41,9 @@ namespace
 	constexpr int g_block = 128;
 	constexpr int g_channels = 2 * Outputs;
 	constexpr int g_perTrack = 14;	// Machine, Machine 1-8, Note, Level, Pan, Output, Chokes
-	constexpr int g_parameters = Tracks * g_perTrack + 1;	// and Tempo
+	// And Tempo, then ticket 18's: 61 more a Track (chain, LFOs, sends, accent), 65 shared, then Pattern
+	// (edDrumsParameterIds.txt)
+	constexpr int g_parameters = Tracks * g_perTrack + 1 + Tracks * 61 + 65 + 1;
 	constexpr double g_stallMs = 10.0;
 
 	void require(const bool _condition, const std::string& _message)
@@ -258,7 +260,7 @@ namespace
 				worst = std::max(worst, difference);
 				if(difference > _tolerance)
 					throw std::runtime_error(std::string(_what) + ": channel " + std::to_string(c) + " differs at sample "
-						+ std::to_string(n));
+						+ std::to_string(n) + " by " + std::to_string(difference));
 			}
 		std::printf("%s: %d channels of %d samples, worst difference %.2g\n", _what, _take.getNumChannels(),
 			_take.getNumSamples(), worst);
@@ -345,6 +347,9 @@ namespace
 				&& !instance->parameter(t, 13).isAutomatable(), "Chokes' place");
 		}
 		require(parameters[Tracks * g_perTrack]->getName(64) == "Tempo", "Tempo's place");
+		require(parameters[Tracks * g_perTrack + 1]->getName(64) == "T01 Drive 1 Type", "ticket 18's first place");
+		require(parameters[g_parameters - 2]->getName(64) == "Oversampling", "ticket 18's last place");
+		require(parameters[g_parameters - 1]->getName(64) == "Pattern", "Pattern's place");
 		std::printf("%d parameters of ours, %d automatable with Bypass; latency %d samples\n", g_parameters, automatable,
 			plugin.getLatencySamples());
 		require(automatable == g_parameters - 2 * Tracks + 1, "Machine and Chokes are not for the host to automate");

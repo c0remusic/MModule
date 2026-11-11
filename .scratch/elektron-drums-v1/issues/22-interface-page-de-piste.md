@@ -21,3 +21,10 @@ limitée aux zones qui changent. Les boxes suivent les paramètres à mesure qu'
 ## Références
 
 Spécification §10. Ticket « Interface façon Overbridge », `../elektron-drums/mockup/v12*`.
+
+## État (2026-11-08)
+
+L'éditeur JUCE suit la maquette Lockstep (spec section 10 amendée), pas le mockup v12 que ce ticket nomme encore :
+`edDrumsPlugin/edDrumsEditor*`, plaques en ressources. Pages Sound, Seq Detail, Master, FX, Menu ; Kits et Browse inertes
+là où rien n'existe. Écarts restants : valeurs en 0-127 et non en unités, ASSIGN, COLOR et CPU absents, police
+Bahnschrift à la place de Barlow.

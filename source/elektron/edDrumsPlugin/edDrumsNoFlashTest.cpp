@@ -204,6 +204,9 @@ int main()
 		std::string quietestName, silentNames;
 		for(const Machine machine : test::machines())
 		{
+			// ROM-33 to -48 are the Sampler's entries, not machines of the list
+			if(!playable(machine))
+				continue;
 			const auto name = test::nameOf(machine);
 			const auto choice = static_cast<size_t>(std::find(list.begin(), list.end(), machine) - list.begin());
 			require(choice < list.size(), name + " is not in the list");
@@ -245,7 +248,7 @@ int main()
 		std::printf("  no image: %d machines whole, %d on words made here, quietest %s at %.1f dB, HitDelay %d "
 			"reported, the earliest 1 %% of a peak %d, jitter 0 at 4 positions; %d silent:%s\n", whole, house, quietestName.c_str(),
 			20 * std::log10(quietest), HitDelay, earliest, silent, silentNames.c_str());
-		require(whole == 32 && house == 10 && silent == 65, "another count of machines");
+		require(whole == 32 && house == 10 && silent == 49, "another count of machines");
 		std::printf("PASS: the instrument plays with no image\n");
 	}
 	catch(const std::exception& _e)

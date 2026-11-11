@@ -5,7 +5,8 @@ cmake_minimum_required(VERSION 3.15)
 set(ED_DRUMS_NAME "Elektron Drums Dev")
 project(edDrumsPlugin VERSION ${CMAKE_PROJECT_VERSION})
 
-set(SOURCES edDrumsProcessor.cpp edDrumsProcessor.h)
+set(SOURCES edDrumsProcessor.cpp edDrumsProcessor.h edDrumsParameters.cpp edDrumsParameters.h edDrumsSampleFiles.cpp
+	edDrumsSampleFiles.h)
 
 juce_add_plugin(edDrumsPlugin
 	COMPANY_NAME "c0remusic"
@@ -43,10 +44,12 @@ if(BUILD_TESTING)
 	set_tests_properties(edDrumsNoFlashTest PROPERTIES TIMEOUT 300)
 	set_property(TARGET edDrumsNoFlashTest PROPERTY FOLDER "Elektron/test")
 
-	# What processBlock tells the engine of the host's transport (GEARMULATOR_MD_FIRMWARE_BIN: exit 77 without it)
+	# The host's transport, the frozen IDs, every parameter against the engine, the state (GEARMULATOR_MD_FIRMWARE_BIN:
+	# exit 77 without it)
 	add_executable(edDrumsProcessorTest edDrumsProcessorTest.cpp)
 	target_link_libraries(edDrumsProcessorTest PRIVATE edDrumsPlugin edDrums mdProtocol juce_plugin_modules)
-	target_compile_definitions(edDrumsProcessorTest PRIVATE JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 ED_DRUMS_NAME="${ED_DRUMS_NAME}")
+	target_compile_definitions(edDrumsProcessorTest PRIVATE JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 ED_DRUMS_NAME="${ED_DRUMS_NAME}"
+		ED_DRUMS_PARAMETER_IDS="${CMAKE_CURRENT_SOURCE_DIR}/edDrumsParameterIds.txt")
 	add_test(NAME edDrumsProcessorTest COMMAND edDrumsProcessorTest)
 	set_tests_properties(edDrumsProcessorTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
 	set_property(TARGET edDrumsProcessorTest PROPERTY FOLDER "Elektron/test")
@@ -65,3 +68,4 @@ if(BUILD_TESTING AND TARGET edDrumsPlugin_VST3)
 	set_tests_properties(edDrumsVst3HostTest PROPERTIES LABELS "FirmwareTest;AudioIo" SKIP_RETURN_CODE 77 TIMEOUT 300)
 	set_property(TARGET edDrumsVst3HostTest PROPERTY FOLDER "Elektron/test")
 endif()
+include(${CMAKE_CURRENT_SOURCE_DIR}/edDrumsEditor.cmake OPTIONAL)
