@@ -279,7 +279,8 @@ namespace
 			require(heard >= count - 1, std::string(KindNames[kind]) + ": parameters that change nothing");
 		}
 		const Machine trxBd{Family::Machinedrum, 16};
-		require(machineParameters(trxBd) == 8 && machineParameters(Sampler) == 8
+		// The Sampler's 8, then GRAIN, BITS, COMPANDING and OUTPUT FILTER
+		require(machineParameters(trxBd) == 8 && machineParameters(Sampler) == 12
 			&& machineParameters({Family::Syntakt, 0}) == 8 && !machineParameterName(trxBd, 0), "8 for the others");
 		const auto plain = hitWith(_library, trxBd, -1, 0, false);
 		for(const int i : {8, 16, 23})

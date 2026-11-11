@@ -74,3 +74,31 @@ l'image. `edDrumsEditorTest` règle un TYPE et retire le dossier à la souris.
 Pas faits : les packs d'usine et les exports Transfer ne se distinguent pas, faute de liste d'empreintes connues ; la
 banque UW importée ne se liste pas comme samples dans Browse (segment UW BANK de la maquette) ; les formats propres à
 Elektron ne sont pas lus.
+
+## État (2026-11-11), grain VINTAGE
+
+Le Sampler a deux grains, Machine 9 (GRAIN, deux segments dans la tête du bloc Machine) : 12-BIT, le lecteur ROM d'avant,
+et VINTAGE, le caractère PCM d'époque de `edDrums/edDrumsVintage.*` (le même que le drive DAC du ticket 12). VINTAGE lit
+le sample entier jusqu'à 10 s à 48 kHz (`Sample::MaxSourceLength`, 480 000 valeurs ; le lecteur ROM reste à 1,29 s) à une
+horloge que PTCH règle (+-24 demi-tons, 3/8 par cran), chaque valeur tenue jusqu'au tic suivant sans interpolation, puis
+le convertisseur (Machine 10 BITS, 6 à 12 ; Machine 11 COMPANDING, par segments), puis le passe-bas de deux pôles
+(Machine 12 OUTPUT FILTER, 100 Hz à 20 kHz), puis HOLD (jusqu'à 2 s) et DEC (chute de 60 dB en 20 ms à 10 s, aucune à 127).
+STRT et END bornent la lecture ; BRR, RTRG et RTIM ne s'appliquent pas à ce grain. Machine 9 à 12 ne prennent pas de lock ;
+les locks et les LFO de PTCH, DEC, HOLD, STRT et END agissent, leur somme bornée aux valeurs d'un Kit (END ne lit jamais
+au-delà du sample). Passer en VINTAGE un Sampler d'avant (Machine 10 à 12 à 0) lui donne les valeurs d'un Sampler neuf dans
+le même clic. Un Choke, un sample changé ou un grain changé arrêtent la voix à la fin de sa rampe. Un Sampler neuf est en 12-BIT ; un état ou un kit d'avant (Machine 9 à
+24 à 0) aussi, et sonne à l'identique quels que soient BITS, COMPANDING et OUTPUT FILTER (test). Le premier échantillon
+sonne `Engine::HitDelay` (81) après la note, où que tombe la note. Le moteur lit les valeurs du sample là où elles sont
+(`Sample::source`, partagé et jamais modifié) : rien n'est copié sur le fil audio ; le Processor garde chaque source qu'il
+peut donner au moteur et ne la libère que sur le fil des messages, quand plus rien ne la tient. Un changement de Kit de
+16 samples de 10 s sous leurs voix tient en 110 µs au pire dans un bloc (borne du test 500 µs). L'écoute d'un son de piste
+en VINTAGE dure son sample à sa hauteur (10,9 s au plus) ; Browse dit « 12-BIT GRAIN PLAYS 1.29 S ». Le lecteur ROM d'une
+piste en VINTAGE prépare toujours ses mots : ses valeurs lissées et ses locks sont ceux que lit VINTAGE, les séparer n'est
+pas un changement local.
+
+Mesuré (`edDrumsVintageTest`) : à 8 kHz, la valeur tenue change 7 999 fois par seconde, 15 999 à +12 (x 2,0001) ; une
+sinusoïde de 500 Hz joue 500,17 Hz puis 1 000,33 Hz à +12. Coût, 16 pistes en Sampler sans chaîne, bloc de 32 : lecteur
+ROM 66,6 µs, VINTAGE 18,8 µs (1,18 µs par voix). Rien n'est alloué sur le fil audio.
+
+Pas fait : charger la ROM d'une machine d'époque que l'utilisateur possède ; les noms des grains et de leurs paramètres
+attendent la table du ticket 27.

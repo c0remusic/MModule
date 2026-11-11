@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "edDrumsOversampler.h"
+#include "edDrumsVintage.h"
 #include "elektronBlock.h"
 #include "mdFastTrackFx.h"
 #include "stFastTrack.h"
@@ -30,6 +31,7 @@ namespace elektron::drums
 		Syntakt,
 		MdDist,
 		MdSrr,
+		Dac,		// the vintage PCM DAC (edDrumsVintage.h), after the others: stored choices keep their numbers
 		Count
 	};
 
@@ -174,8 +176,8 @@ namespace elektron::drums
 		// _syntakt: the Tracks here are the Syntakt's, whose firmware's chain this one's drives stay
 		Chain(double _rate, bool _syntakt);
 
-		// 1 (off), 2 or 4, from the next block: every drive but a firmware's stage where its firmware has it, and but SRR,
-		// whose folding is its sound. A Track in its family's chain stays the firmware's
+		// 1 (off), 2 or 4, from the next block: every drive but a firmware's stage where its firmware has it, and but SRR
+		// and DAC, whose folding is their sound. A Track in its family's chain stays the firmware's
 		void setOversampling(int _factor);
 
 		// Track _lane's chain from the next block, the Chain's own copy, inside the Kit's values; a stage that changes
@@ -224,8 +226,8 @@ namespace elektron::drums
 	private:
 		enum Place { Pre0, Pre1, BandBefore, FilterPlace, BandAfter, Post0, Post1, Places };
 
-		// Off, then the three stages of a place
-		static constexpr int Types = 4;
+		// Off, then the stages of a place: the drives' four, the band's and the filter's three
+		static constexpr int Types = 5;
 		static constexpr int8_t NoPending = -1;
 
 		struct DriveStages
@@ -234,6 +236,7 @@ namespace elektron::drums
 			syntakt::fast::TrackDrive syntakt;
 			md::fast::Dist dist;
 			md::fast::Srr srr;
+			vintage::Dac dac;
 			std::array<Oversampler, Types> rates;		// by DriveType: a raised drive's history is its own
 		};
 

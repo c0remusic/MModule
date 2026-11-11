@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <variant>
@@ -18,18 +19,23 @@ namespace elektron::drums
 		// A Track's room in the engine's bank, a few words of silence after the sample included
 		static constexpr uint32_t SlotWords = 0x7000, PadWords = 128;
 		static constexpr uint32_t MaxWords = SlotWords - PadWords;
-		static constexpr uint32_t MaxLength = 2 * MaxWords;		// 57088 samples: 1.29 s at 44.1 kHz
+		static constexpr uint32_t MaxLength = 2 * MaxWords;		// 57088 samples: 1.29 s at 44.1 kHz, what the ROM player plays
+		// What the Sampler's VINTAGE grain plays (edDrumsVintage.h), from the 16-bit values: 10 s at 48 kHz
+		static constexpr uint32_t MaxSourceLength = 480000;
 		static constexpr double MinRate = 4000.0, MaxRate = 48000.0;
 		static constexpr uint32_t Unity = 1u << 18;				// the rate word of 44.1 kHz
 
 		std::string name;
 		double rate = 44100.0;
-		std::vector<int16_t> pcm;		// at most MaxLength
-		std::vector<uint32_t> words;	// (pcm.size() + 1) / 2
+		std::vector<int16_t> pcm;		// at most MaxSourceLength
+		std::vector<uint32_t> words;	// of the first MaxLength values at most: (that + 1) / 2
+		// The same values, never changed once made, which every copy of the Sample shares: what the engine's VINTAGE grain
+		// reads where it lies (Engine::setSample), no copy on the audio thread
+		std::shared_ptr<const std::vector<int16_t>> source;
 		uint32_t rateWord = Unity;
 	};
 
-	// _mono (full scale 1.0) at _rate, cut to Sample::MaxLength. An error that says why for no audio or a rate out of
+	// _mono (full scale 1.0) at _rate, cut to Sample::MaxSourceLength. An error that says why for no audio or a rate out of
 	// MinRate to MaxRate
 	std::variant<Sample, std::string> makeSample(std::string _name, const std::vector<float>& _mono, double _rate);
 

@@ -185,3 +185,20 @@ DECAY 64 de la machine qui fait sonner BD MODERN et CY ALLOY près de deux secon
 la machine finir seule à 95 % près. Les états et kits gardent leurs valeurs : un état à HOLD 64 et DECAY 127 se charge
 et joue comme avant (`edDrumsProcessorTest`). `edDrumsChainTest` suit les nouveaux défauts ; son contrôle d'unité de la
 chaîne Syntakt mesure les étages sans l'ampli, qui décroît maintenant dès le Hit.
+
+### Drive DAC (2026-11-11)
+
+Demandé par l'utilisateur : un caractère « PCM d'époque », celui des boîtes à rythmes 8 bits du début des années 1980
+(convertisseur 8 bits à compression par segments, horloge de lecture sans interpolation, passe-bas de reconstruction
+analogique). Modèle à nous, d'après le comportement public de ces convertisseurs ; aucun échantillon ni table d'une
+machine. Code commun dans `edDrums/edDrumsVintage.*`. Un cinquième type de drive, DAC, ajouté après MD SRR : les types
+déjà stockés gardent leur numéro (0 à 3). AMOUNT règle tout, l'emplacement n'ayant pas de deuxième valeur : 12 bits
+linéaires à 0, un bit de moins tous les 21 crans jusqu'à 6, compression par segments au-dessus de 0 ; horloge du taux de
+la chaîne à 0 jusqu'à 4 kHz à 127 ; passe-bas à 0,45 de l'horloge (20 kHz au plus), aucun à 0. Pas suréchantillonné, comme
+SRR : le repliement est le son. L'hôte et l'éditeur montrent « 9 BIT 13.2 kHz », l'horloge prise au taux de la chaîne de la
+piste (48 kHz pour une chaîne Syntakt) ; la forme du drive montre le sinus tenu et quantifié.
+
+Mesuré (`edDrumsVintageTest`, nouveau, dans la gate) : à 0, écart de -68,0 dB avec la chaîne sans drive sur une sinusoïde
+à -6 dBFS (le bruit d'un convertisseur 12 bits) ; codes exacts sur 12 entrées connues et le code le plus proche sur
+140 007 amplitudes de 6 à 12 bits ; passe-bas à -3 dB à sa fréquence à 0,01 % près de 200 Hz à 16 kHz ; un drive DAC coûte
+0,75 µs par piste et par bloc de 32. Rien n'est alloué sur le fil audio.

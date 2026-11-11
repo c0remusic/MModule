@@ -13,7 +13,7 @@ namespace elektron::drums::parameters
 {
 	namespace
 	{
-		constexpr const char* DriveTypes = "Off|Syntakt|MD DIST|MD SRR";
+		constexpr const char* DriveTypes = "Off|Syntakt|MD DIST|MD SRR|DAC";
 		constexpr const char* OutputNames = "Main|Out 01|Out 02|Out 03|Out 04|Out 05|Out 06|Out 07|Out 08|Out 09"
 			"|Out 10|Out 11|Out 12|Out 13|Out 14|Out 15";
 		constexpr const char* Targets = "None|Drive A|Drive B|Band A|Band B|Frequency|Resonance|Width|Env Depth";
@@ -194,6 +194,13 @@ namespace elektron::drums::parameters
 			case DriveType::Syntakt:	return gain(syntaktDriveGain(_v), true);
 			case DriveType::MdDist:		return gain(mdDistGain(_v), true);
 			case DriveType::MdSrr:		return hertz(srrHz(_v));
+			case DriveType::Dac:
+			{
+				// Its bits and its clock (vintage::driveSetting) from the rate the Track's chain runs at
+				const int rate = _other("chain_rate");
+				const auto s = vintage::driveSetting(_v, rate > 0 ? rate : 44100);
+				return std::to_string(s.bits) + " BIT " + hertz(s.clockHz);
+			}
 			default:					return std::to_string(_v);
 			}
 		}
@@ -325,6 +332,19 @@ namespace elektron::drums::parameters
 		return std::to_string(_v);
 	}
 
+	std::string samplerText(const int _index, const int _value)
+	{
+		switch(_index)
+		{
+		// The ROM player's grain by what it is, its 12-bit companded words; no machine's name
+		case vintage::GrainSlot:		return vintage::isVintage(_value) ? "VINTAGE" : "12-BIT";
+		case vintage::BitsSlot:			return std::to_string(vintage::bitsOf(_value)) + " BIT";
+		case vintage::CompandingSlot:	return vintage::companding(_value) ? "ON" : "OFF";
+		case vintage::FilterSlot:		return hertz(vintage::filterHz(_value));
+		default:						return std::to_string(_value);
+		}
+	}
+
 	int valueOf(const std::string& _id, const std::string& _text, const int _min, const int _max, const Other& _other)
 	{
 		const int own = _other(_id.c_str());
@@ -357,11 +377,11 @@ namespace elektron::drums::parameters
 	}
 
 	const std::array<Spec, ChainValues> chainSpecs{{
-		{"drv1_type", "Drive 1 Type", 0, 3, DriveTypes},
+		{"drv1_type", "Drive 1 Type", 0, 4, DriveTypes},
 		{"drv1_post", "Drive 1 Post", 0, 1, nullptr, true},
 		{"drv1_amount", "Drive 1 Amount"},
 		{"drv1_mix", "Drive 1 Mix"},
-		{"drv2_type", "Drive 2 Type", 0, 3, DriveTypes},
+		{"drv2_type", "Drive 2 Type", 0, 4, DriveTypes},
 		{"drv2_post", "Drive 2 Post", 0, 1, nullptr, true},
 		{"drv2_amount", "Drive 2 Amount"},
 		{"drv2_mix", "Drive 2 Mix"},

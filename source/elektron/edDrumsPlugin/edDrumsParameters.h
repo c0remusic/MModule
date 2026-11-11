@@ -98,6 +98,10 @@ namespace elektron::drums::parameters
 	// else the number. _id as in Other
 	std::string valueText(const std::string& _id, int _value, const Other& _other);
 
+	// What the Sampler's Machine _index (0-23) shows of _value: GRAIN, BITS, COMPANDING and OUTPUT FILTER in their units
+	// (edDrumsVintage.h), the number for the others
+	std::string samplerText(int _index, int _value);
+
 	// The value from _min to _max whose text is _text, the nearest to the parameter's own value among those that show it;
 	// else the one whose text's number is nearest to the number _text starts with
 	int valueOf(const std::string& _id, const std::string& _text, int _min, int _max, const Other& _other);

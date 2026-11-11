@@ -83,7 +83,10 @@ namespace elektron::drums
 
 	// The Sampler, of the Machinedrum's family: the Track's own sample (Engine::setSample) through the ROM machines'
 	// player, SYN1-8 theirs (PTCH, DEC, HOLD, BRR, STRT, END, RTRG, RTIM). Track t plays it as ROM-33 + t, at that
-	// entry of the bank, so that ROM-33 to -48 are not machines of their own here. An id no Machinedrum machine has
+	// entry of the bank, so that ROM-33 to -48 are not machines of their own here. An id no Machinedrum machine has.
+	// Machine 9 is its grain (edDrumsVintage.h): under 64 the ROM player's, from 64 VINTAGE, which plays the whole sample
+	// (Sample::MaxSourceLength) by PTCH, DEC, HOLD, STRT and END through Machine 10-12, BITS, COMPANDING and OUTPUT
+	// FILTER, the Kit's values: no lock reaches Machine 9-12
 	constexpr Machine Sampler{Family::Machinedrum, 192};
 
 	// OPEN DRUM (ticket 26): four voices of a drum engine published under the GPL v3 (source/elektron/opendrum), a voice
@@ -176,9 +179,10 @@ namespace elektron::drums
 
 		// _index 0-23, Machine 1-24, _value 0-127
 		void setParameter(int _track, int _index, uint8_t _value);
-		// The sample the Track plays on the Sampler, nullptr none (silence). Copied into the engine's bank, without
-		// allocating: _sample need only last the call. A voice of the Track's sounding ramps out, as where a Hit of this
-		// moment would sound; the other Tracks' go on
+		// The sample the Track plays on the Sampler, nullptr none (silence). The ROM player's words copied into the engine's
+		// bank, without allocating; the VINTAGE grain reads _sample->source where it lies, which must outlive the engine's
+		// use of it: until a later call for the Track has returned. A voice of the Track's sounding ramps out, as where a
+		// Hit of this moment would sound; the other Tracks' go on
 		void setSample(int _track, const Sample* _sample);
 
 		uint8_t parameter(const int _track, const int _index) const
@@ -340,6 +344,10 @@ namespace elektron::drums
 			// SOPHIE, on the Machinedrum's blocks: its voice is m_sophie's
 			bool spTrig = false;			// a Hit waits for the next block
 
+			// The Sampler's VINTAGE grain, on the Machinedrum's blocks: its sample is m_vtSource's
+			vintage::Player vt;
+			bool vtTrig = false;			// a Hit waits for the next block
+
 			// Syntakt
 			Ring stRing;
 			Run st;
@@ -380,6 +388,8 @@ namespace elektron::drums
 		void renderOpenDrum(Track& _track, float* _x);
 		void playSophie(int _track, int _index);
 		void renderSophie(int _track, float* _x);
+		static bool vintageGrain(const Track& _track);
+		void renderVintage(int _track, float* _x);
 		void renderSyntakt();
 		void read(int _track, float* _out, int _count);
 		void mix(float* const* _outputs, int _offset, int _count);
@@ -414,6 +424,11 @@ namespace elektron::drums
 		struct SophieVoices;
 		std::unique_ptr<SophieVoices> m_sophie;
 		uint32_t m_spMask = 0;			// the Tracks on SOPHIE
+
+		// The VINTAGE grain's samples: each Track's Sample::source, where it lies
+		std::array<const int16_t*, Tracks> m_vtSource{};
+		std::array<uint32_t, Tracks> m_vtLength{};
+		std::array<double, Tracks> m_vtRate{};
 
 		// Syntakt
 		std::vector<std::unique_ptr<Source>> m_sources;

@@ -169,6 +169,18 @@ namespace
 		check(_editor.machinePages() == 3 && nameOf("t01_m1") == "MODEL", "SOPHIE: three pages, Machine 1 MODEL");
 		click(_editor, _editor.machinePageArea(2).getCentre());
 		check(nameOf("t01_m20") == "BODY" && nameOf("t01_m21") == "off", "SOPHIE: Machine 20 BODY, 21 greyed");
+		// The Sampler: two pages, its grain's on the second; GRAIN's segments in the head set Machine 9
+		put(_processor.samplerChoice());
+		click(_editor, _editor.machinePageArea(1).getCentre());
+		check(_editor.machinePages() == 2 && nameOf("t01_m9") == "GRAIN" && nameOf("t01_m12") == "OUTPUT FILTER"
+			&& nameOf("t01_m13") == "off", "the Sampler: Machine 9 GRAIN, 12 OUTPUT FILTER, 13 greyed");
+		auto* grain = _processor.parameter("t01_m9");
+		click(_editor, _editor.grainArea(1).getCentre());
+		check(juce::roundToInt(grain->convertFrom0to1(grain->getValue())) == 127 && grain->getCurrentValueAsText() == "VINTAGE",
+			"a click on VINTAGE sets Machine 9 to 127");
+		click(_editor, _editor.grainArea(0).getCentre());
+		check(juce::roundToInt(grain->convertFrom0to1(grain->getValue())) == 0 && grain->getCurrentValueAsText() == "12-BIT",
+			"a click on 12-BIT sets it back to 0");
 		put(choiceOf({Family::OpenDrum, 0}));
 		click(_editor, _editor.machinePageArea(1).getCentre());
 	}
@@ -400,6 +412,28 @@ namespace
 			snapshot(editor, _folder.getChildFile("sound-sophie-p3.png"));
 			ampOn->setValueNotifyingHost(ampWas);
 			editor.showMachinePage(0);
+			machine->setValueNotifyingHost(was);
+			editor.tick();
+		}
+		{
+			// The Sampler on VINTAGE, its grain's page; Drive 1 a DAC at 64
+			auto* machine = processor.parameter("t01_machine");
+			auto* grain = processor.parameter("t01_m9");
+			auto* drive = processor.parameter("t01_drv1_type");
+			auto* amount = processor.parameter("t01_drv1_amount");
+			const float was = machine->getValue(), grainWas = grain->getValue(), driveWas = drive->getValue(),
+				amountWas = amount->getValue();
+			machine->setValueNotifyingHost(machine->convertTo0to1(static_cast<float>(processor.samplerChoice())));
+			editor.tick();
+			grain->setValueNotifyingHost(1.0f);
+			drive->setValueNotifyingHost(drive->convertTo0to1(static_cast<float>(DriveType::Dac)));
+			amount->setValueNotifyingHost(amount->convertTo0to1(64.0f));
+			editor.showMachinePage(1);
+			snapshot(editor, _folder.getChildFile("sound-vintage.png"));
+			editor.showMachinePage(0);
+			amount->setValueNotifyingHost(amountWas);
+			drive->setValueNotifyingHost(driveWas);
+			grain->setValueNotifyingHost(grainWas);
 			machine->setValueNotifyingHost(was);
 			editor.tick();
 		}

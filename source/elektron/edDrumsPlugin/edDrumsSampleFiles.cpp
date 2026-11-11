@@ -29,7 +29,7 @@ namespace elektron::drums
 		const double rate = from > Sample::MaxRate + 0.5 ? 44100.0 : from;
 		const double ratio = from / rate;
 		const auto frames = static_cast<int>(std::min<int64_t>(reader->lengthInSamples,
-			static_cast<int64_t>(std::ceil(Sample::MaxLength * ratio)) + 16));
+			static_cast<int64_t>(std::ceil(Sample::MaxSourceLength * ratio)) + 16));
 		juce::AudioBuffer<float> buffer(channels, frames);
 		if(!reader->read(&buffer, 0, frames, 0, true, true))
 			return name + " could not be read";

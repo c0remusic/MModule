@@ -297,6 +297,9 @@ namespace elektron::drums
 		{
 			const parameters::Other other = [_processor, _prefix](const char* _other)
 			{
+				// Not a parameter: the rate the Track's chain runs at, which the DAC drive's clock starts from
+				if(std::strcmp(_other, "chain_rate") == 0)
+					return _prefix.isEmpty() ? 0 : juce::roundToInt(_processor->chainRate(_prefix.substring(1, 3).getIntValue() - 1));
 				const auto* p = _processor->parameter(_prefix + _other);
 				return p ? juce::roundToInt(p->convertFrom0to1(p->getValue())) : 0;
 			};
@@ -471,8 +474,15 @@ namespace elektron::drums
 			const auto machineDefaults = allDefaults(m_machines[static_cast<size_t>(defaultMachine(m_machines, t))]);
 			for(int i = 8; i < MachineParameters; ++i)
 			{
+				// On the Sampler, its grain's values in their units
+				const auto text = juce::AudioParameterIntAttributes().withStringFromValueFunction([this, t, i](const int _v, int)
+				{
+					const auto* machine = m_tracks[static_cast<size_t>(t)].machine;
+					const bool sampler = machine && m_machines[static_cast<size_t>(machine->getIndex())] == Sampler;
+					return sampler ? juce::String(parameters::samplerText(i, _v)) : juce::String(_v);
+				});
 				p.values[static_cast<size_t>(i)] = intParameter(id + "m" + juce::String(i + 1),
-					name + "Machine " + juce::String(i + 1), 127, machineDefaults[static_cast<size_t>(i)]);
+					name + "Machine " + juce::String(i + 1), 127, machineDefaults[static_cast<size_t>(i)], true, text);
 				add(p.values[static_cast<size_t>(i)], Section::Machine, t);
 			}
 		}
@@ -972,6 +982,7 @@ namespace elektron::drums
 			mail->sample = *m_samples[t];
 		mail->serial = ++m_sampleSerial;
 		mail->hash = sampleHash(m_samples[t].get());
+		holdSource(&mail->sample);
 		auto* sent = mail.get();
 		auto& flight = m_sampleFlight[t];
 		flight.push_back(std::move(mail));
@@ -980,8 +991,26 @@ namespace elektron::drums
 		pruneSamples();
 	}
 
+	void Processor::holdSource(const Sample* _sample)
+	{
+		if(_sample && _sample->source
+			&& std::find(m_heldSources.begin(), m_heldSources.end(), _sample->source) == m_heldSources.end())
+			m_heldSources.push_back(_sample->source);
+	}
+
+	// Audio thread (or prepareToPlay): the engine reads _sample's source until the Track's next one, which this holds; the
+	// one it replaces the message thread holds too, so that letting it go here frees nothing
+	void Processor::giveSample(const int _track, const Sample* _sample)
+	{
+		m_engine->setSample(_track, _sample);
+		m_engineSources[static_cast<size_t>(_track)] = _sample ? _sample->source : nullptr;
+	}
+
 	void Processor::pruneSamples()
 	{
+		// A source only this list holds: no Sample, mail, Kit or engine has it
+		m_heldSources.erase(std::remove_if(m_heldSources.begin(), m_heldSources.end(),
+			[](const auto& _s) { return _s.use_count() == 1; }), m_heldSources.end());
 		for(size_t t = 0; t < m_sampleFlight.size(); ++t)
 		{
 			const uint32_t done = m_sampleDone[t].load(std::memory_order_acquire);
@@ -1066,8 +1095,13 @@ namespace elektron::drums
 		m_now = 0;
 		if(m_engine)
 			for(int t = 0; t < Tracks; ++t)
-				if(const auto& sample = m_samples[static_cast<size_t>(t)])
-					m_engine->setSample(t, sample.get());
+			{
+				const auto* sample = m_samples[static_cast<size_t>(t)].get();
+				holdSource(sample);
+				giveSample(t, sample);
+			}
+		else
+			m_engineSources.fill(nullptr);
 		for(int t = 0; t < Tracks; ++t)
 			m_engineSampleHash[static_cast<size_t>(t)] = sampleHash(m_samples[static_cast<size_t>(t)].get());
 	}
@@ -1262,7 +1296,7 @@ namespace elektron::drums
 				continue;
 			if(auto* mail = m_sampleMail[t].exchange(nullptr, std::memory_order_acq_rel))
 			{
-				m_engine->setSample(static_cast<int>(t), mail->sample.pcm.empty() ? nullptr : &mail->sample);
+				giveSample(static_cast<int>(t), mail->sample.pcm.empty() ? nullptr : &mail->sample);
 				m_engineSampleHash[t] = mail->hash;
 				m_sampleDone[t].store(mail->serial, std::memory_order_release);
 			}
@@ -1716,6 +1750,7 @@ namespace elektron::drums
 							{
 								kit->samples[t] = std::make_unique<Sample>(std::move(*read));
 								kit->sampleHash[t] = sampleHash(kit->samples[t].get());
+								holdSource(kit->samples[t].get());
 								kit->refs[t] = element->getStringAttribute("fingerprint");
 							}
 					}
@@ -1765,7 +1800,7 @@ namespace elektron::drums
 			auto& hash = m_engineSampleHash[static_cast<size_t>(t)];
 			if(hash == _kit.sampleHash[static_cast<size_t>(t)])
 				continue;
-			m_engine->setSample(t, _kit.samples[static_cast<size_t>(t)].get());
+			giveSample(t, _kit.samples[static_cast<size_t>(t)].get());
 			hash = _kit.sampleHash[static_cast<size_t>(t)];
 		}
 		m_kitSwitched.store(const_cast<PreparedKit*>(&_kit), std::memory_order_release);
@@ -1966,11 +2001,20 @@ namespace elektron::drums
 			sample = sampleFromBytes(static_cast<const uint8_t*>(bytes.getData()), bytes.getSize());
 		e.setSample(0, sample ? &*sample : nullptr);
 		e.noteOn(0, 100);
-		std::vector<float> left(Sample::MaxLength), right(Sample::MaxLength), mono(Sample::MaxLength);
+		// The ROM player's 1.29 s; on VINTAGE the sample at its pitch and a little tail, at most what a Sample holds
+		size_t length = Sample::MaxLength;
+		if(sample && m_machines[static_cast<size_t>(plain(p.machine))] == Sampler
+			&& vintage::isVintage(plain(p.values[vintage::GrainSlot])))
+		{
+			const double played = static_cast<double>(sample->pcm.size()) * SampleRate / sample->rate
+				/ std::exp2(vintage::semitones(plain(p.values[0])) / 12);
+			length = static_cast<size_t>(std::clamp(played + 4096.0, 1.0, static_cast<double>(Sample::MaxSourceLength)));
+		}
+		std::vector<float> left(length), right(length), mono(length);
 		std::array<float*, 2 * Outputs> out{};
 		out[0] = left.data();
 		out[1] = right.data();
-		e.render(out.data(), static_cast<int>(Sample::MaxLength));
+		e.render(out.data(), static_cast<int>(length));
 		for(size_t n = 0; n < mono.size(); ++n)
 			mono[n] = 0.5f * (left[n] + right[n]);
 		auto made = makeSample(sound->getStringAttribute("name").toStdString(), mono, SampleRate);

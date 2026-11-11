@@ -97,6 +97,11 @@ namespace elektron::drums
 
 		// The Sampler's index in machines(), OPEN DRUM's four after it, then SOPHIE
 		int samplerChoice() const { return static_cast<int>(m_machines.size()) - 1 - OpenDrumMachines - SophieMachines; }
+		// The rate _track's chain runs at: the Syntakt's for a Track that took its chain, the host's 44.1 kHz otherwise
+		double chainRate(const int _track) const
+		{
+			return m_chainFamily[static_cast<size_t>(_track)] == Family::Syntakt ? syntakt::fast::MachineRate : SampleRate;
+		}
 		int sophieChoice() const { return static_cast<int>(m_machines.size()) - SophieMachines; }
 
 		// Message thread. One of SOPHIE's 16 factory sounds (sophie::soundValues) on _track's Machine 1-20, each an edit
@@ -351,6 +356,13 @@ namespace elektron::drums
 		std::array<std::vector<std::unique_ptr<SampleMail>>, Tracks> m_sampleFlight;
 		uint32_t m_sampleSerial = 0;
 		std::array<juce::String, Tracks> m_sampleRefs;	// the fingerprints
+		// The values the engine's VINTAGE grain reads where they lie (Sample::source): the message thread holds every one it
+		// may be given (a mail's, a prepared Kit's, the Tracks') and drops one once nothing else holds it; the audio thread
+		// holds those it gave the engine and lets go of one there, which never frees it
+		std::vector<std::shared_ptr<const std::vector<int16_t>>> m_heldSources;
+		std::array<std::shared_ptr<const std::vector<int16_t>>, Tracks> m_engineSources;
+		void holdSource(const Sample* _sample);
+		void giveSample(int _track, const Sample* _sample);
 		std::unique_ptr<SampleLibrary> m_sampleLibrary;
 		std::unique_ptr<ElektronImport> m_import;
 		ElektronImport::Report m_lastImport;

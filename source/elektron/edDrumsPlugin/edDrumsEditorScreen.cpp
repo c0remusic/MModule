@@ -34,12 +34,21 @@ namespace elektron::drums
 			{"TUNE 1", "SAMPLE 1", "FILTER 1", "DECAY 1", "TUNE 2", "SAMPLE 2", "MIX", "OVERDRIVE"},
 		}};
 		constexpr std::array<const char*, 8> samplerLabels{"TUNE", "DECAY", "HOLD", "BR", "START", "END", "RTRG", "RTIM"};
+		// Machine 9-12, the grain's (edDrumsVintage.h): GRAIN also in the block's head
+		constexpr std::array<const char*, 4> grainLabels{"GRAIN", "BITS", "COMPANDING", "OUTPUT FILTER"};
 
 		// The Machine block's page selector: three segments of 7 mm in its head (block at _x, _w wide), left of the
 		// machine's name
 		juce::Rectangle<float> machinePageBox(const float _x, const float _w, const int _page)
 		{
 			return {_x + _w - 61 + 7 * static_cast<float>(_page), R1 + 1.8f, 7, 6};
+		}
+
+		// The Sampler's GRAIN in the Machine block's head: two segments from 46 mm in, its name at 34 (t.js); 22 mm, not the
+		// mockup's 14, which hold MD and DT2 but not 12-BIT and VINTAGE, and still end before the page selector
+		juce::Rectangle<float> grainBox(const float _x, const int _i)
+		{
+			return {_x + 46 + 22 * static_cast<float>(_i), R1 + 1.8f, 22, 6};
 		}
 
 		// Machine 1-8 of _page 0, 9-16 of 1, 17-24 of 2, as _machine names them: empty for one it does not use
@@ -51,6 +60,12 @@ namespace elektron::drums
 				for(size_t i = 0; i < 8; ++i)
 					if(const char* name = machineParameterName(_machine, _page * 8 + static_cast<int>(i)))
 						labels[i] = name;
+				return labels;
+			}
+			if(_machine == Sampler && _page == 1)
+			{
+				for(size_t i = 0; i < grainLabels.size(); ++i)
+					labels[i] = grainLabels[i];
 				return labels;
 			}
 			if(_page > 0)
@@ -485,6 +500,11 @@ namespace elektron::drums
 		return toPx(machinePageBox(cx(0) - 2, 8 * Col + 2, _page));
 	}
 
+	juce::Rectangle<int> Editor::grainArea(const int _i) const
+	{
+		return toPx(grainBox(cx(0) - 2, _i));
+	}
+
 	void Editor::buildSound()
 	{
 		const auto t = [this](const char* _suffix) { return trackParameter(_suffix); };
@@ -535,6 +555,37 @@ namespace elektron::drums
 				page.r = machinePageBox(x, w, i);
 				page.click = [this, i] { showMachinePage(i); };
 				addHit(std::move(page));
+			}
+			// The Sampler: GRAIN's two segments in the head (t.js, sound()), Machine 9 at 0 or 127
+			if(choice == m_processor.samplerChoice())
+			{
+				for(int i = 0; i < 2; ++i)
+				{
+					Hit grain;
+					grain.r = grainBox(x, i);
+					grain.click = [this, i]
+					{
+						setNormalised(*trackParameter("m9"), i ? 1.0f : 0.0f);
+						// A Sampler saved before the grains holds 0 there: 6 bits, linear, 100 Hz. VINTAGE takes the new
+						// Sampler's values instead, in the same click
+						const char* own[]{"m10", "m11", "m12"};
+						bool unset = true;
+						for(const char* id : own)
+							unset = unset && trackParameter(id)->getValue() == 0.0f;
+						if(i && unset)
+						{
+							const auto d = allDefaults(Sampler);
+							for(int k = 0; k < 3; ++k)
+							{
+								auto& p = *trackParameter(own[k]);
+								setNormalised(p, p.convertTo0to1(static_cast<float>(d[static_cast<size_t>(vintage::BitsSlot + k)])));
+							}
+						}
+						repaint();
+					};
+					addHit(std::move(grain));
+				}
+				watch(grainBox(x, 0).getUnion(grainBox(x, 1)), [this] { return hashOf({trackParameter("m9")}); });
 			}
 			// SOPHIE: its 16 factory sounds in the block's picture, a click lists them (Machine 1-20 as each sets them)
 			if(choice == m_processor.sophieChoice())
@@ -821,6 +872,11 @@ namespace elektron::drums
 			_p.frame(x, y1, w, PicH, hue::k.c[1], 1.2f, 0.4f);
 			if(choiceOf(trackParameter("machine")->getParameterID()) == m_processor.samplerChoice())
 			{
+				const float bx = cx(0) - 2;
+				const auto grain = grainBox(bx, 0);
+				_p.text(bx + 34, R1 + 5.2f, "GRAIN", 2.8f, colour::mid);
+				const bool vintage = vintage::isVintage(juce::roundToInt(trackParameter("m9")->convertFrom0to1(v("m9"))));
+				drawSegments(_p, grain.getX(), grain.getY(), grain.getWidth(), {"12-BIT", "VINTAGE"}, vintage ? 1 : 0, &hue::k);
 				const auto name = m_processor.sampleName(m_track);
 				_p.text(x + w / 2, y1 + 12.6f, name.isEmpty() ? "NO SAMPLE" : name.toUpperCase(), 2.6f,
 					name.isEmpty() ? colour::mid : hue::k.c[4], 500, Align::Centre);
@@ -861,11 +917,16 @@ namespace elektron::drums
 			const bool off = sectionOff(d ? "d2" : "d1");
 			const float am = trackParameter(pre + "amount")->getValue(), mx = trackParameter(pre + "mix")->getValue(),
 				k = 0.2f + am * 5;
+			// The DAC: the sine held at its clock and taken to its codes, a cycle every 1.5 ms (vintage::driveSetting)
+			const bool dac = choiceOf(trackParameter(pre + "type")->getParameterID()) == static_cast<int>(DriveType::Dac);
+			const auto setting = vintage::driveSetting(am * 127, m_processor.chainRate(m_track));
+			const float ticks = static_cast<float>(setting.clockHz * 0.0045);	// the clock's ticks across the 3 cycles
 			std::vector<juce::Point<float>> guide, curve;
 			for(int i = 0; i <= 200; ++i)
 			{
-				const float u = static_cast<float>(i) / 200, q = std::sin(u * 3 * 6.283f),
-					o = std::tanh(q * k) / std::tanh(k);
+				const float u = static_cast<float>(i) / 200, q = std::sin(u * 3 * 6.283f);
+				const float held = std::sin(std::floor(u * ticks) / ticks * 3 * 6.283f);
+				const float o = dac ? vintage::dac(held, setting.bits, setting.companding) : std::tanh(q * k) / std::tanh(k);
 				guide.push_back({x + 1 + (w - 2) * u, m - q * r * 0.72f});
 				curve.push_back({x + 1 + (w - 2) * u, m - (off ? q * 0.72f : q * 0.72f * (1 - mx) + o * mx) * r});
 			}
@@ -3402,7 +3463,7 @@ namespace elektron::drums
 			{"TYPE", juce::String(SampleLibrary::typeName(e.type)) + (e.typeFrom == SampleLibrary::TypeFrom::User
 				? "" : ", GUESSED")},
 			{"LENGTH", lengthText(e.length, e.rate) + (static_cast<double>(e.length) / e.rate
-				> Sample::MaxLength / 44100.0 ? ", THE SAMPLER PLAYS 1.29 S" : "")},
+				> Sample::MaxLength / 44100.0 ? ", 12-BIT GRAIN PLAYS 1.29 S" : "")},
 			{"RATE", juce::String(e.rate / 1000, 1) + " KHZ"},
 			{"CHANNELS", channels},
 			{"FOLDER", library.folders()[e.folder].getFileName()},

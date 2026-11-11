@@ -271,7 +271,8 @@ namespace elektron::drums
 	}
 
 	Chain::DriveStages::DriveStages(const double _rate)
-		: srr(_rate), rates{Oversampler(_rate), Oversampler(_rate), Oversampler(_rate), Oversampler(_rate)}
+		: srr(_rate), dac(_rate), rates{Oversampler(_rate), Oversampler(_rate), Oversampler(_rate), Oversampler(_rate),
+			Oversampler(_rate)}
 	{
 	}
 
@@ -282,8 +283,8 @@ namespace elektron::drums
 		: m_rate(_rate), m_syntakt(_syntakt), m_drives{DriveStages(_rate), DriveStages(_rate), DriveStages(_rate), DriveStages(_rate)},
 		m_bands{BandStages(_rate), BandStages(_rate)}, m_filter(_rate), m_amp(_rate), m_envelope(_rate)
 	{
-		static_assert(static_cast<int>(DriveType::Count) == Types && static_cast<int>(BandType::Count) == Types
-			&& static_cast<int>(FilterType::Count) + 1 == Types, "a place holds Types kinds of stage");
+		static_assert(static_cast<int>(DriveType::Count) == Types && static_cast<int>(BandType::Count) <= Types
+			&& static_cast<int>(FilterType::Count) + 1 <= Types, "a place holds at most Types kinds of stage");
 		std::fill_n(&m_mix[0][0], Places * Lanes, 1.0f);
 		std::fill_n(&m_mixNow[0][0], Places * Lanes, 1.0f);
 		for(auto& place : m_pending)
@@ -312,7 +313,8 @@ namespace elektron::drums
 
 	bool Chain::raised(const bool _post, const int _type) const
 	{
-		if(m_factor == 1 || _type == static_cast<int>(DriveType::MdSrr))
+		// SRR's and the DAC's hold fold the spectrum down: that is their sound, which a raised rate would take away
+		if(m_factor == 1 || _type == static_cast<int>(DriveType::MdSrr) || _type == static_cast<int>(DriveType::Dac))
 			return false;
 		// A firmware's drive where its firmware has it stays that firmware's
 		return m_syntakt ? !(_type == static_cast<int>(DriveType::Syntakt) && !_post)
@@ -350,6 +352,8 @@ namespace elektron::drums
 				_function(s.dist, MdDistLevel);
 			else if(_type == static_cast<int>(DriveType::MdSrr))
 				_function(s.srr, MdSrrLevel);
+			else if(_type == static_cast<int>(DriveType::Dac))
+				_function(s.dac, StageLevel{1, 1});
 		}
 	}
 
@@ -423,6 +427,7 @@ namespace elektron::drums
 		case DriveType::Syntakt:	s.syntakt.set(_lane, amount << 1); break;
 		case DriveType::MdDist:		s.dist.set(_lane, amount); break;
 		case DriveType::MdSrr:		s.srr.set(_lane, amount); break;
+		case DriveType::Dac:		s.dac.set(_lane, amount); break;
 		default:					break;
 		}
 		m_mix[_place][_lane] = static_cast<float>(_drive.mix) / 127.0f;

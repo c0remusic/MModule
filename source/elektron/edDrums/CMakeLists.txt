@@ -7,7 +7,7 @@ add_library(edDrums STATIC edDrumsChain.h edDrumsChain.cpp
 	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
 	edDrumsMaster.h edDrumsMaster.cpp edDrumsSamples.h edDrumsSamples.cpp
 	edDrumsSendFx.h edDrumsSendFx.cpp edDrumsSends.h edDrumsSends.cpp
-	edDrumsSequencer.h edDrumsSequencer.cpp)
+	edDrumsSequencer.h edDrumsSequencer.cpp edDrumsVintage.h edDrumsVintage.cpp)
 target_include_directories(edDrums PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast sophie PRIVATE mdEngine opendrum)
 set_property(TARGET edDrums PROPERTY FOLDER "Elektron")
@@ -62,6 +62,15 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsAmpTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsAmpTest COMMAND edDrumsAmpTest)
 	set_tests_properties(edDrumsAmpTest PROPERTIES TIMEOUT 300)
+
+	# The vintage PCM character: the DAC's codes, the low-pass, the VINTAGE grain's hold and pitch, the DAC drive, old
+	# Samplers, allocations and cost
+	add_executable(edDrumsVintageTest edDrumsVintageTest.cpp)
+	target_link_libraries(edDrumsVintageTest PRIVATE edDrums)
+	target_include_directories(edDrumsVintageTest PRIVATE ../md/mdDrums)
+	set_property(TARGET edDrumsVintageTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsVintageTest COMMAND edDrumsVintageTest)
+	set_tests_properties(edDrumsVintageTest PROPERTIES TIMEOUT 300)
 
 	# The internal sequencer's core: steps at their sample whatever the block size, conditions, locks, jumps (ticket 17)
 	add_executable(edDrumsSequencerTest edDrumsSequencerTest.cpp)

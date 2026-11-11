@@ -149,6 +149,8 @@ namespace elektron::drums
 			return 0;
 		if(_machine.family == Family::Sophie)
 			return sophie::MachineSlots;
+		if(_machine == Sampler)
+			return vintage::SamplerParameters;
 		return _machine.family == Family::OpenDrum ? openDrum_machineParameters(_machine.id) : 8;
 	}
 
@@ -183,6 +185,13 @@ namespace elektron::drums
 		const auto& first = _machine == Sampler ? SamplerDefaults
 			: _machine.family == Family::Machinedrum ? MachinedrumDefaults : SyntaktDefaults;
 		std::copy(first.begin(), first.end(), d.begin());
+		if(_machine == Sampler)
+		{
+			// The ROM player's grain; VINTAGE's at 8 bits, companded, its low-pass at 9.9 kHz
+			d[vintage::BitsSlot] = 40;
+			d[vintage::CompandingSlot] = 127;
+			d[vintage::FilterSlot] = 110;
+		}
 		return d;
 	}
 
@@ -436,6 +445,8 @@ namespace elektron::drums
 			auto& md = m_mdTracks[static_cast<size_t>(_track)];
 			md.setMachine(_machine == Sampler ? static_cast<uint8_t>(Rom33 + _track) : _machine.id, defaults(_machine));
 			md.clearMachineLocks();
+			t.vt.stop();
+			t.vtTrig = false;
 			// What it took while on no Machinedrum machine went nowhere
 			for(size_t i = 0; i < 8; ++i)
 				md.modulate(i, t.taken[static_cast<size_t>(LfoTarget::Machine1) + i]);
@@ -476,15 +487,26 @@ namespace elektron::drums
 		m_directory[entry + 1] = words ? static_cast<uint32_t>(std::min<size_t>(_sample->pcm.size(), 2 * words)) : 0;
 		m_directory[entry + 2] = 0xffffff;		// no loop
 		m_directory[entry + 3] = words ? _sample->rateWord : 0;
+
+		// The VINTAGE grain's, its values whole where they lie: the cut voice's tail is rendered, nothing reads the old ones
+		const auto t = static_cast<size_t>(_track);
+		const auto* source = _sample ? _sample->source.get() : nullptr;
+		m_vtSource[t] = source && !source->empty() ? source->data() : nullptr;
+		m_vtLength[t] = m_vtSource[t] ? static_cast<uint32_t>(std::min<size_t>(source->size(), Sample::MaxSourceLength)) : 0;
+		m_vtRate[t] = _sample ? _sample->rate : SampleRate;
 	}
 
 	void Engine::setParameter(const int _track, const int _index, const uint8_t _value)
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
+		// Another grain: what the old one plays ramps out
+		if(t.machine == Sampler && _index == vintage::GrainSlot
+			&& vintage::isVintage(_value) != vintage::isVintage(t.params[vintage::GrainSlot]))
+			cut(_track);
 		t.params[static_cast<size_t>(_index)] = _value;
 		t.lockValue[static_cast<size_t>(_index)] = _value;
-		// Machine 9-24 of a machine of 8 are kept, and change nothing
-		if(_index >= machineParameters(t.machine))
+		// Machine 9-24 of a machine of 8 are kept, and change nothing; the Sampler's 9-12 are read where they play
+		if(_index >= machineParameters(t.machine) || (t.machine == Sampler && _index >= 8))
 			return;
 		if(t.machine.family == Family::Machinedrum)
 			m_mdTracks[static_cast<size_t>(_track)].knob(static_cast<size_t>(_index), _value);
@@ -651,7 +673,7 @@ namespace elektron::drums
 	void Engine::lock(const int _track, const int _index, const uint8_t _value)
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
-		if(_index >= machineParameters(t.machine))
+		if(_index >= machineParameters(t.machine) || (t.machine == Sampler && _index >= 8))
 			return;
 		if(t.machine.family == Family::Machinedrum)
 		{
@@ -728,10 +750,13 @@ namespace elektron::drums
 		{
 			m_mdTracks[static_cast<size_t>(_track)].hit();
 			m_mdTracks[static_cast<size_t>(_track)].alignTicks(m_mdBlock);
+			t.vtTrig = vintageGrain(t);
 		}
 		m_mdChain->hit(_track, _velocity);
-		// The voice's first sample lands HitDelay after the note, wherever its block falls
-		const int64_t at = m_now + HitDelay - voiceStart(t.machine) - m_mdChain->delay(_track);
+		// The voice's first sample lands HitDelay after the note, wherever its block falls. The VINTAGE grain's sounds from
+		// its block's first sample
+		const int start = vintageGrain(t) ? 0 : voiceStart(t.machine);
+		const int64_t at = m_now + HitDelay - start - m_mdChain->delay(_track);
 		t.mdHitSkip = m_mdChain->pureDelay(_track);
 		const float tail = tailGain(t.md.velocity, _gain);
 		t.md.start(at, _gain, t.level);
@@ -857,6 +882,8 @@ namespace elektron::drums
 			t.mdTailBlocks = std::max(t.mdTailBlocks, blocks);
 			// The rest of an OPEN DRUM block lies past the ramp: the voice's next Hit starts a block of its own
 			t.odPending = false;
+			// The VINTAGE grain's voice ends with its ramp, which its tail holds: nothing of it reads its sample after this
+			t.vt.stop();
 			if(t.mdTailBlocks)
 			{
 				m_mdTails |= bit;
@@ -958,8 +985,49 @@ namespace elektron::drums
 			_x[n] += block[n] * SophieGain;
 	}
 
+	bool Engine::vintageGrain(const Track& _track)
+	{
+		return _track.machine == Sampler && vintage::isVintage(_track.params[vintage::GrainSlot]);
+	}
+
+	void Engine::renderVintage(const int _track, float* _x)
+	{
+		auto& t = m_tracks[static_cast<size_t>(_track)];
+		const auto i = static_cast<size_t>(_track);
+		// PTCH, DEC, HOLD, STRT and END as the ROM player reads them, smoothed and locked, the LFOs' moves added and the sum
+		// held inside a Kit value's range first (the moves reach $3FFF: END past 127 would read past the sample). The
+		// smoothing's floor stops up to 3 of 1/128 under its target, which the +2 and the rounding take back
+		const auto& words = m_mdTracks[i].values();
+		const auto word = [&](const int _p)
+		{
+			return std::clamp(static_cast<int>(words[static_cast<size_t>(_p)])
+				+ t.taken[static_cast<size_t>(LfoTarget::Machine1) + static_cast<size_t>(_p)], 0, 127 << 7);
+		};
+		const auto smooth = [&](const int _p) { return std::min(127.0, (word(_p) + 2) / 128.0); };
+		const auto value = [&](const int _p) { return static_cast<int>(std::lround(word(_p) / 128.0)); };
+		if(t.vtTrig)
+		{
+			t.vtTrig = false;
+			const uint32_t length = m_vtLength[i];
+			const auto begin = static_cast<uint32_t>(static_cast<uint64_t>(length) * static_cast<uint32_t>(value(4)) / 128);
+			const auto end = static_cast<uint32_t>(static_cast<uint64_t>(length) * static_cast<uint32_t>(value(5)) / 127);
+			t.vt.setDac(vintage::bitsOf(t.params[vintage::BitsSlot]), vintage::companding(t.params[vintage::CompandingSlot]));
+			t.vt.trig(m_vtSource[i], begin, end, vintage::holdSeconds(value(2)) * SampleRate);
+		}
+		t.vt.setStep(m_vtRate[i] / SampleRate * std::exp2(vintage::semitones(smooth(0)) / 12));
+		t.vt.setDecay(vintage::decaySeconds(smooth(1)), SampleRate);
+		t.vt.setDac(vintage::bitsOf(t.params[vintage::BitsSlot]), vintage::companding(t.params[vintage::CompandingSlot]));
+		t.vt.setFilter(vintage::filterHz(t.params[vintage::FilterSlot]), SampleRate);
+		t.vt.render(_x, BlockSize);
+	}
+
 	void Engine::renderVoice(const int _track, float* _x)
 	{
+		if(vintageGrain(m_tracks[static_cast<size_t>(_track)]))
+		{
+			renderVintage(_track, _x);
+			return;
+		}
 		if(m_tracks[static_cast<size_t>(_track)].machine.family == Family::OpenDrum)
 		{
 			renderOpenDrum(m_tracks[static_cast<size_t>(_track)], _x);
@@ -1023,6 +1091,7 @@ namespace elektron::drums
 			if(t.machine.family == Family::OpenDrum ? t.md.quiet >= OpenDrumQuietBlocks && !openDrum_sounding(t.od)
 				: t.machine.family == Family::Sophie ? t.md.quiet >= OpenDrumQuietBlocks && !t.spTrig
 					&& !sophie_active(&m_sophie->v[track])
+				: vintageGrain(t) ? t.md.quiet >= OpenDrumQuietBlocks && !t.vtTrig && !t.vt.playing()
 				: t.md.quiet >= MachinedrumQuietBlocks)
 				m_mdLive &= ~bit;
 			if(!t.mdTailBlocks)

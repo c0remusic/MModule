@@ -49,6 +49,8 @@ namespace elektron::drums
 		int machinePage() const { return m_machinePage; }
 		int machinePages() const;
 		juce::Rectangle<int> machinePageArea(int _page) const;
+		// The Sampler's GRAIN segment _i (0 the ROM player's, 1 VINTAGE) in the Machine block's head
+		juce::Rectangle<int> grainArea(int _i) const;
 
 		// For tests: the page shown's cells, hidden ones included (an LFO's tab, a source's set); a cell's and a step
 		// key's area in pixels

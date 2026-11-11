@@ -43,13 +43,15 @@ namespace elektron::drums
 			s.name = std::move(_name);
 			s.rate = _rate;
 			s.pcm = std::move(_pcm);
-			s.words.resize((s.pcm.size() + 1) / 2);
+			const size_t played = std::min<size_t>(s.pcm.size(), Sample::MaxLength);
+			s.words.resize((played + 1) / 2);
 			for(size_t w = 0; w < s.words.size(); ++w)
 			{
-				const uint32_t second = 2 * w + 1 < s.pcm.size() ? code(s.pcm[2 * w + 1]) : code(0);
+				const uint32_t second = 2 * w + 1 < played ? code(s.pcm[2 * w + 1]) : code(0);
 				s.words[w] = code(s.pcm[2 * w]) << 12 | second;
 			}
 			s.rateWord = static_cast<uint32_t>(std::lround(_rate * Sample::Unity / 44100.0));
+			s.source = std::make_shared<const std::vector<int16_t>>(s.pcm);
 			return s;
 		}
 
@@ -71,7 +73,7 @@ namespace elektron::drums
 			return std::string("The file holds no audio");
 		if(_rate < Sample::MinRate - 0.5 || _rate > Sample::MaxRate + 0.5)
 			return "The file plays at " + std::to_string(std::lround(_rate)) + " Hz: a sample plays at 4 to 48 kHz";
-		std::vector<int16_t> pcm(std::min<size_t>(_mono.size(), Sample::MaxLength));
+		std::vector<int16_t> pcm(std::min<size_t>(_mono.size(), Sample::MaxSourceLength));
 		for(size_t n = 0; n < pcm.size(); ++n)
 			pcm[n] = static_cast<int16_t>(std::lround(std::clamp(_mono[n], -1.0f, 1.0f) * 32767.0f));
 		return fromPcm(std::move(_name), std::move(pcm), _rate);
@@ -111,7 +113,7 @@ namespace elektron::drums
 		std::memcpy(&rate, &bits, sizeof(rate));
 		const size_t count = get32(p + 8);
 		p += 12;
-		if(count == 0 || count > Sample::MaxLength || static_cast<size_t>(_data + _size - p) != 2 * count
+		if(count == 0 || count > Sample::MaxSourceLength || static_cast<size_t>(_data + _size - p) != 2 * count
 			|| !(rate >= Sample::MinRate - 0.5 && rate <= Sample::MaxRate + 0.5))
 			return std::nullopt;
 		std::vector<int16_t> pcm(count);
