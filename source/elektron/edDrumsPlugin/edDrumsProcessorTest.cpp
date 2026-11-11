@@ -12,6 +12,8 @@
 //     as an edit as a state loads;
 //   - the Sampler last of Machine's choices, none before it moved, an old state on ROM-33 to -48 playing it; a WAV
 //     loaded on a Track plays, the state keeps it, cleared it is silence (ticket 20);
+//   - a Kit saved, then loaded by another instance, plays the same, its sample included, no edit told; two instances
+//     on one Bank each write a Slot and keep the other's; a Kit without an ID loads that parameter's default (ticket 19);
 //   - the sequencer from a playhead at 120 BPM: Hits at their steps' samples, Locks for their step only, Pattern
 //     switching at the end of the pattern playing, patterns and samples in the state play the same (ticket 17).
 //
@@ -1017,6 +1019,106 @@ namespace
 			peakOf(loaded, 0));
 	}
 
+	// ---- the Kits ----
+
+	// What a Kit's load tells the host: edits, none expected, and the re-reads
+	struct KitListener final : juce::AudioProcessorListener
+	{
+		int edits = 0, rereads = 0;
+		void audioProcessorParameterChanged(juce::AudioProcessor*, int, float) override { ++edits; }
+		void audioProcessorChanged(juce::AudioProcessor*, const ChangeDetails& _d) override
+		{
+			rereads += _d.programChanged ? 1 : 0;
+		}
+		void audioProcessorParameterChangeGestureBegin(juce::AudioProcessor*, int) override { ++edits; }
+		void audioProcessorParameterChangeGestureEnd(juce::AudioProcessor*, int) override { ++edits; }
+	};
+
+	// GEARMULATOR_DATA_ROOT names a folder of the test's own, empty at its start
+	void kits(const juce::File& _wav)
+	{
+		// A sound, a sample on Track 3 and a tempo, saved in Slot 5
+		Processor one;
+		allOutputs(one);
+		require(one.kitSlot(4).empty() && one.currentKit() == -1 && !one.kitDiffers(), "a new Bank's Slot 5");
+		applyValues(one, sound(true));
+		set(find(one, "t03_machine"), one.samplerChoice());
+		set(find(one, "tempo"), 100);
+		juce::String error;
+		require(one.loadSample(2, _wav, error), "the WAV refused: " + error.toStdString());
+		// A block first: the Sampler's Machine 1-8 take its defaults on the audio thread, as a host's change of machine
+		one.prepareToPlay(SampleRate, Block);
+		block(one);
+		require(one.saveKit(4), "the Kit not saved");
+		require(one.currentKit() == 4 && !one.kitDiffers() && one.kitSlot(4).name == "Kit 05", "the Kit saved in Slot 5");
+		set(find(one, "t01_level"), 3);
+		require(one.kitDiffers(), "a change after the save is not seen");
+		set(find(one, "t01_level"), 100);
+		require(!one.kitDiffers(), "the value saved given back, the sound still differs");
+		const auto take = play(one);
+
+		// A fresh instance loads it: every value but the Global ones, the sample, the same samples; no edit told
+		Processor other;
+		allOutputs(other);
+		KitListener heard;
+		other.addListener(&heard);
+		require(other.loadKit(4), "the Kit not loaded");
+		other.removeListener(&heard);
+		require(heard.edits == 0 && heard.rereads > 0, "a Kit loaded: " + std::to_string(heard.edits) + " edits told, "
+			+ std::to_string(heard.rereads) + " re-reads");
+		auto expected = valuesOf(one);
+		expected["tempo"] = plain(find(other, "tempo"));
+		require(plain(find(other, "tempo")) == 120, "the Kit carried the tempo");
+		for(const auto& [id, v] : valuesOf(other))
+			require(v == expected.at(id), "the Kit's " + id.toStdString() + ": " + std::to_string(v) + " for "
+				+ std::to_string(expected.at(id)));
+		require(other.sampleName(2) == _wav.getFileName() && other.currentKit() == 4 && !other.kitDiffers(),
+			"the Kit's sample");
+		// The synced LFOs follow the tempo, which the Kit does not keep
+		set(find(other, "tempo"), 100);
+		requireSame(take, play(other), "a Kit loaded does not play the same: ");
+		std::printf("  a Kit saved and loaded in another instance: the same samples, its sample, no edit told\n");
+
+		// Two instances on the same Bank each write a Slot: both stay
+		Processor a, b;
+		set(find(a, "t01_level"), 11);
+		set(find(b, "t01_level"), 22);
+		require(a.saveKit(9) && b.saveKit(10), "two Slots written");
+		a.followKits();
+		require(!a.kitSlot(10).empty() && !b.kitSlot(9).empty(), "an instance does not see the other's Slot");
+		require(a.renameKit(9, "Dusty"), "a rename");
+		require(a.clearKit(4) && a.kitSlot(4).empty(), "a Slot cleared");
+		{
+			Processor c;
+			require(c.kitSlot(9).name == "Dusty" && c.kitSlot(10).name == "Kit 11" && c.kitSlot(4).empty(), "the Bank read");
+			require(c.loadKit(9) && whole(plain(find(c, "t01_level"))) == 11, "Slot 10's Kit");
+			require(c.loadKit(10) && whole(plain(find(c, "t01_level"))) == 22, "Slot 11's Kit");
+		}
+		// The Kit played rewritten by another instance: the sound differs from its Slot
+		juce::Thread::sleep(20);
+		require(b.saveKit(9), "Slot 10 rewritten");
+		a.followKits();
+		require(a.currentKit() == 9 && a.kitDiffers(), "a Slot rewritten by another instance");
+		std::printf("  two instances each write a Slot of the Bank and keep the other's\n");
+
+		// A Kit without an ID, and with one not ours: the parameter it lacks takes its default
+		{
+			KitBank bank(Processor::dataFolder().getChildFile("Kits"));
+			auto kit = bank.read(10);
+			require(kit != nullptr && kit->hasAttribute("t01_level"), "Slot 11's file");
+			kit->removeAttribute("t01_level");
+			kit->setAttribute("not_ours", 5);
+			require(bank.write(12, *kit), "Slot 13 written");
+			Processor d;
+			set(find(d, "t01_level"), 5);
+			require(d.loadKit(12), "the Kit without t01_level");
+			auto& level = find(d, "t01_level");
+			require(level.getValue() == level.getDefaultValue() && !d.kitDiffers(), "a missing ID: not its default");
+		}
+		std::printf("PASS: Kits: saved and loaded play the same, two instances keep each other's Slots, a missing ID "
+			"takes its default\n");
+	}
+
 	// ---- the sequencer ----
 
 	constexpr double SamplesPerQuarter = SampleRate / 2;	// 120 BPM
@@ -1290,6 +1392,10 @@ int main(const int _argc, char** _argv)
 		std::printf("SKIP: set GEARMULATOR_MD_FIRMWARE_BIN to the Machinedrum UW flash image\n");
 		return 77;
 	}
+	// A data folder of the test's own, empty: the Kits' Bank is written there, never in the user's
+	const auto root = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsProcessorTestData");
+	root.deleteRecursively();
+	_putenv_s("GEARMULATOR_DATA_ROOT", root.getFullPathName().toRawUTF8());
 	try
 	{
 		transport();
@@ -1304,6 +1410,7 @@ int main(const int _argc, char** _argv)
 		samplerChoice();
 		const auto wav = writeWav(juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsSample.wav"));
 		samples(wav);
+		kits(wav);
 		wav.deleteFile();
 		sequencer(library);
 		return 0;

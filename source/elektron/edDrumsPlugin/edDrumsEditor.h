@@ -44,6 +44,10 @@ namespace elektron::drums
 		const std::vector<ui::Cell>& cells() const { return m_cells; }
 		juce::Rectangle<int> cellArea(const juce::String& _parameterId) const;
 		juce::Rectangle<int> stepKeyArea(int _key) const;
+		// Kits: a Slot's row, and an action's button (LOAD, SAVE HERE, RENAME, DELETE, IMPORT, EXPORT)
+		juce::Rectangle<int> kitSlotArea(int _slot) const;
+		juce::Rectangle<int> kitActionArea(int _action) const;
+		int kitSelected() const { return m_kitSel; }
 		// The timer's work, once
 		void tick();
 
@@ -179,6 +183,7 @@ namespace elektron::drums
 			std::function<void(int)> _choose, std::function<bool(int)> _disabled = {}, bool _stays = false);
 		void loadSample(int _track, const juce::File& _file);
 		void chooseSample(int _track);
+		void renameKit(int _slot);
 
 		Processor& m_processor;
 		Page m_page = Page::Sound;
@@ -196,6 +201,8 @@ namespace elektron::drums
 		int m_lockScroll = 0;
 		juce::Point<float> m_mouse{-1, -1};	// mm, for what shows under the mouse alone (a lock line's X)
 		int m_browseItem = 0, m_browseScroll = 0;
+		int m_kitSel = 0;					// Kits' Slot selected
+		int m_kitDelete = -1;				// the Slot whose DELETE asks again
 		juce::String m_toast;
 		double m_toastUntil = 0;
 		std::unique_ptr<Pattern> m_trackClipboard;

@@ -1693,31 +1693,170 @@ namespace elektron::drums
 
 	// ---- Kits and Browse ----
 
-	void Editor::buildKits() {}
+	// The Bank's 64 Slots in four columns of 16 rows, a click selects one; the Slot selected's panel: LOAD, SAVE HERE,
+	// RENAME, DELETE, a second click on DELETE empties it. IMPORT and EXPORT have no engine yet: greyed
+	namespace
+	{
+		constexpr float KitRowH = 12.9f, KitPanelX = cx(16), KitButtonW = (8 * Col - 4 - 2) / 2;
+
+		juce::Rectangle<float> kitRow(const int _slot)
+		{
+			return {cx(static_cast<float>((_slot / 16) * 4)), 32 + static_cast<float>(_slot % 16) * KitRowH, 4 * Col - 4,
+				KitRowH - 0.7f};
+		}
+
+		juce::Rectangle<float> kitButton(const int _i)
+		{
+			return {KitPanelX + static_cast<float>(_i % 2) * (KitButtonW + 2),
+				_i < 4 ? 47 + static_cast<float>(_i / 2) * 14.5f : 222, KitButtonW, 12.5f};
+		}
+
+		juce::String slotNumber(const int _slot)
+		{
+			return juce::String(_slot + 1).paddedLeft('0', 2);
+		}
+	}
+
+	juce::Rectangle<int> Editor::kitSlotArea(const int _slot) const
+	{
+		return toPx(kitRow(_slot));
+	}
+
+	juce::Rectangle<int> Editor::kitActionArea(const int _action) const
+	{
+		return toPx(kitButton(_action));
+	}
+
+	void Editor::buildKits()
+	{
+		for(int i = 0; i < Processor::KitSlots; ++i)
+		{
+			Hit row;
+			row.r = kitRow(i).withHeight(KitRowH);
+			row.click = [this, i]
+			{
+				m_kitSel = i;
+				m_kitDelete = -1;
+			};
+			addHit(std::move(row));
+		}
+		const std::array<std::function<void()>, 4> actions{
+			[this]
+			{
+				if(m_processor.loadKit(m_kitSel))
+					toast("Loaded " + m_processor.kitSlot(m_kitSel).name);
+			},
+			[this]
+			{
+				toast(m_processor.saveKit(m_kitSel) ? "Saved in slot " + slotNumber(m_kitSel)
+					: "Slot " + slotNumber(m_kitSel) + " could not be written");
+			},
+			[this]
+			{
+				if(!m_processor.kitSlot(m_kitSel).empty())
+					renameKit(m_kitSel);
+			},
+			[this]
+			{
+				if(m_processor.kitSlot(m_kitSel).empty())
+					return;
+				// What loses a Kit takes a second click
+				if(m_kitDelete != m_kitSel)
+				{
+					m_kitDelete = m_kitSel;
+					toast("Click DELETE again to empty slot " + slotNumber(m_kitSel));
+					return;
+				}
+				m_kitDelete = -1;
+				if(m_processor.clearKit(m_kitSel))
+					toast("Slot " + slotNumber(m_kitSel) + " emptied");
+			}};
+		for(size_t i = 0; i < actions.size(); ++i)
+		{
+			Hit button;
+			button.r = kitButton(static_cast<int>(i));
+			button.click = actions[i];
+			addHit(std::move(button));
+		}
+		// Another instance's write, the sound changed, a Slot selected: the page again
+		watch({ScreenX, 20, ScreenW, 220}, [this]
+		{
+			uint64_t h = mix(0, static_cast<uint64_t>(m_processor.currentKit() + 1));
+			h = mix(h, m_processor.kitDiffers() ? 1 : 0);
+			h = mix(mix(h, static_cast<uint64_t>(m_kitSel)), static_cast<uint64_t>(m_kitDelete + 1));
+			for(int i = 0; i < Processor::KitSlots; ++i)
+			{
+				const auto& s = m_processor.kitSlot(i);
+				h = mix(mix(h, static_cast<uint64_t>(s.size)), static_cast<uint64_t>(s.written.toMilliseconds()));
+			}
+			return h;
+		});
+	}
+
+	void Editor::renameKit(const int _slot)
+	{
+		// Deleted by the modal manager after its callback, which reads the name first
+		auto* window = new juce::AlertWindow("Rename kit " + slotNumber(_slot), {}, juce::MessageBoxIconType::NoIcon,
+			this);
+		window->addTextEditor("name", m_processor.kitSlot(_slot).name);
+		window->getTextEditor("name")->setInputRestrictions(16);
+		window->addButton("Rename", 1, juce::KeyPress(juce::KeyPress::returnKey));
+		window->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+		juce::Component::SafePointer<Editor> self(this);
+		window->enterModalState(true, juce::ModalCallbackFunction::create([self, window, _slot](const int _result)
+		{
+			const auto name = window->getTextEditorContents("name").trim();
+			if(!self || _result != 1 || name.isEmpty())
+				return;
+			self->m_processor.renameKit(_slot, name);
+			self->repaint();
+		}), true);
+	}
 
 	void Editor::drawKits(Painter& _p)
 	{
-		// No Kit store yet: the Bank's 64 slots shown empty, the actions greyed (spec: hidden or greyed, never fake)
 		drawHeader(_p, "KITS", {});
-		const float lrh = 12.9f;
+		int used = 0;
+		for(int i = 0; i < Processor::KitSlots; ++i)
+			used += m_processor.kitSlot(i).empty() ? 0 : 1;
+		const int played = m_processor.currentKit();
 		const Block bank{cx(0) - 2, 23, 16 * Col + 2, "BANK", "kb", &hue::t};
 		drawBlockTitle(_p, bank);
-		_p.text(cx(16) - 6, 29.2f, "0 OF 64", 2.8f, hue::t.c[4], 500, Align::Right);
-		for(int i = 0; i < 64; ++i)
+		_p.text(cx(16) - 6, 29.2f, juce::String(used) + " OF 64", 2.8f, hue::t.c[4], 500, Align::Right);
+		for(int i = 0; i < Processor::KitSlots; ++i)
 		{
-			const int r = i % 16;
-			const float x = cx(static_cast<float>((i / 16) * 4)), y = 32 + static_cast<float>(r) * lrh;
-			_p.rect(x, y, 4 * Col - 4, lrh - 0.7f, beat(r), 0.5f);
-			_p.text(x + 2.4f, y + 8, juce::String(i + 1).paddedLeft('0', 2), 2.8f, juce::Colour(0xff5E5E5A));
+			const auto r = kitRow(i);
+			const bool on = i == played, selected = i == m_kitSel;
+			_p.rect(r.getX(), r.getY(), r.getWidth(), r.getHeight(), selected ? colour::faint : beat(i % 16), 0.5f);
+			if(on)
+				_p.rect(r.getX(), r.getY() + 0.6f, 0.7f, KitRowH - 1.9f, hue::t.c[0], 0.3f);
+			_p.text(r.getX() + 2.4f, r.getY() + 8, slotNumber(i), 2.8f, juce::Colour(0xff5E5E5A));
+			const auto& slot = m_processor.kitSlot(i);
+			if(!slot.empty())
+				_p.text(r.getX() + 10, r.getY() + 8, slot.name, 3.2f, on ? hue::t.c[4] : selected ? colour::ink
+					: colour::mid, on || selected ? 600 : 500);
 		}
-		const float x = cx(16), w = 8 * Col - 4, bw = (w - 2) / 2;
-		drawBlockTitle(_p, {x - 2, 23, 8 * Col + 2, "KIT 01", "kk", &hue::t});
-		_p.text(x, 40, juce::String::fromUTF8("\xe2\x80\x94"), 5, colour::dim, 600);
+
+		// The Slot selected
+		const float x = KitPanelX;
+		const auto& slot = m_processor.kitSlot(m_kitSel);
+		const bool playing = m_kitSel == played, edited = playing && m_processor.kitDiffers();
+		drawBlockTitle(_p, {x - 2, 23, 8 * Col + 2, "KIT " + slotNumber(m_kitSel), "kk", &hue::t});
+		if(playing)
+			_p.text(x + 8 * Col - 4, 29.2f, edited ? "PLAYING, EDITED" : "PLAYING", 2.8f, hue::t.c[4], 500, Align::Right);
+		_p.text(x, 40, slot.empty() ? juce::String("Empty") : slot.name, 5, slot.empty() ? colour::dim : colour::ink, 600);
 		drawBlockTitle(_p, {x - 2, 213, 8 * Col + 2, "FILE", "kf", &hue::t});
-		const char* buttons[]{"LOAD", "SAVE HERE", "RENAME", "DELETE", "IMPORT", "EXPORT"};
+		const juce::String names[]{"LOAD", "SAVE HERE", "RENAME", m_kitDelete == m_kitSel ? "DELETE: AGAIN" : "DELETE",
+			"IMPORT", "EXPORT"};
 		for(int i = 0; i < 6; ++i)
-			drawButton(_p, x + static_cast<float>(i % 2) * (bw + 2), i < 4 ? 47 + static_cast<float>(i / 2) * 14.5f : 222,
-				bw, 12.5f, buttons[i], false, false);
+		{
+			const auto b = kitButton(i);
+			// LOAD lit where it changes the sound, SAVE HERE where the Kit played was changed since
+			const bool enabled = i == 1 || (i < 4 && !slot.empty());
+			const bool lit = (i == 0 && !slot.empty() && (!playing || edited)) || (i == 1 && edited)
+				|| (i == 3 && m_kitDelete == m_kitSel);
+			drawButton(_p, b.getX(), b.getY(), b.getWidth(), b.getHeight(), names[i], lit, enabled);
+		}
 	}
 
 	void Editor::buildBrowse()

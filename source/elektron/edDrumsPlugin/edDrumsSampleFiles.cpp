@@ -21,6 +21,9 @@ namespace elektron::drums
 		const double from = reader->sampleRate;
 		if(reader->lengthInSamples <= 0 || channels <= 0 || from <= 0.0)
 			return name + " holds no audio";
+		// A header's word is all these are: a channel count or a rate past any real file's would size the buffer below
+		if(channels > 8 || from > 384000.0)
+			return name + ": the Sampler reads up to 8 channels at up to 384 kHz";
 
 		// What the Sampler can play of it, read alone: a few samples more for the resampler
 		const double rate = from > Sample::MaxRate + 0.5 ? 44100.0 : from;

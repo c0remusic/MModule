@@ -10,6 +10,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "edDrumsEngine.h"
+#include "edDrumsKits.h"
 #include "edDrumsParameters.h"
 #include "edDrumsSequencer.h"
 
@@ -99,6 +100,23 @@ namespace elektron::drums
 		void editSequencer(const std::function<void(Sequencer&)>& _edit);
 		const Sequencer& sequencer() const { return *m_edited; }
 
+		// Message thread. The Kits' Bank (edDrumsKits.h): a Kit is every parameter but the Global ones (Tempo,
+		// Oversampling, Pattern) and the Tracks' samples, nothing of the sequencer. Loaded, its values change as a
+		// state's do, re-read by the host, none told as an edit, and a parameter it lacks takes its default. Saved, the
+		// sound goes into a Slot under the Slot's name, "Kit NN" for an empty one. The Kit played is the Slot last
+		// loaded or saved, -1 for none, which the state keeps; kitDiffers says whether the sound is no longer what that
+		// Slot holds, which another instance may have rewritten. followKits reads again the Slots whose file changed,
+		// which the timer does twice a second and each call here does first
+		static constexpr int KitSlots = KitBank::Slots;
+		const KitBank::Slot& kitSlot(const int _slot) const { return m_kits->slot(_slot); }
+		void followKits();
+		bool loadKit(int _slot);
+		bool saveKit(int _slot);
+		bool renameKit(int _slot, const juce::String& _name);
+		bool clearKit(int _slot);
+		int currentKit() const { return m_kitSlot; }
+		bool kitDiffers() const;
+
 		// Any thread: what the audio thread last played. The step under the transport, -1 stopped; the pattern playing,
 		// 0-127; the Tracks whose voice sounds, a bit each; an output bus's peak, both channels, falling 20 dB/s
 		int playingStep(const int _track) const { return m_playingStep[static_cast<size_t>(_track)].load(std::memory_order_relaxed); }
@@ -176,6 +194,10 @@ namespace elektron::drums
 		void publishSequencer();
 		void publishSample(int _track);
 		void pruneSamples();
+		bool isKitParameter(const int _index) const { return m_kitParameter[static_cast<size_t>(_index)] != 0; }
+		void writeSound(juce::XmlElement& _xml, bool _all) const;
+		void readSound(const juce::XmlElement& _xml, bool _all);
+		void rememberKit(const juce::XmlElement* _kit);
 		void sync(bool _hostIsTruth);
 		void syncShared();
 		template<typename P> P* add(P* _parameter, Section _section, int _track = -1);
@@ -234,6 +256,16 @@ namespace elektron::drums
 		std::atomic<int> m_middle{2};
 		Events m_events;
 		int m_patternAsked = 0;
+
+		// The Kits: by parameter index, whether a Kit holds it; the Bank; the Slot played and what it held when the Kit
+		// played was loaded, saved or rewritten, normalised values by parameter index and samples by Track
+		std::vector<uint8_t> m_kitParameter;
+		std::unique_ptr<KitBank> m_kits;
+		int m_kitSlot = -1;
+		bool m_kitHeld = false;		// m_kitValues and m_kitSamples hold the Slot's Kit: false for an empty Slot
+		std::vector<float> m_kitValues;
+		std::array<std::unique_ptr<Sample>, Tracks> m_kitSamples;
+		int m_kitFollow = 0;		// the timer's ticks since it last followed the Bank
 
 		// The audio thread's Locks: by parameter index, held and the value; by Track, the ones it holds
 		std::vector<LockTarget> m_lockTargets;

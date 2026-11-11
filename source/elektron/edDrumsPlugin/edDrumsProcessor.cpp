@@ -317,6 +317,15 @@ namespace elektron::drums
 		for(auto& step : m_playingStep)
 			step = -1;
 		buildLockTargets();
+
+		// A Kit holds every parameter but the Global ones
+		const auto& global = ids(Section::Global);
+		for(auto* parameter : getParameters())
+		{
+			const auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter);
+			m_kitParameter.push_back(p && !global.contains(p->getParameterID()) ? 1 : 0);
+		}
+		m_kits = std::make_unique<KitBank>(dataFolder().getChildFile("Kits"));
 		startTimerHz(20);
 	}
 
@@ -592,6 +601,8 @@ namespace elektron::drums
 		if(m_reread.exchange(false))
 			updateHostDisplay(ChangeDetails().withProgramChanged(true));
 		pruneSamples();
+		if(++m_kitFollow >= 10)
+			followKits();
 	}
 
 	bool Processor::isBusesLayoutSupported(const BusesLayout& _layout) const
@@ -895,37 +906,40 @@ namespace elektron::drums
 		m_liveTracks.store(m_engine->liveTracks(), std::memory_order_relaxed);
 	}
 
-	void Processor::getStateInformation(juce::MemoryBlock& _data)
+	// The parameters by ID, all or a Kit's, and the Tracks' samples, in elements of their own
+	void Processor::writeSound(juce::XmlElement& _xml, const bool _all) const
 	{
-		juce::XmlElement xml("ElektronDrums");
-		// 2: ticket 18's parameters; the format is the same, every parameter by ID. 3: the Sampler last of Machine's
-		// choices, the Tracks' samples and the patterns, in elements of their own
-		xml.setAttribute("version", 3);
 		for(auto* parameter : getParameters())
 			if(auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter))
-				xml.setAttribute(p->getParameterID(), p->convertFrom0to1(p->getValue()));
+				if(_all || isKitParameter(p->getParameterIndex()))
+					_xml.setAttribute(p->getParameterID(), p->convertFrom0to1(p->getValue()));
 		for(int t = 0; t < Tracks; ++t)
 			if(const auto& sample = m_samples[static_cast<size_t>(t)])
 			{
 				const auto bytes = sampleToBytes(*sample);
-				auto* element = xml.createNewChildElement("sample");
+				auto* element = _xml.createNewChildElement("sample");
 				element->setAttribute("track", t);
 				element->addTextElement(juce::MemoryBlock(bytes.data(), bytes.size()).toBase64Encoding());
 			}
+	}
+
+	void Processor::getStateInformation(juce::MemoryBlock& _data)
+	{
+		juce::XmlElement xml("ElektronDrums");
+		// 2: ticket 18's parameters; the format is the same, every parameter by ID. 3: the Sampler last of Machine's
+		// choices, the Tracks' samples and the patterns, in elements of their own. The Kit played's Slot since ticket 19
+		xml.setAttribute("version", 3);
+		writeSound(xml, true);
+		xml.setAttribute("kit", m_kitSlot);
 		for(int i = 0; i < SeqPatterns; ++i)
 			if(auto pattern = patternXml(m_edited->pattern(i), i))
 				xml.addChildElement(pattern.release());
 		copyXmlToBinary(xml, _data);
 	}
 
-	void Processor::setStateInformation(const void* _data, const int _size)
+	// What a state or a Kit gives: the parameters, all or a Kit's, and the Tracks' samples. Processing suspended
+	void Processor::readSound(const juce::XmlElement& _xml, const bool _all)
 	{
-		jassert(juce::MessageManager::existsAndIsCurrentThread());
-		const auto xml = getXmlFromBinary(_data, _size);
-		if(!xml || !xml->hasTagName("ElektronDrums"))
-			return;
-		// No block meanwhile: the audio thread sees the state whole
-		suspendProcessing(true);
 		// No Lock outlives the state: the engine takes every value again at the next block
 		std::fill(m_locked.begin(), m_locked.end(), uint8_t{0});
 		for(auto& list : m_lockedBy)
@@ -943,10 +957,10 @@ namespace elektron::drums
 		for(auto* parameter : getParameters())
 		{
 			auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter);
-			if(!p)
+			if(!p || !(_all || isKitParameter(p->getParameterIndex())))
 				continue;
-			if(xml->hasAttribute(p->getParameterID()))
-				setQuietly(*p, static_cast<float>(xml->getDoubleAttribute(p->getParameterID())));
+			if(_xml.hasAttribute(p->getParameterID()))
+				setQuietly(*p, static_cast<float>(_xml.getDoubleAttribute(p->getParameterID())));
 			else
 				static_cast<juce::AudioProcessorParameter&>(*p).setValue(p->getDefaultValue());
 		}
@@ -958,17 +972,17 @@ namespace elektron::drums
 				continue;
 			const auto chain = parameters::valuesOf(parameters::familyChain(machine));
 			for(size_t i = 0; i < chain.size(); ++i)
-				if(!xml->hasAttribute(p.chain[i].parameter->getParameterID()))
+				if(!_xml.hasAttribute(p.chain[i].parameter->getParameterID()))
 					setQuietly(*p.chain[i].parameter, static_cast<float>(chain[i]));
 		}
 		// Before version 3 ROM-33 to -48 were Machine's last 16 choices, past the Sampler's: a Track on one plays the Sampler
 		for(auto& p : m_tracks)
-			if(xml->getIntAttribute(p.machine->getParameterID()) > samplerChoice())
+			if(_xml.getIntAttribute(p.machine->getParameterID()) > samplerChoice())
 				setQuietly(*p.machine, static_cast<float>(samplerChoice()));
 
-		// The samples and the patterns the state holds, none else
+		// The samples the state holds, none else
 		std::array<const juce::XmlElement*, Tracks> samples{};
-		for(const auto* element : xml->getChildWithTagNameIterator("sample"))
+		for(const auto* element : _xml.getChildWithTagNameIterator("sample"))
 			if(const int t = element->getIntAttribute("track", -1); t >= 0 && t < Tracks)
 				samples[static_cast<size_t>(t)] = element;
 		for(int t = 0; t < Tracks; ++t)
@@ -981,6 +995,17 @@ namespace elektron::drums
 					sample = std::make_unique<Sample>(std::move(*read));
 			publishSample(t);
 		}
+	}
+
+	void Processor::setStateInformation(const void* _data, const int _size)
+	{
+		jassert(juce::MessageManager::existsAndIsCurrentThread());
+		const auto xml = getXmlFromBinary(_data, _size);
+		if(!xml || !xml->hasTagName("ElektronDrums"))
+			return;
+		// No block meanwhile: the audio thread sees the state whole
+		suspendProcessing(true);
+		readSound(*xml, true);
 		for(int i = 0; i < SeqPatterns; ++i)
 			m_edited->pattern(i) = Pattern();
 		for(const auto* element : xml->getChildWithTagNameIterator("pattern"))
@@ -991,6 +1016,133 @@ namespace elektron::drums
 		m_stateSerial.fetch_add(1, std::memory_order_acq_rel);
 		suspendProcessing(false);
 		updateHostDisplay(ChangeDetails().withProgramChanged(true));
+
+		// The Kit played, compared from now on with what its Slot holds now
+		const int slot = xml->getIntAttribute("kit", -1);
+		m_kitSlot = KitBank::valid(slot) ? slot : -1;
+		m_kits->follow();
+		const auto kit = m_kitSlot < 0 ? nullptr : m_kits->read(m_kitSlot);
+		rememberKit(kit.get());
+	}
+
+	// ---- the Kits ----
+
+	// What the Slot played holds, to compare the sound with: _kit's values as readSound gives them (a missing one, its
+	// default), nullptr for an empty Slot
+	void Processor::rememberKit(const juce::XmlElement* _kit)
+	{
+		m_kitHeld = _kit != nullptr;
+		m_kitValues.assign(m_kitParameter.size(), 0.0f);
+		for(auto& s : m_kitSamples)
+			s.reset();
+		if(!_kit)
+			return;
+		for(auto* parameter : getParameters())
+		{
+			const auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter);
+			if(!p || !isKitParameter(p->getParameterIndex()))
+				continue;
+			const auto& id = p->getParameterID();
+			m_kitValues[static_cast<size_t>(p->getParameterIndex())] = _kit->hasAttribute(id)
+				? p->convertTo0to1(static_cast<float>(_kit->getDoubleAttribute(id))) : p->getDefaultValue();
+		}
+		for(const auto* element : _kit->getChildWithTagNameIterator("sample"))
+		{
+			const int t = element->getIntAttribute("track", -1);
+			juce::MemoryBlock bytes;
+			if(t >= 0 && t < Tracks && bytes.fromBase64Encoding(element->getAllSubText()))
+				if(auto read = sampleFromBytes(static_cast<const uint8_t*>(bytes.getData()), bytes.getSize()))
+					m_kitSamples[static_cast<size_t>(t)] = std::make_unique<Sample>(std::move(*read));
+		}
+	}
+
+	void Processor::followKits()
+	{
+		m_kitFollow = 0;
+		const uint64_t changed = m_kits->follow();
+		if(m_kitSlot >= 0 && (changed >> m_kitSlot) & 1)
+		{
+			const auto kit = m_kits->read(m_kitSlot);
+			rememberKit(kit.get());
+		}
+	}
+
+	bool Processor::loadKit(const int _slot)
+	{
+		jassert(juce::MessageManager::existsAndIsCurrentThread());
+		followKits();
+		const auto kit = m_kits->read(_slot);
+		if(!kit)
+			return false;
+		// As a state loads: no block meanwhile, the host reads the parameters again, none told as an edit
+		suspendProcessing(true);
+		readSound(*kit, false);
+		m_stateSerial.fetch_add(1, std::memory_order_acq_rel);
+		suspendProcessing(false);
+		updateHostDisplay(ChangeDetails().withProgramChanged(true));
+		m_kitSlot = _slot;
+		rememberKit(kit.get());
+		return true;
+	}
+
+	bool Processor::saveKit(const int _slot)
+	{
+		followKits();
+		if(!KitBank::valid(_slot))
+			return false;
+		const auto& slot = m_kits->slot(_slot);
+		juce::XmlElement kit(KitBank::Tag);
+		kit.setAttribute("version", KitBank::Version);
+		kit.setAttribute("name", slot.empty() ? "Kit " + juce::String(_slot + 1).paddedLeft('0', 2) : slot.name);
+		writeSound(kit, false);
+		if(!m_kits->write(_slot, kit))
+			return false;
+		m_kitSlot = _slot;
+		rememberKit(&kit);
+		m_kits->follow();
+		return true;
+	}
+
+	bool Processor::renameKit(const int _slot, const juce::String& _name)
+	{
+		followKits();
+		auto kit = m_kits->read(_slot);
+		if(!kit)
+			return false;
+		kit->setAttribute("name", _name);
+		const bool written = m_kits->write(_slot, *kit);
+		followKits();
+		return written;
+	}
+
+	bool Processor::clearKit(const int _slot)
+	{
+		followKits();
+		if(!KitBank::valid(_slot) || m_kits->slot(_slot).empty())
+			return false;
+		const bool cleared = m_kits->clear(_slot);
+		followKits();
+		return cleared;
+	}
+
+	bool Processor::kitDiffers() const
+	{
+		if(m_kitSlot < 0)
+			return false;
+		if(!m_kitHeld)
+			return true;
+		// A float parameter's value comes back from its plain value within a rounding
+		for(size_t i = 0; i < m_kitValues.size(); ++i)
+			if(m_kitParameter[i] && std::abs(getParameters()[static_cast<int>(i)]->getValue() - m_kitValues[i]) > 1e-5f)
+				return true;
+		for(size_t t = 0; t < m_samples.size(); ++t)
+		{
+			const auto* a = m_samples[t].get();
+			const auto* b = m_kitSamples[t].get();
+			if(!a != !b || (a && (a->name != b->name || a->rate != b->rate || a->pcm != b->pcm)))
+				return true;
+		}
+		return false;
 	}
 
 	juce::AudioProcessorEditor* Processor::createEditor()

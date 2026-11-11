@@ -152,6 +152,30 @@ namespace
 			click(editor, {10, 10});	// outside: leaves the lock edit
 		}
 
+		// Kits: a Kit saved in Slot 3, the sound changed, a click on Slot 3 and one on LOAD give it back; a click on
+		// Slot 6 and one on SAVE HERE fill it
+		{
+			auto* freq = processor.parameter("t02_flt_freq");
+			freq->setValueNotifyingHost(0.25f);
+			const float saved = freq->getValue();
+			check(processor.saveKit(2), "a Kit saved in Slot 3");
+			freq->setValueNotifyingHost(0.75f);
+			editor.showPage(Editor::Page::Kits);
+			click(editor, editor.kitSlotArea(2).getCentre());
+			check(editor.kitSelected() == 2, "a click on Slot 3 selects it");
+			click(editor, editor.kitActionArea(0).getCentre());
+			check(freq->getValue() == saved && processor.currentKit() == 2 && !processor.kitDiffers(),
+				"LOAD gives Slot 3's Kit back");
+			click(editor, editor.kitSlotArea(5).getCentre());
+			click(editor, editor.kitActionArea(1).getCentre());
+			check(!processor.kitSlot(5).empty() && processor.currentKit() == 5, "SAVE HERE fills Slot 6");
+			processor.renameKit(5, "Dusty");
+			click(editor, editor.kitActionArea(3).getCentre());
+			check(!processor.kitSlot(5).empty(), "a first click on DELETE keeps the Kit");
+			click(editor, editor.kitSlotArea(2).getCentre());
+			freq->setValueNotifyingHost(0.5f);
+		}
+
 		editor.showPage(Editor::Page::Sound);
 		snapshot(editor, _folder.getChildFile("sound.png"));
 		editor.showLfo(1);
@@ -179,6 +203,10 @@ namespace
 int main(const int _argc, char** _argv)
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
+	// A data folder of the test's own, empty: the Kits' Bank is written there, never in the user's
+	const auto root = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsEditorTestData");
+	root.deleteRecursively();
+	_putenv_s("GEARMULATOR_DATA_ROOT", root.getFullPathName().toRawUTF8());
 	const juce::ScopedJuceInitialiser_GUI juce;
 	const auto folder = _argc > 1 ? juce::File(juce::String::fromUTF8(_argv[1]))
 		: juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsEditor");
