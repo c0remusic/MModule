@@ -17,7 +17,10 @@
 //
 // Every value change is one host gesture (beginChangeGesture, setValueNotifyingHost, endChangeGesture). A 30 Hz timer
 // reads the parameters and what the Processor reports, and repaints only the areas whose state changed. A sample file
-// dropped on a Track's LCD or pad, or on the Sound page's Sample block, loads into that Track's Sampler.
+// dropped on a Track's LCD or pad, or on the Sound page's Sample block, loads into that Track's Sampler. A folder
+// dropped on Browse, or chosen by ADD FOLDER, joins the samples' Library, which Browse lists by folder and by type:
+// a click on a sample auditions it, a double-click loads it on the Track shown, a drag onto one of the 16 Tracks there;
+// SEARCH is a TextEditor, the one control typed into.
 //
 // Lock edit: a click on a Track's strip selects its step and opens Sound, where a cell dragged writes a Lock on the
 // steps selected (Processor's sequencer, the parameter's index and plain value) instead of the parameter.
@@ -38,6 +41,11 @@ namespace elektron::drums
 		int track() const { return m_track; }
 		void showMenu(bool _open);
 		void showLfo(int _lfo);
+		// Sound's Machine block: page 0-2 of Machine 1-24, eight a page; one the Track's machine does not use stays shut
+		void showMachinePage(int _page);
+		int machinePage() const { return m_machinePage; }
+		int machinePages() const;
+		juce::Rectangle<int> machinePageArea(int _page) const;
 
 		// For tests: the page shown's cells, hidden ones included (an LFO's tab, a source's set); a cell's and a step
 		// key's area in pixels
@@ -48,6 +56,12 @@ namespace elektron::drums
 		juce::Rectangle<int> kitSlotArea(int _slot) const;
 		juce::Rectangle<int> kitActionArea(int _action) const;
 		int kitSelected() const { return m_kitSel; }
+		// Browse: a LIBRARY entry's row (MACHINES 3, SAMPLES BY SOURCE 2, BY TYPE 4), a list row, the list's length,
+		// the search field
+		juce::Rectangle<int> browseTreeArea(int _tree) const;
+		juce::Rectangle<int> browseRowArea(int _row) const;
+		int browseCount() const { return static_cast<int>(browseList().size()); }
+		juce::TextEditor& searchField() { return m_search; }
 		// The timer's work, once
 		void tick();
 
@@ -155,8 +169,9 @@ namespace elektron::drums
 		void drawSelector(ui::Painter& _p);
 		void drawButton(ui::Painter& _p, float _x, float _y, float _w, float _h, const juce::String& _text, bool _on,
 			bool _enabled = true);
+		// Segments from _enabled on are greyed
 		void drawSegments(ui::Painter& _p, float _x, float _y, float _w, const juce::StringArray& _items, int _on,
-			const ui::Hue* _hue = nullptr);
+			const ui::Hue* _hue = nullptr, int _enabled = 1 << 30);
 		void sprite(juce::Graphics& _g, const juce::Image& _plate, juce::Rectangle<float> _mm, float _plateY) const;
 
 		// Values
@@ -183,6 +198,14 @@ namespace elektron::drums
 			std::function<void(int)> _choose, std::function<bool(int)> _disabled = {}, bool _stays = false);
 		void loadSample(int _track, const juce::File& _file);
 		void chooseSample(int _track);
+		// Browse's samples: the list shown, indices in the Library's entries, filtered by the segment and the search
+		bool browseSamples() const { return m_browseTree == 2 || m_browseTree == 4; }
+		std::vector<int> browseList() const;
+		juce::StringArray browseFilters() const;
+		void audition(const juce::File& _file);
+		void addFolder(const juce::File& _folder);
+		void chooseFolder();
+		void drawBrowseSample(ui::Painter& _p, float _x, const ui::Hue& _hue);
 		void renameKit(int _slot);
 
 		Processor& m_processor;
@@ -191,6 +214,7 @@ namespace elektron::drums
 		bool m_menu = false;
 		int m_lfo = 0;
 		int m_sampleTab = 0;
+		int m_machinePage = 0;
 		juce::String m_focus = "f";
 		int m_stepPage = 0;
 		bool m_follow = false;
@@ -200,7 +224,12 @@ namespace elektron::drums
 		std::array<std::vector<int>, 16> m_lockLines;	// Detail's lines added without a Lock yet, parameter indices
 		int m_lockScroll = 0;
 		juce::Point<float> m_mouse{-1, -1};	// mm, for what shows under the mouse alone (a lock line's X)
-		int m_browseItem = 0, m_browseScroll = 0;
+		int m_browseItem = 0, m_browseScroll = 0;	// in the list shown
+		int m_browseTree = 3, m_browseFilter = 0;	// LIBRARY's entry, the list's segment
+		juce::String m_browseSearch;
+		int m_browseDrag = -1;				// the Library entry a list row's drag carries
+		juce::File m_auditionFile;			// what the audition played last
+		juce::TextEditor m_search;
 		int m_kitSel = 0;					// Kits' Slot selected
 		int m_kitDelete = -1;				// the Slot whose DELETE asks again
 		juce::String m_toast;

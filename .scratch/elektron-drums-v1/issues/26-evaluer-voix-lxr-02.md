@@ -1,7 +1,7 @@
 # Évaluer le port des voix LXR-02
 
 Type: HITL
-Status: ready-for-human
+Status: resolved
 Assignee: 
 Blocked by: 
 
@@ -53,6 +53,22 @@ Banc `C:\dev\elektron-work\oracle\lxr-eval\h\bench.c`, lancé avec l'accord de l
 2. Snare, Cymbal, HiHat.
 3. Table des paramètres, valeurs de kit, page d'interface, nom de famille, `NOTICE.md`.
 
+## Fait, 2026-11-11 (l'utilisateur a dit oui)
+
+- Port dans `source/elektron/opendrum/` (C, `/fp:precise`), famille OPEN DRUM, machines OD DRUM, OD SNARE, OD CYMBAL, OD HIHAT ; licence et changements dans son `README.md`, section dans `NOTICE.md`.
+- Blocs de 64 gardés : une voix rend 64 échantillons un bloc de 32 sur deux, un Hit la relance au bloc suivant. `REAL_FS` reste 44 140 (1,6 cent haut à 44,1 kHz).
+- `edDrumsOpenDrumTest` : 25 rendus de l'original (`opendrumRefs`, hors dépôt, `OPENDRUM_REFERENCES`) identiques au bit près ; 180 Hits à travers le moteur, notes partout dans le bloc, vélocités 127 et 64 : mêmes échantillons, premier échantillon à `HitDelay` (81), gigue 0 ; voix arrêtée quand son enveloppe est fermée et 64 blocs muets ; rien d'alloué ; environ 1 à 1,3 µs par voix et 32 échantillons.
+- Machine 1-24 : jusqu'à 24 paramètres par machine (22, 21, 22, 23), les MD et Syntakt gardent 8 ; IDs `tNN_m9` à `tNN_m24` ajoutés en fin de liste.
+- Non fait : écoute ; les LFO et la modulation de vélocité de la voix d'origine ; PWM n'agit que sur l'onde PWM ; REPEAT garde ses 0-127.
+
 ## Écarté : ReplicantTr8s
 
 `DanimanX/ReplicantTr8s` (MIT, TR-8S) a été lu pour la même question. Ses voix ne sont pas un moteur à porter : `ACBDrumVoice.cpp`, 1 215 lignes, somme des sinus et des exponentielles écrits à la main, sans rien de la machine, quoi qu'en dise son « 1:1 ». Le firmware Roland n'y fournit que kits, patterns et noms, lus à l'exécution dans un fichier de l'utilisateur. Rien à y prendre : le son ne vient pas de la machine et les données ne pourraient pas entrer dans le dépôt.
+
+## Décision et port (2026-11-11)
+
+L'utilisateur a dit oui. Les quatre voix sont portées sous le nom OPEN DRUM (`source/elektron/opendrum/`, section de
+`NOTICE.md`), rendues au même échantillon que le code d'origine (25 rendus sur 25), à 1,0-1,3 µs par voix et bloc de
+32. Le passage aux blocs de 32 garde la vitesse des enveloppes : la voix rend ses 64 échantillons un bloc sur deux.
+Restent : l'écoute, la modulation par vélocité et les LFO propres des voix, et un désaccord de 1,6 cent (la voix
+garde ses 44 140 Hz).

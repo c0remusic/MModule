@@ -474,7 +474,7 @@ namespace elektron::drums::parameters
 	{
 		if(_machine.family == Family::Syntakt)
 			return syntaktChain(_machine.id == SyBits);
-		if(_machine.family == Family::Machinedrum)
+		if(_machine.family == Family::Machinedrum || _machine.family == Family::OpenDrum)
 			return machinedrumChain();
 		return {};
 	}

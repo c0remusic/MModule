@@ -1,7 +1,7 @@
 # Machinedrum : EFM, E12, P-I, GND et les autres renders
 
 Type: AFK
-Status: ready-for-agent
+Status: resolved
 Assignee: 
 Blocked by: 08
 

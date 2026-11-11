@@ -16,6 +16,8 @@
 #include "mdVoice.h"
 #include "mdVoiceTrack.h"
 
+struct OpenDrumVoice;
+
 // The instrument's engine: 16 Tracks, each one mono voice of either family, the Syntakt's rewritten machines at their
 // 48 kHz or the ported Machinedrum at its 44.1 kHz, on a 44.1 kHz host (ticket 11 of .scratch/elektron-drums-v1).
 //
@@ -60,7 +62,8 @@ namespace elektron::drums
 	{
 		Off,
 		Syntakt,
-		Machinedrum
+		Machinedrum,
+		OpenDrum
 	};
 
 	// A Syntakt machine by its index in syntaktMachineNames, a Machinedrum one by its id
@@ -82,12 +85,32 @@ namespace elektron::drums
 	// entry of the bank, so that ROM-33 to -48 are not machines of their own here. An id no Machinedrum machine has
 	constexpr Machine Sampler{Family::Machinedrum, 192};
 
+	// OPEN DRUM (ticket 26): four voices of a drum engine published under the GPL v3 (source/elektron/opendrum), a voice
+	// per Track on the Machinedrum's blocks, rings and chain, at the 44.1 kHz host rate. The firmware steps its envelopes
+	// once in 64 samples: a voice renders 64 every other block of 32, its second half played by the next, and a Hit
+	// starts it afresh at the next block of 32, so that it plays the original's samples. Velocity is the Track's, after
+	// the voice, as the Machinedrum's is. The family's name, and the machines', are what the interface shows
+	constexpr const char* OpenDrumFamilyName = "OPEN DRUM";
+	constexpr int OpenDrumMachines = 4;
+	constexpr std::array<const char*, OpenDrumMachines> openDrumMachineNames{"OD DRUM", "OD SNARE", "OD CYMBAL",
+		"OD HIHAT"};
+
 	// Whether a Track can play _machine: every Syntakt machine here, a Machinedrum one whose render is ported or a MID or
 	// CTR one, which stops the voice
 	bool playable(const Machine& _machine);
 
-	// SYN1-8 of _machine as a machine change gives them
+	// A Track's Machine 1-24. The Machinedrum's and the Syntakt's machines, and the Sampler, use the first 8: the others
+	// change nothing, and a lock of one holds nothing
+	constexpr int MachineParameters = 24;
+
+	// How many of Machine 1-24 _machine uses, from Machine 1 on
+	int machineParameters(const Machine& _machine);
+	// The name _machine gives Machine _index, nullptr where the interface has its own or none
+	const char* machineParameterName(const Machine& _machine, int _index);
+
+	// SYN1-8 of _machine as a machine change gives them; and all 24, those it does not use 0
 	std::array<uint8_t, 8> defaults(const Machine& _machine);
+	std::array<uint8_t, MachineParameters> allDefaults(const Machine& _machine);
 
 	// What _machine has of the data it reads, which an interface can show
 	MachineData dataOf(const Library& _library, const Machine& _machine);
@@ -109,6 +132,7 @@ namespace elektron::drums
 		// 5.9 s: P-I-HH rests up to 6170 blocks whatever the tempo, ROM and E12 retriggers 1380 at 30 BPM
 		static constexpr int MachinedrumQuietBlocks = 8192;
 		static constexpr int SyntaktQuietBlocks = 512;		// 341 ms: SP TWINSHOT plays a gap in a sample, slowed down
+		static constexpr int OpenDrumQuietBlocks = 64;		// 46 ms, once an OPEN DRUM voice's envelope has closed: its chain's tail
 
 		// Every sample of a cut ramps: a Choke, a machine changed under a sounding voice
 		static constexpr int CutSamples = 64;
@@ -137,7 +161,7 @@ namespace elektron::drums
 		// which parameter() reports, and the locks of SYN1-8 go. The voice takes the machine at its next Hit
 		void setMachine(int _track, const Machine& _machine);
 
-		// _index 0-7 of the machine's page, _value 0-127
+		// _index 0-23, Machine 1-24, _value 0-127
 		void setParameter(int _track, int _index, uint8_t _value);
 		// The sample the Track plays on the Sampler, nullptr none (silence). Copied into the engine's bank, without
 		// allocating: _sample need only last the call. A voice of the Track's sounding ramps out, as where a Hit of this
@@ -270,7 +294,7 @@ namespace elektron::drums
 		struct Track
 		{
 			Machine machine;
-			std::array<uint8_t, 8> params{};
+			std::array<uint8_t, MachineParameters> params{};
 			int note = 60;
 			int levelValue = 100;
 			float level = 0.62f;			// the gain of level 100, the LFOs' moves in it
@@ -292,6 +316,14 @@ namespace elektron::drums
 			int mdTailBlocks = 0;
 			int mdHitSkip = 0;				// the filter's pure delay: what still comes of the last voice in a Hit's first block
 
+			// OPEN DRUM, on the Machinedrum's blocks
+			OpenDrumVoice* od = nullptr;	// its voice, in m_odMemory
+			int16_t odHalf[BlockSize]{};	// the second half of the voice's last block of 64
+			bool odPending = false;			// odHalf not played yet
+			bool odTrig = false;			// a Hit waits for the next block
+			bool odSettle = false;			// ... on a quiet voice: its smoothers start at their targets
+			bool odOpen = false;			// the hihat plays open
+
 			// Syntakt
 			Ring stRing;
 			Run st;
@@ -308,7 +340,7 @@ namespace elektron::drums
 			int nextPhase = 0;				// ... from output sample phaseAt, which a Hit sets
 			int64_t phaseAt = Never;
 			uint32_t pendingLocks = 0, lockedNow = 0;
-			std::array<uint8_t, 8> lockValue{}, lockPendingValue{};
+			std::array<uint8_t, MachineParameters> lockValue{}, lockPendingValue{};
 		};
 
 		void cut(int _track);
@@ -328,6 +360,8 @@ namespace elektron::drums
 		Chain& chainOf(const Track& _track) { return _track.chainFamily == Family::Syntakt ? *m_stChain : *m_mdChain; }
 		void renderMachinedrum();
 		void renderVoice(int _track, float* _x);
+		void playOpenDrum(int _track, int _index);
+		void renderOpenDrum(Track& _track, float* _x);
 		void renderSyntakt();
 		void read(int _track, float* _out, int _count);
 		void mix(float* const* _outputs, int _offset, int _count);
@@ -353,6 +387,10 @@ namespace elektron::drums
 		std::unique_ptr<Block> m_mdIn;
 		uint32_t m_tempo = 120 * 24;
 		int64_t m_mdBlock = 0;			// the next block
+
+		// OPEN DRUM: a voice per Track, made at once
+		std::vector<std::max_align_t> m_odMemory;
+		uint32_t m_odMask = 0;			// the Tracks on an OPEN DRUM machine
 
 		// Syntakt
 		std::vector<std::unique_ptr<Source>> m_sources;

@@ -13,6 +13,7 @@
 #include "edDrumsEngine.h"
 #include "edDrumsKits.h"
 #include "edDrumsParameters.h"
+#include "edDrumsSampleLibrary.h"
 #include "edDrumsSequencer.h"
 
 // The instrument: the engine (elektron::drums::Engine) as a plain JUCE AudioProcessor, VST3. Notes 36-51 on any channel
@@ -23,12 +24,16 @@
 //
 // The parameters of a Track, the IDs t01_*, the names "T01 ...": Machine and Chokes, which a host does not automate,
 // Machine 1-8, Note, Level, Pan, Output; then Tempo; then, appended by ticket 18 (edDrumsParameters.h), each Track's
-// chain, LFOs, sends and accent, the shared effects, the master and the oversampling. Every ID is frozen in
+// chain, LFOs, sends and accent, the shared effects, the master and the oversampling; then Pattern; then, appended by
+// ticket 26, each Track's Machine 9-24, which a machine of 8 does not use. Every ID is frozen in
 // edDrumsParameterIds.txt. The audio thread gives the engine only what changed since it last did.
 //
-// The Sampler (ticket 20) is the Machine list's last choice, where ROM-33 stood: ROM-33 to -48 left the list, its last
-// 16, so that no other choice moved, and an older state on one of them loads the Sampler. A Track's sample is loaded on
-// the message thread (loadSample), kept in the state, and reaches the audio thread through a mailbox per Track.
+// The Sampler (ticket 20) is the Machine list's choice where ROM-33 stood: ROM-33 to -48 left the list, its last 16,
+// and an older state on one of them loads the Sampler. OPEN DRUM's four machines follow it (ticket 26). Since state
+// version 4 and Kit version 2 the list holds none of the Machinedrum's INP, CTR, MID and RAM machines: an older state's
+// or Kit's choice is read in the list it was written with, a machine no longer offered loading as Off. A Track's sample
+// is loaded on the message thread (loadSample), kept in the state, and reaches the audio thread through a mailbox per
+// Track.
 //
 // The internal sequencer (ticket 17, edDrumsSequencer.h) runs every block from the host's transport, its Hits and
 // Locks at their samples beside the host's notes. A Lock's parameter is a host parameter's index in getParameters(),
@@ -88,14 +93,26 @@ namespace elektron::drums
 		const juce::StringArray& ids(Section _section, int _track = 0) const;
 		const juce::StringArray& trackIds(const int _track) const { return m_trackIds[static_cast<size_t>(_track)]; }
 
-		// The Sampler's index in machines()
-		int samplerChoice() const { return static_cast<int>(m_machines.size()) - 1; }
+		// The Sampler's index in machines(), OPEN DRUM's four after it
+		int samplerChoice() const { return static_cast<int>(m_machines.size()) - 1 - OpenDrumMachines; }
 
 		// Message thread. A Track's sample from a WAV, AIFF or FLAC file (readSampleFile): false and why in _error when
 		// it cannot be read; the Track plays it on the Sampler from the next block. Its name, empty for none
 		bool loadSample(int _track, const juce::File& _file, juce::String& _error);
 		juce::String sampleName(int _track) const;
 		void clearSample(int _track);
+
+		// Message thread. The samples' Library (edDrumsSampleLibrary.h), which the timer follows. A Library sample on a
+		// Track by its fingerprint, as loadSample loads its file. A Track's sample's fingerprint, which the state and a
+		// Kit keep beside its copy: empty for none
+		SampleLibrary& sampleLibrary() { return *m_sampleLibrary; }
+		bool loadLibrarySample(int _track, const juce::String& _fingerprint, juce::String& _error);
+		juce::String sampleFingerprint(const int _track) const { return m_sampleRefs[static_cast<size_t>(_track)]; }
+
+		// Message thread. The audition: _file read as the Sampler reads it, played once on Main as it is, through no
+		// Track, from the next block; false and why when it cannot be read. What it played last, nullptr for none
+		bool auditionSample(const juce::File& _file, juce::String& _error);
+		const Sample* auditioned() const { return m_auditioned.get(); }
 
 		// Message thread. _edit changes the message thread's copy, which the audio thread takes whole at its next block
 		void editSequencer(const std::function<void(Sequencer&)>& _edit);
@@ -149,7 +166,7 @@ namespace elektron::drums
 		struct TrackParameters
 		{
 			juce::AudioParameterChoice* machine = nullptr;
-			std::array<juce::AudioParameterInt*, 8> values{};
+			std::array<juce::AudioParameterInt*, MachineParameters> values{};	// Machine 1-24
 			juce::AudioParameterInt* note = nullptr;
 			juce::AudioParameterInt* level = nullptr;
 			juce::AudioParameterInt* pan = nullptr;
@@ -249,6 +266,17 @@ namespace elektron::drums
 		std::array<std::atomic<uint32_t>, Tracks> m_sampleDone{};
 		std::array<std::vector<std::unique_ptr<SampleMail>>, Tracks> m_sampleFlight;
 		uint32_t m_sampleSerial = 0;
+		std::array<juce::String, Tracks> m_sampleRefs;	// the fingerprints
+		std::unique_ptr<SampleLibrary> m_sampleLibrary;
+
+		// The audition, the same way: the message thread's copy, the mail; the serial of the one the audio thread plays,
+		// whose mail stays until a later one is taken; where it stands, nullptr when it has ended
+		std::unique_ptr<Sample> m_auditioned;
+		std::atomic<SampleMail*> m_auditionMail{nullptr};
+		std::atomic<uint32_t> m_auditionHeld{0};
+		std::vector<std::unique_ptr<SampleMail>> m_auditionFlight;
+		const Sample* m_auditionPlaying = nullptr;
+		double m_auditionAt = 0;
 
 		// The sequencer: the message thread's copy, and three that change hands without a lock, a triple buffer: the
 		// audio thread plays m_playing, the message thread fills m_spare, m_middle holds the third, Fresh when published

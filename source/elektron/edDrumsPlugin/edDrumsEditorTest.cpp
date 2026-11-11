@@ -1,10 +1,15 @@
 // The Lockstep editor, headless at 1600 x 1000: every host parameter of a Track's Sound page, of FX and of Master has
 // exactly one control; a horizontal drag on a value cell changes its parameter inside one gesture; a click on a step
-// key toggles its trig through the sequencer; a strip's step takes a Lock from a drag instead of the parameter; each
+// key toggles its trig through the sequencer; a strip's step takes a Lock from a drag instead of the parameter; Browse
+// lists a folder of samples, filters by SEARCH, loads one by a double-click and by a drag onto a Track; each
 // page is rendered to a PNG (first argument: the folder, else the temporary folder's edDrumsEditor).
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <map>
+
+#include <juce_audio_formats/juce_audio_formats.h>
 
 #include "edDrumsEditor.h"
 
@@ -30,12 +35,25 @@ namespace
 		void audioProcessorParameterChangeGestureEnd(juce::AudioProcessor*, int) override { ++ended; }
 	};
 
-	juce::MouseEvent mouse(juce::Component& _c, const juce::Point<int> _down, const juce::Point<int> _now)
+	juce::MouseEvent mouse(juce::Component& _c, const juce::Point<int> _down, const juce::Point<int> _now,
+		const int _clicks = 1)
 	{
 		const auto now = juce::Time::getCurrentTime();
 		return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), _now.toFloat(),
 			juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &_c, &_c, now,
-			_down.toFloat(), now, 1, _now != _down);
+			_down.toFloat(), now, _clicks, _now != _down);
+	}
+
+	// A decaying tone of _frames at _rate in _format's file
+	void writeSound(juce::AudioFormat& _format, const juce::File& _file, const double _rate, const int _frames)
+	{
+		_file.deleteFile();
+		juce::AudioBuffer<float> wave(1, _frames);
+		for(int n = 0; n < _frames; ++n)
+			wave.setSample(0, n, 0.7f * std::exp(-n / 3000.0f) * std::sin(0.05f * static_cast<float>(n)));
+		std::unique_ptr<juce::AudioFormatWriter> writer(_format.createWriterFor(new juce::FileOutputStream(_file), _rate, 1,
+			16, {}, 0));
+		check(writer != nullptr && writer->writeFromAudioSampleBuffer(wave, 0, _frames), "wrote " + _file.getFileName());
 	}
 
 	void click(Editor& _e, const juce::Point<int> _at)
@@ -50,6 +68,13 @@ namespace
 		for(int i = 1; i <= 10; ++i)
 			_e.mouseDrag(mouse(_e, _from, _from + _by * i / 10));
 		_e.mouseUp(mouse(_e, _from, _from + _by));
+	}
+
+	void doubleClick(Editor& _e, const juce::Point<int> _at)
+	{
+		click(_e, _at);
+		_e.mouseDown(mouse(_e, _at, _at, 2));
+		_e.mouseUp(mouse(_e, _at, _at, 2));
 	}
 
 	// Each expected ID bound by exactly one of the page's cells
@@ -70,6 +95,79 @@ namespace
 			+ " parameters has exactly one control");
 	}
 
+	// Sound: each of the Track's parameters on one of the Machine block's pages, Machine 9-24 its machine does not use
+	// none
+	void soundCoverage(Editor& _editor, Processor& _processor, const int _track, const juce::String& _page)
+	{
+		const auto isMachine = [](const juce::String& _id)
+		{
+			return _id.length() > 5 && _id.substring(3, 5) == "_m" && _id.substring(5).containsOnly("0123456789");
+		};
+		std::map<juce::String, int> count;
+		for(int page = 0; page < _editor.machinePages(); ++page)
+		{
+			_editor.showMachinePage(page);
+			for(const auto& c : _editor.cells())
+				if(c.parameter && (page == 0 || isMachine(c.parameter->getParameterID())))
+					++count[c.parameter->getParameterID()];
+		}
+		_editor.showMachinePage(0);
+		const auto* choice = dynamic_cast<juce::AudioParameterChoice*>(
+			_processor.parameter(juce::String::formatted("t%02d_machine", _track + 1)));
+		const int used = std::max(8, (machineParameters(_processor.machines()[static_cast<size_t>(choice->getIndex())]) + 7)
+			/ 8 * 8);
+		int wrong = 0, expected = 0;
+		for(const auto& id : _processor.trackIds(_track))
+		{
+			const bool shown = !isMachine(id) || id.substring(5).getIntValue() <= used;
+			expected += shown;
+			if(count[id] != (shown ? 1 : 0))
+			{
+				std::printf("  %s: %d controls\n", id.toRawUTF8(), count[id]);
+				++wrong;
+			}
+		}
+		check(wrong == 0, _page + ": each of " + juce::String(expected) + " parameters has exactly one control");
+	}
+
+	// The Machine block's pages: OD DRUM's three, TRX-BD's one, the others shut
+	void machinePages(Editor& _editor, Processor& _processor)
+	{
+		auto* machine = _processor.parameter("t01_machine");
+		const auto put = [&](const int _choice)
+		{
+			machine->setValueNotifyingHost(machine->convertTo0to1(static_cast<float>(_choice)));
+			_editor.tick();
+		};
+		const auto nameOf = [&](const juce::String& _id)
+		{
+			for(const auto& c : _editor.cells())
+				if(c.parameter && c.parameter->getParameterID() == _id)
+					return c.off ? juce::String("off") : c.name;
+			return juce::String();
+		};
+		const auto& list = _processor.machines();
+		const auto choiceOf = [&](const Machine& _m)
+		{
+			return static_cast<int>(std::find(list.begin(), list.end(), _m) - list.begin());
+		};
+		put(choiceOf({Family::OpenDrum, 0}));
+		check(_editor.machinePages() == 3 && _editor.machinePage() == 0 && nameOf("t01_m1") == "TUNE",
+			"OD DRUM: three pages, page 1 shown, Machine 1 TUNE");
+		click(_editor, _editor.machinePageArea(1).getCentre());
+		check(_editor.machinePage() == 1 && nameOf("t01_m9") == "FINE" && nameOf("t01_m1").isEmpty(),
+			"a click on 2: Machine 9-16, Machine 9 FINE, Machine 1 gone");
+		click(_editor, _editor.machinePageArea(2).getCentre());
+		check(_editor.machinePage() == 2 && nameOf("t01_m17") == "FILTER" && nameOf("t01_m23") == "off"
+			&& nameOf("t01_m24") == "off", "a click on 3: Machine 17 FILTER, 23 and 24 greyed");
+		put(choiceOf({Family::Machinedrum, 16}));
+		check(_editor.machinePages() == 1 && _editor.machinePage() == 0 && nameOf("t01_m1").isNotEmpty(),
+			"TRX-BD: one page, page 1 shown again");
+		click(_editor, _editor.machinePageArea(1).getCentre());
+		check(_editor.machinePage() == 0 && nameOf("t01_m9").isEmpty(), "TRX-BD: a click on the greyed 2 opens nothing");
+		put(choiceOf({Family::OpenDrum, 0}));
+		click(_editor, _editor.machinePageArea(1).getCentre());
+	}
 	void snapshot(Editor& _editor, const juce::File& _file)
 	{
 		_editor.tick();
@@ -89,10 +187,12 @@ namespace
 		check(editor.getWidth() == Editor::Width && editor.getHeight() == Editor::Height, "the editor at 1600 x 1000");
 
 		using S = Processor::Section;
-		coverage(editor, processor.trackIds(0), "Sound, Track 1");
+		soundCoverage(editor, processor, 0, "Sound, Track 1");
 		editor.showTrack(9);
-		coverage(editor, processor.trackIds(9), "Sound, Track 10");
+		soundCoverage(editor, processor, 9, "Sound, Track 10");
 		editor.showTrack(0);
+		machinePages(editor, processor);
+		soundCoverage(editor, processor, 0, "Sound, Track 1 on OD DRUM");
 		editor.showPage(Editor::Page::Fx);
 		coverage(editor, processor.ids(S::Effects), "FX");
 		editor.showPage(Editor::Page::Master);
@@ -174,6 +274,54 @@ namespace
 			check(!processor.kitSlot(5).empty(), "a first click on DELETE keeps the Kit");
 			click(editor, editor.kitSlotArea(2).getCentre());
 			freq->setValueNotifyingHost(0.5f);
+		}
+
+		// Browse: a folder of three sounds and a text file in the Library, listed by source; SEARCH filters; a
+		// double-click loads a sample on the Track shown, a drag onto Track 6 there
+		{
+			const auto samples = juce::File::getSpecialLocation(juce::File::tempDirectory)
+				.getChildFile("edDrumsEditorSamples");
+			samples.deleteRecursively();
+			samples.createDirectory();
+			juce::WavAudioFormat wav;
+			juce::AiffAudioFormat aiff;
+			writeSound(wav, samples.getChildFile("kick_01.wav"), 44100, 13230);
+			writeSound(aiff, samples.getChildFile("SD-snare.aif"), 48000, 9600);
+			writeSound(wav, samples.getChildFile("hh closed.wav"), 44100, 4410);
+			samples.getChildFile("notes.txt").replaceWithText("no audio");
+			auto& library = processor.sampleLibrary();
+			check(library.addFolder(samples), "the folder added to the Library");
+			const auto until = juce::Time::getMillisecondCounter() + 20000;
+			while(!library.update() && juce::Time::getMillisecondCounter() < until)
+				juce::Thread::sleep(5);
+			check(library.entries().size() == 3, "the Library holds " + juce::String(library.entries().size())
+				+ " samples");
+
+			editor.showPage(Editor::Page::Browse);
+			click(editor, editor.browseTreeArea(2).getCentre());
+			editor.tick();
+			check(editor.browseCount() == 3 && editor.searchField().isVisible(), "SAMPLES, BY SOURCE lists "
+				+ juce::String(editor.browseCount()) + " samples, SEARCH shown");
+			auto& search = editor.searchField();
+			search.setText("snare", false);
+			search.onTextChange();	// what the message loop calls
+			check(editor.browseCount() == 1, "SEARCH \"snare\" leaves " + juce::String(editor.browseCount()));
+			doubleClick(editor, editor.browseRowArea(0).getCentre());
+			const auto* snare = library.find(processor.sampleFingerprint(0));
+			check(processor.sampleName(0) == "SD-snare.aif" && snare && snare->name == "SD-snare.aif"
+				&& juce::roundToInt(processor.parameter("t01_machine")->convertFrom0to1(
+					processor.parameter("t01_machine")->getValue())) == processor.samplerChoice(),
+				"a double-click loads SD-snare.aif on Track 1, on the Sampler");
+			search.setText({}, false);
+			search.onTextChange();
+			click(editor, editor.browseTreeArea(4).getCentre());
+			check(editor.browseCount() == 3, "SAMPLES, BY TYPE lists them all");
+			drag(editor, editor.browseRowArea(0).getCentre(), editor.stepKeyArea(5).getCentre()
+				- editor.browseRowArea(0).getCentre());
+			check(processor.sampleName(5).isNotEmpty(), "a drag onto Track 6 loads " + processor.sampleName(5));
+			click(editor, editor.browseTreeArea(2).getCentre());
+			click(editor, editor.browseRowArea(0).getCentre());	// auditioned: its sound drawn
+			check(processor.auditioned() != nullptr, "a click auditions the sample");
 		}
 
 		editor.showPage(Editor::Page::Sound);

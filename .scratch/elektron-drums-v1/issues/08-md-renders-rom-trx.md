@@ -1,7 +1,7 @@
 # Machinedrum : renders ROM et TRX en C++
 
 Type: AFK
-Status: ready-for-agent
+Status: resolved
 Assignee: 
 Blocked by: 02
 

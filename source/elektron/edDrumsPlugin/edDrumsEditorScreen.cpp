@@ -34,9 +34,26 @@ namespace elektron::drums
 		}};
 		constexpr std::array<const char*, 8> samplerLabels{"TUNE", "DECAY", "HOLD", "BR", "START", "END", "RTRG", "RTIM"};
 
-		std::array<juce::String, 8> machineLabels(const Machine& _machine)
+		// The Machine block's page selector: three segments of 7 mm in its head (block at _x, _w wide), left of the
+		// machine's name
+		juce::Rectangle<float> machinePageBox(const float _x, const float _w, const int _page)
+		{
+			return {_x + _w - 61 + 7 * static_cast<float>(_page), R1 + 1.8f, 7, 6};
+		}
+
+		// Machine 1-8 of _page 0, 9-16 of 1, 17-24 of 2, as _machine names them: empty for one it does not use
+		std::array<juce::String, 8> machineLabels(const Machine& _machine, const int _page)
 		{
 			std::array<juce::String, 8> labels;
+			if(_machine.family == Family::OpenDrum)
+			{
+				for(size_t i = 0; i < 8; ++i)
+					if(const char* name = machineParameterName(_machine, _page * 8 + static_cast<int>(i)))
+						labels[i] = name;
+				return labels;
+			}
+			if(_page > 0)
+				return labels;
 			if(_machine.family == Family::Syntakt && _machine.id < SyntaktMachines)
 				for(size_t i = 0; i < 8; ++i)
 					labels[i] = syntaktLabels[_machine.id][i];
@@ -255,7 +272,7 @@ namespace elektron::drums
 	}
 
 	void Editor::drawSegments(Painter& _p, const float _x, const float _y, const float _w,
-		const juce::StringArray& _items, const int _on, const Hue* _hue)
+		const juce::StringArray& _items, const int _on, const Hue* _hue, const int _enabled)
 	{
 		const float h = 6;
 		_p.rect(_x, _y, _w * static_cast<float>(_items.size()), h, colour::button, 0.8f);
@@ -263,7 +280,8 @@ namespace elektron::drums
 			_p.rect(_x + static_cast<float>(_on) * _w, _y, _w, h, _hue ? _hue->c[3] : hue::t.c[3], 0.8f);
 		for(int i = 0; i < _items.size(); ++i)
 			_p.text(_x + (static_cast<float>(i) + 0.5f) * _w, _y + h / 2 + 1.5f, _items[i], 3.2f,
-				i == _on ? (_hue ? _hue->c[4] : hue::t.c[4]) : colour::mid, i == _on ? 600 : 500, Align::Centre);
+				i == _on ? (_hue ? _hue->c[4] : hue::t.c[4]) : i >= _enabled ? colour::dim : colour::mid, i == _on ? 600 : 500,
+				Align::Centre);
 	}
 
 	void Editor::drawCell(Painter& _p, const Cell& _c)
@@ -367,6 +385,11 @@ namespace elektron::drums
 
 	// ---- Sound: one page per Track, a block per section in the signal's order ----
 
+	juce::Rectangle<int> Editor::machinePageArea(const int _page) const
+	{
+		return toPx(machinePageBox(cx(0) - 2, 8 * Col + 2, _page));
+	}
+
 	void Editor::buildSound()
 	{
 		const auto t = [this](const char* _suffix) { return trackParameter(_suffix); };
@@ -399,14 +422,24 @@ namespace elektron::drums
 			addCell(machine);
 			const auto& machines = m_processor.machines();
 			const int choice = choiceOf(t("machine")->getParameterID());
+			m_machinePage = std::min(m_machinePage, machinePages() - 1);
 			const auto labels = machineLabels(machines[static_cast<size_t>(juce::jlimit(0,
-				static_cast<int>(machines.size()) - 1, choice))]);
+				static_cast<int>(machines.size()) - 1, choice))], m_machinePage);
 			for(int i = 0; i < 8; ++i)
 			{
 				const auto& l = labels[static_cast<size_t>(i)];
-				const int c = put(x, R1, w, 4, i, t(("m" + juce::String(i + 1)).toRawUTF8()),
-					l.isEmpty() ? "M" + juce::String(i + 1) : l, hue::k, "m");
+				const int n = m_machinePage * 8 + i + 1;
+				const int c = put(x, R1, w, 4, i, t(("m" + juce::String(n)).toRawUTF8()),
+					l.isEmpty() ? "M" + juce::String(n) : l, hue::k, "m");
 				m_cells[static_cast<size_t>(c)].off = l.isEmpty();
+			}
+			// The page selector in the head, left of the machine's name: a page the machine does not use stays shut
+			for(int i = 0; i < 3; ++i)
+			{
+				Hit page;
+				page.r = machinePageBox(x, w, i);
+				page.click = [this, i] { showMachinePage(i); };
+				addHit(std::move(page));
 			}
 		}
 
@@ -665,8 +698,11 @@ namespace elektron::drums
 		const float y1 = R1 + 46, y2 = R2 + 46, y3 = R3 + 46;
 		const auto v = [this](const char* _s) { return trackParameter(_s)->getValue(); };
 
-		// Machine: the Sampler's file; the hit's preview has no engine yet
+		// Machine: the page selector; the Sampler's file; the hit's preview has no engine yet
 		{
+			const auto box = machinePageBox(cx(0) - 2, 8 * Col + 2, 0);
+			drawSegments(_p, box.getX(), box.getY(), box.getWidth(), {"1", "2", "3"}, m_machinePage, &hue::k,
+				machinePages());
 			const float x = cx(0), w = 8 * Col - 4;
 			_p.frame(x, y1, w, PicH, hue::k.c[1], 1.2f, 0.4f);
 			if(choiceOf(trackParameter("machine")->getParameterID()) == m_processor.samplerChoice())
@@ -1859,83 +1895,355 @@ namespace elektron::drums
 		}
 	}
 
+	// LIBRARY's entries, each in its hue (t.js browse()); MACHINES and the two lists of samples have an engine behind
+	// them. The list: 16 rows, or 15 under the segments of a list of samples (ALL, then its folders or its types)
+	namespace
+	{
+		constexpr float BrowseRowH = 12.9f, BrowseListW = 10 * Col - 4, BrowseInfoW = 8 * Col - 4;
+		constexpr int BrowseFolderSegments = 7;
+		const char* const browseTreeNames[]{"KITS", "TRACK SOUNDS", "SAMPLES, BY SOURCE", "MACHINES", "SAMPLES, BY TYPE"};
+
+		const Hue& browseHue(const int _tree)
+		{
+			const Hue* hues[]{&hue::y, &hue::a, &hue::g, &hue::k, &hue::p};
+			return *hues[_tree];
+		}
+
+		juce::Rectangle<float> browseTreeRow(const int _tree)
+		{
+			return {cx(0), 32 + static_cast<float>(_tree) * BrowseRowH, 6 * Col - 4, BrowseRowH - 0.7f};
+		}
+
+		juce::Rectangle<float> browseListRow(const int _row, const bool _samples)
+		{
+			return {cx(6), (_samples ? 41 : 32) + static_cast<float>(_row) * BrowseRowH, BrowseListW, BrowseRowH - 0.7f};
+		}
+
+		// The mockup's 22 mm, up to 30 for a few folders' names, less where many share the list's width
+		float browseSegment(const int _count)
+		{
+			return std::min(_count > 4 ? 22.0f : 30.0f, BrowseListW / static_cast<float>(_count));
+		}
+
+		juce::String lengthText(const int64_t _frames, const double _rate)
+		{
+			const double s = static_cast<double>(_frames) / _rate;
+			return s < 1 ? juce::String(juce::roundToInt(s * 1000)) + " MS" : juce::String(s, 2) + " S";
+		}
+	}
+
+	juce::Rectangle<int> Editor::browseTreeArea(const int _tree) const
+	{
+		return toPx(browseTreeRow(_tree));
+	}
+
+	juce::Rectangle<int> Editor::browseRowArea(const int _row) const
+	{
+		return toPx(browseListRow(_row, browseSamples()));
+	}
+
+	std::vector<int> Editor::browseList() const
+	{
+		std::vector<int> list;
+		const auto& entries = m_processor.sampleLibrary().entries();
+		for(size_t i = 0; i < entries.size(); ++i)
+		{
+			const auto& e = entries[i];
+			if(m_browseFilter > 0 && (m_browseTree == 2 ? e.folder : static_cast<int>(e.type)) != m_browseFilter - 1)
+				continue;
+			if(m_browseSearch.isNotEmpty() && !e.name.containsIgnoreCase(m_browseSearch))
+				continue;
+			list.push_back(static_cast<int>(i));
+		}
+		return list;
+	}
+
+	juce::StringArray Editor::browseFilters() const
+	{
+		juce::StringArray filters{"ALL"};
+		if(m_browseTree == 4)
+		{
+			for(int t = 0; t < SampleLibrary::Types; ++t)
+				filters.add(SampleLibrary::typeName(static_cast<SampleLibrary::Type>(t)));
+			return filters;
+		}
+		const auto& folders = m_processor.sampleLibrary().folders();
+		for(int f = 0; f < std::min(folders.size(), BrowseFolderSegments); ++f)
+			filters.add(folders[f].getFileName().toUpperCase());
+		return filters;
+	}
+
 	void Editor::buildBrowse()
 	{
-		// MACHINES alone has an engine: its list, scrolled by the wheel, and PUT ON TRACK
-		const float lrh = 12.9f, x = cx(6);
-		const int n = static_cast<int>(m_processor.machines().size());
-		for(int i = 0; i < 16 && m_browseScroll + i < n; ++i)
+		for(const int tree : {2, 3, 4})
 		{
 			Hit row;
-			row.r = {x, 32 + static_cast<float>(i) * lrh, 10 * Col - 4, lrh};
-			const int item = m_browseScroll + i;
-			row.click = [this, item] { m_browseItem = item; };
-			row.doubleClick = [this, item]
+			row.r = browseTreeRow(tree).withHeight(BrowseRowH);
+			row.click = [this, tree]
 			{
-				m_browseItem = item;
-				auto* p = trackParameter("machine");
-				setNormalised(*p, p->convertTo0to1(static_cast<float>(item)));
+				m_browseTree = tree;
+				m_browseItem = m_browseScroll = m_browseFilter = 0;
 			};
 			addHit(std::move(row));
 		}
-		Hit put;
-		put.r = {cx(16), 222, 8 * Col - 4, 12.5f};
-		put.click = [this]
+		if(!browseSamples())
 		{
-			auto* p = trackParameter("machine");
-			setNormalised(*p, p->convertTo0to1(static_cast<float>(m_browseItem)));
-			toast(machineName(m_track) + " on Track " + juce::String(m_track + 1));
-		};
-		addHit(std::move(put));
+			// MACHINES: its list, scrolled by the wheel, and PUT ON TRACK
+			const int n = static_cast<int>(m_processor.machines().size());
+			for(int i = 0; i < 16 && m_browseScroll + i < n; ++i)
+			{
+				Hit row;
+				row.r = browseListRow(i, false).withHeight(BrowseRowH);
+				const int item = m_browseScroll + i;
+				row.click = [this, item] { m_browseItem = item; };
+				row.doubleClick = [this, item]
+				{
+					m_browseItem = item;
+					auto* p = trackParameter("machine");
+					setNormalised(*p, p->convertTo0to1(static_cast<float>(item)));
+				};
+				addHit(std::move(row));
+			}
+			Hit put;
+			put.r = {cx(16), 222, BrowseInfoW, 12.5f};
+			put.click = [this]
+			{
+				auto* p = trackParameter("machine");
+				setNormalised(*p, p->convertTo0to1(static_cast<float>(m_browseItem)));
+				toast(machineName(m_track) + " on Track " + juce::String(m_track + 1));
+			};
+			addHit(std::move(put));
+			watch({cx(6), 23, 18 * Col, 216}, [this]
+			{
+				return static_cast<uint64_t>(choiceOf(trackParameter("machine")->getParameterID()));
+			});
+			return;
+		}
+
+		// The samples: the Library scanned once Browse shows them
+		auto& library = m_processor.sampleLibrary();
+		library.scanOnce();
+		Hit add;
+		add.r = {cx(0), 184, 6 * Col - 4, 12.5f};
+		add.click = [this] { chooseFolder(); };
+		addHit(std::move(add));
+		const auto filters = browseFilters();
+		const float segment = browseSegment(filters.size());
+		for(int i = 0; i < filters.size(); ++i)
+		{
+			Hit s;
+			s.r = {cx(6) + static_cast<float>(i) * segment, 33, segment, 6};
+			s.click = [this, i]
+			{
+				m_browseFilter = i;
+				m_browseItem = m_browseScroll = 0;
+			};
+			addHit(std::move(s));
+		}
+		// A click auditions, a double-click loads on the Track shown, a drag onto a Track loads there
+		const auto list = browseList();
+		for(int i = 0; i < 15 && m_browseScroll + i < static_cast<int>(list.size()); ++i)
+		{
+			const int item = m_browseScroll + i, entry = list[static_cast<size_t>(item)];
+			const auto file = library.entries()[static_cast<size_t>(entry)].file;
+			Hit row;
+			row.r = browseListRow(i, true).withHeight(BrowseRowH);
+			row.click = [this, item, file]
+			{
+				m_browseItem = item;
+				audition(file);
+			};
+			row.doubleClick = [this, item, file]
+			{
+				m_browseItem = item;
+				loadSample(m_track, file);
+			};
+			row.drag = [this, entry](float, float) { m_browseDrag = entry; };
+			row.end = [this, file]
+			{
+				m_browseDrag = -1;
+				const int k = static_cast<int>((m_press.last.x - 10) / KeyPitch);
+				if(m_press.last.y >= 244 && k >= 0 && k < 16)
+					loadSample(k, file);
+			};
+			addHit(std::move(row));
+		}
+		if(m_browseItem < static_cast<int>(list.size()))
+		{
+			const auto file = library.entries()[static_cast<size_t>(list[static_cast<size_t>(m_browseItem)])].file;
+			Hit replay;
+			replay.r = {cx(16), 32, BrowseInfoW, 185};
+			replay.click = [this, file] { audition(file); };
+			addHit(std::move(replay));
+			Hit load;
+			load.r = {cx(16), 222, BrowseInfoW, 12.5f};
+			load.click = [this, file] { loadSample(m_track, file); };
+			addHit(std::move(load));
+		}
+		// The Track's sample and what the audition holds
 		watch({cx(6), 23, 18 * Col, 216}, [this]
 		{
-			return static_cast<uint64_t>(choiceOf(trackParameter("machine")->getParameterID()));
+			uint64_t h = mix(0, static_cast<uint64_t>(m_processor.sampleFingerprint(m_track).hashCode64()));
+			h = mix(h, reinterpret_cast<uintptr_t>(m_processor.auditioned()));
+			return mix(h, m_processor.sampleLibrary().scanning() ? 1 : 0);
 		});
 	}
 
 	void Editor::drawBrowse(Painter& _p)
 	{
 		drawHeader(_p, "BROWSE", {});
-		const float lrh = 12.9f;
-		const Hue* hues[]{&hue::y, &hue::a, &hue::g, &hue::k, &hue::p};
-		const char* tree[]{"KITS", "TRACK SOUNDS", "SAMPLES, BY SOURCE", "MACHINES", "SAMPLES, BY TYPE"};
+		const bool samples = browseSamples();
+		const auto& c = browseHue(m_browseTree);
 		float x = cx(0);
 		drawBlockTitle(_p, {x - 2, 23, 6 * Col + 2, "LIBRARY", "bl", &hue::t});
 		for(int i = 0; i < 5; ++i)
 		{
-			const float y = 32 + static_cast<float>(i) * lrh;
-			const bool on = i == 3;
-			_p.rect(x, y, 6 * Col - 4, lrh - 0.7f, on ? hues[i]->c[1] : beat(i), 0.5f);
-			_p.rect(x, y + 0.6f, 0.7f, lrh - 1.9f, hues[i]->c[0], 0.3f);
-			// Only MACHINES has an engine behind it
-			_p.text(x + 2.4f, y + 8, tree[i], 3.2f, on ? hues[i]->c[4] : juce::Colour(0xff4E4E4C), on ? 600 : 500);
+			const auto r = browseTreeRow(i);
+			const auto& h = browseHue(i);
+			const bool on = i == m_browseTree, live = i >= 2;
+			_p.rect(r.getX(), r.getY(), r.getWidth(), r.getHeight(), on ? h.c[1] : beat(i), 0.5f);
+			_p.rect(r.getX(), r.getY() + 0.6f, 0.7f, BrowseRowH - 1.9f, h.c[0], 0.3f);
+			_p.text(r.getX() + 2.4f, r.getY() + 8, browseTreeNames[i], 3.2f, on ? h.c[4] : live ? colour::mid
+				: juce::Colour(0xff4E4E4C), on ? 600 : 500);
+		}
+		if(samples)
+		{
+			drawButton(_p, x, 184, 6 * Col - 4, 12.5f, "ADD FOLDER", false);
+			const juce::String hints[]{"CLICK: LISTEN", "DOUBLE CLICK: LOAD ON TRACK " + juce::String(m_track + 1),
+				"DRAG: DROP ON ANY TRACK"};
+			for(int i = 0; i < 3; ++i)
+				_p.text(x, 202 + static_cast<float>(i) * 5.6f, hints[i], 2.6f, colour::dim);
 		}
 		drawButton(_p, x, 222, 6 * Col - 4, 12.5f, "IMPORT MY ELEKTRON CONTENT", false, false);
+
 		x = cx(6);
-		const auto& machines = m_processor.machines();
-		const int n = static_cast<int>(machines.size());
-		const int current = choiceOf(trackParameter("machine")->getParameterID());
-		drawBlockTitle(_p, {x - 2, 23, 10 * Col + 2, "MACHINES", "bm", &hue::k});
-		_p.text(x + 10 * Col - 4, 29.2f, juce::String(n), 2.8f, hue::k.c[4], 500, Align::Right);
-		const auto* choice = dynamic_cast<const juce::AudioParameterChoice*>(trackParameter("machine"));
-		for(int i = 0; i < 16 && m_browseScroll + i < n; ++i)
+		if(!samples)
+		{
+			const auto& machines = m_processor.machines();
+			const int n = static_cast<int>(machines.size());
+			const int current = choiceOf(trackParameter("machine")->getParameterID());
+			drawBlockTitle(_p, {x - 2, 23, 10 * Col + 2, "MACHINES", "bm", &hue::k});
+			_p.text(x + BrowseListW, 29.2f, juce::String(n), 2.8f, hue::k.c[4], 500, Align::Right);
+			const auto* choice = dynamic_cast<const juce::AudioParameterChoice*>(trackParameter("machine"));
+			for(int i = 0; i < 16 && m_browseScroll + i < n; ++i)
+			{
+				const int item = m_browseScroll + i;
+				const auto r = browseListRow(i, false);
+				const bool on = item == m_browseItem;
+				_p.rect(x, r.getY(), BrowseListW, r.getHeight(), on ? hue::k.c[1] : beat(i), 0.5f);
+				if(on)
+					_p.rect(x, r.getY() + 0.6f, 0.7f, BrowseRowH - 1.9f, hue::k.c[0], 0.3f);
+				_p.text(x + 2.4f, r.getY() + 8, choice->choices[item], 3.2f, on ? colour::ink : colour::mid, on ? 600 : 500);
+				if(item == current)
+					_p.text(x + BrowseListW - 3, r.getY() + 8, "ON TRACK", 2.8f, hue::k.c[4], 500, Align::Right);
+			}
+			x = cx(16);
+			const auto name = m_browseItem < n ? choice->choices[m_browseItem].toUpperCase() : juce::String();
+			drawBlockTitle(_p, {x - 2, 23, 8 * Col + 2, name, "bi", &hue::k});
+			_p.frame(x, 32, BrowseInfoW, 185, hue::k.c[1], 1.2f, 0.4f);
+			_p.text(x + BrowseInfoW / 2, 126, "NO PREVIEW YET", 2.8f, colour::dim, 500, Align::Centre);
+			drawButton(_p, x, 222, BrowseInfoW, 12.5f, "PUT ON TRACK " + juce::String(m_track + 1), true);
+			return;
+		}
+
+		// The list of samples: its title, SEARCH (a TextEditor over the title line), the segments, the rows
+		const auto& library = m_processor.sampleLibrary();
+		const auto& entries = library.entries();
+		const auto list = browseList();
+		drawBlockTitle(_p, {x - 2, 23, 10 * Col + 2, browseTreeNames[m_browseTree], "bs", &c});
+		_p.text(x + BrowseListW, 29.2f, juce::String(static_cast<int>(list.size())), 2.8f, c.c[4], 500, Align::Right);
+		// A folder's name cut to its segment
+		auto filters = browseFilters();
+		const float segment = browseSegment(filters.size());
+		for(auto& f : filters)
+			while(f.length() > 1 && _p.textWidth(f, 3.2f, 600) > segment - 2)
+				f = f.dropLastCharacters(1);
+		drawSegments(_p, x, 33, segment, filters, m_browseFilter, &c);
+		const auto played = m_processor.sampleFingerprint(m_track);
+		for(int i = 0; i < 15 && m_browseScroll + i < static_cast<int>(list.size()); ++i)
 		{
 			const int item = m_browseScroll + i;
-			const float y = 32 + static_cast<float>(i) * lrh;
+			const auto& e = entries[static_cast<size_t>(list[static_cast<size_t>(item)])];
+			const auto r = browseListRow(i, true);
 			const bool on = item == m_browseItem;
-			_p.rect(x, y, 10 * Col - 4, lrh - 0.7f, on ? hue::k.c[1] : beat(i), 0.5f);
+			_p.rect(x, r.getY(), BrowseListW, r.getHeight(), on ? c.c[1] : beat(i), 0.5f);
 			if(on)
-				_p.rect(x, y + 0.6f, 0.7f, lrh - 1.9f, hue::k.c[0], 0.3f);
-			_p.text(x + 2.4f, y + 8, choice->choices[item], 3.2f, on ? colour::ink : colour::mid, on ? 600 : 500);
-			if(item == current)
-				_p.text(x + 10 * Col - 7, y + 8, "ON TRACK", 2.8f, hue::k.c[4], 500, Align::Right);
+				_p.rect(x, r.getY() + 0.6f, 0.7f, BrowseRowH - 1.9f, c.c[0], 0.3f);
+			_p.text(x + 2.4f, r.getY() + 8, e.name, 3.2f, on ? colour::ink : colour::mid, on ? 600 : 500);
+			const bool here = e.fingerprint == played;
+			const auto tag = here ? juce::String("ON TRACK") : m_browseTree == 2 ? juce::String(SampleLibrary::typeName(e.type))
+				: library.folders()[e.folder].getFileName().toUpperCase();
+			_p.text(x + BrowseListW - 3, r.getY() + 8, tag, 2.8f, here ? c.c[4] : colour::dim, 500, Align::Right);
 		}
+		if(list.empty())
+		{
+			const auto why = library.folders().isEmpty() ? "DROP A FOLDER OF SAMPLES HERE, OR ADD FOLDER"
+				: library.scanning() ? "SCANNING THE FOLDERS" : entries.empty() ? "NO WAV, AIFF OR FLAC FILE IN THE FOLDERS"
+				: "NOTHING MATCHES";
+			_p.text(x + BrowseListW / 2, 126, why, 2.8f, colour::dim, 500, Align::Centre);
+		}
+
 		x = cx(16);
-		const auto name = m_browseItem < n ? choice->choices[m_browseItem].toUpperCase() : juce::String();
-		drawBlockTitle(_p, {x - 2, 23, 8 * Col + 2, name, "bi", &hue::k});
-		_p.frame(x, 32, 8 * Col - 4, 185, hue::k.c[1], 1.2f, 0.4f);
-		_p.text(x + (8 * Col - 4) / 2, 126, "NO PREVIEW YET", 2.8f, colour::dim, 500, Align::Centre);
-		drawButton(_p, x, 222, 8 * Col - 4, 12.5f, "PUT ON TRACK " + juce::String(m_track + 1), true);
+		const bool chosen = m_browseItem < static_cast<int>(list.size());
+		const auto* e = chosen ? &entries[static_cast<size_t>(list[static_cast<size_t>(m_browseItem)])] : nullptr;
+		drawBlockTitle(_p, {x - 2, 23, 8 * Col + 2, e ? e->name.toUpperCase() : juce::String(), "bi", &c});
+		_p.frame(x, 32, BrowseInfoW, 185, c.c[1], 1.2f, 0.4f);
+		if(e)
+			drawBrowseSample(_p, x, c);
+		drawButton(_p, x, 222, BrowseInfoW, 12.5f, "LOAD ON TRACK " + juce::String(m_track + 1), e != nullptr, e != nullptr);
+	}
+
+	// The sample chosen: its sound as the audition plays it, once heard, then what the Library knows of it
+	void Editor::drawBrowseSample(Painter& _p, const float _x, const Hue& _hue)
+	{
+		const auto& library = m_processor.sampleLibrary();
+		const auto list = browseList();
+		const auto& e = library.entries()[static_cast<size_t>(list[static_cast<size_t>(m_browseItem)])];
+		const float w = BrowseInfoW - 4, top = 36, h = 76, mid = top + h / 2;
+		const auto* heard = m_processor.auditioned();
+		if(heard && m_auditionFile == e.file && !heard->pcm.empty())
+		{
+			// Min and max a column, 0.5 mm wide
+			const int columns = static_cast<int>(w / 0.5f);
+			const auto& pcm = heard->pcm;
+			for(int col = 0; col < columns; ++col)
+			{
+				const size_t a = pcm.size() * static_cast<size_t>(col) / static_cast<size_t>(columns);
+				const size_t b = std::max(a + 1, pcm.size() * static_cast<size_t>(col + 1) / static_cast<size_t>(columns));
+				int lo = 0, hi = 0;
+				for(size_t n = a; n < b && n < pcm.size(); ++n)
+				{
+					lo = std::min(lo, static_cast<int>(pcm[n]));
+					hi = std::max(hi, static_cast<int>(pcm[n]));
+				}
+				const float px = _x + 2 + static_cast<float>(col) * 0.5f + 0.25f;
+				_p.line(px, mid - static_cast<float>(hi) / 32768.0f * h / 2, px, mid - static_cast<float>(lo) / 32768.0f * h / 2
+					+ 0.2f, _hue.c[4], 0.4f);
+			}
+		}
+		else
+			_p.text(_x + BrowseInfoW / 2, mid + 1, "CLICK TO LISTEN", 2.8f, colour::dim, 500, Align::Centre);
+
+		const juce::String channels = e.channels == 1 ? "MONO" : e.channels == 2 ? "STEREO" : juce::String(e.channels);
+		const juce::String rows[][2]{
+			{"TYPE", SampleLibrary::typeName(e.type)},
+			{"LENGTH", lengthText(e.length, e.rate) + (static_cast<double>(e.length) / e.rate
+				> Sample::MaxLength / 44100.0 ? ", THE SAMPLER PLAYS 1.29 S" : "")},
+			{"RATE", juce::String(e.rate / 1000, 1) + " KHZ"},
+			{"CHANNELS", channels},
+			{"FOLDER", library.folders()[e.folder].getFileName()},
+			{"FILE", e.file.getRelativePathFrom(library.folders()[e.folder])},
+			{"FINGERPRINT", e.fingerprint.toUpperCase()},
+		};
+		float y = top + h + 12;
+		for(const auto& row : rows)
+		{
+			_p.text(_x + 3, y, row[0], 2.8f, colour::mid);
+			_p.text(_x + 30, y, row[1], 3.2f, colour::ink, 600);
+			y += 9;
+		}
+		if(e.fingerprint == m_processor.sampleFingerprint(m_track))
+			_p.text(_x + 3, y + 3, "ON TRACK " + juce::String(m_track + 1), 2.8f, _hue.c[4], 600);
 	}
 
 	// ---- the Menu panel, over the third row ----

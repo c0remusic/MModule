@@ -39,6 +39,23 @@ namespace elektron::drums
 		m_plates[B2] = {load(b2_1x_jpg, b2_1x_jpgSize), load(b2_2x_jpg, b2_2x_jpgSize)};
 		m_plates[Sa] = {load(sa_1x_jpg, sa_1x_jpgSize), load(sa_2x_jpg, sa_2x_jpgSize)};
 		setOpaque(true);
+		// Browse's SEARCH, in the list's title line: the dark field of the mockup, its text the list's
+		m_search.setColour(juce::TextEditor::backgroundColourId, colour::button);
+		m_search.setColour(juce::TextEditor::textColourId, colour::ink);
+		m_search.setColour(juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
+		m_search.setColour(juce::TextEditor::focusedOutlineColourId, hue::t.c[1]);
+		m_search.setColour(juce::CaretComponent::caretColourId, colour::ink);
+		m_search.setTextToShowWhenEmpty("SEARCH", colour::dim);
+		m_search.setSelectAllWhenFocused(true);
+		m_search.onTextChange = [this]
+		{
+			m_browseSearch = m_search.getText().trim();
+			m_browseItem = m_browseScroll = 0;
+			layout();
+			repaint();
+		};
+		m_search.onEscapeKey = [this] { m_search.clear(); };
+		addChildComponent(m_search);
 		setSize(Width, Height);
 		layout();
 		startTimerHz(30);
@@ -91,6 +108,23 @@ namespace elektron::drums
 		repaint();
 	}
 
+	int Editor::machinePages() const
+	{
+		const auto& machines = m_processor.machines();
+		const int choice = juce::jlimit(0, static_cast<int>(machines.size()) - 1, choiceOf(trackParameter("machine")->getParameterID()));
+		return std::max(1, (machineParameters(machines[static_cast<size_t>(choice)]) + 7) / 8);
+	}
+
+	void Editor::showMachinePage(const int _page)
+	{
+		if(_page < 0 || _page >= machinePages())
+			return;
+		m_machinePage = _page;
+		m_focus = "m";
+		layout();
+		repaint();
+	}
+
 	juce::Rectangle<int> Editor::toPx(const juce::Rectangle<float> _mm) const
 	{
 		return (_mm * scale()).getSmallestIntegerContainer();
@@ -111,6 +145,13 @@ namespace elektron::drums
 
 	void Editor::resized()
 	{
+		// SEARCH, in the list's title line (t.js browse(): x + 52, the list's width less 64)
+		const juce::Rectangle<float> search{cx(6) + 52, 24.6f, 10 * Col - 4 - 64, 6.4f};
+		m_search.setBounds(toPx(search));
+		auto font = Painter::font(3.2f, 500);
+		font.setHeight(font.getHeight() * scale());
+		m_search.applyFontToAllText(font, true);
+		m_search.setIndents(juce::roundToInt(2.4f * scale()), juce::roundToInt(0.6f * scale()));
 		repaint();
 	}
 
@@ -120,9 +161,11 @@ namespace elektron::drums
 	{
 		juce::String key;
 		key << static_cast<int>(m_page) << "/" << m_track << "/" << (m_menu ? 1 : 0) << "/" << m_lfo << "/"
-			<< m_sampleTab << "/" << m_focus << "/" << m_stepPage << "/" << (m_follow ? 1 : 0) << "/"
+			<< m_sampleTab << "/" << m_machinePage << "/" << m_focus << "/" << m_stepPage << "/" << (m_follow ? 1 : 0) << "/"
 			<< (m_selector.open ? 1 : 0) << "/" << m_seqStep << "/" << m_seqMode << "/" << m_lockScroll << "/"
-			<< m_armedLine << "/" << m_browseItem << "/" << m_browseScroll << "/" << getWidth() << "/";
+			<< m_armedLine << "/" << m_browseItem << "/" << m_browseScroll << "/" << getWidth() << "/" << m_browseTree << "/"
+			<< m_browseFilter << "/" << m_browseSearch << "/" << static_cast<int>(m_processor.sampleLibrary().generation())
+			<< "/";
 		for(const int s : m_lockSteps)
 			key << s << ",";
 		key << "/" << choiceOf(trackParameter("machine")->getParameterID()) << "/"
@@ -157,6 +200,7 @@ namespace elektron::drums
 			buildMenu();
 		if(m_selector.open)
 			buildSelector();
+		m_search.setVisible(m_page == Page::Browse && browseSamples() && !m_menu);
 		for(auto& r : m_regions)
 			r.last = r.state();
 		m_key = layoutKey();
@@ -448,6 +492,20 @@ namespace elektron::drums
 			drawMenu(p);
 		if(m_selector.open)
 			drawSelector(p);
+		// A sample dragged from Browse: its name under the mouse, a frame on the Track it would load on
+		const auto& entries = m_processor.sampleLibrary().entries();
+		if(m_browseDrag >= 0 && m_press.moved && m_browseDrag < static_cast<int>(entries.size()))
+		{
+			const auto& h = m_browseTree == 4 ? hue::p : hue::g;
+			const auto at = m_press.last;
+			const int k = static_cast<int>((at.x - 10) / KeyPitch);
+			if(at.y >= 244 && k >= 0 && k < 16)
+				p.frame(keyX(k) - 0.8f, 248.6f, KeyWidth + 1.6f, 74, h.c[0], 1.8f, 0.6f);
+			p.rect(at.x - 17, at.y - 5, 34, 10, juce::Colour(0xff2b2a26), 0.8f);
+			p.frame(at.x - 17, at.y - 5, 34, 10, h.c[0], 0.8f, 0.3f);
+			p.text(at.x, at.y + 1.4f, entries[static_cast<size_t>(m_browseDrag)].name.substring(0, 14), 3.2f, colour::ink,
+				600, Painter::Align::Centre);
+		}
 		if(lockEdit())
 		{
 			p.rect(ScreenX + 1.2f, ScreenY + 0.8f, ScreenW - 2.4f, 0.5f, colour::lock);
@@ -573,8 +631,9 @@ namespace elektron::drums
 	{
 		if(m_page != Page::Browse)
 			return;
-		const int n = static_cast<int>(m_processor.machines().size());
-		m_browseScroll = juce::jlimit(0, std::max(0, n - 16), m_browseScroll + (_wheel.deltaY < 0 ? 4 : -4));
+		const int n = browseSamples() ? browseCount() : static_cast<int>(m_processor.machines().size());
+		const int rows = browseSamples() ? 15 : 16;
+		m_browseScroll = juce::jlimit(0, std::max(0, n - rows), m_browseScroll + (_wheel.deltaY < 0 ? 4 : -4));
 		layout();
 		repaint();
 	}
@@ -641,6 +700,8 @@ namespace elektron::drums
 			}
 			else if(p == trackParameter("machine"))
 			{
+				m_browseTree = 3;
+				m_browseFilter = 0;
 				m_browseItem = _cell.index();
 				m_browseScroll = juce::jlimit(0, std::max(0, static_cast<int>(m_processor.machines().size()) - 16),
 					m_browseItem - 8);
@@ -835,13 +896,26 @@ namespace elektron::drums
 	bool Editor::isInterestedInFileDrag(const juce::StringArray& _files)
 	{
 		for(const auto& f : _files)
-			if(isSampleFile(f))
+			if(isSampleFile(f) || (m_page == Page::Browse && juce::File(f).isDirectory()))
 				return true;
 		return false;
 	}
 
 	void Editor::filesDropped(const juce::StringArray& _files, const int _x, const int _y)
 	{
+		// Folders on Browse join the Library
+		if(m_page == Page::Browse)
+		{
+			bool folders = false;
+			for(const auto& f : _files)
+				if(juce::File(f).isDirectory())
+				{
+					addFolder(juce::File(f));
+					folders = true;
+				}
+			if(folders)
+				return;
+		}
 		juce::String file;
 		for(const auto& f : _files)
 			if(isSampleFile(f))
@@ -889,6 +963,42 @@ namespace elektron::drums
 			{
 				if(self && _c.getResult().existsAsFile())
 					self->loadSample(_track, _c.getResult());
+			});
+	}
+
+	void Editor::audition(const juce::File& _file)
+	{
+		juce::String error;
+		if(!m_processor.auditionSample(_file, error))
+			toast(error);
+		m_auditionFile = _file;
+		repaint();
+	}
+
+	void Editor::addFolder(const juce::File& _folder)
+	{
+		if(!m_processor.sampleLibrary().addFolder(_folder))
+		{
+			toast(_folder.getFileName() + " could not be added");
+			return;
+		}
+		m_browseTree = 2;
+		m_browseFilter = 0;
+		m_browseItem = m_browseScroll = 0;
+		toast("Scanning " + _folder.getFileName());
+		layout();
+		repaint();
+	}
+
+	void Editor::chooseFolder()
+	{
+		m_chooser = std::make_unique<juce::FileChooser>("Add a sample folder");
+		juce::Component::SafePointer<Editor> self(this);
+		m_chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+			[self](const juce::FileChooser& _c)
+			{
+				if(self && _c.getResult().isDirectory())
+					self->addFolder(_c.getResult());
 			});
 	}
 

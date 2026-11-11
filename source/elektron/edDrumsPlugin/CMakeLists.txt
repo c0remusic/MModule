@@ -6,7 +6,7 @@ set(ED_DRUMS_NAME "Elektron Drums Dev")
 project(edDrumsPlugin VERSION ${CMAKE_PROJECT_VERSION})
 
 set(SOURCES edDrumsProcessor.cpp edDrumsProcessor.h edDrumsParameters.cpp edDrumsParameters.h edDrumsSampleFiles.cpp
-	edDrumsSampleFiles.h edDrumsKits.cpp edDrumsKits.h)
+	edDrumsSampleFiles.h edDrumsSampleLibrary.cpp edDrumsSampleLibrary.h edDrumsKits.cpp edDrumsKits.h)
 
 juce_add_plugin(edDrumsPlugin
 	COMPANY_NAME "c0remusic"

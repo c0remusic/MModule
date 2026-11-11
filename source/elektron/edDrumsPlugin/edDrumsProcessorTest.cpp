@@ -10,8 +10,11 @@
 //   - a state saved and restored by another instance plays the same; a state without ticket 18's parameters, and with
 //     one that is not ours, loads with the defaults, a Track's chain its machine's family's; nothing told to the host
 //     as an edit as a state loads;
-//   - the Sampler last of Machine's choices, none before it moved, an old state on ROM-33 to -48 playing it; a WAV
-//     loaded on a Track plays, the state keeps it, cleared it is silence (ticket 20);
+//   - Machine's choices: the Sampler where ROM-33 stood, OPEN DRUM's after it, no INP, CTR, MID or RAM machine; an old
+//     state on ROM-33 to -48 playing the Sampler, an old state's and Kit's choices read in their own list; a WAV
+//     loaded on a Track plays, the state keeps it, cleared it is silence (ticket 20); the samples' Library scans a folder
+//     for its sound files alone, another Library sees the folder, a sample loaded by fingerprint plays as its file, the
+//     state and a Kit keep the fingerprint, the audition plays once on Main;
 //   - a Kit saved, then loaded by another instance, plays the same, its sample included, no edit told; two instances
 //     on one Bank each write a Slot and keep the other's; a Kit without an ID loads that parameter's default (ticket 19);
 //   - the sequencer from a playhead at 120 BPM: Hits at their steps' samples, Locks for their step only, Pattern
@@ -247,7 +250,7 @@ namespace
 		require(inSections == ids.size(), "every parameter in one section");
 		std::printf("  %d parameters, %d per Track, %d shared; the IDs are the frozen list's\n", ids.size(),
 			_processor.trackIds(0).size(), ids.size() - Tracks * _processor.trackIds(0).size());
-		require(_processor.trackIds(0).size() == 75, "75 a Track");
+		require(_processor.trackIds(0).size() == 75 + 16, "91 a Track: 75 and Machine 9-24");
 		std::printf("PASS: the IDs are frozen\n");
 	}
 
@@ -344,6 +347,11 @@ namespace
 			send("send_chorus", Send::Chorus);
 			send("send_phaser", Send::Phaser);
 			m["accent"] = [](Engine& _e, Expected&, const int _t, const double _v) { _e.setAccent(_t, whole(_v)); };
+			for(int i = 8; i < MachineParameters; ++i)
+				m["m" + std::to_string(i + 1)] = [i](Engine& _e, Expected&, const int _t, const double _v)
+				{
+					_e.setParameter(_t, i, static_cast<uint8_t>(whole(_v)));
+				};
 			return m;
 		}();
 		return setters;
@@ -428,7 +436,7 @@ namespace
 			const auto id = juce::String::formatted("t%02d_", t + 1);
 			const auto& machine = _processor.machines()[static_cast<size_t>(whole(value(id + "machine")))];
 			e->setMachine(t, machine);
-			for(int i = 0; i < 8; ++i)
+			for(int i = 0; i < MachineParameters; ++i)
 			{
 				const int v = whole(value(id + "m" + juce::String(i + 1)));
 				if(v != e->parameter(t, i))
@@ -792,8 +800,12 @@ namespace
 			list += " " + u;
 		std::printf("  %zu settings (%d parameters) each set on two sounds, %.1f s: the engine told the same plays the same;"
 			" unheard on both:%s\n", steps.size(), ids.size() - first, seconds, list.empty() ? " none" : list.c_str());
-		// The accent plays on a Hit with an accent, which no host's note gives, and Pattern asks for a pattern, all empty here
-		require(unheard == std::vector<std::string>{"accent", "pattern"}, "a setting the processor gives is not heard");
+		// The accent plays on a Hit with an accent, which no host's note gives, Pattern asks for a pattern, all empty here,
+		// and the two sounds' machines use Machine 1-8 alone
+		std::vector<std::string> expected{"accent", "pattern"};
+		for(int i = 9; i <= MachineParameters; ++i)
+			expected.push_back("m" + std::to_string(i));
+		require(unheard == expected, "a setting the processor gives is not heard");
 		std::printf("PASS: every parameter reaches the engine\n");
 	}
 
@@ -928,44 +940,212 @@ namespace
 		return static_cast<int>(found - list.begin());
 	}
 
+	bool removedFamily(const Machine& _machine)
+	{
+		if(_machine.family != Family::Machinedrum || _machine == Sampler)
+			return false;
+		const auto* family = md::machines::familyOf(md::MachineModel::Machinedrum, _machine.id);
+		return family && (family->name == "INP" || family->name == "CTR" || family->name == "MID" || family->name == "RAM");
+	}
+
 	void samplerChoice()
 	{
 		Processor processor;
-		// The list before the Sampler: Off, the Syntakt's, the Machinedrum's that played, ROM-33 to -48 among them
-		std::vector<Machine> old{Machine{}};
+		// The list of version 2: Off, the Syntakt's, the Machinedrum's that played, ROM-33 to -48 last
+		std::vector<Machine> v2{Machine{}};
 		for(int id = 0; id < SyntaktMachines; ++id)
-			old.push_back({Family::Syntakt, static_cast<uint8_t>(id)});
+			v2.push_back({Family::Syntakt, static_cast<uint8_t>(id)});
 		for(const auto& m : md::machines::machines(md::MachineModel::Machinedrum))
 			if(m.id < 256 && md::voice::playable(static_cast<uint8_t>(m.id)))
-				old.push_back({Family::Machinedrum, static_cast<uint8_t>(m.id)});
-		const auto& list = processor.machines();
-		require(old.size() >= 16 && list.size() == old.size() - 15, "the list's size");
+				v2.push_back({Family::Machinedrum, static_cast<uint8_t>(m.id)});
+		require(v2.size() >= 16, "the old list's size");
 		for(size_t i = 0; i < 16; ++i)
-			require(old[old.size() - 16 + i] == Machine{Family::Machinedrum, static_cast<uint8_t>(176 + i)},
+			require(v2[v2.size() - 16 + i] == Machine{Family::Machinedrum, static_cast<uint8_t>(176 + i)},
 				"ROM-33 to -48 were not the old list's last 16");
-		require(std::equal(list.begin(), list.end() - 1, old.begin()), "a choice before the Sampler moved");
-		require(list.back() == Sampler && processor.samplerChoice() == static_cast<int>(list.size()) - 1, "the Sampler last");
+		// ... of version 3, the Sampler in ROM-33's place
+		std::vector<Machine> v3(v2.begin(), v2.end() - 16);
+		v3.push_back(Sampler);
+		// ... of version 4: without INP, CTR, MID and RAM, OPEN DRUM's after the Sampler
+		std::vector<Machine> v4;
+		for(const auto& m : v3)
+			if(!removedFamily(m))
+				v4.push_back(m);
+		for(int id = 0; id < OpenDrumMachines; ++id)
+			v4.push_back({Family::OpenDrum, static_cast<uint8_t>(id)});
+		const auto& list = processor.machines();
+		require(list == v4, "the list");
+		require(list[static_cast<size_t>(processor.samplerChoice())] == Sampler, "the Sampler's choice");
 		const auto& machine = dynamic_cast<juce::AudioParameterChoice&>(find(processor, "t01_machine"));
 		require(machine.choices[processor.samplerChoice()] == "SAMPLER", "the Sampler's name");
+		for(int id = 0; id < OpenDrumMachines; ++id)
+			require(machine.choices[processor.samplerChoice() + 1 + id] == openDrumMachineNames[static_cast<size_t>(id)],
+				"OPEN DRUM's names");
+
+		const auto at = [](const std::vector<Machine>& _list, const Machine& _m)
+		{
+			const auto found = std::find(_list.begin(), _list.end(), _m);
+			require(found != _list.end(), "a machine not in an old list");
+			return static_cast<int>(found - _list.begin());
+		};
+		const Machine trxBd{Family::Machinedrum, 16}, ctrAl{Family::Machinedrum, 112}, mid{Family::Machinedrum, 96};
+		const auto machineAt = [&](Processor& _p, const char* _id)
+		{
+			return list[static_cast<size_t>(whole(plain(find(_p, _id))))];
+		};
 
 		// A state of version 2 on ROM-33 or ROM-40 plays the Sampler; one on TRX-BD stays there
-		const int rom33 = static_cast<int>(old.size()) - 16;
-		juce::XmlElement xml("ElektronDrums");
-		xml.setAttribute("version", 2);
-		xml.setAttribute("t01_machine", rom33);
-		xml.setAttribute("t02_machine", rom33 + 7);
-		xml.setAttribute("t03_machine", choiceOf(processor, {Family::Machinedrum, 16}));
-		juce::MemoryBlock state;
-		juce::AudioProcessor::copyXmlToBinary(xml, state);
-		processor.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
-		require(whole(plain(find(processor, "t01_machine"))) == processor.samplerChoice()
-			&& whole(plain(find(processor, "t02_machine"))) == processor.samplerChoice(), "an old ROM-33 to -48");
-		require(list[static_cast<size_t>(whole(plain(find(processor, "t03_machine"))))] == Machine{Family::Machinedrum, 16},
-			"an old TRX-BD");
-		std::printf("PASS: the Sampler takes ROM-33's place, last of %zu choices; an old state on ROM-33 to -48 plays it\n",
-			list.size());
+		{
+			const int rom33 = static_cast<int>(v2.size()) - 16;
+			juce::XmlElement xml("ElektronDrums");
+			xml.setAttribute("version", 2);
+			xml.setAttribute("t01_machine", rom33);
+			xml.setAttribute("t02_machine", rom33 + 7);
+			xml.setAttribute("t03_machine", at(v2, trxBd));
+			juce::MemoryBlock state;
+			juce::AudioProcessor::copyXmlToBinary(xml, state);
+			processor.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+			require(machineAt(processor, "t01_machine") == Sampler && machineAt(processor, "t02_machine") == Sampler,
+				"an old ROM-33 to -48");
+			require(machineAt(processor, "t03_machine") == trxBd, "an old TRX-BD");
+		}
+		// A state of version 3 and a Kit of version 1 on TRX-BD, the Sampler, CTR-AL, MID-01: TRX-BD, the Sampler, Off
+		const auto old = [&](juce::XmlElement& _xml)
+		{
+			_xml.setAttribute("t01_machine", at(v3, trxBd));
+			_xml.setAttribute("t02_machine", at(v3, Sampler));
+			_xml.setAttribute("t03_machine", at(v3, ctrAl));
+			_xml.setAttribute("t04_machine", at(v3, mid));
+			_xml.setAttribute("t05_machine", static_cast<int>(v3.size()) - 2);	// ROM-32, before the Sampler
+		};
+		const auto check = [&](Processor& _p, const char* _what)
+		{
+			require(machineAt(_p, "t01_machine") == trxBd && machineAt(_p, "t02_machine") == Sampler
+				&& machineAt(_p, "t03_machine") == Machine{} && machineAt(_p, "t04_machine") == Machine{}
+				&& machineAt(_p, "t05_machine") == v3[v3.size() - 2], std::string(_what) + ": a machine moved");
+		};
+		{
+			juce::XmlElement xml("ElektronDrums");
+			xml.setAttribute("version", 3);
+			old(xml);
+			juce::MemoryBlock state;
+			juce::AudioProcessor::copyXmlToBinary(xml, state);
+			Processor p;
+			p.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+			check(p, "a state of version 3");
+		}
+		{
+			// A Kit as saved, its Machine choices as version 1 wrote them
+			Processor saver;
+			require(saver.saveKit(40), "Slot 41 saved");
+			KitBank bank(Processor::dataFolder().getChildFile("Kits"));
+			auto kit = bank.read(40);
+			require(kit != nullptr, "Slot 41 read");
+			kit->setAttribute("version", 1);
+			old(*kit);
+			require(bank.write(40, *kit), "Slot 41 written");
+			Processor p;
+			require(p.loadKit(40), "the old Kit not loaded");
+			check(p, "a Kit of version 1");
+			require(!p.kitDiffers(), "an old Kit loaded differs from its Slot");
+			require(bank.clear(40), "Slot 41 cleared");
+		}
+		// What the new list stores, it reads back: OPEN DRUM's and the Sampler
+		{
+			Processor a;
+			set(find(a, "t01_machine"), static_cast<float>(a.samplerChoice() + 1));
+			set(find(a, "t02_machine"), static_cast<float>(a.samplerChoice()));
+			juce::MemoryBlock state;
+			a.getStateInformation(state);
+			Processor b;
+			b.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+			require(machineAt(b, "t01_machine") == Machine{Family::OpenDrum, 0} && machineAt(b, "t02_machine") == Sampler,
+				"a state of version 4");
+		}
+		std::printf("PASS: Machine's %zu choices (%zu before), the Sampler where ROM-33 stood, OPEN DRUM's 4 after it, no INP,"
+			" CTR, MID or RAM; a state of version 2 or 3 and a Kit of version 1 load TRX-BD, the Sampler, ROM-32 as theirs,"
+			" CTR-AL and MID-01 as Off\n", list.size(), v3.size());
 	}
+	// ---- Machine 9-24 (ticket 26) ----
 
+	// Defined with the sequencer's helpers further down
+	Take playSequenced(Processor& _processor, int _samples, const std::function<void(int)>& _atBlock);
+	int stepSample(double _quarters);
+	int firstDifference(const Take& _a, const Take& _b);
+	uint16_t indexOf(Processor& _processor, const juce::String& _id);
+
+	void machinePages()
+	{
+		const Machine drum{Family::OpenDrum, 0};
+		const auto all = allDefaults(drum);
+		const auto onDrum = [&](Processor& _p)
+		{
+			_p.prepareToPlay(SampleRate, Block);
+			set(find(_p, "t01_machine"), static_cast<float>(choiceOf(_p, drum)));
+			block(_p);
+		};
+
+		// A Lock of Machine 17 (FILTER) on step 4 of an OD DRUM Track: its Hit sounds otherwise, from there
+		constexpr int Length = 200 * Block;
+		Processor unlocked, locked;
+		for(auto* p : {&unlocked, &locked})
+		{
+			allOutputs(*p);
+			onDrum(*p);
+			p->editSequencer([&](Sequencer& _s)
+			{
+				_s.pattern(0).setTrig(0, 0, true);
+				_s.pattern(0).setTrig(0, 4, true);
+				if(p == &locked)
+					_s.pattern(0).setLock(0, 4, indexOf(*p, "t01_m17"), 5);
+			});
+		}
+		require(whole(plain(find(unlocked, "t01_m17"))) == all[16], "Machine 17 not at the voice's default");
+		const auto a = playSequenced(unlocked, Length, {}), b = playSequenced(locked, Length, {});
+		const int step4 = stepSample(1.0), from = firstDifference(a, b);
+		require(from >= step4 && from < step4 + 200, "a Lock of Machine 17 changed the sound from " + std::to_string(from));
+		std::printf("  a Lock of Machine 17 on an OD DRUM Track changes its Hit from sample %d (step 4 at %d)\n", from, step4);
+
+		// A Kit from before Machine 9-24: they take the machine's defaults, and the Kit loaded is its Slot's
+		{
+			Processor saver;
+			onDrum(saver);
+			require(saver.saveKit(42), "Slot 43 saved");
+			KitBank bank(Processor::dataFolder().getChildFile("Kits"));
+			auto kit = bank.read(42);
+			require(kit != nullptr, "Slot 43 read");
+			for(int t = 0; t < Tracks; ++t)
+				for(int i = 9; i <= MachineParameters; ++i)
+					kit->removeAttribute(juce::String::formatted("t%02d_m%d", t + 1, i));
+			require(bank.write(42, *kit), "Slot 43 written");
+			Processor p;
+			set(find(p, "t01_m17"), 99);
+			set(find(p, "t02_m9"), 99);
+			require(p.loadKit(42), "the old Kit not loaded");
+			for(int i = 9; i <= MachineParameters; ++i)
+				require(whole(plain(find(p, juce::String::formatted("t01_m%d", i)))) == all[static_cast<size_t>(i - 1)],
+					"an old Kit's Machine " + std::to_string(i) + " not the voice's default");
+			require(whole(plain(find(p, "t02_m9"))) == 0, "an old Kit's Machine 9 of a machine of 8 not 0");
+			require(!p.kitDiffers(), "an old Kit loaded differs from its Slot");
+			require(bank.clear(42), "Slot 43 cleared");
+		}
+		// A state from before them, the same
+		{
+			Processor saver;
+			onDrum(saver);
+			juce::MemoryBlock state;
+			saver.getStateInformation(state);
+			auto xml = juce::AudioProcessor::getXmlFromBinary(state.getData(), static_cast<int>(state.getSize()));
+			for(int i = 9; i <= MachineParameters; ++i)
+				xml->removeAttribute(juce::String::formatted("t01_m%d", i));
+			juce::AudioProcessor::copyXmlToBinary(*xml, state);
+			Processor p;
+			set(find(p, "t01_m17"), 99);
+			p.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+			require(whole(plain(find(p, "t01_m17"))) == all[16], "an old state's Machine 17 not the voice's default");
+		}
+		std::printf("PASS: Machine 9-24: a Lock on Machine 17 is heard; an old Kit and an old state load the machine's"
+			" defaults there\n");
+	}
 	// ---- a Track's sample ----
 
 	juce::File writeWav(const juce::File& _file)
@@ -1021,6 +1201,136 @@ namespace
 		text.deleteFile();
 		std::printf("PASS: a WAV loaded plays on the Sampler, peak %.2f; the state keeps it; cleared, silence\n",
 			peakOf(loaded, 0));
+	}
+
+	// ---- the samples' Library ----
+
+	// A sound of _frames at _rate on _channels, in _format's file
+	void writeAudio(juce::AudioFormat& _format, const juce::File& _file, const double _rate, const int _channels,
+		const int _frames, const float _hz)
+	{
+		_file.deleteFile();
+		juce::AudioBuffer<float> wave(_channels, _frames);
+		for(int c = 0; c < _channels; ++c)
+			for(int n = 0; n < _frames; ++n)
+				wave.setSample(c, n, 0.7f * std::exp(-n / 4000.0f) * std::sin(2 * 3.14159265f * _hz * n / static_cast<float>(_rate)));
+		std::unique_ptr<juce::AudioFormatWriter> writer(_format.createWriterFor(new juce::FileOutputStream(_file), _rate,
+			static_cast<unsigned>(_channels), 16, {}, 0));
+		require(writer != nullptr && writer->writeFromAudioSampleBuffer(wave, 0, _frames), "the sound written");
+	}
+
+	// Until the Library's scan is taken, at most 20 s
+	void waitForScan(SampleLibrary& _library)
+	{
+		const auto until = juce::Time::getMillisecondCounter() + 20000;
+		while(!_library.update())
+		{
+			require(juce::Time::getMillisecondCounter() < until, "the scan never ended");
+			juce::Thread::sleep(5);
+		}
+	}
+
+	// A folder of three sounds, a corrupt WAV and a text file: the scan finds the three as they are, by name and type;
+	// a second Library on the data folder lists the folder; a sample loaded by fingerprint plays as its file loaded
+	void sampleLibrary()
+	{
+		const auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsLibrarySamples");
+		folder.deleteRecursively();
+		require(folder.createDirectory().wasOk(), "the samples' folder");
+		juce::WavAudioFormat wav;
+		juce::AiffAudioFormat aiff;
+		writeAudio(wav, folder.getChildFile("kick_01.wav"), 44100, 1, 13230, 60);
+		writeAudio(aiff, folder.getChildFile("SD-snare.aif"), 48000, 2, 9600, 200);
+		require(folder.getChildFile("sub").createDirectory().wasOk(), "a sub-folder");
+		writeAudio(wav, folder.getChildFile("sub").getChildFile("hh closed.wav"), 22050, 1, 2205, 3000);
+		folder.getChildFile("broken.wav").replaceWithText("RIFF\x10\x00\x00\x00WAVEjunk, not a header");
+		folder.getChildFile("notes.txt").replaceWithText("no audio");
+
+		struct Expected
+		{
+			const char* name;
+			int64_t length;
+			double rate;
+			int channels;
+			SampleLibrary::Type type;
+		};
+		const Expected expected[]{{"kick_01.wav", 13230, 44100, 1, SampleLibrary::Type::Kick},
+			{"SD-snare.aif", 9600, 48000, 2, SampleLibrary::Type::Snare},
+			{"hh closed.wav", 2205, 22050, 1, SampleLibrary::Type::Hat}};
+
+		Processor processor;
+		auto& library = processor.sampleLibrary();
+		require(library.folders().isEmpty() && library.entries().empty(), "a new data folder's Library is empty");
+		require(library.addFolder(folder), "the folder not added");
+		waitForScan(library);
+		const auto& entries = library.entries();
+		require(entries.size() == 3, "the scan found " + std::to_string(entries.size()) + " samples, not 3");
+		for(const auto& x : expected)
+		{
+			const auto it = std::find_if(entries.begin(), entries.end(), [&](const auto& _e) { return _e.name == x.name; });
+			require(it != entries.end(), std::string(x.name) + " not found");
+			require(it->length == x.length && it->rate == x.rate && it->channels == x.channels && it->type == x.type
+				&& it->fingerprint.length() == 16, std::string(x.name) + ": " + std::to_string(it->length) + " frames at "
+				+ std::to_string(it->rate) + " Hz, " + std::to_string(it->channels) + " channels, "
+				+ SampleLibrary::typeName(it->type));
+		}
+
+		// Another instance's Library, the same data folder: the same folders, and the same samples once scanned
+		{
+			SampleLibrary other(Processor::dataFolder());
+			require(other.folders() == library.folders(), "a second Library does not see the folder");
+			other.scanOnce();
+			waitForScan(other);
+			require(other.entries().size() == 3 && other.entries()[0].fingerprint == entries[0].fingerprint,
+				"a second Library does not find the same samples");
+		}
+
+		// By fingerprint on Track 3, as the file loaded on another Processor's Track 3
+		const auto* kick = library.find(entries[0].fingerprint);
+		require(kick && kick->name == "kick_01.wav", "find by fingerprint");
+		allOutputs(processor);
+		set(find(processor, "t03_machine"), processor.samplerChoice());
+		juce::String error;
+		require(!processor.loadLibrarySample(2, "0123456789abcdef", error) && error.isNotEmpty(),
+			"an unknown fingerprint loaded");
+		require(processor.loadLibrarySample(2, kick->fingerprint, error), "by fingerprint: " + error.toStdString());
+		require(processor.sampleFingerprint(2) == kick->fingerprint, "the Track's fingerprint");
+		Processor byFile;
+		allOutputs(byFile);
+		set(find(byFile, "t03_machine"), byFile.samplerChoice());
+		require(byFile.loadSample(2, kick->file, error), "the file refused: " + error.toStdString());
+		require(byFile.sampleFingerprint(2) == kick->fingerprint, "a file loaded has its fingerprint");
+		const std::vector<Hit> hits{{1000, 2, 100}};
+		constexpr int Length = 100 * Block;
+		const auto played = play(processor, hits, Length);
+		require(peakOf(played, 0) > 0.1f && same(played, play(byFile, hits, Length)),
+			"by fingerprint does not play as the file");
+
+		// The state and a Kit keep the fingerprint and the name beside the copy
+		juce::MemoryBlock state;
+		processor.getStateInformation(state);
+		Processor restored;
+		restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+		require(restored.sampleFingerprint(2) == kick->fingerprint, "the state's fingerprint");
+		require(processor.saveKit(30), "the Kit not saved");
+		const auto kit = juce::File(Processor::dataFolder().getChildFile("Kits").getChildFile("31.edkit"));
+		processor.clearSample(2);
+		require(processor.sampleFingerprint(2).isEmpty(), "a cleared sample keeps its fingerprint");
+		require(processor.loadKit(30) && processor.sampleFingerprint(2) == kick->fingerprint
+			&& processor.sampleName(2) == "kick_01.wav", "the Kit's fingerprint");
+		require(kit.existsAsFile(), "the Kit's file");
+
+		// The audition plays once on Main, the Tracks silent
+		Processor audition;
+		allOutputs(audition);
+		require(audition.auditionSample(kick->file, error), "the audition: " + error.toStdString());
+		const auto heard = play(audition, {}, 2 * Length);
+		require(peakOf(heard, 0) > 0.1f && peakOf(heard, 1) > 0.1f, "the audition is silent");
+		require(peakOf(play(audition, {}, Length), 0) < Engine::Silence, "the audition plays more than once");
+		std::printf("PASS: the Library finds 3 of 5 files (lengths, rates, channels, types), a second Library the same "
+			"folder; by fingerprint plays as the file; state and Kit keep it; the audition peaks %.2f once\n",
+			peakOf(heard, 0));
+		folder.deleteRecursively();
 	}
 
 	// ---- the Kits ----
@@ -1835,9 +2145,11 @@ int main(const int _argc, char** _argv)
 		familyChange();
 		state();
 		samplerChoice();
+		machinePages();
 		const auto wav = writeWav(juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsSample.wav"));
 		samples(wav);
 		kits(wav);
+		sampleLibrary();
 		wav.deleteFile();
 		sequencer(library);
 		slides(library);

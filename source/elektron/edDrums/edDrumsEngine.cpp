@@ -8,6 +8,7 @@
 
 #include <emmintrin.h>
 
+#include "openDrum.h"
 #include "stFastBdModern.h"
 #include "stFastCpVintage.h"
 #include "stFastCyAlloy.h"
@@ -117,6 +118,7 @@ namespace elektron::drums
 		{
 		case Family::Off:			return true;
 		case Family::Syntakt:		return _machine.id < SyntaktMachines;
+		case Family::OpenDrum:		return _machine.id < OpenDrumMachines;
 		case Family::Machinedrum:
 			// ROM-33 to -48's entries are the Sampler's
 			return _machine == Sampler || (md::voice::playable(_machine.id) && (_machine.id < Rom33 || _machine.id >= Rom33 + 16));
@@ -136,11 +138,42 @@ namespace elektron::drums
 		return twinshot && !_library.twinshot ? MachineData::None : MachineData::Whole;
 	}
 
+	int machineParameters(const Machine& _machine)
+	{
+		if(_machine.family == Family::Off || !playable(_machine))
+			return 0;
+		return _machine.family == Family::OpenDrum ? openDrum_machineParameters(_machine.id) : 8;
+	}
+
+	const char* machineParameterName(const Machine& _machine, const int _index)
+	{
+		if(_machine.family != Family::OpenDrum || !playable(_machine) || _index < 0 || _index >= MachineParameters)
+			return nullptr;
+		return openDrum_machineParameterName(_machine.id, _index);
+	}
+
+	std::array<uint8_t, MachineParameters> allDefaults(const Machine& _machine)
+	{
+		std::array<uint8_t, MachineParameters> d{};
+		if(_machine.family == Family::OpenDrum)
+		{
+			// The voice's init kit
+			for(int i = 0; i < MachineParameters; ++i)
+				d[static_cast<size_t>(i)] = openDrum_machineDefault(_machine.id, i);
+			return d;
+		}
+		const auto& first = _machine == Sampler ? SamplerDefaults
+			: _machine.family == Family::Machinedrum ? MachinedrumDefaults : SyntaktDefaults;
+		std::copy(first.begin(), first.end(), d.begin());
+		return d;
+	}
+
 	std::array<uint8_t, 8> defaults(const Machine& _machine)
 	{
-		if(_machine == Sampler)
-			return SamplerDefaults;
-		return _machine.family == Family::Machinedrum ? MachinedrumDefaults : SyntaktDefaults;
+		const auto all = allDefaults(_machine);
+		std::array<uint8_t, 8> d{};
+		std::copy_n(all.begin(), d.size(), d.begin());
+		return d;
 	}
 
 	// ---- a Syntakt machine, whichever it is ----
@@ -326,6 +359,11 @@ namespace elektron::drums
 		m_voices.reserve(Tracks);
 		for(uint32_t t = 0; t < Tracks; ++t)
 			m_voices.emplace_back(*m_shared, t);
+		static_assert(OpenDrumBlock == 2 * BlockSize, "an OPEN DRUM block is two of the engine's");
+		const size_t odWords = (openDrum_size() + sizeof(std::max_align_t) - 1) / sizeof(std::max_align_t);
+		m_odMemory.resize(odWords * Tracks);
+		for(size_t t = 0; t < Tracks; ++t)
+			m_tracks[t].od = reinterpret_cast<OpenDrumVoice*>(m_odMemory.data() + t * odWords);
 
 		using namespace syntakt::fast;
 		makeSources<Source, BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage, CpVintage, SyToy, SyBits, SpTwinshot>(m_sources,
@@ -351,7 +389,7 @@ namespace elektron::drums
 		cut(_track);
 		t.machine = _machine;
 		t.pendingLocks = t.lockedNow = 0;
-		t.params = defaults(_machine);
+		t.params = allDefaults(_machine);
 		const uint32_t bit = 1u << _track;
 		if(_machine.family != Family::Off && _machine.family != t.chainFamily)
 		{
@@ -372,12 +410,21 @@ namespace elektron::drums
 		if(_machine.family == Family::Machinedrum)
 		{
 			auto& md = m_mdTracks[static_cast<size_t>(_track)];
-			md.setMachine(_machine == Sampler ? static_cast<uint8_t>(Rom33 + _track) : _machine.id, t.params);
+			md.setMachine(_machine == Sampler ? static_cast<uint8_t>(Rom33 + _track) : _machine.id, defaults(_machine));
 			md.clearMachineLocks();
 			// What it took while on no Machinedrum machine went nowhere
 			for(size_t i = 0; i < 8; ++i)
 				md.modulate(i, t.taken[static_cast<size_t>(LfoTarget::Machine1) + i]);
 			m_mdMask |= bit;
+		}
+		m_odMask &= ~bit;
+		if(_machine.family == Family::OpenDrum)
+		{
+			openDrum_init(t.od, _machine.id);
+			t.odPending = t.odTrig = t.odOpen = false;
+			for(int i = 0; i < MachineParameters; ++i)
+				playOpenDrum(_track, i);
+			m_odMask |= bit;
 		}
 	}
 
@@ -403,8 +450,13 @@ namespace elektron::drums
 		auto& t = m_tracks[static_cast<size_t>(_track)];
 		t.params[static_cast<size_t>(_index)] = _value;
 		t.lockValue[static_cast<size_t>(_index)] = _value;
+		// Machine 9-24 of a machine of 8 are kept, and change nothing
+		if(_index >= machineParameters(t.machine))
+			return;
 		if(t.machine.family == Family::Machinedrum)
 			m_mdTracks[static_cast<size_t>(_track)].knob(static_cast<size_t>(_index), _value);
+		else if(t.machine.family == Family::OpenDrum)
+			playOpenDrum(_track, _index);
 		else if(t.lane >= 0)
 			sendParameter(t, _index, _value);
 	}
@@ -505,6 +557,8 @@ namespace elektron::drums
 				const int index = static_cast<int>(p) - static_cast<int>(LfoTarget::Machine1);
 				if(t.machine.family == Family::Machinedrum)
 					m_mdTracks[static_cast<size_t>(_track)].modulate(static_cast<size_t>(index), offset);
+				else if(t.machine.family == Family::OpenDrum)
+					playOpenDrum(_track, index);
 				else if(t.lane >= 0)
 					sendParameter(t, index, playedValue(t, index));
 			}
@@ -559,6 +613,8 @@ namespace elektron::drums
 	void Engine::lock(const int _track, const int _index, const uint8_t _value)
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
+		if(_index >= machineParameters(t.machine))
+			return;
 		if(t.machine.family == Family::Machinedrum)
 		{
 			m_mdTracks[static_cast<size_t>(_track)].lock(static_cast<size_t>(_index), _value);
@@ -579,7 +635,7 @@ namespace elektron::drums
 		if(m_lfos.waiting(_track))
 			takeMoves(_track, true);
 		const float gain = static_cast<float>(_accent ? 128 + 2 * t.accent : _velocity) / 127.0f;
-		if(t.machine.family == Family::Machinedrum)
+		if(t.machine.family == Family::Machinedrum || t.machine.family == Family::OpenDrum)
 			hitMachinedrum(_track, _velocity, gain);
 		else if(t.machine.family == Family::Syntakt)
 			hitSyntakt(_track, _velocity, gain);
@@ -603,8 +659,24 @@ namespace elektron::drums
 	void Engine::hitMachinedrum(const int _track, const int _velocity, const float _gain)
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
-		m_mdTracks[static_cast<size_t>(_track)].hit();
-		m_mdTracks[static_cast<size_t>(_track)].alignTicks(m_mdBlock);
+		if(t.machine.family == Family::OpenDrum)
+		{
+			// The Hit's locks, and the Kit's value back on what the last Hit locked; the voice starts at the next block
+			const uint32_t changed = t.lockedNow | t.pendingLocks;
+			t.lockedNow = t.pendingLocks;
+			t.pendingLocks = 0;
+			t.lockValue = t.lockPendingValue;
+			for(int i = 0; i < MachineParameters; ++i)
+				if(changed >> i & 1)
+					playOpenDrum(_track, i);
+			t.odTrig = true;
+			t.odSettle = !(m_mdLive >> _track & 1);
+		}
+		else
+		{
+			m_mdTracks[static_cast<size_t>(_track)].hit();
+			m_mdTracks[static_cast<size_t>(_track)].alignTicks(m_mdBlock);
+		}
 		m_mdChain->hit(_track, _velocity);
 		// The voice's first sample lands HitDelay after the note, wherever its block falls
 		const int64_t at = m_now + HitDelay - voiceStart(t.machine) - m_mdChain->delay(_track);
@@ -720,7 +792,7 @@ namespace elektron::drums
 			auto& md = m_mdTracks[static_cast<size_t>(_track)];
 			// A Hit that waits for its block starts now; the voice's tail goes ahead of its blocks, so that the voice is free
 			// at once for the Track's next Hit
-			if(md.triggered())
+			if(t.machine.family == Family::Machinedrum && md.triggered())
 			{
 				md.takeLocks();
 				md.update(*m_library.os, m_tempo, m_voices[static_cast<size_t>(_track)]);
@@ -731,6 +803,8 @@ namespace elektron::drums
 			for(int64_t p = t.md.at; p < at + CutSamples && blocks < TailBlocks; p += BlockSize)
 				renderVoice(_track, t.mdTail[blocks++]);
 			t.mdTailBlocks = std::max(t.mdTailBlocks, blocks);
+			// The rest of an OPEN DRUM block lies past the ramp: the voice's next Hit starts a block of its own
+			t.odPending = false;
 			if(t.mdTailBlocks)
 			{
 				m_mdTails |= bit;
@@ -761,8 +835,57 @@ namespace elektron::drums
 		}
 	}
 
+	void Engine::playOpenDrum(const int _track, const int _index)
+	{
+		auto& t = m_tracks[static_cast<size_t>(_track)];
+		const uint16_t parameter = openDrum_machineParameter(t.machine.id, _index);
+		if(parameter == OpenDrumNone)
+			return;
+		// The LFOs reach Machine 1-8
+		const int offset = _index < 8 ? t.taken[static_cast<size_t>(LfoTarget::Machine1) + static_cast<size_t>(_index)] : 0;
+		const auto value = openDrum_machineValue(t.machine.id, _index,
+			static_cast<uint8_t>(wordOf(playedValue(t, _index), offset) >> 7));
+		if(parameter == OpenDrumOpen)
+			t.odOpen = value != 0;
+		else
+			openDrum_setParameter(t.od, parameter, value);
+	}
+
+	void Engine::renderOpenDrum(Track& _track, float* _x)
+	{
+		if(_track.odTrig)
+		{
+			// The firmware's voice at full velocity, the Track's coming after
+			if(_track.odSettle)
+				openDrum_settle(_track.od);
+			openDrum_trigger(_track.od, 127, 60, _track.odOpen);
+			_track.odTrig = false;
+			_track.odPending = false;
+		}
+		int16_t block[OpenDrumBlock];
+		const int16_t* from = _track.odHalf;
+		if(_track.odPending)
+		{
+			_track.odPending = false;
+		}
+		else
+		{
+			openDrum_render(_track.od, block);
+			std::copy_n(block + BlockSize, BlockSize, _track.odHalf);
+			_track.odPending = true;
+			from = block;
+		}
+		for(int n = 0; n < BlockSize; ++n)
+			_x[n] += static_cast<float>(from[n]) * (1.0f / 32768.0f);
+	}
+
 	void Engine::renderVoice(const int _track, float* _x)
 	{
+		if(m_tracks[static_cast<size_t>(_track)].machine.family == Family::OpenDrum)
+		{
+			renderOpenDrum(m_tracks[static_cast<size_t>(_track)], _x);
+			return;
+		}
 		md::voice::Voice::Block voice;
 		m_voices[static_cast<size_t>(_track)].render(voice);
 		for(int n = 0; n < BlockSize; ++n)
@@ -811,7 +934,9 @@ namespace elektron::drums
 			std::fill_n(x, std::exchange(t.mdHitSkip, 0), 0.0f);
 			t.md.write(t.mdRing, x, t.level, t.mdFadeAt);
 			const uint32_t bit = 1u << track;
-			if(t.md.quiet >= MachinedrumQuietBlocks)
+			// An OPEN DRUM voice rounds a quiet tail to silence for longer than that: it is over once its envelope is too
+			if(t.machine.family == Family::OpenDrum ? t.md.quiet >= OpenDrumQuietBlocks && !openDrum_sounding(t.od)
+				: t.md.quiet >= MachinedrumQuietBlocks)
 				m_mdLive &= ~bit;
 			if(!t.mdTailBlocks)
 				m_mdTails &= ~bit;
@@ -821,6 +946,10 @@ namespace elektron::drums
 				t.mdFadeAt = Never;
 			}
 		}
+		// An OPEN DRUM lock without a Hit in its block goes
+		for(uint32_t bits = m_odMask, track = 0; bits; bits >>= 1, ++track)
+			if(bits & 1)
+				m_tracks[track].pendingLocks = 0;
 		++m_mdBlock;
 	}
 

@@ -9,7 +9,7 @@ add_library(edDrums STATIC edDrumsChain.h edDrumsChain.cpp
 	edDrumsSendFx.h edDrumsSendFx.cpp edDrumsSends.h edDrumsSends.cpp
 	edDrumsSequencer.h edDrumsSequencer.cpp)
 target_include_directories(edDrums PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast PRIVATE mdEngine)
+target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast PRIVATE mdEngine opendrum)
 set_property(TARGET edDrums PROPERTY FOLDER "Elektron")
 
 if(BUILD_TESTING)
@@ -38,6 +38,15 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsLfoTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsLfoTest COMMAND edDrumsLfoTest)
 	set_tests_properties(edDrumsLfoTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# OPEN DRUM against the original engine's renders, through the engine too, and its cost (OPENDRUM_REFERENCES: exit 77
+	# without them)
+	add_executable(edDrumsOpenDrumTest edDrumsOpenDrumTest.cpp)
+	target_link_libraries(edDrumsOpenDrumTest PRIVATE edDrums opendrum)
+	target_include_directories(edDrumsOpenDrumTest PRIVATE ../md/mdDrums)
+	set_property(TARGET edDrumsOpenDrumTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsOpenDrumTest COMMAND edDrumsOpenDrumTest)
+	set_tests_properties(edDrumsOpenDrumTest PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 	# The internal sequencer's core: steps at their sample whatever the block size, conditions, locks, jumps (ticket 17)
 	add_executable(edDrumsSequencerTest edDrumsSequencerTest.cpp)

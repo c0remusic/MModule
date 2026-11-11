@@ -16,7 +16,16 @@ namespace elektron::drums
 		constexpr int FirstNote = 36;	// notes 36-51: Tracks 1-16
 		constexpr int DefaultLevel = 100, DefaultNote = 60, Centre = 64;
 
-		std::vector<Machine> machineList()
+		// The Machinedrum's input, control, MIDI and RAM machines are not the instrument's
+		bool offered(const md::machines::Machine& _m)
+		{
+			const auto* family = md::machines::familyOf(md::MachineModel::Machinedrum, _m.id);
+			return !family || (family->name != "INP" && family->name != "CTR" && family->name != "MID" && family->name != "RAM");
+		}
+
+		// Machine's choices: Off, the Syntakt's, the Machinedrum's, the Sampler, then OPEN DRUM's. With _all the
+		// Machinedrum's that played before state version 4 and Kit version 2, the list those stored their choice in
+		std::vector<Machine> machineList(const bool _all = false)
 		{
 			std::vector<Machine> list{Machine{}};
 			for(int id = 0; id < SyntaktMachines; ++id)
@@ -24,12 +33,31 @@ namespace elektron::drums
 			for(const auto& m : md::machines::machines(md::MachineModel::Machinedrum))
 			{
 				const Machine machine{Family::Machinedrum, static_cast<uint8_t>(m.id)};
-				if(m.id < 256 && playable(machine))
+				if(m.id < 256 && playable(machine) && (_all || offered(m)))
 					list.push_back(machine);
 			}
-			// Last, where ROM-33 stood: ROM-33 to -48, the Sampler's entries now, were the list's last 16
+			// Where ROM-33 stood: ROM-33 to -48, the Sampler's entries now, were the list's last 16
 			list.push_back(Sampler);
+			if(_all)
+				return list;
+			for(int id = 0; id < OpenDrumMachines; ++id)
+				list.push_back({Family::OpenDrum, static_cast<uint8_t>(id)});
 			return list;
+		}
+
+		// The choice _list gives the machine a state of _version (a Kit's if not _state) stored as _stored: before
+		// version 3 ROM-33 to -48 followed the Sampler, which plays them; a machine no longer offered is Off
+		int choiceOf(const std::vector<Machine>& _list, const int _stored, const int _version, const bool _state)
+		{
+			if(_state ? _version >= 4 : _version >= 2)
+				return _stored;
+			static const auto old = machineList(true);
+			const int sampler = static_cast<int>(old.size()) - 1;
+			const int stored = _state && _version < 3 ? std::min(_stored, sampler) : _stored;
+			if(stored < 0 || stored > sampler)
+				return 0;
+			const auto found = std::find(_list.begin(), _list.end(), old[static_cast<size_t>(stored)]);
+			return found == _list.end() ? 0 : static_cast<int>(found - _list.begin());
 		}
 
 		juce::String machineName(const Machine& _machine)
@@ -38,6 +66,8 @@ namespace elektron::drums
 				return "OFF";
 			if(_machine.family == Family::Syntakt)
 				return syntaktMachineNames[_machine.id];
+			if(_machine.family == Family::OpenDrum)
+				return openDrumMachineNames[_machine.id];
 			if(_machine == Sampler)
 				return "SAMPLER";
 			return juce::String(std::string(md::machines::find(md::MachineModel::Machinedrum, _machine.id)->name));
@@ -234,7 +264,7 @@ namespace elektron::drums
 				juce::AudioParameterChoiceAttributes().withAutomatable(false));
 			add(p.machine, Section::Machine, t);
 			m_machineSeen[static_cast<size_t>(t)] = machine;
-			const auto machineDefaults = defaults(m_machines[static_cast<size_t>(machine)]);
+			const auto machineDefaults = allDefaults(m_machines[static_cast<size_t>(machine)]);
 			for(int i = 0; i < 8; ++i)
 			{
 				p.values[static_cast<size_t>(i)] = intParameter(id + "m" + juce::String(i + 1),
@@ -334,6 +364,21 @@ namespace elektron::drums
 		// Ticket 17's: the pattern the sequencer plays, from the end of the one playing
 		m_pattern = add(new juce::AudioParameterInt({"pattern", 1}, "Pattern", 1, SeqPatterns, 1), Section::Global);
 
+		// Ticket 26's: Machine 9-24, for the machines that use more than 8
+		for(int t = 0; t < Tracks; ++t)
+		{
+			const auto id = juce::String::formatted("t%02d_", t + 1);
+			const auto name = juce::String::formatted("T%02d ", t + 1);
+			auto& p = m_tracks[static_cast<size_t>(t)];
+			const auto machineDefaults = allDefaults(m_machines[static_cast<size_t>(defaultMachine(m_machines, t))]);
+			for(int i = 8; i < MachineParameters; ++i)
+			{
+				p.values[static_cast<size_t>(i)] = intParameter(id + "m" + juce::String(i + 1),
+					name + "Machine " + juce::String(i + 1), 127, machineDefaults[static_cast<size_t>(i)]);
+				add(p.values[static_cast<size_t>(i)], Section::Machine, t);
+			}
+		}
+
 		m_edited = std::make_unique<Sequencer>();
 		for(auto& s : m_sequencers)
 			s = std::make_unique<Sequencer>();
@@ -349,6 +394,7 @@ namespace elektron::drums
 			m_kitParameter.push_back(p && !global.contains(p->getParameterID()) ? 1 : 0);
 		}
 		m_kits = std::make_unique<KitBank>(dataFolder().getChildFile("Kits"));
+		m_sampleLibrary = std::make_unique<SampleLibrary>(dataFolder());
 		startTimerHz(20);
 	}
 
@@ -420,7 +466,7 @@ namespace elektron::drums
 		for(int t = 0; t < Tracks; ++t)
 		{
 			const auto& p = m_tracks[static_cast<size_t>(t)];
-			for(int i = 0; i < 8; ++i)
+			for(int i = 0; i < MachineParameters; ++i)
 				target(p.values[static_cast<size_t>(i)], t, LockKind::Machine, i);
 			target(p.note, t, LockKind::Note);
 			target(p.level, t, LockKind::Level);
@@ -620,7 +666,40 @@ namespace elektron::drums
 			return false;
 		}
 		m_samples[static_cast<size_t>(_track)] = std::make_unique<Sample>(std::move(std::get<Sample>(result)));
+		m_sampleRefs[static_cast<size_t>(_track)] = SampleLibrary::fingerprintOf(_file);
 		publishSample(_track);
+		return true;
+	}
+
+	bool Processor::loadLibrarySample(const int _track, const juce::String& _fingerprint, juce::String& _error)
+	{
+		const auto* entry = m_sampleLibrary->find(_fingerprint);
+		if(!entry)
+		{
+			_error = "No sample of the library has fingerprint " + _fingerprint;
+			return false;
+		}
+		return loadSample(_track, entry->file, _error);
+	}
+
+	bool Processor::auditionSample(const juce::File& _file, juce::String& _error)
+	{
+		auto result = readSampleFile(_file);
+		if(const auto* error = std::get_if<std::string>(&result))
+		{
+			_error = juce::String::fromUTF8(error->c_str());
+			return false;
+		}
+		m_auditioned = std::make_unique<Sample>(std::move(std::get<Sample>(result)));
+		auto mail = std::make_unique<SampleMail>();
+		mail->sample = *m_auditioned;
+		mail->serial = ++m_sampleSerial;
+		auto* sent = mail.get();
+		m_auditionFlight.push_back(std::move(mail));
+		if(const auto* old = m_auditionMail.exchange(sent, std::memory_order_acq_rel))
+			m_auditionFlight.erase(std::find_if(m_auditionFlight.begin(), m_auditionFlight.end(),
+				[old](const auto& _m) { return _m.get() == old; }));
+		pruneSamples();
 		return true;
 	}
 
@@ -633,6 +712,7 @@ namespace elektron::drums
 	void Processor::clearSample(const int _track)
 	{
 		m_samples[static_cast<size_t>(_track)].reset();
+		m_sampleRefs[static_cast<size_t>(_track)].clear();
 		publishSample(_track);
 	}
 
@@ -662,6 +742,10 @@ namespace elektron::drums
 			flight.erase(std::remove_if(flight.begin(), flight.end(), [done](const auto& _m) { return _m->serial <= done; }),
 				flight.end());
 		}
+		// The auditions before the one playing: the audio thread took them all in order, and holds the last alone
+		const uint32_t held = m_auditionHeld.load(std::memory_order_acquire);
+		m_auditionFlight.erase(std::remove_if(m_auditionFlight.begin(), m_auditionFlight.end(),
+			[held](const auto& _m) { return _m->serial < held; }), m_auditionFlight.end());
 	}
 
 	juce::File Processor::dataFolder()
@@ -678,8 +762,12 @@ namespace elektron::drums
 		if(m_reread.exchange(false))
 			updateHostDisplay(ChangeDetails().withProgramChanged(true));
 		pruneSamples();
+		m_sampleLibrary->update();
 		if(++m_kitFollow >= 10)
+		{
 			followKits();
+			m_sampleLibrary->follow();
+		}
 	}
 
 	bool Processor::isBusesLayoutSupported(const BusesLayout& _layout) const
@@ -747,7 +835,7 @@ namespace elektron::drums
 					family = machine.family;
 				if(!_hostIsTruth)
 				{
-					for(int i = 0; i < 8; ++i)
+					for(int i = 0; i < MachineParameters; ++i)
 						setQuietly(*p.values[static_cast<size_t>(i)], static_cast<float>(e.parameter(t, i)));
 					if(newChain)
 					{
@@ -759,7 +847,7 @@ namespace elektron::drums
 				}
 			}
 			// What a Lock holds stays, until the Track's next Hit gives the host's value back
-			for(int i = 0; i < 8; ++i)
+			for(int i = 0; i < MachineParameters; ++i)
 			{
 				const int v = p.values[static_cast<size_t>(i)]->get();
 				if(v != e.parameter(t, i) && !held(p.values[static_cast<size_t>(i)]))
@@ -890,6 +978,13 @@ namespace elektron::drums
 				m_sampleDone[t].store(mail->serial, std::memory_order_release);
 			}
 		}
+		if(m_auditionMail.load(std::memory_order_acquire))
+			if(auto* mail = m_auditionMail.exchange(nullptr, std::memory_order_acq_rel))
+			{
+				m_auditionPlaying = mail->sample.pcm.empty() ? nullptr : &mail->sample;
+				m_auditionAt = 0;
+				m_auditionHeld.store(mail->serial, std::memory_order_release);
+			}
 
 		// A pattern asked for by the parameter or a program change
 		if(const int asked = m_pattern->get() - 1; asked != m_patternAsked)
@@ -986,6 +1081,27 @@ namespace elektron::drums
 		upTo(count, done);
 		m_now += count;
 
+		// The audition on Main, its values as they are, at its rate by a line between two
+		if(m_auditionPlaying && outputs[0] && outputs[1])
+		{
+			const auto& pcm = m_auditionPlaying->pcm;
+			const double step = m_auditionPlaying->rate / SampleRate;
+			constexpr float Gain = 0.7f / 32768.0f;
+			for(int n = 0; n < count; ++n, m_auditionAt += step)
+			{
+				const auto i = static_cast<size_t>(m_auditionAt);
+				if(i + 1 >= pcm.size())
+				{
+					m_auditionPlaying = nullptr;
+					break;
+				}
+				const float frac = static_cast<float>(m_auditionAt - static_cast<double>(i));
+				const float x = (static_cast<float>(pcm[i]) + frac * static_cast<float>(pcm[i + 1] - pcm[i])) * Gain;
+				outputs[0][n] += x;
+				outputs[1][n] += x;
+			}
+		}
+
 		// What the editor shows: the peaks fall 20 dB a second, 10^-1 of the gain
 		const float fall = static_cast<float>(std::pow(10.0, -count / SampleRate));
 		for(size_t b = 0; b < m_outputPeak.size(); ++b)
@@ -1017,6 +1133,10 @@ namespace elektron::drums
 				const auto bytes = sampleToBytes(*sample);
 				auto* element = _xml.createNewChildElement("sample");
 				element->setAttribute("track", t);
+				// Which file of the Library it is, beside the copy that plays without it
+				element->setAttribute("name", juce::String::fromUTF8(sample->name.c_str()));
+				if(m_sampleRefs[static_cast<size_t>(t)].isNotEmpty())
+					element->setAttribute("fingerprint", m_sampleRefs[static_cast<size_t>(t)]);
 				element->addTextElement(juce::MemoryBlock(bytes.data(), bytes.size()).toBase64Encoding());
 			}
 	}
@@ -1025,8 +1145,9 @@ namespace elektron::drums
 	{
 		juce::XmlElement xml("ElektronDrums");
 		// 2: ticket 18's parameters; the format is the same, every parameter by ID. 3: the Sampler last of Machine's
-		// choices, the Tracks' samples and the patterns, in elements of their own. The Kit played's Slot since ticket 19
-		xml.setAttribute("version", 3);
+		// choices, the Tracks' samples and the patterns, in elements of their own. The Kit played's Slot since ticket 19.
+		// 4: Machine's choices without the Machinedrum's INP, CTR, MID and RAM machines, OPEN DRUM's after the Sampler
+		xml.setAttribute("version", 4);
 		writeSound(xml, true);
 		xml.setAttribute("kit", m_kitSlot);
 		for(int i = 0; i < SeqPatterns; ++i)
@@ -1064,6 +1185,20 @@ namespace elektron::drums
 			else
 				static_cast<juce::AudioProcessorParameter&>(*p).setValue(p->getDefaultValue());
 		}
+		// Machine's choice in the list the state or Kit was written with
+		const int version = _xml.getIntAttribute("version");
+		for(auto& p : m_tracks)
+			if(_xml.hasAttribute(p.machine->getParameterID()))
+				setQuietly(*p.machine, static_cast<float>(choiceOf(m_machines,
+					_xml.getIntAttribute(p.machine->getParameterID()), version, _all)));
+		// Machine 9-24, which a state or Kit from before them lacks: the machine's own defaults
+		for(auto& p : m_tracks)
+		{
+			const auto all = allDefaults(m_machines[static_cast<size_t>(p.machine->getIndex())]);
+			for(size_t i = 8; i < p.values.size(); ++i)
+				if(!_xml.hasAttribute(p.values[i]->getParameterID()))
+					setQuietly(*p.values[i], static_cast<float>(all[i]));
+		}
 		// ... but a chain the state lacks is the one its machine's family brings, as the engine loads it
 		for(auto& p : m_tracks)
 		{
@@ -1075,10 +1210,6 @@ namespace elektron::drums
 				if(!_xml.hasAttribute(p.chain[i].parameter->getParameterID()))
 					setQuietly(*p.chain[i].parameter, static_cast<float>(chain[i]));
 		}
-		// Before version 3 ROM-33 to -48 were Machine's last 16 choices, past the Sampler's: a Track on one plays the Sampler
-		for(auto& p : m_tracks)
-			if(_xml.getIntAttribute(p.machine->getParameterID()) > samplerChoice())
-				setQuietly(*p.machine, static_cast<float>(samplerChoice()));
 
 		// The samples the state holds, none else
 		std::array<const juce::XmlElement*, Tracks> samples{};
@@ -1089,10 +1220,14 @@ namespace elektron::drums
 		{
 			auto& sample = m_samples[static_cast<size_t>(t)];
 			sample.reset();
+			m_sampleRefs[static_cast<size_t>(t)].clear();
 			juce::MemoryBlock bytes;
 			if(samples[static_cast<size_t>(t)] && bytes.fromBase64Encoding(samples[static_cast<size_t>(t)]->getAllSubText()))
 				if(auto read = sampleFromBytes(static_cast<const uint8_t*>(bytes.getData()), bytes.getSize()))
+				{
 					sample = std::make_unique<Sample>(std::move(*read));
+					m_sampleRefs[static_cast<size_t>(t)] = samples[static_cast<size_t>(t)]->getStringAttribute("fingerprint");
+				}
 			publishSample(t);
 		}
 	}
@@ -1143,8 +1278,25 @@ namespace elektron::drums
 			if(!p || !isKitParameter(p->getParameterIndex()))
 				continue;
 			const auto& id = p->getParameterID();
+			const float value = id.endsWith("_machine")
+				? static_cast<float>(choiceOf(m_machines, _kit->getIntAttribute(id), _kit->getIntAttribute("version"), false))
+				: static_cast<float>(_kit->getDoubleAttribute(id));
 			m_kitValues[static_cast<size_t>(p->getParameterIndex())] = _kit->hasAttribute(id)
-				? p->convertTo0to1(static_cast<float>(_kit->getDoubleAttribute(id))) : p->getDefaultValue();
+				? p->convertTo0to1(value) : p->getDefaultValue();
+		}
+		// ... Machine 9-24 that it lacks, its machine's defaults, as readSound loads them
+		for(const auto& p : m_tracks)
+		{
+			const auto& id = p.machine->getParameterID();
+			const int choice = _kit->hasAttribute(id)
+				? choiceOf(m_machines, _kit->getIntAttribute(id), _kit->getIntAttribute("version"), false)
+				: defaultMachine(m_machines, static_cast<int>(&p - m_tracks.data()));
+			const auto all = allDefaults(m_machines[static_cast<size_t>(std::clamp(choice, 0,
+				static_cast<int>(m_machines.size()) - 1))]);
+			for(size_t i = 8; i < p.values.size(); ++i)
+				if(!_kit->hasAttribute(p.values[i]->getParameterID()))
+					m_kitValues[static_cast<size_t>(p.values[i]->getParameterIndex())]
+						= p.values[i]->convertTo0to1(static_cast<float>(all[i]));
 		}
 		for(const auto* element : _kit->getChildWithTagNameIterator("sample"))
 		{

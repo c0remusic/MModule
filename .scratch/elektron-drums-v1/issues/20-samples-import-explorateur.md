@@ -29,3 +29,11 @@ Une entrée Sampler joue le sample de la piste par le lecteur ROM du MD (grain M
 kHz), avec ou sans flash image, par l'emplacement ROM-33 + piste : ROM-33 à 48 ne sont plus des machines. WAV, AIFF et
 FLAC se chargent par glisser sur un pad, un LCD ou le bloc Sample ; l'état garde une copie de chaque sample. Pas faits :
 bibliothèque partagée, empreintes, import du contenu Elektron, explorateur.
+
+## État (2026-11-11)
+
+Bibliothèque de samples faite (`edDrumsPlugin/edDrumsSampleLibrary.*`) : dossiers ajoutés par l'utilisateur, listés
+dans `Samples/folders.txt` du dossier de données, scannés sur un fil à part, empreinte par taille et premiers 64 Ko,
+type deviné par le nom. Page Browse de Lockstep : arbre par dossier et par type, recherche, écoute au clic sur une voix
+à part, chargement par double-clic ou glisser sur une piste. Pas faits : import du contenu Elektron, analyse et
+correction des types, retrait d'un dossier.
