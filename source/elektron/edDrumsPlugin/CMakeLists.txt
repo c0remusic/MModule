@@ -6,7 +6,8 @@ set(ED_DRUMS_NAME "Elektron Drums Dev")
 project(edDrumsPlugin VERSION ${CMAKE_PROJECT_VERSION})
 
 set(SOURCES edDrumsProcessor.cpp edDrumsProcessor.h edDrumsParameters.cpp edDrumsParameters.h edDrumsSampleFiles.cpp
-	edDrumsSampleFiles.h edDrumsSampleLibrary.cpp edDrumsSampleLibrary.h edDrumsKits.cpp edDrumsKits.h)
+	edDrumsSampleFiles.h edDrumsSampleLibrary.cpp edDrumsSampleLibrary.h edDrumsKits.cpp edDrumsKits.h
+	edDrumsTrackSounds.cpp edDrumsTrackSounds.h edDrumsElektronImport.cpp edDrumsElektronImport.h)
 
 juce_add_plugin(edDrumsPlugin
 	COMPANY_NAME "c0remusic"
@@ -43,6 +44,16 @@ if(BUILD_TESTING)
 	add_test(NAME edDrumsNoFlashTest COMMAND edDrumsNoFlashTest)
 	set_tests_properties(edDrumsNoFlashTest PROPERTIES TIMEOUT 300)
 	set_property(TARGET edDrumsNoFlashTest PROPERTY FOLDER "Elektron/test")
+
+	# The samples' Library and the Elektron import on files it writes itself; with GEARMULATOR_MD_FIRMWARE_BIN, also an
+	# image's words imported
+	add_executable(edDrumsSampleLibraryTest edDrumsSampleLibraryTest.cpp)
+	target_link_libraries(edDrumsSampleLibraryTest PRIVATE edDrumsPlugin edDrums mdProtocol juce_plugin_modules)
+	target_compile_definitions(edDrumsSampleLibraryTest PRIVATE JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+		ED_DRUMS_NAME="${ED_DRUMS_NAME}")
+	add_test(NAME edDrumsSampleLibraryTest COMMAND edDrumsSampleLibraryTest)
+	set_tests_properties(edDrumsSampleLibraryTest PROPERTIES TIMEOUT 120)
+	set_property(TARGET edDrumsSampleLibraryTest PROPERTY FOLDER "Elektron/test")
 
 	# The host's transport, the frozen IDs, every parameter against the engine, the state (GEARMULATOR_MD_FIRMWARE_BIN:
 	# exit 77 without it)

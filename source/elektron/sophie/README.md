@@ -25,7 +25,11 @@ Track's hits therefore do not overlap; upstream's do when the same pad is played
 
 A pad also picks the base pitch, note 36 + pad (pad 1, C2, 65.4 Hz), and pad 1 with models 0-3 plays the kick body
 (a sine with a slower pitch envelope, the FM as a quiet layer) instead of the model's FM topology: `sophie_set_pad`,
-taken at the next trigger.
+taken at the next trigger. Here the body is a flag of its own (`sophie_set_body`, which `sophie_set_pad` sets as
+upstream would), so that any pad can play it.
+
+The drum instrument plays every Track on pad 1 (note 36) and has no pad: Machine 20, BODY, turns the body on or off,
+and the 16 factory pads are sounds of that one voice (`sophie::soundValues`), each pad's base note taken into Tune.
 
 ## API
 
@@ -43,8 +47,8 @@ latched at the trigger.
 
 ## Machine values
 
-`sophieMachine.h` maps Machine 1-19 (0-127) to Sophie's units. The defaults are factory pad 1, the kick, to the
-nearest value. Level (0-100 %, upstream default 100) is not on the page: the Track's level does that job.
+`sophieMachine.h` maps Machine 1-19 (0-127) to Sophie's units, and Machine 20, BODY, below 64 off, else on. The
+defaults are factory pad 1, the kick, to the nearest value, BODY on. Level (0-100 %, upstream default 100) is not on the page: the Track's level does that job.
 
 | # | Parameter | Law, v = 0-127 | Default |
 |---|---|---|---|

@@ -1521,3 +1521,10 @@ t16_m21
 t16_m22
 t16_m23
 t16_m24
+delay_sync
+delay_note
+chorus_sync
+chorus_speed
+phaser_sync
+phaser_speed
+phaser_dp4_sh

@@ -8,6 +8,7 @@
 #include "edDrumsEditor.h"
 #include "edDrumsSampleFiles.h"
 #include "mdProtocol/mdmachines.h"
+#include "sophieMachine.h"
 
 namespace elektron::drums
 {
@@ -23,7 +24,7 @@ namespace elektron::drums
 			return !family || (family->name != "INP" && family->name != "CTR" && family->name != "MID" && family->name != "RAM");
 		}
 
-		// Machine's choices: Off, the Syntakt's, the Machinedrum's, the Sampler, then OPEN DRUM's. With _all the
+		// Machine's choices: Off, the Syntakt's, the Machinedrum's, the Sampler, OPEN DRUM's, then SOPHIE. With _all the
 		// Machinedrum's that played before state version 4 and Kit version 2, the list those stored their choice in
 		std::vector<Machine> machineList(const bool _all = false)
 		{
@@ -42,6 +43,9 @@ namespace elektron::drums
 				return list;
 			for(int id = 0; id < OpenDrumMachines; ++id)
 				list.push_back({Family::OpenDrum, static_cast<uint8_t>(id)});
+			// Last, so that no choice before it moves
+			for(int id = 0; id < SophieMachines; ++id)
+				list.push_back({Family::Sophie, static_cast<uint8_t>(id)});
 			return list;
 		}
 
@@ -68,6 +72,8 @@ namespace elektron::drums
 				return syntaktMachineNames[_machine.id];
 			if(_machine.family == Family::OpenDrum)
 				return openDrumMachineNames[_machine.id];
+			if(_machine.family == Family::Sophie)
+				return sophieMachineNames[_machine.id];
 			if(_machine == Sampler)
 				return "SAMPLER";
 			return juce::String(std::string(md::machines::find(md::MachineModel::Machinedrum, _machine.id)->name));
@@ -88,13 +94,31 @@ namespace elektron::drums
 			static_cast<juce::AudioProcessorParameter&>(_parameter).setValue(_parameter.convertTo0to1(_value));
 		}
 
+		// What tells two samples apart, for the audio thread to give the engine a Kit's only where it changes one: 0 for
+		// none (FNV-1a of the name, the rate and the values)
+		uint64_t sampleHash(const Sample* _sample)
+		{
+			if(!_sample)
+				return 0;
+			uint64_t h = 14695981039346656037ull;
+			const auto add = [&h](const void* _data, const size_t _size)
+			{
+				for(size_t i = 0; i < _size; ++i)
+					h = (h ^ static_cast<const uint8_t*>(_data)[i]) * 1099511628211ull;
+			};
+			add(_sample->name.data(), _sample->name.size());
+			add(&_sample->rate, sizeof(_sample->rate));
+			add(_sample->pcm.data(), _sample->pcm.size() * sizeof(int16_t));
+			return h | 1;
+		}
+
 		// ---- the state's patterns: only what differs from a new Pattern's ----
 
 		bool isDefault(const Step& _s)
 		{
 			const Step d;
 			return _s.trig == d.trig && _s.accent == d.accent && _s.slide == d.slide && _s.velocity == d.velocity
-				&& _s.timing == d.timing && _s.ratchets == d.ratchets && _s.ratchetRate == d.ratchetRate
+				&& _s.note == d.note && _s.gate == d.gate && _s.timing == d.timing && _s.ratchets == d.ratchets && _s.ratchetRate == d.ratchetRate
 				&& _s.ratchetVelocity == d.ratchetVelocity && _s.condition.kind == d.condition.kind
 				&& _s.condition.a == d.condition.a && _s.condition.b == d.condition.b && _s.lockCount == 0;
 		}
@@ -113,7 +137,7 @@ namespace elektron::drums
 			const Pattern blank;
 			auto xml = std::make_unique<juce::XmlElement>("pattern");
 			bool used = _p.masterLength != blank.masterLength || _p.swing != blank.swing
-				|| _p.trackLength != blank.trackLength || _p.trackScale != blank.trackScale;
+				|| _p.trackLength != blank.trackLength || _p.trackScale != blank.trackScale || _p.kit != blank.kit;
 			juce::StringArray lengths, scales;
 			for(int t = 0; t < SeqTracks; ++t)
 			{
@@ -132,6 +156,8 @@ namespace elektron::drums
 					step->setAttribute("accent", s.accent ? 1 : 0);
 					step->setAttribute("slide", s.slide ? 1 : 0);
 					step->setAttribute("velocity", s.velocity);
+					step->setAttribute("note", s.note);
+					step->setAttribute("gate", s.gate);
 					step->setAttribute("timing", s.timing);
 					step->setAttribute("ratchets", s.ratchets);
 					step->setAttribute("ratchetRate", s.ratchetRate);
@@ -153,6 +179,7 @@ namespace elektron::drums
 			xml->setAttribute("index", _index);
 			xml->setAttribute("length", _p.masterLength);
 			xml->setAttribute("swing", _p.swing);
+			xml->setAttribute("kit", _p.kit);
 			xml->setAttribute("trackLengths", lengths.joinIntoString(" "));
 			xml->setAttribute("trackScales", scales.joinIntoString(" "));
 			return xml;
@@ -160,8 +187,9 @@ namespace elektron::drums
 
 		void readPattern(Pattern& _p, const juce::XmlElement& _xml)
 		{
-			_p.masterLength = std::clamp(_xml.getIntAttribute("length", 16), 1, SeqSteps);
+			_p.masterLength = std::clamp(_xml.getIntAttribute("length", 16), 1, SeqMaxLength);
 			_p.swing = std::clamp(_xml.getIntAttribute("swing", 50), 50, 80);
+			_p.kit = KitBank::valid(_xml.getIntAttribute("kit", -1)) ? _xml.getIntAttribute("kit", -1) : -1;
 			const auto lengths = juce::StringArray::fromTokens(_xml.getStringAttribute("trackLengths"), false);
 			const auto scales = juce::StringArray::fromTokens(_xml.getStringAttribute("trackScales"), false);
 			for(int t = 0; t < SeqTracks && t < lengths.size(); ++t)
@@ -179,6 +207,9 @@ namespace elektron::drums
 				s.accent = step->getIntAttribute("accent") != 0;
 				s.slide = step->getIntAttribute("slide") != 0;
 				s.velocity = static_cast<uint8_t>(std::clamp(step->getIntAttribute("velocity", 100), 1, 127));
+				// A step of a state before notes and gates: the Track's note, no gate
+				s.note = static_cast<uint8_t>(std::clamp(step->getIntAttribute("note", NoNote), 0, static_cast<int>(NoNote)));
+				s.gate = static_cast<uint16_t>(std::clamp(step->getIntAttribute("gate", 0), 0, 0xffff));
 				s.timing = static_cast<int8_t>(std::clamp(step->getIntAttribute("timing"), -(TimingUnits - 1), TimingUnits - 1));
 				s.ratchets = static_cast<uint8_t>(std::clamp(step->getIntAttribute("ratchets", 1), 1, 8));
 				s.ratchetRate = static_cast<uint8_t>(std::clamp(step->getIntAttribute("ratchetRate"), 0, 255));
@@ -199,6 +230,57 @@ namespace elektron::drums
 							std::strtof(pair.substring(colon + 1).toRawUTF8(), nullptr));
 				}
 			}
+		}
+
+		// What the sequencer keeps besides its patterns: mutes and solos a bit per Track, fill, the seed, the chain as
+		// "pattern:repeats:fill" triples and whether it plays
+		std::unique_ptr<juce::XmlElement> sequencerXml(const Sequencer& _s, const bool _chainOn)
+		{
+			auto xml = std::make_unique<juce::XmlElement>("sequencer");
+			int mutes = 0, solos = 0;
+			for(int t = 0; t < SeqTracks; ++t)
+			{
+				mutes |= _s.mute(t) ? 1 << t : 0;
+				solos |= _s.solo(t) ? 1 << t : 0;
+			}
+			xml->setAttribute("mutes", mutes);
+			xml->setAttribute("solos", solos);
+			xml->setAttribute("fill", _s.fill() ? 1 : 0);
+			xml->setAttribute("seed", juce::String(_s.seed()));
+			juce::StringArray chain;
+			for(int i = 0; i < _s.chainLength(); ++i)
+			{
+				const auto& e = _s.chainEntry(i);
+				chain.add(juce::String(e.pattern) + ":" + juce::String(e.repeats) + ":" + (e.fill ? "1" : "0"));
+			}
+			xml->setAttribute("chain", chain.joinIntoString(" "));
+			xml->setAttribute("chainOn", _chainOn ? 1 : 0);
+			return xml;
+		}
+
+		// A state without the element: no mute, no solo, fill off, seed 1, no chain. Returns whether the chain played
+		bool readSequencer(Sequencer& _s, const juce::XmlElement* _xml)
+		{
+			const int mutes = _xml ? _xml->getIntAttribute("mutes") : 0, solos = _xml ? _xml->getIntAttribute("solos") : 0;
+			for(int t = 0; t < SeqTracks; ++t)
+			{
+				_s.setMute(t, (mutes >> t) & 1);
+				_s.setSolo(t, (solos >> t) & 1);
+			}
+			_s.setFill(_xml && _xml->getIntAttribute("fill") != 0);
+			_s.setSeed(_xml ? static_cast<uint32_t>(_xml->getStringAttribute("seed", "1").getLargeIntValue()) : 1);
+			std::vector<ChainEntry> chain;
+			if(_xml)
+				for(const auto& triple : juce::StringArray::fromTokens(_xml->getStringAttribute("chain"), false))
+				{
+					const auto parts = juce::StringArray::fromTokens(triple, ":", "");
+					if(parts.size() != 3)
+						continue;
+					chain.push_back({static_cast<uint8_t>(std::clamp(parts[0].getIntValue(), 0, SeqPatterns - 1)),
+						static_cast<uint8_t>(std::clamp(parts[1].getIntValue(), 1, 64)), parts[2].getIntValue() != 0});
+				}
+			_s.setChain(chain);
+			return _xml && _xml->getIntAttribute("chainOn") != 0 && !chain.empty();
 		}
 
 		juce::AudioParameterInt* intParameter(const juce::String& _id, const juce::String& _name, const int _max,
@@ -240,11 +322,27 @@ namespace elektron::drums
 
 	Processor::Processor() : AudioProcessor(buses()), m_machines(machineList())
 	{
-		// Nothing leaves the constructor: without a readable image the Machinedrum's sampled words are the house's, or silence
+		// Nothing leaves the constructor: the words an import kept (ticket 20), else an image found, else the
+		// Machinedrum's sampled words are the house's, or silence
 		try
 		{
-			const auto image = Library::findFlashImage(dataFolder().getChildFile("roms").getFullPathName().toStdString());
-			m_library = image.empty() ? std::make_unique<Library>() : std::make_unique<Library>(image);
+			ImageWords words;
+			if(ElektronImport::readWords(ElektronImport::wordsFile(dataFolder()), words))
+			{
+				m_library = std::make_unique<Library>(words);
+				m_libraryFromWords = true;
+			}
+		}
+		catch(const std::exception&)
+		{
+		}
+		try
+		{
+			if(!m_library)
+			{
+				const auto image = Library::findFlashImage(dataFolder().getChildFile("roms").getFullPathName().toStdString());
+				m_library = image.empty() ? std::make_unique<Library>() : std::make_unique<Library>(image);
+			}
 		}
 		catch(const std::exception&)
 		{
@@ -379,12 +477,28 @@ namespace elektron::drums
 			}
 		}
 
+		// Ticket 14's: the effects' tempo sync and the DP/4's S&H
+		shared(m_delaySync, delaySyncSpec, 1, Section::Effects);
+		shared(m_delayNote, delayNoteSpec, DefaultDelayNote, Section::Effects);
+		for(size_t i = 0; i < m_lfoSync.size(); ++i)
+		{
+			shared(m_lfoSync[i], lfoSyncSpecs[i], 0, Section::Effects);
+			shared(m_lfoNote[i], lfoNoteSpecs[i], DefaultLfoNote, Section::Effects);
+		}
+		shared(m_dp4SampleHold, dp4SampleHoldSpec, 0, Section::Effects);
+
 		m_edited = std::make_unique<Sequencer>();
 		for(auto& s : m_sequencers)
 			s = std::make_unique<Sequencer>();
 		for(auto& step : m_playingStep)
 			step = -1;
+		for(auto& step : m_playingRowStep)
+			step = -1;
 		buildLockTargets();
+		// LIVE hears the gestures on the parameters
+		m_gestures.assign(static_cast<size_t>(getParameters().size()), 0);
+		m_liveLocks.reserve(LiveNotes);
+		addListener(&m_liveListener);
 
 		// A Kit holds every parameter but the Global ones
 		const auto& global = ids(Section::Global);
@@ -394,13 +508,16 @@ namespace elektron::drums
 			m_kitParameter.push_back(p && !global.contains(p->getParameterID()) ? 1 : 0);
 		}
 		m_kits = std::make_unique<KitBank>(dataFolder().getChildFile("Kits"));
+		m_trackSounds = std::make_unique<TrackSounds>(dataFolder().getChildFile("TrackSounds"));
 		m_sampleLibrary = std::make_unique<SampleLibrary>(dataFolder());
+		m_import = std::make_unique<ElektronImport>(dataFolder());
 		startTimerHz(20);
 	}
 
 	Processor::~Processor()
 	{
 		stopTimer();
+		removeListener(&m_liveListener);
 	}
 
 	template<typename P> P* Processor::add(P* _parameter, const Section _section, const int _track)
@@ -584,6 +701,12 @@ namespace elektron::drums
 	void Processor::applyEvent(const Event& _event, const int64_t _at)
 	{
 		const int t = _event.track;
+		// The end of a Hit's gate: what it locked holds until the Track's next Hit or Lock
+		if(_event.off)
+		{
+			m_engine->noteOff(t);
+			return;
+		}
 		// A ratchet's later Hit keeps what its step locked, and locks Machine 1-8 again, which Engine::lock holds a Hit; it
 		// leaves its step's slide going
 		if(!_event.retrig)
@@ -639,6 +762,18 @@ namespace elektron::drums
 			slide.length = _event.slideSamples;
 			slide.next = _at + SlideStep;
 		}
+		// The step's note is a Lock of the Track's Note, over a Lock of Note the step may hold
+		if(_event.trig && _event.note != NoNote)
+		{
+			const auto i = static_cast<size_t>(m_tracks[static_cast<size_t>(t)].note->getParameterIndex());
+			m_lockValue[i] = _event.note;
+			if(!m_locked[i])
+			{
+				m_locked[i] = 1;
+				m_lockedBy[static_cast<size_t>(t)].push_back(static_cast<int>(i));
+			}
+			applyTarget(static_cast<int>(i));
+		}
 		if(_event.trig)
 			m_engine->noteOn(t, _event.velocity, _event.accent);
 	}
@@ -647,6 +782,8 @@ namespace elektron::drums
 	{
 		jassert(juce::MessageManager::existsAndIsCurrentThread());
 		_edit(*m_edited);
+		// A pattern pasted or edited may name a Kit no pattern named: read it ahead, else it would not load
+		prepareKits(0);
 		publishSequencer();
 	}
 
@@ -655,6 +792,71 @@ namespace elektron::drums
 	{
 		m_sequencers[static_cast<size_t>(m_spare)]->copyEdits(*m_edited);
 		m_spare = m_middle.exchange(m_spare | Fresh, std::memory_order_acq_rel) & 3;
+	}
+
+	bool Processor::exportPatternMidi(const int _pattern, const juce::File& _file) const
+	{
+		const auto bytes = Sequencer::patternMidi(m_edited->pattern(_pattern), m_edited->seed());
+		return _file.replaceWithData(bytes.data(), bytes.size());
+	}
+
+	// LIVE's Locks: the gestures counted on the message thread, the host's own automation having none
+	void Processor::liveGesture(const int _index, const bool _begin)
+	{
+		if(!juce::MessageManager::existsAndIsCurrentThread() || _index < 0 || _index >= static_cast<int>(m_gestures.size()))
+			return;
+		auto& n = m_gestures[static_cast<size_t>(_index)];
+		n = _begin ? n + 1 : std::max(0, n - 1);
+	}
+
+	void Processor::liveParameter(const int _index, const float _value)
+	{
+		if(!m_live.load() || !juce::MessageManager::existsAndIsCurrentThread() || _index < 0
+			|| _index >= static_cast<int>(m_gestures.size()) || !m_gestures[static_cast<size_t>(_index)])
+			return;
+		const auto& target = m_lockTargets[static_cast<size_t>(_index)];
+		const int step = target.track < 0 ? -1 : playingStep(target.track);
+		if(target.kind == LockKind::None || step < 0)
+			return;
+		const auto* p = static_cast<const juce::RangedAudioParameter*>(getParameters()[_index]);
+		const LiveLock lock{currentPattern(), target.track, step, _index, p->convertFrom0to1(_value)};
+		for(auto& l : m_liveLocks)
+			if(l.pattern == lock.pattern && l.track == lock.track && l.step == lock.step && l.parameter == lock.parameter)
+			{
+				l.value = lock.value;
+				return;
+			}
+		if(m_liveLocks.size() < LiveNotes)
+			m_liveLocks.push_back(lock);
+	}
+
+	// What LIVE recorded since the timer last ran, into the patterns
+	void Processor::takeLive()
+	{
+		std::array<LiveNote, LiveNotes> notes;
+		int count = 0;
+		{
+			const juce::AbstractFifo::ScopedRead read(m_liveFifo, LiveNotes);
+			for(int i = 0; i < read.blockSize1; ++i)
+				notes[static_cast<size_t>(count++)] = m_liveNotes[static_cast<size_t>(read.startIndex1 + i)];
+			for(int i = 0; i < read.blockSize2; ++i)
+				notes[static_cast<size_t>(count++)] = m_liveNotes[static_cast<size_t>(read.startIndex2 + i)];
+		}
+		if(!count && m_liveLocks.empty())
+			return;
+		editSequencer([&](Sequencer& _s)
+		{
+			for(int i = 0; i < count; ++i)
+			{
+				const auto& n = notes[static_cast<size_t>(i)];
+				auto& p = _s.pattern(n.pattern);
+				p.setTrig(n.track, n.step, true, n.velocity);
+				p.step(n.track, n.step).timing = n.timing;
+			}
+			for(const auto& l : m_liveLocks)
+				_s.pattern(l.pattern).setLock(l.track, l.step, static_cast<uint16_t>(l.parameter), l.value);
+		});
+		m_liveLocks.clear();
 	}
 
 	bool Processor::loadSample(const int _track, const juce::File& _file, juce::String& _error)
@@ -669,6 +871,50 @@ namespace elektron::drums
 		m_sampleRefs[static_cast<size_t>(_track)] = SampleLibrary::fingerprintOf(_file);
 		publishSample(_track);
 		return true;
+	}
+
+	namespace
+	{
+		// SOPHIE's sounds, searched once: the editor asks which one a Track holds at every frame
+		const std::array<std::array<uint8_t, sophie::MachineSlots>, sophie::Sounds>& sophieSounds()
+		{
+			static const auto sounds = []
+			{
+				std::array<std::array<uint8_t, sophie::MachineSlots>, sophie::Sounds> s{};
+				for(int i = 0; i < sophie::Sounds; ++i)
+					s[static_cast<size_t>(i)] = sophie::soundValues(i);
+				return s;
+			}();
+			return sounds;
+		}
+	}
+
+	void Processor::setSophieSound(const int _track, const int _sound)
+	{
+		const auto& values = sophieSounds()[static_cast<size_t>(std::clamp(_sound, 0, sophie::Sounds - 1))];
+		auto& p = m_tracks[static_cast<size_t>(_track)];
+		for(size_t i = 0; i < values.size(); ++i)
+		{
+			auto* value = p.values[i];
+			value->beginChangeGesture();
+			*value = values[i];
+			value->endChangeGesture();
+		}
+	}
+
+	int Processor::sophieSound(const int _track) const
+	{
+		const auto& p = m_tracks[static_cast<size_t>(_track)];
+		for(int s = 0; s < sophie::Sounds; ++s)
+		{
+			const auto& values = sophieSounds()[static_cast<size_t>(s)];
+			bool same = true;
+			for(size_t i = 0; i < values.size() && same; ++i)
+				same = p.values[i]->get() == values[i];
+			if(same)
+				return s;
+		}
+		return -1;
 	}
 
 	bool Processor::loadLibrarySample(const int _track, const juce::String& _fingerprint, juce::String& _error)
@@ -725,6 +971,7 @@ namespace elektron::drums
 		if(m_samples[t])
 			mail->sample = *m_samples[t];
 		mail->serial = ++m_sampleSerial;
+		mail->hash = sampleHash(m_samples[t].get());
 		auto* sent = mail.get();
 		auto& flight = m_sampleFlight[t];
 		flight.push_back(std::move(mail));
@@ -757,16 +1004,33 @@ namespace elektron::drums
 		return base.getChildFile("c0remusic").getChildFile(ED_DRUMS_NAME);
 	}
 
+	bool Processor::importElektron(const juce::File& _folder)
+	{
+		std::set<juce::String> known;
+		for(const auto& e : m_sampleLibrary->entries())
+			known.insert(e.fingerprint);
+		return m_import->start(_folder, std::move(known));
+	}
+
 	void Processor::timerCallback()
 	{
 		if(m_reread.exchange(false))
 			updateHostDisplay(ChangeDetails().withProgramChanged(true));
 		pruneSamples();
+		takeLive();
+		takeKitSwitch();
 		m_sampleLibrary->update();
+		if(m_import->take(m_lastImport))
+		{
+			if(m_lastImport.audio > m_lastImport.known)
+				m_sampleLibrary->addFolder(m_lastImport.folder);
+			++m_imports;
+		}
 		if(++m_kitFollow >= 10)
 		{
 			followKits();
 			m_sampleLibrary->follow();
+			m_trackSounds->follow();
 		}
 	}
 
@@ -804,9 +1068,12 @@ namespace elektron::drums
 			for(int t = 0; t < Tracks; ++t)
 				if(const auto& sample = m_samples[static_cast<size_t>(t)])
 					m_engine->setSample(t, sample.get());
+		for(int t = 0; t < Tracks; ++t)
+			m_engineSampleHash[static_cast<size_t>(t)] = sampleHash(m_samples[static_cast<size_t>(t)].get());
 	}
 
-	void Processor::sync(const bool _hostIsTruth)
+	// The Tracks' and the shared effects' parameters to the engine: at each block, and where a pattern's Kit loads
+	void Processor::syncSound(const bool _hostIsTruth)
 	{
 		auto& e = *m_engine;
 		for(int t = 0; t < Tracks; ++t)
@@ -883,6 +1150,12 @@ namespace elektron::drums
 				e.setAccent(t, p.accent.integer());
 		}
 		syncShared();
+	}
+
+	void Processor::sync(const bool _hostIsTruth)
+	{
+		auto& e = *m_engine;
+		syncSound(_hostIsTruth);
 
 		double bpm = m_tempo->get();
 		juce::Optional<double> quarters;
@@ -936,6 +1209,20 @@ namespace elektron::drums
 		for(size_t i = 0; i < m_phaser.size(); ++i)
 			if(m_phaser[i].changed())
 				fx.setPhaser(static_cast<int>(i), byte(m_phaser[i]));
+		if(m_dp4SampleHold.changed())
+			fx.setPhaser(PhaserDp4SampleHold, byte(m_dp4SampleHold));
+		if(m_delayNote.changed())
+			fx.setDelayNote(parameters::delayNoteQuarters(m_delayNote.integer()));
+		if(m_delaySync.changed())
+			fx.setDelaySync(m_delaySync.integer() != 0);
+		for(size_t i = 0; i < m_lfoSync.size(); ++i)
+		{
+			const Send send = i == 0 ? Send::Chorus : Send::Phaser;
+			if(m_lfoNote[i].changed())
+				fx.setLfoNote(send, parameters::lfoNoteQuarters(m_lfoNote[i].integer()));
+			if(m_lfoSync[i].changed())
+				fx.setLfoSync(send, m_lfoSync[i].integer() != 0);
+		}
 		// The bytes before On: a master that comes on settles at them
 		for(size_t i = 0; i < m_master.size(); ++i)
 			if(m_master[i].changed())
@@ -952,6 +1239,7 @@ namespace elektron::drums
 		if(!m_engine)
 		{
 			_buffer.clear();
+			m_blocksDone.fetch_add(1, std::memory_order_acq_rel);
 			return;
 		}
 		const uint32_t serial = m_stateSerial.load(std::memory_order_acquire);
@@ -975,6 +1263,7 @@ namespace elektron::drums
 			if(auto* mail = m_sampleMail[t].exchange(nullptr, std::memory_order_acq_rel))
 			{
 				m_engine->setSample(static_cast<int>(t), mail->sample.pcm.empty() ? nullptr : &mail->sample);
+				m_engineSampleHash[t] = mail->hash;
 				m_sampleDone[t].store(mail->serial, std::memory_order_release);
 			}
 		}
@@ -995,6 +1284,8 @@ namespace elektron::drums
 		for(const auto metadata : _midi)
 			if(metadata.numBytes >= 2 && (metadata.data[0] & 0xf0) == 0xc0)
 				sequencer.requestPattern(metadata.data[1]);
+		if(m_chainAsked.exchange(false))
+			sequencer.requestChain();
 
 		const int count = _buffer.getNumSamples();
 		Transport transport;
@@ -1004,6 +1295,14 @@ namespace elektron::drums
 		transport.sampleRate = SampleRate;
 		transport.length = count;
 		sequencer.process(transport, m_events);
+		// A pattern that began in the block (the transport starting on one included) loads its Kit there, read ahead
+		// (prepareKits)
+		const PreparedKit* kitAhead = nullptr;
+		int kitAt = m_events.patternStart;
+		if(const int slot = sequencer.pattern(sequencer.currentPattern()).kit; kitAt >= 0 && KitBank::valid(slot))
+			kitAhead = m_prepared[static_cast<size_t>(slot)].load(std::memory_order_acquire);
+		if(!kitAhead)
+			kitAt = -1;
 
 		// A bus the host took has two channels, in the buses' order
 		int channel = 0;
@@ -1046,10 +1345,20 @@ namespace elektron::drums
 
 		int done = 0;
 		int next = 0;	// the sequencer's next event, before a host's note at the same sample
+		// The pattern's Kit, before the events at its sample
+		const auto kitUpTo = [&](const int _sample)
+		{
+			if(kitAt < 0 || kitAt > _sample)
+				return;
+			upTo(kitAt, done);
+			switchKit(*kitAhead);
+			kitAt = -1;
+		};
 		const auto eventsUpTo = [&](const int _sample)
 		{
 			for(; next < m_events.count && static_cast<int>(m_events.events[next].offset) <= _sample; ++next)
 			{
+				kitUpTo(static_cast<int>(m_events.events[next].offset));
 				upTo(static_cast<int>(m_events.events[next].offset), done);
 				applyEvent(m_events.events[next], m_now + m_events.events[next].offset);
 			}
@@ -1066,11 +1375,23 @@ namespace elektron::drums
 				continue;
 			const int at = std::clamp(metadata.samplePosition, 0, count);
 			eventsUpTo(at);
+			kitUpTo(at);
 			upTo(at, done);
 			if(status == 0x90 && velocity > 0)
 			{
 				releaseLocks(track);
 				m_engine->noteOn(track, velocity);
+				// LIVE: the note to the timer, as a trig of the step nearest; a full queue drops it
+				int step = 0, timing = 0;
+				if(m_live.load(std::memory_order_relaxed) && sequencer.nearestStep(track,
+					m_blockQuarters + at * m_blockBpm / (60.0 * SampleRate), step, timing))
+				{
+					const juce::AbstractFifo::ScopedWrite write(m_liveFifo, 1);
+					if(write.blockSize1 > 0)
+						m_liveNotes[static_cast<size_t>(write.startIndex1)] = {static_cast<uint8_t>(sequencer.currentPattern()),
+							static_cast<uint8_t>(track), static_cast<uint8_t>(step), static_cast<uint8_t>(velocity),
+							static_cast<int8_t>(timing)};
+				}
 			}
 			else
 			{
@@ -1078,6 +1399,7 @@ namespace elektron::drums
 			}
 		}
 		eventsUpTo(count);
+		kitUpTo(count);
 		upTo(count, done);
 		m_now += count;
 
@@ -1114,10 +1436,22 @@ namespace elektron::drums
 			m_outputPeak[b].store(std::max(peak, m_outputPeak[b].load(std::memory_order_relaxed) * fall),
 				std::memory_order_relaxed);
 		}
+		for(int s = 0; s < SendCount; ++s)
+			m_returnPeak[static_cast<size_t>(s)].store(m_engine->sends().peak(static_cast<Send>(s)),
+				std::memory_order_relaxed);
+		m_reduction.store(m_masterOn.integer() ? m_engine->master().reduction() : 0.0f, std::memory_order_relaxed);
 		for(int t = 0; t < Tracks; ++t)
 			m_playingStep[static_cast<size_t>(t)].store(sequencer.stepAt(t, m_blockQuarters), std::memory_order_relaxed);
 		m_currentPattern.store(sequencer.currentPattern(), std::memory_order_relaxed);
+		for(int t = 0; t < Tracks; ++t)
+			m_playingRowStep[static_cast<size_t>(t)].store(sequencer.stepSinceStart(t, m_blockQuarters),
+				std::memory_order_relaxed);
+		m_chainSlot.store(sequencer.chainSlot(), std::memory_order_relaxed);
+		m_chainPass.store(static_cast<int>(sequencer.pass()), std::memory_order_relaxed);
+		m_fillPlaying.store(sequencer.fillPlaying(), std::memory_order_relaxed);
 		m_liveTracks.store(m_engine->liveTracks(), std::memory_order_relaxed);
+		// After the Kit read ahead it may have loaded: the message thread frees a replaced one once it sees this
+		m_blocksDone.fetch_add(1, std::memory_order_acq_rel);
 	}
 
 	// The parameters by ID, all or a Kit's, and the Tracks' samples, in elements of their own
@@ -1153,6 +1487,7 @@ namespace elektron::drums
 		for(int i = 0; i < SeqPatterns; ++i)
 			if(auto pattern = patternXml(m_edited->pattern(i), i))
 				xml.addChildElement(pattern.release());
+		xml.addChildElement(sequencerXml(*m_edited, chainSlot() >= 0 || m_chainAsked.load()).release());
 		copyXmlToBinary(xml, _data);
 	}
 
@@ -1185,6 +1520,10 @@ namespace elektron::drums
 			else
 				static_cast<juce::AudioProcessorParameter&>(*p).setValue(p->getDefaultValue());
 		}
+		// A state or Kit from before Delay Sync played its TIME: it keeps it, a new one starts synced
+		if(auto* sync = m_delaySync.parameter; !_xml.hasAttribute(sync->getParameterID())
+			&& (_all || isKitParameter(sync->getParameterIndex())))
+			setQuietly(*sync, 0.0f);
 		// Machine's choice in the list the state or Kit was written with
 		const int version = _xml.getIntAttribute("version");
 		for(auto& p : m_tracks)
@@ -1246,6 +1585,8 @@ namespace elektron::drums
 		for(const auto* element : xml->getChildWithTagNameIterator("pattern"))
 			if(const int i = element->getIntAttribute("index", -1); i >= 0 && i < SeqPatterns)
 				readPattern(m_edited->pattern(i), *element);
+		if(readSequencer(*m_edited, xml->getChildByName("sequencer")))
+			requestChain();
 		publishSequencer();
 
 		m_stateSerial.fetch_add(1, std::memory_order_acq_rel);
@@ -1258,6 +1599,7 @@ namespace elektron::drums
 		m_kits->follow();
 		const auto kit = m_kitSlot < 0 ? nullptr : m_kits->read(m_kitSlot);
 		rememberKit(kit.get());
+		prepareKits(~uint64_t{0});
 	}
 
 	// ---- the Kits ----
@@ -1272,32 +1614,7 @@ namespace elektron::drums
 			s.reset();
 		if(!_kit)
 			return;
-		for(auto* parameter : getParameters())
-		{
-			const auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter);
-			if(!p || !isKitParameter(p->getParameterIndex()))
-				continue;
-			const auto& id = p->getParameterID();
-			const float value = id.endsWith("_machine")
-				? static_cast<float>(choiceOf(m_machines, _kit->getIntAttribute(id), _kit->getIntAttribute("version"), false))
-				: static_cast<float>(_kit->getDoubleAttribute(id));
-			m_kitValues[static_cast<size_t>(p->getParameterIndex())] = _kit->hasAttribute(id)
-				? p->convertTo0to1(value) : p->getDefaultValue();
-		}
-		// ... Machine 9-24 that it lacks, its machine's defaults, as readSound loads them
-		for(const auto& p : m_tracks)
-		{
-			const auto& id = p.machine->getParameterID();
-			const int choice = _kit->hasAttribute(id)
-				? choiceOf(m_machines, _kit->getIntAttribute(id), _kit->getIntAttribute("version"), false)
-				: defaultMachine(m_machines, static_cast<int>(&p - m_tracks.data()));
-			const auto all = allDefaults(m_machines[static_cast<size_t>(std::clamp(choice, 0,
-				static_cast<int>(m_machines.size()) - 1))]);
-			for(size_t i = 8; i < p.values.size(); ++i)
-				if(!_kit->hasAttribute(p.values[i]->getParameterID()))
-					m_kitValues[static_cast<size_t>(p.values[i]->getParameterIndex())]
-						= p.values[i]->convertTo0to1(static_cast<float>(all[i]));
-		}
+		m_kitValues = kitValuesOf(*_kit);
 		for(const auto* element : _kit->getChildWithTagNameIterator("sample"))
 		{
 			const int t = element->getIntAttribute("track", -1);
@@ -1308,15 +1625,368 @@ namespace elektron::drums
 		}
 	}
 
+	// _kit's values as readSound gives them, normalised by parameter index: a missing one, its default; Machine 9-24
+	// that it lacks, its machine's defaults; a chain it lacks, its machine's family's
+	std::vector<float> Processor::kitValuesOf(const juce::XmlElement& _kit) const
+	{
+		std::vector<float> values(m_kitParameter.size(), 0.0f);
+		const int version = _kit.getIntAttribute("version");
+		for(auto* parameter : getParameters())
+		{
+			const auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter);
+			if(!p || !isKitParameter(p->getParameterIndex()))
+				continue;
+			const auto& id = p->getParameterID();
+			const float value = id.endsWith("_machine")
+				? static_cast<float>(choiceOf(m_machines, _kit.getIntAttribute(id), version, false))
+				: static_cast<float>(_kit.getDoubleAttribute(id));
+			values[static_cast<size_t>(p->getParameterIndex())] = _kit.hasAttribute(id)
+				? p->convertTo0to1(value) : p->getDefaultValue();
+		}
+		// As readSound: a Kit from before Delay Sync keeps its TIME
+		if(const auto* sync = m_delaySync.parameter; isKitParameter(sync->getParameterIndex())
+			&& !_kit.hasAttribute(sync->getParameterID()))
+			values[static_cast<size_t>(sync->getParameterIndex())] = 0.0f;
+		for(const auto& p : m_tracks)
+		{
+			const auto& id = p.machine->getParameterID();
+			const int choice = std::clamp(_kit.hasAttribute(id) ? choiceOf(m_machines, _kit.getIntAttribute(id), version, false)
+				: defaultMachine(m_machines, static_cast<int>(&p - m_tracks.data())), 0, static_cast<int>(m_machines.size()) - 1);
+			const auto& machine = m_machines[static_cast<size_t>(choice)];
+			const auto all = allDefaults(machine);
+			for(size_t i = 8; i < p.values.size(); ++i)
+				if(!_kit.hasAttribute(p.values[i]->getParameterID()))
+					values[static_cast<size_t>(p.values[i]->getParameterIndex())]
+						= p.values[i]->convertTo0to1(static_cast<float>(all[i]));
+			if(machine.family == Family::Off)
+				continue;
+			const auto chain = parameters::valuesOf(parameters::familyChain(machine));
+			for(size_t i = 0; i < chain.size(); ++i)
+				if(!_kit.hasAttribute(p.chain[i].parameter->getParameterID()))
+					values[static_cast<size_t>(p.chain[i].parameter->getParameterIndex())]
+						= p.chain[i].parameter->convertTo0to1(static_cast<float>(chain[i]));
+		}
+		return values;
+	}
+
 	void Processor::followKits()
 	{
 		m_kitFollow = 0;
+		takeKitSwitch();
 		const uint64_t changed = m_kits->follow();
 		if(m_kitSlot >= 0 && (changed >> m_kitSlot) & 1)
 		{
 			const auto kit = m_kits->read(m_kitSlot);
 			rememberKit(kit.get());
 		}
+		if(changed)
+			prepareKits(changed);
+	}
+
+	// The Slots the patterns load at their start, read ahead where they are not yet or their file changed (_changed, a
+	// bit per Slot); the ones no pattern loads any more, given up. The replaced ones wait for the block that may read
+	// them to end
+	void Processor::prepareKits(const uint64_t _changed)
+	{
+		uint64_t used = 0;
+		for(int i = 0; i < SeqPatterns; ++i)
+			if(const int slot = m_edited->pattern(i).kit; KitBank::valid(slot))
+				used |= uint64_t{1} << slot;
+		for(int s = 0; s < KitSlots; ++s)
+		{
+			auto& owned = m_preparedKits[static_cast<size_t>(s)];
+			const bool wanted = (used >> s) & 1;
+			if(wanted && owned && !((_changed >> s) & 1))
+				continue;
+			if(!wanted && !owned)
+				continue;
+			std::unique_ptr<PreparedKit> kit;
+			if(wanted)
+				if(auto xml = m_kits->read(s))
+				{
+					kit = std::make_unique<PreparedKit>();
+					kit->slot = s;
+					kit->values = kitValuesOf(*xml);
+					for(const auto* element : xml->getChildWithTagNameIterator("sample"))
+					{
+						const auto t = static_cast<size_t>(element->getIntAttribute("track", -1));
+						juce::MemoryBlock bytes;
+						if(t < Tracks && bytes.fromBase64Encoding(element->getAllSubText()))
+							if(auto read = sampleFromBytes(static_cast<const uint8_t*>(bytes.getData()), bytes.getSize()))
+							{
+								kit->samples[t] = std::make_unique<Sample>(std::move(*read));
+								kit->sampleHash[t] = sampleHash(kit->samples[t].get());
+								kit->refs[t] = element->getStringAttribute("fingerprint");
+							}
+					}
+					kit->xml = std::move(xml);
+				}
+			m_prepared[static_cast<size_t>(s)].store(kit.get(), std::memory_order_release);
+			// The blocks done counted after the store: a block that still reads the old one ends past this count
+			if(owned)
+				m_preparedRetired.emplace_back(std::move(owned), m_blocksDone.load(std::memory_order_acquire));
+			owned = std::move(kit);
+		}
+		// A block that read a replaced one has ended once one more is done than when it was replaced; the one it may have
+		// loaded taken first
+		const uint64_t done = m_blocksDone.load(std::memory_order_acquire);
+		takeKitSwitch();
+		m_preparedRetired.erase(std::remove_if(m_preparedRetired.begin(), m_preparedRetired.end(),
+			[done](const auto& _r) { return done > _r.second; }), m_preparedRetired.end());
+	}
+
+	// The audio thread loaded a pattern's Kit: it is the Kit played, its samples the Tracks'
+	void Processor::takeKitSwitch()
+	{
+		const auto* kit = m_kitSwitched.exchange(nullptr, std::memory_order_acq_rel);
+		if(!kit)
+			return;
+		for(size_t t = 0; t < Tracks; ++t)
+		{
+			m_samples[t] = kit->samples[t] ? std::make_unique<Sample>(*kit->samples[t]) : nullptr;
+			m_sampleRefs[t] = kit->refs[t];
+		}
+		m_kitSlot = kit->slot;
+		rememberKit(kit->xml.get());
+	}
+
+	// Audio thread: the Kit's values where they differ, its samples where they do, as a state loads but within the
+	// block, with nothing allocated: what the Tracks lock gives the Kit's values back, the host re-reads them
+	void Processor::switchKit(const PreparedKit& _kit)
+	{
+		const auto& all = getParameters();
+		for(size_t i = 0; i < _kit.values.size(); ++i)
+			if(m_kitParameter[i] && all[static_cast<int>(i)]->getValue() != _kit.values[i])
+				all[static_cast<int>(i)]->setValue(_kit.values[i]);
+		syncSound(true);
+		for(int t = 0; t < Tracks; ++t)
+		{
+			releaseLocks(t);
+			auto& hash = m_engineSampleHash[static_cast<size_t>(t)];
+			if(hash == _kit.sampleHash[static_cast<size_t>(t)])
+				continue;
+			m_engine->setSample(t, _kit.samples[static_cast<size_t>(t)].get());
+			hash = _kit.sampleHash[static_cast<size_t>(t)];
+		}
+		m_kitSwitched.store(const_cast<PreparedKit*>(&_kit), std::memory_order_release);
+		m_reread = true;
+	}
+
+	void Processor::setPatternKit(const int _pattern, const int _slot)
+	{
+		editSequencer([&](Sequencer& _s) { _s.pattern(_pattern).kit = KitBank::valid(_slot) ? _slot : -1; });
+		prepareKits(0);
+	}
+
+	bool Processor::exportKit(const int _slot, const juce::File& _file)
+	{
+		followKits();
+		const auto kit = m_kits->read(_slot);
+		return kit && KitBank::writeFile(_file, *kit);
+	}
+
+	bool Processor::importKit(const int _slot, const juce::File& _file)
+	{
+		const auto kit = KitBank::readFile(_file, KitBank::Tag);
+		if(!kit || !m_kits->write(_slot, *kit))
+			return false;
+		followKits();
+		return true;
+	}
+
+	namespace
+	{
+		constexpr const char* PatternTag = "ElektronDrumsPattern";
+	}
+
+	bool Processor::exportPattern(const int _pattern, const juce::File& _file) const
+	{
+		juce::XmlElement file(PatternTag);
+		file.setAttribute("version", 1);
+		if(auto pattern = patternXml(m_edited->pattern(_pattern), _pattern))
+			file.addChildElement(pattern.release());
+		return KitBank::writeFile(_file, file);
+	}
+
+	bool Processor::importPattern(const int _pattern, const juce::File& _file)
+	{
+		const auto file = KitBank::readFile(_file, PatternTag);
+		if(!file)
+			return false;
+		const auto* xml = file->getChildByName("pattern");
+		editSequencer([&](Sequencer& _s)
+		{
+			_s.pattern(_pattern) = Pattern();
+			if(xml)
+				readPattern(_s.pattern(_pattern), *xml);
+		});
+		prepareKits(0);
+		return true;
+	}
+
+	// ---- the Track sounds ----
+
+	namespace
+	{
+		// A Track's parameters that are its sound: not its Output nor its Chokes, the Kit's routing
+		bool soundSuffix(const juce::String& _suffix)
+		{
+			return _suffix != "output" && _suffix != "chokes";
+		}
+	}
+
+	std::unique_ptr<juce::XmlElement> Processor::trackSoundOf(const int _track) const
+	{
+		auto xml = std::make_unique<juce::XmlElement>(TrackSounds::Tag);
+		xml->setAttribute("version", KitBank::Version);
+		xml->setAttribute("machineName", m_tracks[static_cast<size_t>(_track)].machine->getCurrentChoiceName());
+		for(const auto& id : trackIds(_track))
+		{
+			const auto suffix = id.substring(4);
+			if(!soundSuffix(suffix))
+				continue;
+			const auto* p = parameter(id);
+			xml->setAttribute(suffix, p->convertFrom0to1(p->getValue()));
+		}
+		if(const auto& sample = m_samples[static_cast<size_t>(_track)])
+		{
+			const auto bytes = sampleToBytes(*sample);
+			auto* element = xml->createNewChildElement("sample");
+			element->setAttribute("name", juce::String::fromUTF8(sample->name.c_str()));
+			if(m_sampleRefs[static_cast<size_t>(_track)].isNotEmpty())
+				element->setAttribute("fingerprint", m_sampleRefs[static_cast<size_t>(_track)]);
+			element->addTextElement(juce::MemoryBlock(bytes.data(), bytes.size()).toBase64Encoding());
+		}
+		return xml;
+	}
+
+	juce::File Processor::saveTrackSound(const int _track, const juce::String& _name)
+	{
+		auto xml = trackSoundOf(_track);
+		xml->setAttribute("name", _name.trim().isEmpty() ? juce::String("Sound") : _name.trim());
+		return m_trackSounds->write(*xml);
+	}
+
+	bool Processor::loadTrackSound(const int _track, const juce::File& _file)
+	{
+		jassert(juce::MessageManager::existsAndIsCurrentThread());
+		const auto sound = m_trackSounds->read(_file);
+		if(!sound || _track < 0 || _track >= Tracks)
+			return false;
+		// The sound as this Track's Kit would hold it: its IDs given the Track's prefix, then read as a Kit is
+		juce::XmlElement kit(KitBank::Tag);
+		kit.setAttribute("version", sound->getIntAttribute("version"));
+		const auto prefix = juce::String::formatted("t%02d_", _track + 1);
+		for(int i = 0; i < sound->getNumAttributes(); ++i)
+			if(const auto name = sound->getAttributeName(i); parameter(prefix + name) && soundSuffix(name))
+				kit.setAttribute(prefix + name, sound->getAttributeValue(i));
+		const auto values = kitValuesOf(kit);
+
+		// As a Kit loads: no block meanwhile, the host reads the parameters again, none told as an edit
+		// ... and no Lock of the Track outlives it: the engine takes its values again at the next block
+		suspendProcessing(true);
+		auto& locked = m_lockedBy[static_cast<size_t>(_track)];
+		for(const int i : locked)
+			m_locked[static_cast<size_t>(i)] = 0;
+		locked.clear();
+		endSlide(_track);
+		auto& p = m_tracks[static_cast<size_t>(_track)];
+		p.chain[0].due = true;
+		for(auto& lfo : p.lfo)
+			lfo[0].due = true;
+		for(auto& send : p.sends)
+			send.due = true;
+		p.accent.due = true;
+		for(const auto& id : trackIds(_track))
+			if(soundSuffix(id.substring(4)))
+			{
+				auto* q = parameter(id);
+				static_cast<juce::AudioProcessorParameter*>(q)->setValue(values[static_cast<size_t>(q->getParameterIndex())]);
+			}
+		auto& sample = m_samples[static_cast<size_t>(_track)];
+		sample.reset();
+		m_sampleRefs[static_cast<size_t>(_track)].clear();
+		juce::MemoryBlock bytes;
+		if(const auto* element = sound->getChildByName("sample"); element && bytes.fromBase64Encoding(element->getAllSubText()))
+			if(auto read = sampleFromBytes(static_cast<const uint8_t*>(bytes.getData()), bytes.getSize()))
+			{
+				sample = std::make_unique<Sample>(std::move(*read));
+				m_sampleRefs[static_cast<size_t>(_track)] = element->getStringAttribute("fingerprint");
+			}
+		publishSample(_track);
+		m_stateSerial.fetch_add(1, std::memory_order_acq_rel);
+		suspendProcessing(false);
+		updateHostDisplay(ChangeDetails().withProgramChanged(true));
+		return true;
+	}
+
+	bool Processor::auditionTrackSound(const juce::File& _file)
+	{
+		const auto sound = m_trackSounds->read(_file);
+		if(!sound)
+			return false;
+		// On Track 1 of an engine of its own at its defaults, Main alone, one Hit at velocity 100: the Sampler's length
+		juce::XmlElement kit(KitBank::Tag);
+		kit.setAttribute("version", sound->getIntAttribute("version"));
+		for(int i = 0; i < sound->getNumAttributes(); ++i)
+			if(const auto name = sound->getAttributeName(i); parameter("t01_" + name) && soundSuffix(name))
+				kit.setAttribute("t01_" + name, sound->getAttributeValue(i));
+		const auto values = kitValuesOf(kit);
+		const auto plain = [&](const juce::RangedAudioParameter* _p)
+		{
+			return juce::roundToInt(_p->convertFrom0to1(values[static_cast<size_t>(_p->getParameterIndex())]));
+		};
+		const auto& p = m_tracks[0];
+		Engine e(*m_library);
+		e.setTempo(m_tempo->get());
+		e.setMachine(0, m_machines[static_cast<size_t>(plain(p.machine))]);
+		for(int i = 0; i < MachineParameters; ++i)
+			if(const int v = plain(p.values[static_cast<size_t>(i)]); v != e.parameter(0, i))
+				e.setParameter(0, i, static_cast<uint8_t>(v));
+		e.setNote(0, plain(p.note));
+		e.setLevel(0, plain(p.level));
+		e.setPan(0, plain(p.pan));
+		parameters::ChainArray chain{};
+		for(size_t i = 0; i < chain.size(); ++i)
+			chain[i] = plain(p.chain[i].parameter);
+		e.setChain(0, parameters::chainOf(chain));
+		for(size_t l = 0; l < p.lfo.size(); ++l)
+		{
+			parameters::LfoArray lfo{};
+			for(size_t i = 0; i < lfo.size(); ++i)
+				lfo[i] = p.lfo[l][i].parameter->convertFrom0to1(values[static_cast<size_t>(p.lfo[l][i].parameter->getParameterIndex())]);
+			e.setLfo(0, static_cast<int>(l), parameters::lfoOf(lfo));
+		}
+		for(size_t s = 0; s < p.sends.size(); ++s)
+			e.setSend(0, static_cast<Send>(s), plain(p.sends[s].parameter));
+		e.setAccent(0, plain(p.accent.parameter));
+		std::optional<Sample> sample;
+		juce::MemoryBlock bytes;
+		if(const auto* element = sound->getChildByName("sample"); element && bytes.fromBase64Encoding(element->getAllSubText()))
+			sample = sampleFromBytes(static_cast<const uint8_t*>(bytes.getData()), bytes.getSize());
+		e.setSample(0, sample ? &*sample : nullptr);
+		e.noteOn(0, 100);
+		std::vector<float> left(Sample::MaxLength), right(Sample::MaxLength), mono(Sample::MaxLength);
+		std::array<float*, 2 * Outputs> out{};
+		out[0] = left.data();
+		out[1] = right.data();
+		e.render(out.data(), static_cast<int>(Sample::MaxLength));
+		for(size_t n = 0; n < mono.size(); ++n)
+			mono[n] = 0.5f * (left[n] + right[n]);
+		auto made = makeSample(sound->getStringAttribute("name").toStdString(), mono, SampleRate);
+		if(!std::holds_alternative<Sample>(made))
+			return false;
+		m_auditioned = std::make_unique<Sample>(std::move(std::get<Sample>(made)));
+		auto mail = std::make_unique<SampleMail>();
+		mail->sample = *m_auditioned;
+		mail->serial = ++m_sampleSerial;
+		auto* sent = mail.get();
+		m_auditionFlight.push_back(std::move(mail));
+		if(const auto* old = m_auditionMail.exchange(sent, std::memory_order_acq_rel))
+			m_auditionFlight.erase(std::find_if(m_auditionFlight.begin(), m_auditionFlight.end(),
+				[old](const auto& _m) { return _m.get() == old; }));
+		pruneSamples();
+		return true;
 	}
 
 	bool Processor::loadKit(const int _slot)
@@ -1352,6 +2022,7 @@ namespace elektron::drums
 		m_kitSlot = _slot;
 		rememberKit(&kit);
 		m_kits->follow();
+		prepareKits(uint64_t{1} << _slot);
 		return true;
 	}
 

@@ -31,9 +31,67 @@ namespace elektron::drums
 
 	void Sends::setDelayFree(const double _hz)
 	{
-		m_stDelay->setFree(_hz);
+		m_freeHz = _hz;
+		giveDelayTime();
+	}
+
+	void Sends::setDelaySync(const bool _sync)
+	{
+		m_delaySync = _sync;
+		giveDelayTime();
+	}
+
+	void Sends::setDelayNote(const double _quarters)
+	{
+		m_delayNote = _quarters;
+		giveDelayTime();
+	}
+
+	void Sends::setLfoSync(const Send _send, const bool _sync)
+	{
+		m_lfoSync[_send == Send::Chorus ? 0 : 1] = _sync;
+		setLfoNote(_send, m_lfoNote[_send == Send::Chorus ? 0 : 1]);
+	}
+
+	void Sends::setLfoNote(const Send _send, const double _quarters)
+	{
+		m_lfoNote[_send == Send::Chorus ? 0 : 1] = _quarters;
+		// The bytes' rates first, for a sync that ends
+		if(_send == Send::Chorus)
+			setChorus(ChorusRate, m_chorusBytes[ChorusRate]);
+		else
+			setPhaser(PhaserRate, m_phaserBytes[PhaserRate]);
+	}
+
+	void Sends::setBpm(const double _bpm)
+	{
+		if(_bpm == m_bpm || !(_bpm > 0))
+			return;
+		m_bpm = _bpm;
+		if(m_delaySync)
+			giveDelayTime();
+		giveLfoRates();
+	}
+
+	void Sends::giveDelayTime()
+	{
+		const double hz = m_delaySync && m_delayNote > 0 ? m_bpm / 60 / m_delayNote : m_freeHz;
+		m_stDelay->setFree(hz);
 		constexpr double Longest = 8 * Rate;
-		m_echoFree = _hz > 0 ? static_cast<int32_t>(std::lround(std::clamp(Rate / _hz, 1.0, Longest))) : 0;
+		m_echoFree = hz > 0 ? static_cast<int32_t>(std::lround(std::clamp(Rate / hz, 1.0, Longest))) : 0;
+	}
+
+	void Sends::giveLfoRates()
+	{
+		if(m_lfoSync[0] && m_lfoNote[0] > 0)
+			m_chorus->setHz(m_bpm / 60 / m_lfoNote[0]);
+		if(m_lfoSync[1] && m_lfoNote[1] > 0)
+		{
+			const double hz = m_bpm / 60 / m_lfoNote[1];
+			m_phaser->setHz(hz);
+			m_flanger->setHz(hz);
+			m_dp4->setHz(hz);
+		}
 	}
 
 	void Sends::giveSyntaktWords()
@@ -107,6 +165,7 @@ namespace elektron::drums
 		const auto& b = m_chorusBytes;
 		m_chorus->set(b[ChorusDelay], b[ChorusDepth], b[ChorusRate], b[ChorusFeedback],
 			static_cast<ModulatedDelay::Shape>(std::min<int>(b[ChorusShape], 5)));
+		giveLfoRates();
 	}
 
 	void Sends::setPhaser(const int _byte, const uint8_t _value)
@@ -117,7 +176,9 @@ namespace elektron::drums
 			b[PhaserFeedback]);
 		m_flanger->set(b[PhaserFrequency], b[PhaserDepth], b[PhaserRate], b[PhaserFeedback]);
 		m_dp4->set({b[PhaserFrequency], b[PhaserDepth], b[PhaserRate], b[PhaserFeedback], b[PhaserSpread],
-			b[PhaserDp4Phase] != 0, b[PhaserDp4DelayLeft], b[PhaserDp4DelayRight], b[PhaserDp4DelayFeedback]});
+			b[PhaserDp4Phase] != 0, b[PhaserDp4DelayLeft], b[PhaserDp4DelayRight], b[PhaserDp4DelayFeedback],
+			b[PhaserDp4SampleHold]});
+		giveLfoRates();
 		static constexpr SendSource Modes[] = {SendSource::Phaser, SendSource::Flanger, SendSource::Dp4};
 		setSource(Send::Phaser, Modes[std::min<int>(b[PhaserMode], 2)]);
 	}
@@ -209,11 +270,18 @@ namespace elektron::drums
 			for(auto& channel : send)
 				channel.fill(0.0f);
 
+		// 20 dB/s a block of 32 at 44.1 kHz
+		constexpr float Fall = 0.998331f;
 		float returned = 0;
-		for(const auto& send : m_out)
-			for(const auto& channel : send)
+		for(size_t s = 0; s < m_out.size(); ++s)
+		{
+			float peak = 0;
+			for(const auto& channel : m_out[s])
 				for(const float x : channel)
-					returned = std::max(returned, std::abs(x));
+					peak = std::max(peak, std::abs(x));
+			returned = std::max(returned, peak);
+			m_peak[s].store(std::max(peak, m_peak[s].load(std::memory_order_relaxed) * Fall), std::memory_order_relaxed);
+		}
 		if(returned > Silence || fed)
 			m_quiet = 0;
 		else if(++m_quiet == QuietBlocks)

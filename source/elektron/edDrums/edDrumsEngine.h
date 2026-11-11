@@ -63,7 +63,8 @@ namespace elektron::drums
 		Off,
 		Syntakt,
 		Machinedrum,
-		OpenDrum
+		OpenDrum,
+		Sophie
 	};
 
 	// A Syntakt machine by its index in syntaktMachineNames, a Machinedrum one by its id
@@ -94,6 +95,13 @@ namespace elektron::drums
 	constexpr int OpenDrumMachines = 4;
 	constexpr std::array<const char*, OpenDrumMachines> openDrumMachineNames{"OD DRUM", "OD SNARE", "OD CYMBAL",
 		"OD HIHAT"};
+
+	// SOPHIE: the metallic FM percussion voice of mestela/schwung-sophie (MIT, source/elektron/sophie), a voice per Track
+	// on the Machinedrum's blocks, rings and chain like OPEN DRUM's, at the 44.1 kHz host rate it runs at sample by
+	// sample. Every Track plays upstream's pad 1 (its base note 36), Machine 1-19 Sophie's parameters and Machine 20 the
+	// kick body (sophieMachine.h); velocity is the Track's, after the voice, the voice itself triggered at 127
+	constexpr int SophieMachines = 1;
+	constexpr std::array<const char*, SophieMachines> sophieMachineNames{"SOPHIE"};
 
 	// Whether a Track can play _machine: every Syntakt machine here, a Machinedrum one whose render is ported or a MID or
 	// CTR one, which stops the voice
@@ -133,6 +141,11 @@ namespace elektron::drums
 		static constexpr int MachinedrumQuietBlocks = 8192;
 		static constexpr int SyntaktQuietBlocks = 512;		// 341 ms: SP TWINSHOT plays a gap in a sample, slowed down
 		static constexpr int OpenDrumQuietBlocks = 64;		// 46 ms, once an OPEN DRUM voice's envelope has closed: its chain's tail
+															// (a SOPHIE voice's too, once it has stopped)
+
+		// What a SOPHIE voice's float output is multiplied by: upstream's voices peak near 1 before its mix gain of 0.24;
+		// this one makes its factory kick peak as the other families' kicks do (edDrumsSophieTest measures them)
+		static constexpr float SophieGain = 0.63f;
 
 		// Every sample of a cut ramps: a Choke, a machine changed under a sounding voice
 		static constexpr int CutSamples = 64;
@@ -324,6 +337,9 @@ namespace elektron::drums
 			bool odSettle = false;			// ... on a quiet voice: its smoothers start at their targets
 			bool odOpen = false;			// the hihat plays open
 
+			// SOPHIE, on the Machinedrum's blocks: its voice is m_sophie's
+			bool spTrig = false;			// a Hit waits for the next block
+
 			// Syntakt
 			Ring stRing;
 			Run st;
@@ -362,6 +378,8 @@ namespace elektron::drums
 		void renderVoice(int _track, float* _x);
 		void playOpenDrum(int _track, int _index);
 		void renderOpenDrum(Track& _track, float* _x);
+		void playSophie(int _track, int _index);
+		void renderSophie(int _track, float* _x);
 		void renderSyntakt();
 		void read(int _track, float* _out, int _count);
 		void mix(float* const* _outputs, int _offset, int _count);
@@ -391,6 +409,11 @@ namespace elektron::drums
 		// OPEN DRUM: a voice per Track, made at once
 		std::vector<std::max_align_t> m_odMemory;
 		uint32_t m_odMask = 0;			// the Tracks on an OPEN DRUM machine
+
+		// SOPHIE: a voice per Track, made at once (6 kB each)
+		struct SophieVoices;
+		std::unique_ptr<SophieVoices> m_sophie;
+		uint32_t m_spMask = 0;			// the Tracks on SOPHIE
 
 		// Syntakt
 		std::vector<std::unique_ptr<Source>> m_sources;

@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <functional>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -31,12 +32,14 @@ namespace
 		int velocity = 0;
 		bool accent = false;
 		bool trig = false;
+		bool off = false;
+		int note = NoNote;
 		std::vector<Lock> locks;
 
 		bool operator==(const Rec& _o) const
 		{
 			if(sample != _o.sample || track != _o.track || velocity != _o.velocity || accent != _o.accent || trig != _o.trig
-				|| locks.size() != _o.locks.size())
+				|| off != _o.off || note != _o.note || locks.size() != _o.locks.size())
 				return false;
 			for(size_t i = 0; i < locks.size(); ++i)
 				if(locks[i].parameter != _o.locks[i].parameter || locks[i].value != _o.locks[i].value)
@@ -59,6 +62,8 @@ namespace
 			r.velocity = e.velocity;
 			r.accent = e.accent;
 			r.trig = e.trig;
+			r.off = e.off;
+			r.note = e.note;
 			for(int k = 0; k < e.lockCount; ++k)
 				r.locks.push_back(e.locks[k]);
 			_r.push_back(r);
@@ -608,6 +613,288 @@ namespace
 		check(s.currentPattern() == 7 && ofTrack(seven, 5).size() == 4, "pattern 7 played from the start");
 	}
 
+	void testNoteGate()
+	{
+		std::printf("note and gate\n");
+		const double bpm = 120, sr = 44100;
+		auto run = [&](const int _block)
+		{
+			Sequencer s;
+			Pattern& p = s.pattern(0);
+			p.setTrig(0, 0, true);
+			p.step(0, 0).note = 48;
+			p.step(0, 0).gate = 4;			// half a step
+			p.setTrig(0, 4, true);
+			p.step(0, 4).gate = 64;			// 8 steps: step 8's Hit comes first
+			p.setTrig(0, 8, true);			// no gate: no end
+			p.setTrig(1, 2, true);
+			p.step(1, 2).ratchets = 2;
+			p.step(1, 2).gate = GateUnits;	// a step after its second Hit
+			return render(s, bpm, sr, _block, samplesOf(4, bpm, sr));
+		};
+		const Recs r = run(512);
+		const Recs t0 = ofTrack(r, 0), t1 = ofTrack(r, 1);
+		const bool ok0 = t0.size() == 4 && t0[0].trig && t0[0].note == 48 && t0[1].off
+			&& t0[1].sample == expected(0.125L, bpm, sr) && t0[2].trig && t0[2].note == NoNote
+			&& t0[2].sample == expected(1.0L, bpm, sr) && t0[3].trig && t0[3].sample == expected(2.0L, bpm, sr);
+		check(ok0, "step 0 plays note 48 and ends half a step later; step 4's gate gives way to step 8's Hit ("
+			+ std::to_string(t0.size()) + " events)");
+		const bool ok1 = t1.size() == 3 && t1[2].off && t1[2].sample == expected(0.625L + 0.25L, bpm, sr);
+		check(ok1, "a ratchet's gate counts from its last Hit");
+		check(sameWhateverBlock(run, r), "notes and gates identical at every block size");
+
+		Sequencer s;
+		s.pattern(0).setTrig(2, 0, true);
+		s.pattern(0).step(2, 0).gate = 128;
+		render(s, bpm, sr, 512, 2048);
+		Transport stopped;
+		stopped.length = 512;
+		s.process(stopped, g_events);
+		check(g_events.count == 1 && g_events.events[0].off && g_events.events[0].offset == 0 && g_events.events[0].track == 2,
+			"a stop ends the Hit held at once");
+	}
+
+	void testSolo()
+	{
+		std::printf("solo\n");
+		Sequencer s;
+		for(int t = 0; t < 3; ++t)
+			s.pattern(0).setTrig(t, 0, true);
+		s.setSolo(1, true);
+		const Recs soloed = render(s, 120, 44100, 512, 1024);
+		check(soloed.size() == 1 && soloed[0].track == 1, "Track 1 soloed plays alone");
+		s.setMute(1, true);
+		check(render(s, 120, 44100, 512, 1024).empty(), "muted and soloed: nothing plays");
+	}
+
+	void testChain()
+	{
+		std::printf("chain\n");
+		const double bpm = 120, sr = 44100;
+		const auto make = [](Sequencer& _s)
+		{
+			Pattern& a = _s.pattern(0);
+			a.masterLength = 4;
+			a.setTrig(0, 0, true, 10);
+			a.setTrig(0, 1, true, 11);
+			a.step(0, 1).condition = {ConditionKind::Fill, 0, 0};
+			Pattern& b = _s.pattern(1);
+			b.masterLength = 8;
+			b.setTrig(0, 0, true, 20);
+			_s.pattern(2).setTrig(0, 0, true, 30);
+			_s.setChain({{0, 2, true}, {1, 1, false}});		// 2 + 2 quarters, looping
+			_s.requestChain();
+		};
+		auto run = [&](const int _block)
+		{
+			Sequencer s;
+			make(s);
+			return render(s, bpm, sr, _block, samplesOf(8, bpm, sr));
+		};
+		const Recs r = run(512);
+		const long double at[]{0, 0.25L, 1, 1.25L, 2, 4, 4.25L, 5, 5.25L, 6};
+		const int vel[]{10, 11, 10, 11, 20, 10, 11, 10, 11, 20};
+		bool ok = r.size() == 10;
+		for(size_t i = 0; ok && i < r.size(); ++i)
+			ok = r[i].sample == expected(at[i], bpm, sr) && r[i].velocity == vel[i];
+		check(ok, "A x2 in fill (its FILL step plays), then B, looping every 4 quarters (" + std::to_string(r.size())
+			+ " Hits)");
+		check(sameWhateverBlock(run, r), "the chain identical at every block size");
+
+		{
+			Sequencer s;
+			make(s);
+			const Recs from = render(s, bpm, sr, 512, samplesOf(1.6, bpm, sr), 2.5);
+			check(from.size() == 1 && from[0].velocity == 10 && from[0].sample == expected(1.5L, bpm, sr)
+				&& s.chainSlot() == 0, "a start at 2.5 quarters is in B's pass: A comes back at 4");
+		}
+		{
+			Sequencer s;
+			make(s);
+			const int64_t askAt = samplesOf(0.5, bpm, sr);
+			const Recs asked = render(s, bpm, sr, 512, samplesOf(8, bpm, sr), 0,
+				[&](const int64_t _at) { if(_at <= askAt && askAt < _at + 512) s.requestPattern(2); });
+			const bool replaced = asked.size() == 4 && asked[2].velocity == 30 && asked[2].sample == expected(1.0L, bpm, sr)
+				&& asked[3].velocity == 30 && asked[3].sample == expected(5.0L, bpm, sr) && !s.chainPlaying();
+			check(replaced, "a pattern asked for replaces the chain at the end of the pattern playing");
+		}
+	}
+
+	void testLongPattern()
+	{
+		std::printf("a pattern of 128 steps\n");
+		const double bpm = 120, sr = 44100;
+		Sequencer s;
+		s.pattern(0).masterLength = 128;
+		s.pattern(0).setTrig(0, 0, true, 50);
+		s.pattern(1).setTrig(0, 0, true, 60);
+		const Recs r = render(s, bpm, sr, 512, samplesOf(36, bpm, sr), 0,
+			[&](const int64_t _at) { if(_at == 512) s.requestPattern(1); });
+		bool ok = r.size() == 9;
+		for(int i = 0; ok && i < 8; ++i)
+			ok = r[static_cast<size_t>(i)].velocity == 50 && r[static_cast<size_t>(i)].sample == expected(4.0L * i, bpm, sr);
+		ok = ok && r[8].velocity == 60 && r[8].sample == expected(32.0L, bpm, sr);
+		check(ok, "Track 1 of 16 steps loops 8 times in 128, the pattern asked for starts at step 128");
+	}
+
+	void testNearestStep()
+	{
+		std::printf("LIVE: the step nearest a note\n");
+		Sequencer s;
+		s.pattern(0).setTrig(0, 0, true);
+		int step = -1, timing = 0;
+		check(!s.nearestStep(0, 0.3, step, timing), "nothing while stopped");
+		render(s, 120, 44100, 512, 512);
+		const bool late = s.nearestStep(0, 0.26, step, timing) && step == 1 && timing == 0;
+		const bool early = s.nearestStep(0, 0.24, step, timing) && step == 1 && timing == -1;
+		const bool end = s.nearestStep(0, 3.95, step, timing) && step == 15 && timing == 19;
+		check(late && early, "0.26 and 0.24 quarters: step 1, micro 0 and -1 (rounded down)");
+		check(end, "just before the pattern's end: its last step, micro +19, not step 0 of the next pass");
+	}
+
+	// Spec criterion 6: a pattern with Track lengths and scales, conditions on a seed, micro-timing, ratchets, slide, locks
+	// and a lock without note, rendered twice and at six block sizes, every Hit at the sample its time gives
+	void testCriterionSix()
+	{
+		std::printf("criterion 6\n");
+		const double bpm = 123, sr = 44100;
+		const auto make = [](Sequencer& _s)
+		{
+			Pattern& p = _s.pattern(0);
+			p.swing = 60;
+			for(int i = 0; i < 16; i += 4)
+				p.setTrig(0, i, true, 100);
+			p.step(0, 4).timing = 6;
+			p.setLock(0, 4, 3, 0.25f);
+			p.step(0, 8).ratchets = 3;
+			p.step(0, 12).condition = {ConditionKind::Probability, 50, 0};
+			p.trackLength[1] = 12;
+			p.trackScale[1] = StepScale::Two;
+			for(const int i : {0, 3, 7})
+				p.setTrig(1, i, true, 90);
+			p.step(1, 3).condition = {ConditionKind::Ratio, 1, 2};
+			p.step(1, 7).timing = -5;
+			p.trackLength[2] = 8;
+			p.trackScale[2] = StepScale::Half;
+			p.setTrig(2, 0, true, 80);
+			p.setTrig(2, 2, true, 80);
+			p.step(2, 0).slide = true;
+			p.setLock(2, 0, 9, 0.1f);
+			p.setLock(2, 2, 9, 0.9f);
+			p.setLock(3, 6, 7, 0.5f);		// a lock without note
+			p.trackLength[4] = 5;
+			p.trackScale[4] = StepScale::ThreeQuarters;
+			p.setTrig(4, 1, true, 70);
+			_s.pattern(1).setTrig(5, 0, true, 60);
+			_s.setSeed(0x5eed);
+		};
+		const int64_t total = samplesOf(14, bpm, sr);
+		const int64_t askAt = samplesOf(9.3, bpm, sr);
+		auto run = [&](const int _block)
+		{
+			Sequencer s;
+			make(s);
+			return render(s, bpm, sr, _block, total, 0,
+				[&](const int64_t _at) { if(_at <= askAt && askAt < _at + _block) s.requestPattern(1); });
+		};
+		const Recs first = run(512), second = run(512);
+		check(first == second, "rendered twice: the same " + std::to_string(first.size()) + " events");
+		check(sameWhateverBlock(run, first), "the same at blocks of 37, 64, 512, 1000, 1024, 4096");
+
+		// Every Hit at the sample of a step's time: pass x 4 quarters + n x step + swing + micro-timing + ratchet
+		Sequencer ref;
+		make(ref);
+		const Pattern& p = ref.pattern(0);
+		int64_t worst = 0;
+		int matched = 0, hits = 0, lockOnly = 0;
+		for(const Rec& r : first)
+		{
+			if(r.track == 5)
+				continue;
+			if(!r.trig)
+			{
+				lockOnly += r.track == 3 ? 1 : 0;
+				continue;
+			}
+			++hits;
+			const long double len = stepQuarters(p.trackScale[static_cast<size_t>(r.track)]);
+			const int tl = p.trackLength[static_cast<size_t>(r.track)];
+			int64_t best = std::numeric_limits<int64_t>::max();
+			for(int pass = 0; pass < 3; ++pass)
+				for(int n = 0; n * len < 4 - 1e-9L; ++n)
+				{
+					const Step& st = p.step(r.track, n % tl);
+					if(!st.trig)
+						continue;
+					const long double t0 = pass * 4.0L + n * len + ((n & 1) ? len * 0.2L : 0) + st.timing * len / 24;
+					for(int k = 0; k < st.ratchets; ++k)
+					{
+						const int64_t d = std::llabs(r.sample - expected(t0 + k * len / st.ratchets, bpm, sr));
+						best = std::min(best, d);
+					}
+				}
+			worst = std::max(worst, best);
+			matched += best == 0 ? 1 : 0;
+		}
+		check(worst == 0 && matched == hits && hits > 20, std::to_string(matched) + " of " + std::to_string(hits)
+			+ " Hits at their expected sample, worst " + std::to_string(worst) + " samples off: jitter 0");
+		check(lockOnly == 3, "the lock without note: once a pass, 3 passes");
+		// Pattern 2 asked for at 9.3 quarters: pattern 1 ends at 12, Track 6's Hit there
+		const Recs six = ofTrack(first, 5);
+		check(six.size() == 1 && six[0].sample == expected(12.0L, bpm, sr), "pattern 2 starts at the end of pattern 1's pass, "
+			"sample " + std::to_string(six.empty() ? -1 : six[0].sample));
+	}
+
+	// The MIDI export, read back by a reader of its own
+	void testMidiExport()
+	{
+		std::printf("MIDI export\n");
+		Pattern p;
+		p.setTrig(0, 0, true, 100);
+		p.setTrig(0, 1, true, 101);
+		p.setTrig(0, 8, true, 90);
+		p.step(0, 8).gate = 16;
+		p.setTrig(3, 2, true, 70);
+		p.step(3, 2).timing = 6;
+		p.setTrig(3, 10, true, 60);
+		p.step(3, 10).ratchets = 2;
+		p.setLock(0, 0, 5, 0.5f);
+		const auto bytes = Sequencer::patternMidi(p, 1);
+
+		struct Midi { int64_t tick; int status, note, velocity; };
+		std::vector<Midi> read;
+		bool header = bytes.size() > 22 && std::string(bytes.begin(), bytes.begin() + 4) == "MThd"
+			&& bytes[13] == (Sequencer::MidiTicks & 0xff) && bytes[12] == (Sequencer::MidiTicks >> 8)
+			&& std::string(bytes.begin() + 14, bytes.begin() + 18) == "MTrk";
+		int64_t tick = 0, endTick = -1;
+		for(size_t i = 22; header && i < bytes.size();)
+		{
+			uint32_t delta = 0;
+			while(bytes[i] & 0x80)
+				delta = delta << 7 | (bytes[i++] & 0x7f);
+			delta = delta << 7 | bytes[i++];
+			tick += delta;
+			if(bytes[i] == 0xff)
+			{
+				if(bytes[i + 1] == 0x2f)
+					endTick = tick;
+				i += 3 + bytes[i + 2];
+				continue;
+			}
+			read.push_back({tick, bytes[i], bytes[i + 1], bytes[i + 2]});
+			i += 3;
+		}
+		const std::vector<Midi> want{{0, 0x90, 36, 100}, {240, 0x80, 36, 0}, {240, 0x90, 36, 101}, {480, 0x80, 36, 0},
+			{540, 0x90, 39, 70}, {780, 0x80, 39, 0}, {1920, 0x90, 36, 90}, {2400, 0x80, 36, 0}, {2400, 0x90, 39, 60},
+			{2520, 0x80, 39, 0}, {2520, 0x90, 39, 60}, {2760, 0x80, 39, 0}};
+		bool same = read.size() == want.size();
+		for(size_t i = 0; same && i < want.size(); ++i)
+			same = read[i].tick == want[i].tick && read[i].status == want[i].status && read[i].note == want[i].note
+				&& read[i].velocity == want[i].velocity;
+		check(header && same && endTick == 3840, "the file read back: " + std::to_string(read.size())
+			+ " messages, notes 36 and 39 at their ticks, a gate of 2 steps, a ratchet, micro-timing +6, the end at 3840");
+	}
+
 	void testCost()
 	{
 		std::printf("cost\n");
@@ -659,6 +946,13 @@ int main()
 	testDrift();
 	testStopped();
 	testEditing();
+	testNoteGate();
+	testSolo();
+	testChain();
+	testLongPattern();
+	testNearestStep();
+	testCriterionSix();
+	testMidiExport();
 	testCost();
 	std::printf(g_failures ? "FAILED: %d\n" : "ALL OK\n", g_failures);
 	return g_failures ? 1 : 0;

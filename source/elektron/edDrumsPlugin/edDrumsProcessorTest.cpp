@@ -44,6 +44,7 @@
 #include "edDrumsMaster.h"
 #include "edDrumsProcessor.h"
 #include "mdProtocol/mdmachines.h"
+#include "sophieMachine.h"
 
 namespace
 {
@@ -419,6 +420,19 @@ namespace
 			master("master_makeup", MasterMakeup); master("master_mix", MasterMix); master("master_filter", MasterFilter);
 			master("master_drive", MasterDrive); master("master_volume", MasterVolume);
 			m["oversampling"] = [](Engine& _e, const double _v) { _e.setOversampling(1 << whole(_v)); };
+			m["delay_sync"] = [](Engine& _e, const double _v) { _e.sends().setDelaySync(whole(_v) != 0); };
+			m["delay_note"] = [](Engine& _e, const double _v) { _e.sends().setDelayNote(parameters::delayNoteQuarters(whole(_v))); };
+			m["chorus_sync"] = [](Engine& _e, const double _v) { _e.sends().setLfoSync(Send::Chorus, whole(_v) != 0); };
+			m["phaser_sync"] = [](Engine& _e, const double _v) { _e.sends().setLfoSync(Send::Phaser, whole(_v) != 0); };
+			m["chorus_speed"] = [](Engine& _e, const double _v)
+			{
+				_e.sends().setLfoNote(Send::Chorus, parameters::lfoNoteQuarters(whole(_v)));
+			};
+			m["phaser_speed"] = [](Engine& _e, const double _v)
+			{
+				_e.sends().setLfoNote(Send::Phaser, parameters::lfoNoteQuarters(whole(_v)));
+			};
+			m["phaser_dp4_sh"] = [](Engine& _e, const double _v) { _e.sends().setPhaser(PhaserDp4SampleHold, byteOf(_v)); };
 			return m;
 		}();
 		return setters;
@@ -666,6 +680,10 @@ namespace
 		}
 		v["echo_time"] = 4;
 		v["delay_time"] = 4;
+		// TIME heard on both, the Echo's on A, the Syntakt's on B; the chorus's and the phaser's notes on B
+		v["delay_sync"] = 0;
+		v["chorus_sync"] = _b ? 1 : 0;
+		v["phaser_sync"] = _b ? 1 : 0;
 		v["gate_gate"] = 0;
 		v["echo_mod"] = 40;
 		v["echo_fb"] = 40;
@@ -805,6 +823,9 @@ namespace
 		std::vector<std::string> expected{"accent", "pattern"};
 		for(int i = 9; i <= MachineParameters; ++i)
 			expected.push_back("m" + std::to_string(i));
+		// Delay Duration plays while Sync is on, which both sounds leave off for TIME's sake: delay_sync's step, which
+		// turns it on, plays the processor's against the engine's, and edDrumsEngineTest's sendTimes the notes
+		expected.push_back("delay_note");
 		require(unheard == expected, "a setting the processor gives is not heard");
 		std::printf("PASS: every parameter reaches the engine\n");
 	}
@@ -918,6 +939,8 @@ namespace
 						k = static_cast<int>(i);
 				if(k < chainIndex)
 					require(whole(v) == mdChain[static_cast<size_t>(k)], id.toStdString() + ": not the Machinedrum's chain");
+				else if(id == "delay_sync")
+					require(whole(v) == 0, "a state from before Delay Sync does not keep its TIME");
 				else
 					require(std::abs(v - expected.at(id)) <= 1e-5 * std::max(1.0, std::abs(v)),
 						id.toStdString() + ": not its default");	// a float default comes back through its 0-1 value
@@ -926,6 +949,35 @@ namespace
 			require(other.parameter("not_ours") == nullptr, "an ID not ours");
 			std::printf("  a state without ticket 18's parameters: %d at their defaults, Track 1's chain the Machinedrum's\n",
 				checked);
+		}
+
+		// The Syntakt family's amp of before (HOLD 64, DECAY 127) in a state still plays: its values are the state's, a
+		// fresh Track's are the new defaults (HOLD 0, DECAY 126)
+		{
+			Processor fresh;
+			allOutputs(fresh);
+			require(whole(plain(find(fresh, "t01_amp_hold"))) == 0 && whole(plain(find(fresh, "t01_amp_decay"))) == 126,
+				"a fresh Syntakt Track's amp");
+			juce::MemoryBlock saved;
+			fresh.getStateInformation(saved);
+			const auto xml = juce::AudioProcessor::getXmlFromBinary(saved.getData(), static_cast<int>(saved.getSize()));
+			require(xml != nullptr, "the state's XML");
+			xml->setAttribute("t01_amp_hold", 64);
+			xml->setAttribute("t01_amp_decay", 127);
+			juce::MemoryBlock old;
+			juce::AudioProcessor::copyXmlToBinary(*xml, old);
+			Processor loaded, edited;
+			allOutputs(loaded);
+			allOutputs(edited);
+			loaded.setStateInformation(old.getData(), static_cast<int>(old.getSize()));
+			require(whole(plain(find(loaded, "t01_amp_hold"))) == 64 && whole(plain(find(loaded, "t01_amp_decay"))) == 127,
+				"a state's HOLD 64 and DECAY 127 not loaded");
+			set(find(edited, "t01_amp_hold"), 64);
+			set(find(edited, "t01_amp_decay"), 127);
+			const auto played = play(loaded);
+			require(same(played, play(edited)), "a state's HOLD 64 does not play HOLD 64");
+			require(!same(played, play(fresh)), "HOLD 64 plays as the new defaults");
+			std::printf("  a state of the amp of before: HOLD 64, DECAY 127 loaded and played; a fresh Track HOLD 0, DECAY 126\n");
 		}
 		std::printf("PASS: the state keeps every parameter by ID\n");
 	}
@@ -972,8 +1024,29 @@ namespace
 				v4.push_back(m);
 		for(int id = 0; id < OpenDrumMachines; ++id)
 			v4.push_back({Family::OpenDrum, static_cast<uint8_t>(id)});
+		// ... and SOPHIE last, appended within version 4: no choice before it moved
+		v4.push_back({Family::Sophie, 0});
 		const auto& list = processor.machines();
 		require(list == v4, "the list");
+		require(list[static_cast<size_t>(processor.sophieChoice())] == Machine{Family::Sophie, 0}, "SOPHIE's choice");
+		{
+			// A Track put on SOPHIE starts on its Kick; a factory sound sets Machine 1-20, which the engine plays
+			Processor p;
+			allOutputs(p);
+			p.prepareToPlay(SampleRate, Block);
+			block(p);
+			set(find(p, "t01_machine"), static_cast<float>(p.sophieChoice()));
+			block(p);
+			require(p.sophieSound(0) == 0, "a Track put on SOPHIE is not on its Kick");
+			p.setSophieSound(0, 3);
+			block(p);
+			const auto clap = sophie::soundValues(3);
+			require(p.sophieSound(0) == 3, "the Clap not set");
+			for(int i = 0; i < sophie::MachineSlots; ++i)
+				require(p.engine()->parameter(0, i) == clap[static_cast<size_t>(i)], "the engine does not play the Clap");
+			set(find(p, "t01_m2"), 100);
+			require(p.sophieSound(0) == -1, "an edited sound is still a factory one");
+		}
 		require(list[static_cast<size_t>(processor.samplerChoice())] == Sampler, "the Sampler's choice");
 		const auto& machine = dynamic_cast<juce::AudioParameterChoice&>(find(processor, "t01_machine"));
 		require(machine.choices[processor.samplerChoice()] == "SAMPLER", "the Sampler's name");
@@ -1689,6 +1762,231 @@ namespace
 		std::printf("PASS: the sequencer plays the host's transport\n");
 	}
 
+	// The processor in host blocks of _block, its playhead at 120 BPM from 0, with _midi's notes at their samples
+	Take playWithNotes(Processor& _processor, const int _samples, const int _block,
+		const std::multimap<int, juce::MidiMessage>& _midi)
+	{
+		Transport transport;
+		_processor.setPlayHead(&transport);
+		_processor.prepareToPlay(SampleRate, _block);
+		Take take(Channels, std::vector<float>(static_cast<size_t>(_samples)));
+		juce::AudioBuffer<float> buffer(Channels, _block);
+		juce::MidiBuffer midi;
+		for(int at = 0; at < _samples; at += _block)
+		{
+			const int n = std::min(_block, _samples - at);
+			transport.quarters = at / SamplesPerQuarter;
+			buffer.setSize(Channels, n, false, false, true);
+			buffer.clear();
+			midi.clear();
+			for(auto it = _midi.lower_bound(at); it != _midi.end() && it->first < at + n; ++it)
+				midi.addEvent(it->second, it->first - at);
+			_processor.processBlock(buffer, midi);
+			for(int c = 0; c < Channels; ++c)
+				std::copy_n(buffer.getReadPointer(c), n, take[static_cast<size_t>(c)].begin() + at);
+		}
+		_processor.setPlayHead(nullptr);
+		return take;
+	}
+
+	// Ticket 17's last functions, and spec criterion 6 through the processor: a step's note and gate as the engine's
+	// setNote and noteOff; the criterion's pattern rendered twice and in other host blocks the same; LIVE recording a
+	// note and a gesture; mutes, solos, fill, seed and the chain kept by the state; a pattern's MIDI file read back
+	void sequencerFunctions(const Library& _library)
+	{
+		// A note and a gate on step 0: the Track's Note for that Hit, its end half a step later; step 4 the host's Note
+		{
+			Processor noted;
+			allOutputs(noted);
+			const int host = juce::roundToInt(plain(find(noted, "t01_note")));
+			noted.editSequencer([](Sequencer& _s)
+			{
+				auto& p = _s.pattern(0);
+				p.setTrig(0, 0, true);
+				p.step(0, 0).note = 72;
+				p.step(0, 0).gate = 4;
+				p.setTrig(0, 4, true);
+			});
+			constexpr int Short = 300 * Block;
+			const auto take = playSequenced(noted, Short);
+			Calls calls;
+			calls.emplace(0, [](Engine& _e) { _e.setNote(0, 72); _e.noteOn(0, 100); });
+			calls.emplace(stepSample(0.125), [](Engine& _e) { _e.noteOff(0); });
+			calls.emplace(stepSample(1.0), [host](Engine& _e) { _e.setNote(0, host); _e.noteOn(0, 100); });
+			requireSame(take, playEngine(_library, noted, calls, Short), "a step's note and gate: ");
+			std::printf("  a step's note 72 and gate of half a step: setNote and noteOff at their samples, the engine's\n");
+		}
+
+		// Criterion 6: Track lengths and scales, conditions on a seed, micro-timing, ratchets, slide, Locks and a lock
+		// without note, a pattern asked for during the first pass
+		const auto criterion = [](Processor& _p)
+		{
+			const auto m1 = indexOf(_p, "t01_m1"), level = indexOf(_p, "t02_level"), freq = indexOf(_p, "t03_flt_freq"),
+				m4 = indexOf(_p, "t04_m1");
+			_p.editSequencer([&](Sequencer& _s)
+			{
+				auto& p = _s.pattern(0);
+				p.swing = 60;
+				for(int i = 0; i < 16; i += 4)
+					p.setTrig(0, i, true);
+				p.step(0, 4).timing = 6;
+				p.setLock(0, 4, m1, 20);
+				p.step(0, 8).ratchets = 3;
+				p.step(0, 12).condition = {ConditionKind::Probability, 50, 0};
+				p.trackLength[1] = 12;
+				p.trackScale[1] = StepScale::Two;
+				for(const int i : {0, 3, 7})
+					p.setTrig(1, i, true, 90);
+				p.step(1, 3).condition = {ConditionKind::Ratio, 1, 2};
+				p.step(1, 7).timing = -5;
+				p.setLock(1, 7, level, 50);
+				p.trackLength[2] = 8;
+				p.trackScale[2] = StepScale::Half;
+				p.setTrig(2, 0, true, 80);
+				p.setTrig(2, 2, true, 80);
+				p.step(2, 0).slide = true;
+				p.setLock(2, 0, freq, 20);
+				p.setLock(2, 2, freq, 110);
+				p.setLock(3, 6, m4, 5);		// a lock without note
+				p.setTrig(3, 8, true);
+				_s.pattern(1).setTrig(4, 0, true, 60);
+				_s.setSeed(0x5eed);
+			});
+		};
+		constexpr int Long = 1800 * Block;		// pattern 1 twice, asked for pattern 2 at 5.3 quarters, which starts at 8
+		const auto play = [&](const int _block)
+		{
+			Processor p;
+			allOutputs(p);
+			criterion(p);
+			Transport transport;
+			p.setPlayHead(&transport);
+			p.prepareToPlay(SampleRate, _block);
+			Take take(Channels, std::vector<float>(static_cast<size_t>(Long)));
+			juce::AudioBuffer<float> buffer(Channels, _block);
+			juce::MidiBuffer midi;
+			for(int at = 0; at < Long; at += _block)
+			{
+				const int n = std::min(_block, Long - at);
+				if(at <= stepSample(5.3) && stepSample(5.3) < at + n)
+					set(find(p, "pattern"), 2);
+				transport.quarters = at / SamplesPerQuarter;
+				buffer.setSize(Channels, n, false, false, true);
+				buffer.clear();
+				p.processBlock(buffer, midi);
+				for(int c = 0; c < Channels; ++c)
+					std::copy_n(buffer.getReadPointer(c), n, take[static_cast<size_t>(c)].begin() + at);
+			}
+			p.setPlayHead(nullptr);
+			return take;
+		};
+		const auto first = play(Block);
+		require(peakOf(first, 0) > 0.05f, "criterion 6's take is silent");
+		requireSame(first, play(Block), "criterion 6 rendered twice: ");
+		for(const int b : {37, 512})
+			requireSame(first, play(b), "criterion 6 in host blocks of " + std::to_string(b) + ": ");
+		std::printf("  criterion 6's pattern rendered twice, and in host blocks of 37 and 512: the same samples\n");
+
+		// LIVE: a note at 1.02 quarters on Track 3 is step 4 with micro +1; Level of Track 2 moved in a gesture is a Lock
+		// of the step playing; the host's automation, without a gesture, records nothing
+		{
+			Processor live;
+			allOutputs(live);
+			live.setLive(true);
+			std::multimap<int, juce::MidiMessage> notes;
+			notes.emplace(stepSample(1.02), juce::MidiMessage::noteOn(1, 36 + 2, static_cast<juce::uint8>(77)));
+			playWithNotes(live, 200 * Block, Block, notes);
+			auto& level = find(live, "t02_level");
+			const int step = live.playingStep(1);
+			level.beginChangeGesture();
+			set(level, 33);
+			level.endChangeGesture();
+			set(find(live, "t03_level"), 44);
+			live.takeLive();
+			const auto& p = live.sequencer().pattern(0);
+			require(p.step(2, 4).trig && p.step(2, 4).velocity == 77 && p.step(2, 4).timing == 1,
+				"LIVE: the note at step 4, micro " + std::to_string(p.step(2, 4).timing));
+			const auto* l = p.locks(1, step);
+			require(step >= 0 && p.step(1, step).lockCount == 1 && l[0].parameter == indexOf(live, "t02_level")
+				&& l[0].value == 33.0f, "LIVE: Level's Lock on step " + std::to_string(step));
+			int locks = 0;
+			for(int s = 0; s < SeqSteps; ++s)
+				locks += p.step(2, s).lockCount;
+			require(locks == 0, "LIVE: the host's automation recorded a Lock");
+			live.setLive(false);
+			std::printf("  LIVE: a note is step 4 with micro +1 and velocity 77, a gesture a Lock of step %d\n", step);
+		}
+
+		// The state: mutes, solos, fill, seed and the chain playing
+		{
+			Processor kept;
+			allOutputs(kept);
+			kept.editSequencer([](Sequencer& _s)
+			{
+				_s.setMute(3, true);
+				_s.setSolo(5, true);
+				_s.setFill(true);
+				_s.setSeed(77);
+				_s.setChain({{2, 3, true}, {0, 1, false}});
+				_s.pattern(2).setTrig(5, 0, true);
+			});
+			kept.requestChain();
+			playSequenced(kept, 4 * Block);
+			require(kept.chainSlot() == 0 && kept.fillPlaying(), "the chain plays from its first entry, in fill");
+			juce::MemoryBlock state;
+			kept.getStateInformation(state);
+			Processor restored;
+			allOutputs(restored);
+			restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+			const auto& s = restored.sequencer();
+			require(s.mute(3) && !s.mute(2) && s.solo(5) && s.fill() && s.seed() == 77 && s.chainLength() == 2
+				&& s.chainEntry(0).pattern == 2 && s.chainEntry(0).repeats == 3 && s.chainEntry(0).fill
+				&& s.chainEntry(1).pattern == 0 && !s.chainEntry(1).fill, "the sequencer's settings in the state");
+			playSequenced(restored, 4 * Block);
+			require(restored.chainSlot() == 0 && restored.currentPattern() == 2, "the restored chain plays");
+			std::printf("  the state keeps mutes, solos, fill, seed and the chain playing\n");
+		}
+
+		// A pattern's MIDI file, read back by JUCE
+		{
+			Processor exported;
+			exported.editSequencer([](Sequencer& _s)
+			{
+				auto& p = _s.pattern(3);
+				p.setTrig(0, 0, true, 100);
+				p.setTrig(0, 8, true, 90);
+				p.step(0, 8).gate = 16;
+				p.setTrig(15, 2, true, 70);
+				p.step(15, 2).timing = 6;
+				p.setLock(0, 0, 5, 1.0f);
+			});
+			const auto file = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsPattern.mid");
+			require(exported.exportPatternMidi(3, file), "the MIDI file written");
+			juce::MidiFile midi;
+			juce::FileInputStream in(file);
+			require(in.openedOk() && midi.readFrom(in) && midi.getNumTracks() == 1 && midi.getTimeFormat() == 960,
+				"the MIDI file read");
+			std::vector<std::array<int, 3>> ons, offs;
+			const auto& track = *midi.getTrack(0);
+			for(int i = 0; i < track.getNumEvents(); ++i)
+			{
+				const auto& m = track.getEventPointer(i)->message;
+				const int tick = juce::roundToInt(m.getTimeStamp());
+				if(m.isNoteOn())
+					ons.push_back({tick, m.getNoteNumber(), m.getVelocity()});
+				else if(m.isNoteOff())
+					offs.push_back({tick, m.getNoteNumber(), 0});
+			}
+			const std::vector<std::array<int, 3>> wantOn{{0, 36, 100}, {540, 51, 70}, {1920, 36, 90}};
+			const std::vector<std::array<int, 3>> wantOff{{240, 36, 0}, {780, 51, 0}, {2400, 36, 0}};
+			require(ons == wantOn && offs == wantOff, "the MIDI file's notes: " + std::to_string(ons.size()) + " on, "
+				+ std::to_string(offs.size()) + " off");
+			file.deleteFile();
+			std::printf("  a pattern's MIDI file read back by JUCE: notes 36 and 51 at their ticks, a gate of 2 steps\n");
+		}
+		std::printf("PASS: notes, gates, criterion 6, LIVE, the sequencer's state, MIDI export\n");
+	}
+
 	// A take in host blocks of _block samples, the last one shorter, with Machine 1 of Track 1 in the engine at each
 	// block's end and what processBlock allocated
 	struct SlideTake
@@ -2110,6 +2408,153 @@ namespace
 		std::printf("PASS: the values' units: %d parameters read back, every family at 0, 64 and 127 as the engine has it\n",
 			checked);
 	}
+
+	// ---- Track sounds, a pattern's Kit, Kit and pattern files (ticket 19) ----
+
+	// One Hit of _track at velocity 100 at the start, held, in blocks
+	Take playHit(Processor& _processor, const int _track, const int _samples)
+	{
+		_processor.prepareToPlay(SampleRate, Block);
+		Take take(Channels, std::vector<float>(static_cast<size_t>(_samples)));
+		juce::AudioBuffer<float> buffer(Channels, Block);
+		juce::MidiBuffer midi;
+		for(int at = 0; at < _samples; at += Block)
+		{
+			buffer.clear();
+			midi.clear();
+			if(at == 0)
+				midi.addEvent(juce::MidiMessage::noteOn(1, 36 + _track, static_cast<juce::uint8>(100)), 0);
+			_processor.processBlock(buffer, midi);
+			for(int c = 0; c < Channels; ++c)
+				std::copy_n(buffer.getReadPointer(c), Block, take[static_cast<size_t>(c)].begin() + at);
+		}
+		return take;
+	}
+
+	void kitFiles(const Library& _library, const juce::File& _wav)
+	{
+		// A Track sound: Track 3 on the Sampler with a sample and its chain, LFO and Machine 9-24 changed, saved; loaded on
+		// Track 7 of another instance it plays what Track 3 played, and every value of it is Track 3's
+		{
+			Processor from;
+			allOutputs(from);
+			set(find(from, "t03_machine"), from.samplerChoice());
+			// A block first: the Sampler's Machine 1-8 take its defaults on the audio thread
+			from.prepareToPlay(SampleRate, Block);
+			block(from);
+			juce::String error;
+			require(from.loadSample(2, _wav, error), "the WAV refused: " + error.toStdString());
+			const std::pair<const char*, double> values[]{{"t03_m1", 20}, {"t03_level", 90}, {"t03_pan", 30},
+				{"t03_flt_freq", 70}, {"t03_flt_res", 40}, {"t03_drv1_amount", 50}, {"t03_amp_decay", 60},
+				{"t03_lfo1_depth", 40}, {"t03_lfo1_target", 2}, {"t03_m12", 77}, {"t03_output", 3}};
+			for(const auto& [id, v] : values)
+				set(find(from, id), v);
+			const auto file = from.saveTrackSound(2, "Dusty sampler");
+			require(file.existsAsFile(), "the Track sound not written");
+			const auto take = playHit(from, 2, 64 * Block);
+			require(peakOf(take, 6) + peakOf(take, 7) > 0.01f, "Track 3's Hit is silent on Out 03");
+
+			Processor to;
+			allOutputs(to);
+			const auto& entries = to.trackSounds().entries();
+			require(entries.size() == 1 && entries[0].name == "Dusty sampler" && entries[0].file == file,
+				"the Library lists " + std::to_string(entries.size()) + " sounds, the first "
+				+ (entries.empty() ? std::string() : entries[0].name.toStdString() + " in "
+				+ entries[0].file.getFullPathName().toStdString()) + ", for " + file.getFullPathName().toStdString());
+			set(find(to, "t07_output"), 3);
+			KitListener heard;
+			to.addListener(&heard);
+			require(to.loadTrackSound(6, file), "the Track sound not loaded");
+			to.removeListener(&heard);
+			require(heard.edits == 0 && heard.rereads > 0, "a Track sound loaded told edits");
+			for(const auto& id : from.trackIds(2))
+			{
+				const auto suffix = id.substring(4);
+				if(suffix == "output" || suffix == "chokes")
+					continue;
+				// A float's plain value comes back within a rounding, as a Kit's does (Processor::kitDiffers)
+				const double a = plain(find(to, "t07_" + suffix)), b = plain(find(from, id));
+				require(std::abs(a - b) <= 1e-5 * std::max(1.0, std::abs(b)), "Track 7's " + suffix.toStdString() + ": "
+					+ std::to_string(plain(find(to, "t07_" + suffix))) + " for " + std::to_string(plain(find(from, id))));
+			}
+			require(to.sampleName(6) == _wav.getFileName(), "the Track sound's sample");
+			requireSame(take, playHit(to, 6, 64 * Block), "a Track sound on Track 7 does not play as on Track 3: ");
+			require(to.auditionTrackSound(file) && to.auditioned() && !to.auditioned()->pcm.empty(), "the audition");
+			std::printf("  a Track sound saved from Track 3 plays the same on Track 7 of another instance\n");
+		}
+
+		// A pattern's Kit: pattern 2 loads Slot 21 (Track 2's level 30) where it starts, at step 1 of its first pass
+		Processor switched;
+		allOutputs(switched);
+		set(find(switched, "t02_level"), 30);
+		require(switched.saveKit(20), "Slot 21 saved");
+		set(find(switched, "t02_level"), 100);
+		switched.editSequencer([](Sequencer& _s)
+		{
+			_s.pattern(0).setTrig(1, 0, true);
+			_s.pattern(1).setTrig(1, 0, true);
+		});
+		switched.setPatternKit(1, 20);
+		require(switched.patternKit(1) == 20 && switched.patternKit(0) == -1, "the patterns' Kits");
+		constexpr int Two = 1457 * Block;
+		const auto take = playSequenced(switched, Two, [&](const int _at)
+		{
+			if(_at == 128 * 230)
+				set(find(switched, "pattern"), 2);
+		});
+		Processor reference;
+		Calls calls;
+		calls.emplace(0, hitOf(1));
+		calls.emplace(stepSample(4.0), [](Engine& _e) { _e.setLevel(1, 30); _e.noteOn(1, 100); });
+		calls.emplace(stepSample(8.0), hitOf(1));
+		requireSame(take, playEngine(_library, reference, calls, Two), "pattern 2's Kit: ");
+		switched.followKits();
+		require(plain(find(switched, "t02_level")) == 30 && switched.currentKit() == 20 && !switched.kitDiffers(),
+			"the Kit loaded by pattern 2 is not the Kit played");
+		// ... with nothing allocated on the audio thread: pattern 1, given Slot 21 too, asked for from pattern 2
+		{
+			switched.setPatternKit(0, 20);
+			set(find(switched, "t02_level"), 100);
+			set(find(switched, "pattern"), 1);
+			Transport transport;
+			switched.setPlayHead(&transport);
+			switched.prepareToPlay(SampleRate, Block);
+			juce::AudioBuffer<float> buffer(Channels, Block);
+			juce::MidiBuffer midi;
+			size_t allocations = 0;
+			for(int at = 0; at < 800 * Block; at += Block)
+			{
+				transport.quarters = at / SamplesPerQuarter;
+				allocations += countAllocations([&] { switched.processBlock(buffer, midi); });
+			}
+			switched.setPlayHead(nullptr);
+			require(switched.currentPattern() == 0 && plain(find(switched, "t02_level")) == 30, "pattern 1's Kit not loaded");
+			require(allocations == 0, "a pattern's Kit loaded allocated " + std::to_string(allocations) + " times");
+			switched.setPatternKit(0, -1);
+		}
+		std::printf("  pattern 2 loads Slot 21 at its first step, sample %d, the engine's, nothing allocated\n",
+			stepSample(4.0));
+
+		// Files: a Kit exported, then imported into another Slot, is the same Kit; a pattern the same pattern
+		const auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory);
+		const auto kitFile = dir.getChildFile("edDrumsKitExport.edkit");
+		require(switched.exportKit(20, kitFile) && switched.importKit(33, kitFile), "Kit export and import");
+		{
+			KitBank bank(Processor::dataFolder().getChildFile("Kits"));
+			require(bank.read(33)->isEquivalentTo(bank.read(20).get(), false), "the Kit imported differs");
+			Processor a, b;
+			require(a.loadKit(20) && b.loadKit(33), "the Kits load");
+			require(valuesOf(a) == valuesOf(b), "the Kit imported loads other values");
+		}
+		const auto patternFile = dir.getChildFile("edDrumsPatternExport.edpattern");
+		require(switched.exportPattern(1, patternFile) && switched.importPattern(5, patternFile), "pattern files");
+		const auto& p = switched.sequencer().pattern(5);
+		require(p.kit == 20 && p.step(1, 0).trig && !p.step(1, 1).trig, "the pattern imported");
+		kitFile.deleteFile();
+		patternFile.deleteFile();
+		std::printf("PASS: Track sounds play the same on another Track; a pattern's Kit loads at its start's sample; Kit "
+			"and pattern files read back the same\n");
+	}
 }
 
 int main(const int _argc, char** _argv)
@@ -2142,6 +2587,8 @@ int main(const int _argc, char** _argv)
 		}
 		const Library library(Library::findFlashImage({}));
 		everyParameter(library);
+		sequencer(library);
+		sequencerFunctions(library);
 		familyChange();
 		state();
 		samplerChoice();
@@ -2149,9 +2596,9 @@ int main(const int _argc, char** _argv)
 		const auto wav = writeWav(juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsSample.wav"));
 		samples(wav);
 		kits(wav);
+		kitFiles(library, wav);
 		sampleLibrary();
 		wav.deleteFile();
-		sequencer(library);
 		slides(library);
 		return 0;
 	}

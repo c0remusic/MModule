@@ -41,6 +41,9 @@ namespace elektron::drums
 		int track() const { return m_track; }
 		void showMenu(bool _open);
 		void showLfo(int _lfo);
+		// Seq's tabs: 0 Detail, 1 Overview, 2 Patterns
+		void showSeqTab(int _tab);
+		int seqTab() const { return m_seqTab; }
 		// Sound's Machine block: page 0-2 of Machine 1-24, eight a page; one the Track's machine does not use stays shut
 		void showMachinePage(int _page);
 		int machinePage() const { return m_machinePage; }
@@ -62,6 +65,10 @@ namespace elektron::drums
 		juce::Rectangle<int> browseRowArea(int _row) const;
 		int browseCount() const { return static_cast<int>(browseList().size()); }
 		juce::TextEditor& searchField() { return m_search; }
+		// Ticket 20: REMOVE FOLDER (0), the sample's TYPE row (1), the first folder's segment (2); an entry of the
+		// selector open
+		juce::Rectangle<int> browseButtonArea(int _button) const;
+		juce::Rectangle<int> selectorItemArea(int _item) const;
 		// The timer's work, once
 		void tick();
 
@@ -134,6 +141,8 @@ namespace elektron::drums
 		void buildHardware();
 		void buildSound();
 		void buildSeq();
+		void buildOverview();
+		void buildPatterns();
 		void buildMaster();
 		void buildFx();
 		void buildKits();
@@ -161,6 +170,8 @@ namespace elektron::drums
 		void drawBlockTitle(ui::Painter& _p, const Block& _block);
 		void drawSoundPictures(ui::Painter& _p);
 		void drawSeq(ui::Painter& _p);
+		void drawOverview(ui::Painter& _p);
+		void drawPatterns(ui::Painter& _p);
 		void drawMaster(ui::Painter& _p);
 		void drawFx(ui::Painter& _p);
 		void drawKits(ui::Painter& _p);
@@ -198,7 +209,8 @@ namespace elektron::drums
 			std::function<void(int)> _choose, std::function<bool(int)> _disabled = {}, bool _stays = false);
 		void loadSample(int _track, const juce::File& _file);
 		void chooseSample(int _track);
-		// Browse's samples: the list shown, indices in the Library's entries, filtered by the segment and the search
+		// Browse's samples: the list shown, indices in the Library's entries, filtered by the segment and the search; for
+		// KITS the Slots that hold one, for TRACK SOUNDS indices in their Library's entries, filtered by the search
 		bool browseSamples() const { return m_browseTree == 2 || m_browseTree == 4; }
 		std::vector<int> browseList() const;
 		juce::StringArray browseFilters() const;
@@ -206,7 +218,22 @@ namespace elektron::drums
 		void addFolder(const juce::File& _folder);
 		void chooseFolder();
 		void drawBrowseSample(ui::Painter& _p, float _x, const ui::Hue& _hue);
+		// Ticket 20: "Import my Elektron content" from a folder chosen or dropped on Browse; what Menu's ELEKTRON
+		// CONTENT shows of the imports (UW BANK, FACTORY PACKS, TRANSFERS); the toast of an import ended
+		void chooseImport();
+		void startImport(const juce::File& _folder);
+		juce::String elektronContent(int _cell) const;
+		juce::String importSummary() const;
 		void renameKit(int _slot);
+		// Ticket 19: a Track sound's name asked, then saved from the Track shown; one loaded on a Track; one auditioned;
+		// a file chosen for a Kit's or a pattern's import (_save false) or export
+		void saveTrackSound();
+		void loadTrackSound(int _track, const juce::File& _file);
+		void auditionSound(const juce::File& _file);
+		void chooseFile(const juce::String& _title, const juce::String& _pattern, bool _save,
+			std::function<void(const juce::File&)> _then);
+		void drawBrowseSound(ui::Painter& _p, float _x, const ui::Hue& _hue);
+		void drawBrowseKit(ui::Painter& _p, float _x, const ui::Hue& _hue);
 
 		Processor& m_processor;
 		Page m_page = Page::Sound;
@@ -229,12 +256,30 @@ namespace elektron::drums
 		juce::String m_browseSearch;
 		int m_browseDrag = -1;				// the Library entry a list row's drag carries
 		juce::File m_auditionFile;			// what the audition played last
+		uint32_t m_importsSeen = 0;			// the Processor's imports this editor told
 		juce::TextEditor m_search;
 		int m_kitSel = 0;					// Kits' Slot selected
 		int m_kitDelete = -1;				// the Slot whose DELETE asks again
 		juce::String m_toast;
 		double m_toastUntil = 0;
 		std::unique_ptr<Pattern> m_trackClipboard;
+		// Seq's Overview and Patterns: the tab, Overview's page of 32 steps, the pattern chosen, the chain's page and
+		// APPEND ON; the clipboards of a pattern and of a step with its Locks; what a Patterns drag carries (a pattern,
+		// or a chain entry as -1 - its index)
+		int m_seqTab = 0;
+		int m_overviewPage = 0;
+		int m_patternSel = 0;
+		int m_chainPage = 0;
+		bool m_chainAppend = false;
+		std::unique_ptr<Pattern> m_patternClipboard;
+		bool m_stepCopied = false;
+		Step m_stepClipboard;
+		std::vector<Lock> m_stepLocksClipboard;
+		int m_patternDrag = -1000;
+		// Overview: what the first click of a double-click took off, which the second puts back
+		int m_undoTrack = -1, m_undoStep = -1;
+		Step m_undo;
+		std::vector<Lock> m_undoLocks;
 		Selector m_selector;
 		Press m_press;
 		juce::String m_key;
@@ -247,6 +292,8 @@ namespace elektron::drums
 		std::vector<ui::Hit> m_hits;
 		std::vector<ui::Region> m_regions;
 		std::array<float, 16> m_activity{};		// a Track's voice sounding, falling after
+		std::array<float, 240> m_grTrace{};		// Master's gain reduction, a frame each, m_grAt the next to write
+		size_t m_grAt = 0;
 		std::array<std::array<juce::Image, 2>, 4> m_plates;	// b0, b1, b2, sa at 1x and 2x
 		std::unique_ptr<juce::FileChooser> m_chooser;
 	};

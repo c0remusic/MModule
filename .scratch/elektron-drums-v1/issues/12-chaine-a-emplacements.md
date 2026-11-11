@@ -173,3 +173,15 @@ Q6 sur MD DIST : écarté, l'utilisateur ayant suivi la recommandation, DIST ét
 ## 2026-11-06 : défauts de famille faits
 
 `syntaktChain` tient ce que pose l'init de l'OS : filtre type 0, DEC et REL 64, FENR 0, ampli actif en AHD à 0, 64, 127, 100, 32 ; SY BITS en ADSR, voix tenue jusqu'au relâchement (`Chain::holdsVoice`). L'ampli reste actif pour le fondu de l'ancien Hit au retrigger : pire AHD de 72,7 / 56,2 à 84,7 / 87,2 dB contre le portage. Machines tenues : 58,7 dB sur une fenêtre, borné à 58, cause déduite. Une constante de -123 dBFS, non expliquée, est retirée des fenêtres de Q3 ; les deux chiffres sont imprimés.
+
+## État (2026-11-11)
+
+Défauts d'ampli de la famille Syntakt changés à la demande de l'utilisateur : une piste neuve en AHD a ATTACK 0, HOLD 0
+et DECAY 126, la plus longue qui se ferme (127 ne se ferme jamais) ; une machine qui démarre en ADSR garde 0, 64, 127,
+100, 32. Mesuré par `edDrumsAmpTest` aux défauts des machines, chute à -40 dB : BD MODERN 1 870 ms seule, 1 694 ms avec
+l'ampli neuf (90,6 %) ; SD BASIC 185 et 184 ms ; CY ALLOY 1 774 et 1 635 ms (le « CH » du rapport compris comme CY
+ALLOY, seule cymbale de la famille). L'ampli d'avant (HOLD 64, DECAY 127) ne rallongeait rien : à ces défauts, c'est le
+DECAY 64 de la machine qui fait sonner BD MODERN et CY ALLOY près de deux secondes, et aucun DECAY d'ampli fini ne laisse
+la machine finir seule à 95 % près. Les états et kits gardent leurs valeurs : un état à HOLD 64 et DECAY 127 se charge
+et joue comme avant (`edDrumsProcessorTest`). `edDrumsChainTest` suit les nouveaux défauts ; son contrôle d'unité de la
+chaîne Syntakt mesure les étages sans l'ampli, qui décroît maintenant dès le Hit.

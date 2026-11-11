@@ -45,6 +45,11 @@ namespace elektron::drums
 		bool write(int _slot, const juce::XmlElement& _kit);
 		bool clear(int _slot);
 
+		// A file of gzipped XML whose root is _tag, as a Slot's is: nullptr for one that is not; and one written whole
+		// through a temporary file. Kits exported and imported, Track sounds and patterns are such files
+		static std::unique_ptr<juce::XmlElement> readFile(const juce::File& _file, const char* _tag);
+		static bool writeFile(const juce::File& _file, const juce::XmlElement& _xml);
+
 	private:
 		juce::File file(int _slot) const;
 

@@ -93,7 +93,7 @@ typedef struct {
     float delay_buf[SOPHIE_MAX_DELAY_SAMPLES];
     float delay_lp;
     int delay_pos;
-    int pad_index;
+    int body; /* the kick body for models 0-3, as upstream's pad 1 plays it */
     sophie_patch_t patch;
     uint32_t rng;
     int active;
@@ -102,7 +102,8 @@ typedef struct {
 typedef struct {
     sophie_voice_t voice;
     sophie_patch_t patch; /* the pad's current settings: the next trigger takes them, a Live tail follows them */
-    int pad;              /* 0-15: the base note 36 + pad, and pad 0 plays the kick body for models 0-3 */
+    int pad;              /* 0-15: the base note 36 + pad */
+    int body;             /* the kick body for models 0-3: upstream plays it on pad 0 alone */
     int sample_rate;
     float control_slew, feedback_slew;
     int steal_samples;
@@ -115,8 +116,11 @@ sophie_patch_t sophie_factory_patch(int pad);
 /* Silent voice, factory patch of the pad, Sophie's slews for the sample rate. Allocates nothing. */
 void sophie_init(sophie_t *s, int sample_rate, int pad);
 
-/* The next trigger's base note and topology. */
+/* The next trigger's base note, and the kick body on pad 0 alone as upstream has it. */
 void sophie_set_pad(sophie_t *s, int pad);
+
+/* The next trigger's kick body (models 0-3), on any pad: what sophie_set_pad chose, changed. */
+void sophie_set_body(sophie_t *s, int on);
 
 /* Clamped as Sophie clamps. Returns 0 for a value that is not finite or a parameter out of range. */
 int sophie_set_param(sophie_t *s, sophie_param_t param, float value);

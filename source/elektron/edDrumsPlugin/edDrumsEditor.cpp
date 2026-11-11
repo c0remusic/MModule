@@ -33,6 +33,7 @@ namespace elektron::drums
 
 	Editor::Editor(Processor& _processor) : AudioProcessorEditor(_processor), m_processor(_processor)
 	{
+		m_importsSeen = m_processor.imports();
 		using namespace LockstepAssets;
 		m_plates[B0] = {load(b0_1x_jpg, b0_1x_jpgSize), load(b0_2x_jpg, b0_2x_jpgSize)};
 		m_plates[B1] = {load(b1_1x_jpg, b1_1x_jpgSize), load(b1_2x_jpg, b1_2x_jpgSize)};
@@ -108,6 +109,13 @@ namespace elektron::drums
 		repaint();
 	}
 
+	void Editor::showSeqTab(const int _tab)
+	{
+		m_seqTab = juce::jlimit(0, 2, _tab);
+		layout();
+		repaint();
+	}
+
 	int Editor::machinePages() const
 	{
 		const auto& machines = m_processor.machines();
@@ -165,7 +173,11 @@ namespace elektron::drums
 			<< (m_selector.open ? 1 : 0) << "/" << m_seqStep << "/" << m_seqMode << "/" << m_lockScroll << "/"
 			<< m_armedLine << "/" << m_browseItem << "/" << m_browseScroll << "/" << getWidth() << "/" << m_browseTree << "/"
 			<< m_browseFilter << "/" << m_browseSearch << "/" << static_cast<int>(m_processor.sampleLibrary().generation())
-			<< "/";
+			<< "/" << static_cast<int>(m_processor.trackSounds().generation()) << "/";
+		// Browse's KITS: a row each Slot that holds a Kit
+		if(m_page == Page::Browse && m_browseTree == 0)
+			for(int i = 0; i < Processor::KitSlots; ++i)
+				key << (m_processor.kitSlot(i).empty() ? "0" : "1");
 		for(const int s : m_lockSteps)
 			key << s << ",";
 		key << "/" << choiceOf(trackParameter("machine")->getParameterID()) << "/"
@@ -173,10 +185,16 @@ namespace elektron::drums
 			<< choiceOf(trackParameter("band_type")->getParameterID()) << "/"
 			<< choiceOf(trackParameter("lfo1_sync")->getParameterID()) << "/"
 			<< choiceOf(trackParameter("lfo2_sync")->getParameterID()) << "/" << choiceOf("delay_source") << "/"
-			<< choiceOf("reverb_source") << "/" << m_processor.sampleName(m_track) << "/";
+			<< choiceOf("reverb_source") << "/" << choiceOf("delay_sync") << choiceOf("chorus_sync")
+			<< choiceOf("phaser_sync") << "/" << m_processor.sampleName(m_track) << "/";
 		if(m_page == Page::Seq)
+		{
 			for(const int l : lockLineList())
 				key << l << ",";
+			key << "/" << m_seqTab << "/" << m_overviewPage << "/" << m_patternSel << "/" << m_chainPage << "/"
+				<< (m_chainAppend ? 1 : 0) << "/" << m_processor.sequencer().chainLength() << "/"
+				<< m_processor.chainSlot() << "/" << pattern().masterLength << "/" << m_processor.currentPattern();
+		}
 		return key;
 	}
 
@@ -200,7 +218,7 @@ namespace elektron::drums
 			buildMenu();
 		if(m_selector.open)
 			buildSelector();
-		m_search.setVisible(m_page == Page::Browse && browseSamples() && !m_menu);
+		m_search.setVisible(m_page == Page::Browse && (browseSamples() || m_browseTree == 1) && !m_menu);
 		for(auto& r : m_regions)
 			r.last = r.state();
 		m_key = layoutKey();
@@ -263,6 +281,9 @@ namespace elektron::drums
 			const int step = m_processor.playingStep(m_track);
 			if(step >= 0)
 				m_stepPage = juce::jlimit(0, 3, step / 16);
+			// Overview's page follows the Track shown's row
+			if(const int row = m_processor.playingRowStep(m_track); row >= 0 && m_page == Page::Seq && m_seqTab == 1)
+				m_overviewPage = row / 32;
 		}
 		if(m_press.hit < 0 && layoutKey() != m_key)
 		{
@@ -283,6 +304,12 @@ namespace elektron::drums
 		{
 			m_toastUntil = 0;
 			repaint(toPx({ScreenX, 195, ScreenW, 20}));
+		}
+		// An import ended: what it found and what it missed
+		if(m_importsSeen != m_processor.imports())
+		{
+			m_importsSeen = m_processor.imports();
+			toast(importSummary());
 		}
 	}
 
@@ -493,17 +520,24 @@ namespace elektron::drums
 		if(m_selector.open)
 			drawSelector(p);
 		// A sample dragged from Browse: its name under the mouse, a frame on the Track it would load on
-		const auto& entries = m_processor.sampleLibrary().entries();
-		if(m_browseDrag >= 0 && m_press.moved && m_browseDrag < static_cast<int>(entries.size()))
+		// ... or a Track sound
+		const auto dragged = [this]() -> juce::String
 		{
-			const auto& h = m_browseTree == 4 ? hue::p : hue::g;
+			const auto at = static_cast<size_t>(m_browseDrag);
+			if(m_browseTree == 1)
+				return at < m_processor.trackSounds().entries().size() ? m_processor.trackSounds().entries()[at].name : "";
+			return at < m_processor.sampleLibrary().entries().size() ? m_processor.sampleLibrary().entries()[at].name : "";
+		};
+		if(m_browseDrag >= 0 && m_press.moved && dragged().isNotEmpty())
+		{
+			const auto& h = m_browseTree == 1 ? hue::a : m_browseTree == 4 ? hue::p : hue::g;
 			const auto at = m_press.last;
 			const int k = static_cast<int>((at.x - 10) / KeyPitch);
 			if(at.y >= 244 && k >= 0 && k < 16)
 				p.frame(keyX(k) - 0.8f, 248.6f, KeyWidth + 1.6f, 74, h.c[0], 1.8f, 0.6f);
 			p.rect(at.x - 17, at.y - 5, 34, 10, juce::Colour(0xff2b2a26), 0.8f);
 			p.frame(at.x - 17, at.y - 5, 34, 10, h.c[0], 0.8f, 0.3f);
-			p.text(at.x, at.y + 1.4f, entries[static_cast<size_t>(m_browseDrag)].name.substring(0, 14), 3.2f, colour::ink,
+			p.text(at.x, at.y + 1.4f, dragged().substring(0, 14), 3.2f, colour::ink,
 				600, Painter::Align::Centre);
 		}
 		if(lockEdit())
@@ -631,7 +665,7 @@ namespace elektron::drums
 	{
 		if(m_page != Page::Browse)
 			return;
-		const int n = browseSamples() ? browseCount() : static_cast<int>(m_processor.machines().size());
+		const int n = m_browseTree != 3 ? browseCount() : static_cast<int>(m_processor.machines().size());
 		const int rows = browseSamples() ? 15 : 16;
 		m_browseScroll = juce::jlimit(0, std::max(0, n - rows), m_browseScroll + (_wheel.deltaY < 0 ? 4 : -4));
 		layout();
@@ -854,6 +888,9 @@ namespace elektron::drums
 			return choiceOf(trackParameter(_section == "d1" ? "drv1_type" : "drv2_type")->getParameterID()) == 0;
 		if(_section == "l1" || _section == "l2")
 			return choiceOf(trackParameter(_section == "l1" ? "lfo1_target" : "lfo2_target")->getParameterID()) == 0;
+		// The Amp block's envelope, while AMP is off
+		if(_section == "ae")
+			return trackParameter("amp_on")->getValue() < 0.5f;
 		return false;
 	}
 
@@ -903,15 +940,16 @@ namespace elektron::drums
 
 	void Editor::filesDropped(const juce::StringArray& _files, const int _x, const int _y)
 	{
-		// Folders on Browse join the Library
+		// A folder on Browse is imported (ticket 20): its samples join the Library, a flash image in it gives its words
 		if(m_page == Page::Browse)
 		{
 			bool folders = false;
 			for(const auto& f : _files)
 				if(juce::File(f).isDirectory())
 				{
-					addFolder(juce::File(f));
+					startImport(juce::File(f));
 					folders = true;
+					break;
 				}
 			if(folders)
 				return;
@@ -1002,10 +1040,126 @@ namespace elektron::drums
 			});
 	}
 
+	void Editor::chooseImport()
+	{
+		m_chooser = std::make_unique<juce::FileChooser>("Import my Elektron content: a folder of packs, Transfer's exports "
+			"or a Machinedrum flash image");
+		juce::Component::SafePointer<Editor> self(this);
+		m_chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+			[self](const juce::FileChooser& _c)
+			{
+				if(self && _c.getResult().isDirectory())
+					self->startImport(_c.getResult());
+			});
+	}
+
+	void Editor::startImport(const juce::File& _folder)
+	{
+		if(!m_processor.importElektron(_folder))
+		{
+			toast(m_processor.importing() ? "An import runs: wait for its end" : _folder.getFileName() + " cannot be read");
+			return;
+		}
+		toast("Importing " + _folder.getFileName());
+		repaint();
+	}
+
+	// UW BANK, FACTORY PACKS, TRANSFERS: NOT IMPORTED until an import ran in this instance, then what the last found.
+	// UW BANK says IMPORTED once the engine plays the words imported, AT NEXT LOAD while the words wait for it
+	juce::String Editor::elektronContent(const int _cell) const
+	{
+		const auto& r = m_processor.lastImport();
+		const bool ran = m_processor.imports() > 0;
+		if(_cell == 0)
+			return m_processor.libraryFromWords() ? "IMPORTED"
+				: ElektronImport::wordsFile(Processor::dataFolder()).existsAsFile() ? "AT NEXT LOAD"
+				: ran ? "MISSING" : "NOT IMPORTED";
+		if(!ran)
+			return "NOT IMPORTED";
+		const int n = _cell == 1 ? r.audio : r.unread;
+		return n == 0 ? juce::String("MISSING") : juce::String(n) + (_cell == 1 ? " FOUND" : " NOT READ");
+	}
+
+	juce::String Editor::importSummary() const
+	{
+		const auto& r = m_processor.lastImport();
+		if(r.error.isNotEmpty())
+			return r.error;
+		juce::StringArray parts;
+		parts.add(r.image.isNotEmpty() ? "UW bank from " + r.image + ", plays at next load"
+			: r.refused > 0 ? "no OS 1.63 image among " + juce::String(r.refused) + " image-sized files" : "no UW image");
+		parts.add(r.audio == 0 ? juce::String("no sample") : juce::String(r.audio) + " samples"
+			+ (r.known > 0 ? ", " + juce::String(r.known) + " already in the Library" : juce::String()));
+		if(r.unread > 0)
+			parts.add(juce::String(r.unread) + " Elektron files not read");
+		return r.folder.getFileName() + ": " + parts.joinIntoString("; ");
+	}
+
 	void Editor::toast(const juce::String& _text)
 	{
 		m_toast = _text;
 		m_toastUntil = juce::Time::getMillisecondCounterHiRes() + 2200;
 		repaint(toPx({ScreenX, 195, ScreenW, 20}));
+	}
+
+	void Editor::saveTrackSound()
+	{
+		const int track = m_track;
+		// Deleted by the modal manager after its callback, which reads the name first
+		auto* window = new juce::AlertWindow("Save Track " + juce::String(track + 1) + "'s sound", {},
+			juce::MessageBoxIconType::NoIcon, this);
+		window->addTextEditor("name", machineName(track));
+		window->getTextEditor("name")->setInputRestrictions(24);
+		window->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
+		window->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+		juce::Component::SafePointer<Editor> self(this);
+		window->enterModalState(true, juce::ModalCallbackFunction::create([self, window, track](const int _result)
+		{
+			const auto name = window->getTextEditorContents("name").trim();
+			if(!self || _result != 1 || name.isEmpty())
+				return;
+			const auto file = self->m_processor.saveTrackSound(track, name);
+			self->toast(file.existsAsFile() ? "Saved the sound " + name : "The sound could not be written");
+			self->layout();
+			self->repaint();
+		}), true);
+	}
+
+	void Editor::loadTrackSound(const int _track, const juce::File& _file)
+	{
+		if(!m_processor.loadTrackSound(_track, _file))
+		{
+			toast(_file.getFileNameWithoutExtension() + " could not be read");
+			return;
+		}
+		toast(_file.getFileNameWithoutExtension() + " on Track " + juce::String(_track + 1));
+		layout();
+		repaint();
+	}
+
+	void Editor::auditionSound(const juce::File& _file)
+	{
+		if(!m_processor.auditionTrackSound(_file))
+			toast(_file.getFileNameWithoutExtension() + " could not be read");
+		m_auditionFile = _file;
+		repaint();
+	}
+
+	void Editor::chooseFile(const juce::String& _title, const juce::String& _pattern, const bool _save,
+		std::function<void(const juce::File&)> _then)
+	{
+		m_chooser = std::make_unique<juce::FileChooser>(_title, juce::File(), _pattern);
+		juce::Component::SafePointer<Editor> self(this);
+		const int flags = juce::FileBrowserComponent::canSelectFiles | (_save
+			? juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting
+			: juce::FileBrowserComponent::openMode);
+		m_chooser->launchAsync(flags, [self, then = std::move(_then)](const juce::FileChooser& _c)
+		{
+			if(self && _c.getResult() != juce::File())
+			{
+				then(_c.getResult());
+				self->repaint();
+			}
+		});
 	}
 }

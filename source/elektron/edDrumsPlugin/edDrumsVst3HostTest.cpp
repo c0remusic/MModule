@@ -44,7 +44,8 @@ namespace
 	// And Tempo, then ticket 18's: 61 more a Track (chain, LFOs, sends, accent), 65 shared, then Pattern
 	// (edDrumsParameterIds.txt)
 	constexpr int g_pages = Tracks * g_perTrack + 1 + Tracks * 61 + 65 + 1;	// up to Pattern; then each Track's Machine 9-24
-	constexpr int g_parameters = g_pages + Tracks * 16;
+	constexpr int g_machine24 = g_pages + Tracks * 16;	// up to T16 Machine 24; then tickets 14-15's sync and S&H
+	constexpr int g_parameters = g_machine24 + 7;
 	constexpr double g_stallMs = 10.0;
 
 	void require(const bool _condition, const std::string& _message)
@@ -351,7 +352,8 @@ namespace
 		require(parameters[Tracks * g_perTrack + 1]->getName(64) == "T01 Drive 1 Type", "ticket 18's first place");
 		require(parameters[g_pages - 2]->getName(64) == "Oversampling", "ticket 18's last place");
 		require(parameters[g_pages - 1]->getName(64) == "Pattern", "Pattern's place");
-		require(parameters[g_pages]->getName(64) == "T01 Machine 9" && parameters[g_parameters - 1]->getName(64) == "T16 Machine 24",
+		require(parameters[g_pages]->getName(64) == "T01 Machine 9" && parameters[g_machine24 - 1]->getName(64) == "T16 Machine 24"
+			&& parameters[g_parameters - 1]->getName(64) == "Phaser DP4 S&H",
 			"Machine 9-24's places");
 		std::printf("%d parameters of ours, %d automatable with Bypass; latency %d samples\n", g_parameters, automatable,
 			plugin.getLatencySamples());

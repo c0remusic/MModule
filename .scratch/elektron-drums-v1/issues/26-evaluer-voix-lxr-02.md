@@ -72,3 +72,20 @@ L'utilisateur a dit oui. Les quatre voix sont portées sous le nom OPEN DRUM (`s
 32. Le passage aux blocs de 32 garde la vitesse des enveloppes : la voix rend ses 64 échantillons un bloc sur deux.
 Restent : l'écoute, la modulation par vélocité et les LFO propres des voix, et un désaccord de 1,6 cent (la voix
 garde ses 44 140 Hz).
+
+## État (2026-11-11) : SOPHIE devient une famille
+
+La voix de Sophie (`source/elektron/sophie/`, MIT, section de `NOTICE.md`) joue comme famille SOPHIE, dernier choix de
+Machine, sans que rien avant ne bouge. Une voix par piste sur les blocs, anneaux et chaîne du Machinedrum, au pad 1
+(note 36) pour toutes les pistes, sans paramètre PAD. Machine 1-19 sont les paramètres de Sophie, Machine 20 BODY (le
+corps sinus du kick, modèles 0-3, sur toute piste ; actif par défaut). Les 16 pads d'usine sont 16 sons
+(`sophie::soundValues`, le pad compté dans Tune) offerts dans le bloc Machine ; une piste mise sur SOPHIE part sur KICK.
+Gain de sortie 0,63 : le kick crête à 0,614 contre 0,629 (OD DRUM) et 0,601 (BD MODERN), sans chaîne.
+
+`edDrumsSophieTest` : les 16 sons, 192 Hits (notes partout dans le bloc, vélocités 127 et 64) donnent les échantillons
+de `sophie_render` seul à paramètres égaux, premier son à `HitDelay` (81) après la note, gigue 0 (le premier
+échantillon de la voix, nul à la sortie du passe-bas, compte comme départ d'un échantillon) ; BODY coupé change le kick
+de +1,6 dB d'énergie d'écart ; Machine 1-20 fixés ou lockés pareil ; voix lâchée une fois éteinte (304 à 1 649 ms selon
+le son) ; rien d'alloué ; 1,7 à 4,9 µs par voix et 32 échantillons seule, 71 µs pour 16 pistes. `sophieTest` reste au
+bit près. Non fait : l'écoute, les unités des valeurs à l'écran, et les sons d'usine dans la bibliothèque de sons du
+ticket 19, proposés dans le bloc Machine à la place pour ne pas toucher ce travail en cours.

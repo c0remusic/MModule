@@ -300,6 +300,8 @@ namespace elektron::drums::parameters
 			return seconds(dp4DelayMs(static_cast<uint8_t>(_v)) / 1000);
 		if(is("phaser_dp4_fdbk"))
 			return dp4(_v);
+		if(is("phaser_dp4_sh"))
+			return _v == 0 ? "OFF" : hertz(dp4SampleHoldHz(static_cast<uint8_t>(_v)));
 
 		// The master (edDrumsMaster.cpp). Makeup with the compressor's fixed x 16; the drive's mix is 0 at 0
 		const auto byte = static_cast<uint8_t>(_v);
@@ -460,6 +462,32 @@ namespace elektron::drums::parameters
 	}};
 	const Spec oversamplingSpec{"oversampling", "Oversampling", 0, 2, "1x|2x|4x"};
 
+	const Spec delaySyncSpec{"delay_sync", "Delay Sync", 0, 1, nullptr, true};
+	const Spec delayNoteSpec{"delay_note", "Delay Duration", 0, 14,
+		"1/32|1/16T|1/32D|1/16|1/8T|1/16D|1/8|1/4T|1/8D|1/4|1/2T|1/4D|1/2|1/2D|1/1"};
+	const std::array<Spec, 2> lfoSyncSpecs{{
+		{"chorus_sync", "Chorus Sync", 0, 1, nullptr, true}, {"phaser_sync", "Phaser Sync", 0, 1, nullptr, true},
+	}};
+	const std::array<Spec, 2> lfoNoteSpecs{{
+		{"chorus_speed", "Chorus Speed", 0, 10, "1/64|1/32|1/16|1/8|1/4|1/2|1 Bar|2 Bars|4 Bars|8 Bars|16 Bars"},
+		{"phaser_speed", "Phaser Speed", 0, 10, "1/64|1/32|1/16|1/8|1/4|1/2|1 Bar|2 Bars|4 Bars|8 Bars|16 Bars"},
+	}};
+	const Spec dp4SampleHoldSpec{"phaser_dp4_sh", "Phaser DP4 S&H"};
+
+	double delayNoteQuarters(const int _choice)
+	{
+		// A whole note is 4 beats; T two thirds, D three halves
+		static constexpr double Beats[] = {0.125, 1.0 / 6, 0.1875, 0.25, 1.0 / 3, 0.375, 0.5, 2.0 / 3, 0.75, 1, 4.0 / 3,
+			1.5, 2, 3, 4};
+		return Beats[std::clamp(_choice, 0, 14)];
+	}
+
+	double lfoNoteQuarters(const int _choice)
+	{
+		// 1/64 a sixteenth of a beat, doubling to 16 bars of 4
+		return std::ldexp(1.0 / 16, std::clamp(_choice, 0, 10));
+	}
+
 	// As the engine tests set them to hear each effect: the delays at TIME 32, the reverbs at half decay, the filters
 	// open, the levels up, nothing fed back (64 is none for our chorus's and phaser's feedback)
 	const std::array<int, 8> echoDefaults{32, 0, 0, 0, 0, 127, 0, 127};
@@ -474,7 +502,8 @@ namespace elektron::drums::parameters
 	{
 		if(_machine.family == Family::Syntakt)
 			return syntaktChain(_machine.id == SyBits);
-		if(_machine.family == Family::Machinedrum || _machine.family == Family::OpenDrum)
+		if(_machine.family == Family::Machinedrum || _machine.family == Family::OpenDrum
+			|| _machine.family == Family::Sophie)
 			return machinedrumChain();
 		return {};
 	}

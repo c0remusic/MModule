@@ -20,6 +20,7 @@
 #include <cmath>
 #include <complex>
 #include <cstdio>
+#include <functional>
 #include <map>
 #include <memory>
 #include <random>
@@ -1656,6 +1657,38 @@ namespace
 		{
 			const auto take = ours(send, mode, 32);
 			require(energy(take.channel(2 * Out)) > 1e-3, "no chorus, phaser or flanger");
+			std::vector<float> free;
+			for(const bool synced : {false, true})
+			{
+				// The return's peak for the meters, and the LFO at a note of the tempo, which moves the return
+				auto e = std::make_unique<Engine>(_library);
+				e->setMachine(0, {Family::Machinedrum, 16});
+				e->setLevel(0, 127);
+				e->setChain(0, ChainSettings{});
+				auto& fx = e->sends();
+				fx.setChorus(ChorusLevel, 127);
+				fx.setPhaser(PhaserMode, static_cast<uint8_t>(mode));
+				fx.setPhaser(PhaserLevel, 127);
+				fx.setPhaser(PhaserDepth, 127);
+				fx.setChorus(ChorusDepth, 127);
+				fx.setChorus(ChorusDelay, 64);
+				fx.setPhaser(PhaserFrequency, 64);
+				fx.setOutput(send, Out);
+				if(synced)
+				{
+					fx.setLfoSync(send, true);
+					fx.setLfoNote(send, 0.25);
+				}
+				e->setSend(0, send, 127);
+				Take t(Samples);
+				t.render(*e, 0, Warm);
+				e->noteOn(0, 127);
+				t.render(*e, 0, Samples - Warm);
+				require(fx.peak(send) > 0.01f && fx.peak(Send::Delay) == 0, "a return's peak is not its own");
+				if(synced)
+					require(t.channel(2 * Out) != free, "the LFO's note changes nothing");
+				free = t.channel(2 * Out);
+			}
 			require(take.channel(2 * Out) == ours(send, mode, 57).channel(2 * Out), "ours move with the host's blocks");
 			for(const float x : take.channel(2 * Out))
 				require(std::isfinite(x) && std::abs(x) < 4, "ours run away");
@@ -1719,7 +1752,82 @@ namespace
 		require(pressed.channel(0) == play(true, squeezed, 57).channel(0), "the master moves with the host's blocks");
 		for(const float x : pressed.channel(0))
 			require(std::abs(x) <= 1, "Main past full scale");
+		{
+			// The reduction the editor shows, while the Hit is loud and once it has gone
+			auto e = std::make_unique<Engine>(_library);
+			e->setMachine(0, {Family::Machinedrum, 16});
+			e->setLevel(0, 90);
+			e->setMasterOn(true);
+			for(const auto& [byte, value] : squeezed)
+				e->master().set(byte, value);
+			Take take(Samples);
+			e->noteOn(0, 127);
+			take.render(*e, 0, 2048);
+			const float loud = e->master().reduction();
+			take.render(*e, 0, Samples - 2048);
+			const float after = e->master().reduction();
+			std::printf("  gain reduction: %.1f dB in the Hit, %.2f dB a second on\n", loud, after);
+			require(loud < -3 && after > loud / 4, "the gain reduction does not follow the Hit");
+		}
 		std::printf("PASS: the master, nothing at its defaults, Main only, the same whatever the blocks\n");
+	}
+
+	// ---- what the sends and the master cost: one Track hit every quarter second, in blocks of 128, the best of three
+	// runs, against the same Track with neither ----
+
+	void effectsCost(const Library& _library)
+	{
+		constexpr int Seconds = 4, Blocks = Seconds * 44100 / 128;
+		const auto run = [&](const std::function<void(Engine&)>& _set)
+		{
+			double best = 1e9;
+			for(int r = 0; r < 3; ++r)
+			{
+				auto e = std::make_unique<Engine>(_library);
+				e->setMachine(0, {Family::Machinedrum, 16});
+				e->setLevel(0, 100);
+				_set(*e);
+				Take take(128);
+				const auto t0 = Clock::now();
+				for(int b = 0; b < Blocks; ++b)
+				{
+					if(b % 86 == 0)
+						e->noteOn(0, 100);
+					take.render(*e, 0, 128);
+				}
+				best = std::min(best, std::chrono::duration<double>(Clock::now() - t0).count());
+			}
+			return 100 * best / Seconds;
+		};
+		const auto allSends = [](Engine& _e, const SendSource _source, const int _phaserMode)
+		{
+			auto& fx = _e.sends();
+			fx.setSource(Send::Delay, _source);
+			fx.setSource(Send::Reverb, _source);
+			fx.setEcho(md::fast::EchoLev, 127);
+			fx.setGateBox(md::fast::GateLev, 127);
+			fx.setChorus(ChorusLevel, 127);
+			fx.setPhaser(PhaserStages, 6);
+			fx.setPhaser(PhaserLevel, 127);
+			fx.setPhaser(PhaserMode, static_cast<uint8_t>(_phaserMode));
+			for(int s = 0; s < SendCount; ++s)
+				_e.setSend(0, static_cast<Send>(s), 127);
+		};
+		const double bare = run([](Engine&) {});
+		const double md = run([&](Engine& _e) { allSends(_e, SendSource::Machinedrum, 0); });
+		const double st = run([&](Engine& _e) { allSends(_e, SendSource::Syntakt, 0); });
+		const double dp4 = run([&](Engine& _e) { allSends(_e, SendSource::Syntakt, 2); });
+		const double master = run([](Engine& _e)
+		{
+			_e.setMasterOn(true);
+			_e.master().set(MasterThreshold, 40);
+			_e.master().set(MasterDrive, 64);
+		});
+		std::printf("  cost at 44.1 kHz, %% of a core: a Track alone %.3f; the four sends on top, Echo and Gate Box %.3f, "
+			"the Syntakt's %.3f, the Syntakt's with the DP/4 phaser %.3f; the master on top %.3f\n", bare, md - bare,
+			st - bare, dp4 - bare, master - bare);
+		require(md - bare < 3 && st - bare < 3 && dp4 - bare < 3 && master - bare < 1, "the sends or the master cost too much");
+		std::printf("PASS: the cost of the sends and the master\n");
 	}
 
 	// ---- the sends on their own: a block of Sends here, with its input before it, is 32 samples of the engine's ----
@@ -1821,6 +1929,25 @@ namespace
 		fx->setTempo(120 * 24);
 		requireNear(firstEcho(*fx, 2 * TimeFrames), TimeFrames, 3, "TIME again");
 
+		// A note at the host's tempo, over the free time and TIME's; a triplet in whole samples, the tempo followed
+		idle(*fx, 15000, false);
+		fx->setDelayFree(4);
+		fx->setBpm(120);
+		fx->setDelaySync(true);
+		fx->setDelayNote(1);
+		requireNear(firstEcho(*fx, 40000), 22050, 3, "the Syntakt's, a quarter at 120 BPM");
+		idle(*fx, 15000, false);
+		fx->setBpm(100);
+		fx->setDelayNote(1.0 / 3);
+		requireNear(firstEcho(*fx, 40000), 8820, 3, "the Syntakt's, an eighth triplet at 100 BPM");
+		idle(*fx, 15000, false);
+		fx->setBpm(137.5);
+		requireNear(firstEcho(*fx, 40000), 6415, 3, "the Syntakt's, an eighth triplet at 137.5 BPM");
+		idle(*fx, 15000, false);
+		fx->setDelaySync(false);
+		fx->setDelayFree(0);
+		requireNear(firstEcho(*fx, 2 * TimeFrames), TimeFrames, 3, "TIME after the note");
+
 		const auto echoAt = [&](const double _hz, const double _seconds)
 		{
 			auto echo = sendsOf(_library);
@@ -1832,6 +1959,14 @@ namespace
 		requireNear(echoAt(4, 8), 11025, 3, "the Echo's, 4 Hz, whatever the tempo");
 		requireNear(echoAt(100, 8), 441, 3, "the Echo's, 100 Hz");
 		requireNear(echoAt(0.5, 12), 88200, 3, "the Echo's, 0.5 Hz");
+		{
+			auto echo = sendsOf(_library);
+			echo->setBpm(90);
+			echo->setDelaySync(true);
+			echo->setDelayNote(0.75);
+			idle(*echo, static_cast<int>(8 * SendRate / Frames), true);
+			requireNear(firstEcho(*echo, 800000), 22050, 3, "the Echo's, a dotted eighth at 90 BPM");
+		}
 		for(const double hz : {1000.0, 0.4536, 0.4535, 0.25, 0.125})
 		{
 			const int at = echoAt(hz, 12);
@@ -2310,6 +2445,7 @@ int main()
 		familyChains(flash, library);
 		sends(library);
 		master(library);
+		effectsCost(library);
 		sendTimes(library);
 		sendSwitch(library);
 		sendSlew(library, false);

@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "mdProtocol/mdmachines.h"
+#include "sophieMachine.h"
 
 // The screen's pages: Sound, Seq (Detail), Master, FX, Kits, Browse, and the Menu panel and the selector over them.
 // Positions in mm from t_assets/t.js (sound(), detail(), mix(), fx(), kits(), browse(), menuPanel(), outMenu())
@@ -45,7 +46,7 @@ namespace elektron::drums
 		std::array<juce::String, 8> machineLabels(const Machine& _machine, const int _page)
 		{
 			std::array<juce::String, 8> labels;
-			if(_machine.family == Family::OpenDrum)
+			if(_machine.family == Family::OpenDrum || _machine.family == Family::Sophie)
 			{
 				for(size_t i = 0; i < 8; ++i)
 					if(const char* name = machineParameterName(_machine, _page * 8 + static_cast<int>(i)))
@@ -76,7 +77,101 @@ namespace elektron::drums
 		}
 
 		const juce::StringArray scaleNames{"1/8X", "1/4X", "1/2X", "3/4X", "1X", "3/2X", "2X"};
-		const juce::StringArray lengthChoices{"4", "8", "12", "16", "24", "32", "48", "64"};
+		// The pattern's length (t-ui-spec, common length)
+		const juce::StringArray lengthChoices{"4", "8", "12", "16", "24", "32", "48", "64", "96", "128", "256", "512"};
+
+		juce::String patternName(const int _index)
+		{
+			return juce::String::charToString(static_cast<juce::juce_wchar>('A' + _index / 16))
+				+ juce::String(_index % 16 + 1).paddedLeft('0', 2);
+		}
+
+		// A step's lists: a value each, its name in the same place
+		struct StepList
+		{
+			std::vector<int> values;
+			juce::StringArray names;
+			int indexOf(const int _v) const
+			{
+				for(size_t i = 0; i < values.size(); ++i)
+					if(values[i] == _v)
+						return static_cast<int>(i);
+				return 0;
+			}
+			int stepped(const int _v, const int _n) const
+			{
+				return values[static_cast<size_t>(juce::jlimit(0, static_cast<int>(values.size()) - 1, indexOf(_v) + _n))];
+			}
+		};
+		// NOTE: the Track's own, then C1 to C7 (MIDI 24 to 96, C4 the Note's default of 60)
+		const StepList& noteList()
+		{
+			static const StepList list = []
+			{
+				StepList l{{NoNote}, {"TRACK"}};
+				const char* names[]{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+				for(int n = 24; n <= 96; ++n)
+				{
+					l.values.push_back(n);
+					l.names.add(juce::String(names[n % 12]) + juce::String(n / 12 - 1));
+				}
+				return l;
+			}();
+			return list;
+		}
+		// DURATION in 8ths of a step, Elektron's lengths that fall on them, INF for none
+		const StepList& gateList()
+		{
+			static const StepList list = []
+			{
+				StepList l{{0}, {"INF"}};
+				for(const int g : {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512})
+				{
+					l.values.push_back(g);
+					const juce::String steps = g % GateUnits == 0 ? juce::String(g / GateUnits)
+						: g == 12 ? juce::String("1.5") : juce::String(g) + "/" + juce::String(GateUnits);
+					l.names.add(g == 2 ? "1/4 STEP" : g == 4 ? "1/2 STEP" : g == 6 ? "3/4 STEP"
+						: steps + (g == GateUnits ? " STEP" : g < GateUnits ? " STEP" : " STEPS"));
+				}
+				return l;
+			}();
+			return list;
+		}
+		const StepList& microList()
+		{
+			static const StepList list = []
+			{
+				StepList l;
+				for(int m = -(TimingUnits - 1); m < TimingUnits; ++m)
+				{
+					l.values.push_back(m);
+					l.names.add(m == 0 ? juce::String("0") : (m > 0 ? "+" : juce::String::fromUTF8("\xe2\x88\x92"))
+						+ juce::String(std::abs(m)) + " / 24");
+				}
+				return l;
+			}();
+			return list;
+		}
+		const StepList& ratchetList()
+		{
+			static const StepList list{{1, 2, 3, 4, 5, 6, 7, 8}, {"1", "2", "3", "4", "5", "6", "7", "8"}};
+			return list;
+		}
+		// SPEED: the ratchet's Hits spread over the step, or so many a step
+		const StepList& speedList()
+		{
+			static const StepList list = []
+			{
+				StepList l{{0}, {"SPREAD"}};
+				for(int r = 2; r <= 16; ++r)
+				{
+					l.values.push_back(r);
+					l.names.add(juce::String(r) + " / STEP");
+				}
+				return l;
+			}();
+			return list;
+		}
 
 		// The 65 conditions of spec 7 as the sequencer has them: Always, 22 probabilities, the 8 states, the A:B cycles
 		struct ConditionList
@@ -441,6 +536,22 @@ namespace elektron::drums
 				page.click = [this, i] { showMachinePage(i); };
 				addHit(std::move(page));
 			}
+			// SOPHIE: its 16 factory sounds in the block's picture, a click lists them (Machine 1-20 as each sets them)
+			if(choice == m_processor.sophieChoice())
+			{
+				Hit sound;
+				sound.r = {cx(0), R1 + 46, 8 * Col - 4, PicH};
+				sound.click = [this]
+				{
+					juce::StringArray names;
+					for(const char* n : sophie::SoundNames)
+						names.add(n);
+					openSelector(cx(0) - 1, R1 + 46 - 16, names,
+						[this](const int _i) { return m_processor.sophieSound(m_track) == _i; },
+						[this](const int _i) { m_processor.setSophieSound(m_track, _i); repaint(); });
+				};
+				addHit(std::move(sound));
+			}
 		}
 
 		// Sample: the Sampler's file, LOAD; the layer's values arrive with J2, greyed
@@ -541,17 +652,19 @@ namespace elektron::drums
 			const int vd = put(x, R2, w, 6, 3, t("vel_target"), "VEL DEST", hue::p, "a");
 			const int va = put(x, R2, w, 6, 4, t("vel_depth"), "VEL AMT", hue::p, "a");
 			m_cells[static_cast<size_t>(vd)].velocity = m_cells[static_cast<size_t>(va)].velocity = true;
-			put(x, R2, w, 6, 5, t("amp_mode"), "MODE", hue::p, "a");
-			put(x, R2, w, 6, 6, t("amp_attack"), "ATTACK", hue::p, "a");
-			put(x, R2, w, 6, 7, t("amp_hold"), "HOLD", hue::p, "a");
-			put(x, R2, w, 6, 8, t("amp_decay"), "DECAY", hue::p, "a");
-			put(x, R2, w, 6, 9, t("amp_sustain"), "SUSTAIN", hue::p, "a");
-			put(x, R2, w, 6, 10, t("amp_release"), "RELEASE", hue::p, "a");
+			// The envelope's cells, "ae", greyed while AMP is off: a Machinedrum voice keeps its own
+			put(x, R2, w, 6, 5, t("amp_mode"), "MODE", hue::p, "ae");
+			put(x, R2, w, 6, 6, t("amp_attack"), "ATTACK", hue::p, "ae");
+			put(x, R2, w, 6, 7, t("amp_hold"), "HOLD", hue::p, "ae");
+			put(x, R2, w, 6, 8, t("amp_decay"), "DECAY", hue::p, "ae");
+			put(x, R2, w, 6, 9, t("amp_sustain"), "SUSTAIN", hue::p, "ae");
+			put(x, R2, w, 6, 10, t("amp_release"), "RELEASE", hue::p, "ae");
 			put(x, R2, w, 6, 11, t("amp_on"), "AMP", hue::p, "a");
 			watch({cx(12), R2 + 46, 12 * Col - 4, PicH}, [this]
 			{
 				return hashOf({trackParameter("amp_mode"), trackParameter("amp_attack"), trackParameter("amp_hold"),
-					trackParameter("amp_decay"), trackParameter("amp_sustain"), trackParameter("amp_release")});
+					trackParameter("amp_decay"), trackParameter("amp_sustain"), trackParameter("amp_release"),
+					trackParameter("amp_on")});
 			});
 		}
 
@@ -688,8 +801,9 @@ namespace elektron::drums
 		}
 		watch({cx(0), R1 + 46, 16 * Col - 4, PicH}, [this]
 		{
-			return mix(static_cast<uint64_t>(choiceOf(trackParameter("machine")->getParameterID())),
-				static_cast<uint64_t>(m_processor.sampleName(m_track).hashCode64()));
+			return mix(mix(static_cast<uint64_t>(choiceOf(trackParameter("machine")->getParameterID())),
+				static_cast<uint64_t>(m_processor.sampleName(m_track).hashCode64())),
+				static_cast<uint64_t>(m_processor.sophieSound(m_track) + 1));
 		});
 	}
 
@@ -710,6 +824,13 @@ namespace elektron::drums
 				const auto name = m_processor.sampleName(m_track);
 				_p.text(x + w / 2, y1 + 12.6f, name.isEmpty() ? "NO SAMPLE" : name.toUpperCase(), 2.6f,
 					name.isEmpty() ? colour::mid : hue::k.c[4], 500, Align::Centre);
+			}
+			else if(choiceOf(trackParameter("machine")->getParameterID()) == m_processor.sophieChoice())
+			{
+				const int sound = m_processor.sophieSound(m_track);
+				_p.text(x + 3, y1 + 6.4f, "FACTORY SOUND", 2.6f, colour::mid);
+				_p.text(x + w / 2, y1 + 14.6f, sound < 0 ? "EDITED" : sophie::SoundNames[static_cast<size_t>(sound)], 3.2f,
+					sound < 0 ? colour::mid : hue::k.c[4], 500, Align::Centre);
 			}
 		}
 		// Sample
@@ -800,8 +921,9 @@ namespace elektron::drums
 				const float hd = at + v("amp_hold") * 0.25f;
 				env = {{X(0), Y(0)}, {X(at), Y(1)}, {X(hd), Y(1)}, {X(hd + v("amp_decay") * 0.5f), Y(0)}, {X(1), Y(0)}};
 			}
-			picture(_p, x, y2, w, PicH, hue::p, {}, env, false);
-			for(size_t i = 1; i + 1 < env.size(); ++i)
+			const bool ampOff = sectionOff("ae");
+			picture(_p, x, y2, w, PicH, hue::p, {}, env, ampOff);
+			for(size_t i = 1; !ampOff && i + 1 < env.size(); ++i)
 				_p.dot(env[i].x, env[i].y, 1.5f, juce::Colours::black, hue::p.c[4], 0.5f);
 		}
 		// LFO: its wave, scaled by its depth
@@ -907,6 +1029,23 @@ namespace elektron::drums
 
 	void Editor::buildSeq()
 	{
+		for(int i = 0; i < 3; ++i)
+		{
+			Hit tab;
+			tab.r = {SG + static_cast<float>(i) * SC, ScreenY + 2, SC, 6};
+			tab.click = [this, i] { m_seqTab = i; };
+			addHit(std::move(tab));
+		}
+		if(m_seqTab == 1)
+		{
+			buildOverview();
+			return;
+		}
+		if(m_seqTab == 2)
+		{
+			buildPatterns();
+			return;
+		}
 		const int o0 = m_stepPage * 16;
 		// The pattern's fields: PATTERN is the host's parameter, the others the pattern's own
 		{
@@ -950,7 +1089,7 @@ namespace elektron::drums
 			}, {});
 			field(SG + 5 * SC, [this](const int _n)
 			{
-				editPattern([&](Pattern& _p) { _p.masterLength = juce::jlimit(1, SeqSteps, _p.masterLength + _n); });
+				editPattern([&](Pattern& _p) { _p.masterLength = juce::jlimit(1, SeqMaxLength, _p.masterLength + _n); });
 			}, [this]
 			{
 				openSelector(SG + 5 * SC - 1, 19, lengthChoices,
@@ -999,6 +1138,11 @@ namespace elektron::drums
 				b.click = actions[static_cast<size_t>(i)];
 				addHit(std::move(b));
 			}
+			// LIVE (spec 7): the host's notes and the gestures recorded on the steps while the transport plays
+			Hit live;
+			live.r = {SG + 11 * SC, 24, SC - 1, 9.6f};
+			live.click = [this] { m_processor.setLive(!m_processor.live()); };
+			addHit(std::move(live));
 		}
 		for(int i = 0; i < 3; ++i)
 		{
@@ -1226,38 +1370,77 @@ namespace elektron::drums
 				h.cursor = juce::MouseCursor::LeftRightResizeCursor;
 				addHit(std::move(h));
 			};
-			stepField(0, 1.2f, [](Step& _s, const int _n)
+			// A field of a list: a drag steps it, a click opens the list (t-ui-spec, the step's fields)
+			const auto listField = [this, stepField](const int _i, const StepList& _list,
+				std::function<int(const Step&)> _get, std::function<void(Step&, int)> _put)
 			{
-				_s.velocity = static_cast<uint8_t>(juce::jlimit(1, 127, _s.velocity + _n));
-			}, {});
-			stepField(1, 4, [](Step& _s, const int _n)
+				stepField(_i, 4, [&_list, _get, _put](Step& _s, const int _n) { _put(_s, _list.stepped(_get(_s), _n)); },
+					[this, _i, &_list, _get, _put]
+					{
+						openSelector(SG + static_cast<float>(_i) * 2 * SC - 1, 205, _list.names,
+							[this, &_list, _get](const int _k) { return _list.indexOf(_get(pattern().step(m_track, m_seqStep))) == _k; },
+							[this, &_list, _put](const int _k) { editPattern([&](Pattern& _p) {
+								_put(_p.step(m_track, m_seqStep), _list.values[static_cast<size_t>(_k)]); }); });
+					});
+			};
+			listField(0, noteList(), [](const Step& _s) { return static_cast<int>(_s.note); },
+				[](Step& _s, const int _v) { _s.note = static_cast<uint8_t>(_v); });
+			listField(1, gateList(), [](const Step& _s) { return static_cast<int>(_s.gate); },
+				[](Step& _s, const int _v) { _s.gate = static_cast<uint16_t>(_v); });
+			stepField(2, 4, [](Step& _s, const int _n)
 			{
 				const auto& list = conditionList();
 				_s.condition = list.conditions[static_cast<size_t>(juce::jlimit(0,
 					static_cast<int>(list.conditions.size()) - 1, list.indexOf(_s.condition) + _n))];
 			}, [this]
 			{
-				openSelector(SG + 2 * SC - 1, 205, conditionList().names,
+				openSelector(SG + 4 * SC - 1, 205, conditionList().names,
 					[this](const int _i) { return conditionList().indexOf(pattern().step(m_track, m_seqStep).condition) == _i; },
 					[this](const int _i) { editPattern([&](Pattern& _p) {
 						_p.step(m_track, m_seqStep).condition = conditionList().conditions[static_cast<size_t>(_i)]; }); });
 			});
-			stepField(2, 4, [](Step& _s, const int _n)
-			{
-				_s.timing = static_cast<int8_t>(juce::jlimit(-(TimingUnits - 1), TimingUnits - 1, _s.timing + _n));
-			}, {});
-			stepField(3, 4, [](Step& _s, const int _n)
-			{
-				_s.ratchets = static_cast<uint8_t>(juce::jlimit(1, 8, _s.ratchets + _n));
-			}, {});
-			stepField(4, 4, [](Step& _s, const int _n)
-			{
-				_s.ratchetRate = static_cast<uint8_t>(juce::jlimit(0, 16, _s.ratchetRate + _n));
-			}, {});
-			stepField(5, 1.2f, [](Step& _s, const int _n)
+			listField(3, microList(), [](const Step& _s) { return static_cast<int>(_s.timing); },
+				[](Step& _s, const int _v) { _s.timing = static_cast<int8_t>(_v); });
+			listField(4, ratchetList(), [](const Step& _s) { return static_cast<int>(_s.ratchets); },
+				[](Step& _s, const int _v) { _s.ratchets = static_cast<uint8_t>(_v); });
+			listField(5, speedList(), [](const Step& _s) { return static_cast<int>(_s.ratchetRate); },
+				[](Step& _s, const int _v) { _s.ratchetRate = static_cast<uint8_t>(_v); });
+			stepField(6, 1.2f, [](Step& _s, const int _n)
 			{
 				_s.ratchetVelocity = static_cast<int8_t>(juce::jlimit(-64, 64, _s.ratchetVelocity + _n));
 			}, {});
+
+			// COPY and PASTE the step chosen, its Locks with it
+			Hit copy;
+			copy.r = {SG + 14 * SC, 222.5f, SC - 1, 9.6f};
+			copy.click = [this]
+			{
+				const auto& p = pattern();
+				m_stepClipboard = p.step(m_track, m_seqStep);
+				const auto* l = p.locks(m_track, m_seqStep);
+				m_stepLocksClipboard.assign(l, l + (l ? m_stepClipboard.lockCount : 0));
+				m_stepCopied = true;
+				toast("Step " + juce::String(m_seqStep + 1) + " copied");
+			};
+			addHit(std::move(copy));
+			Hit paste;
+			paste.r = {SG + 15 * SC, 222.5f, SC - 1, 9.6f};
+			paste.click = [this]
+			{
+				if(!m_stepCopied)
+					return;
+				editPattern([&](Pattern& _p)
+				{
+					_p.setTrig(m_track, m_seqStep, false);
+					Step s = m_stepClipboard;
+					s.lockCount = 0;
+					s.lockFirst = 0;
+					_p.step(m_track, m_seqStep) = s;
+					for(const auto& l : m_stepLocksClipboard)
+						_p.setLock(m_track, m_seqStep, l.parameter, l.value);
+				});
+			};
+			addHit(std::move(paste));
 		}
 		watch({ScreenX, 22, ScreenW, ScreenH - 10}, [this]
 		{
@@ -1274,9 +1457,11 @@ namespace elektron::drums
 				for(int i = 0; l && i < st.lockCount; ++i)
 					h = mixFloat(mix(h, l[i].parameter), l[i].value);
 				if(s == m_seqStep)
-					h = mix(mix(mix(mix(h, static_cast<uint64_t>(st.timing + 64)), st.ratchets), st.ratchetRate),
-						static_cast<uint64_t>(st.ratchetVelocity + 128)) ^ conditionList().indexOf(st.condition);
+					h = mix(mix(mix(mix(mix(mix(h, static_cast<uint64_t>(st.timing + 64)), st.ratchets), st.ratchetRate),
+						static_cast<uint64_t>(st.ratchetVelocity + 128)), st.note), st.gate)
+						^ conditionList().indexOf(st.condition);
 			}
+			h = mix(h, (m_processor.live() ? 1u : 0u) | (m_stepCopied ? 2u : 0u));
 			return mix(h, static_cast<uint64_t>(m_processor.playingStep(m_track) + 1));
 		});
 	}
@@ -1288,13 +1473,16 @@ namespace elektron::drums
 		const int length = p.trackLength[static_cast<size_t>(m_track)];
 		const int playing = m_processor.playingStep(m_track);
 		drawHeader(_p, "SEQ", {});
-		drawSegments(_p, SG, ScreenY + 2, SC, {"DETAIL", "OVERVIEW", "PATTERNS"}, 0);
-		// OVERVIEW and PATTERNS are not built yet: greyed
-		for(int i = 1; i < 3; ++i)
+		drawSegments(_p, SG, ScreenY + 2, SC, {"DETAIL", "OVERVIEW", "PATTERNS"}, m_seqTab);
+		if(m_seqTab == 1)
 		{
-			_p.rect(SG + static_cast<float>(i) * SC, ScreenY + 2, SC - 1, 6, colour::button, 0.8f);
-			_p.text(SG + (static_cast<float>(i) + 0.5f) * SC, ScreenY + 6.5f, i == 1 ? "OVERVIEW" : "PATTERNS", 3,
-				juce::Colour(0xff4E4E4C), 500, Align::Centre);
+			drawOverview(_p);
+			return;
+		}
+		if(m_seqTab == 2)
+		{
+			drawPatterns(_p);
+			return;
 		}
 		_p.text(SG + 3 * SC, ScreenY + 7.4f, juce::String(m_track + 1) + "  " + machineName(m_track), 2.8f, colour::mid);
 
@@ -1311,6 +1499,7 @@ namespace elektron::drums
 		for(int i = 0; i < 4; ++i)
 			drawButton(_p, SG + static_cast<float>(12 + i) * SC, 24, SC - 1, 9.6f, actions[i], false,
 				i != 1 || m_trackClipboard != nullptr);
+		drawButton(_p, SG + 11 * SC, 24, SC - 1, 9.6f, "LIVE", m_processor.live());
 
 		const auto rule = [&](const float _y, const juce::String& _name, const bool _focus)
 		{
@@ -1428,21 +1617,647 @@ namespace elektron::drums
 		// STEP
 		rule(213, "STEP " + juce::String(m_seqStep + 1), true);
 		const auto& st = p.step(m_track, m_seqStep);
-		const juce::String values[]{juce::String(st.velocity), conditionList().names[conditionList().indexOf(st.condition)],
-			st.timing == 0 ? juce::String("0") : (st.timing > 0 ? "+" : juce::String::fromUTF8("\xe2\x88\x92"))
-				+ juce::String(std::abs(st.timing)) + " / 24",
-			juce::String(st.ratchets), st.ratchetRate ? juce::String(st.ratchetRate) : juce::String("SPREAD"),
-			(st.ratchetVelocity > 0 ? "+" : "") + juce::String(st.ratchetVelocity)};
-		const char* names[]{"VELOCITY", "CONDITION", "MICRO", "RATCHET", "RATCH RATE", "RATCH VEL"};
-		for(int i = 0; i < 6; ++i)
+		const juce::String values[]{noteList().names[noteList().indexOf(st.note)],
+			gateList().names[gateList().indexOf(st.gate)], conditionList().names[conditionList().indexOf(st.condition)],
+			microList().names[microList().indexOf(st.timing)], juce::String(st.ratchets),
+			speedList().names[speedList().indexOf(st.ratchetRate)],
+			st.ratchetVelocity == 0 ? juce::String("0") : (st.ratchetVelocity > 0 ? "+" : juce::String::fromUTF8("\xe2\x88\x92"))
+				+ juce::String(std::abs(st.ratchetVelocity))};
+		const char* names[]{"NOTE", "DURATION", "CONDITION", "MICRO", "RATCHET", "SPEED", "VEL CURVE"};
+		for(int i = 0; i < 7; ++i)
 		{
 			const float xx = SG + static_cast<float>(i) * 2 * SC;
 			_p.text(xx, 225.3f, names[i], 3.2f, colour::mid);
 			_p.text(xx, 232, values[i], 4, colour::ink, 600);
 		}
+		drawButton(_p, SG + 14 * SC, 222.5f, SC - 1, 9.6f, "COPY", false);
+		drawButton(_p, SG + 15 * SC, 222.5f, SC - 1, 9.6f, "PASTE", false, m_stepCopied);
+	}
+
+	// ---- Seq, Overview: every Track, 32 square steps a page, each row on its own steps ----
+
+	namespace
+	{
+		constexpr float OvRow = 12.65f, OvW = 32 * OvRow, OvX = 474.7f - OvW, OvY = 36;
+
+		// Steps of _track in the pattern's length, counted at its own scale
+		int rowSteps(const Pattern& _p, const int _track)
+		{
+			return static_cast<int>(std::ceil(_p.masterLength * 0.25 / stepQuarters(_p.trackScale[static_cast<size_t>(_track)])
+				- 1e-9));
+		}
+
+		int overviewPages(const Pattern& _p)
+		{
+			int most = 1;
+			for(int t = 0; t < SeqTracks; ++t)
+				most = std::max(most, rowSteps(_p, t));
+			return (most + 31) / 32;
+		}
+
+		bool patternUsed(const Pattern& _p)
+		{
+			for(int t = 0; t < SeqTracks; ++t)
+				for(int s = 0; s < SeqSteps; ++s)
+					if(_p.step(t, s).trig || _p.step(t, s).lockCount)
+						return true;
+			return false;
+		}
+
+		std::vector<ChainEntry> chainOf(const Sequencer& _s)
+		{
+			std::vector<ChainEntry> c;
+			for(int i = 0; i < _s.chainLength(); ++i)
+				c.push_back(_s.chainEntry(i));
+			return c;
+		}
+	}
+
+	void Editor::buildOverview()
+	{
+		const auto& p = pattern();
+		const int pages = overviewPages(p);
+		m_overviewPage = juce::jlimit(0, pages - 1, m_overviewPage);
+		const int w0 = m_overviewPage * 32;
+		// LENGTH: a drag by the step, a click opens the lengths
+		{
+			Hit len;
+			len.r = {SG + 13 * SC - 1, 23.4f, 2 * SC - 2, 8.4f};
+			len.stepMm = 1.2f;
+			len.steps = [this](const int _n)
+			{
+				editPattern([&](Pattern& _q) { _q.masterLength = juce::jlimit(1, SeqMaxLength, _q.masterLength + _n); });
+			};
+			len.click = [this]
+			{
+				openSelector(SG + 13 * SC - 1, 15, lengthChoices,
+					[this](const int _i) { return pattern().masterLength == lengthChoices[_i].getIntValue(); },
+					[this](const int _i) { editPattern([&](Pattern& _q) { _q.masterLength = lengthChoices[_i].getIntValue(); }); });
+			};
+			len.cursor = juce::MouseCursor::LeftRightResizeCursor;
+			addHit(std::move(len));
+		}
+		Hit fill;
+		fill.r = {SG + 15 * SC, 24, SC - 1, 7};
+		fill.click = [this]
+		{
+			const bool on = !m_processor.sequencer().fill();
+			m_processor.editSequencer([on](Sequencer& _s) { _s.setFill(on); });
+		};
+		addHit(std::move(fill));
+		if(pages > 1)
+		{
+			const int w1 = juce::jlimit(0, std::max(0, pages - 13), m_overviewPage - 6);
+			for(int w = w1; w < std::min(pages, w1 + 13); ++w)
+			{
+				Hit page;
+				page.r = {SG + static_cast<float>(w - w1) * SC, 24, SC - 1, 7};
+				page.click = [this, w] { m_overviewPage = w; m_follow = false; };
+				addHit(std::move(page));
+			}
+		}
+
+		for(int i = 0; i < SeqTracks; ++i)
+		{
+			const float y = OvY + static_cast<float>(i) * OvRow;
+			Hit name;
+			name.r = {ScreenX + 2, y, 38, OvRow - 0.4f};
+			name.click = [this, i] { showTrack(i); };
+			addHit(std::move(name));
+			Hit mute;
+			mute.r = {ScreenX + 41, y, 6, OvRow - 0.4f};
+			mute.click = [this, i]
+			{
+				const bool on = !m_processor.sequencer().mute(i);
+				m_processor.editSequencer([i, on](Sequencer& _s) { _s.setMute(i, on); });
+			};
+			addHit(std::move(mute));
+			Hit solo;
+			solo.r = {ScreenX + 48, y, 6, OvRow - 0.4f};
+			solo.click = [this, i]
+			{
+				const bool on = !m_processor.sequencer().solo(i);
+				m_processor.editSequencer([i, on](Sequencer& _s) { _s.setSolo(i, on); });
+			};
+			addHit(std::move(solo));
+
+			// The row: the same gestures as Detail's trigs, on the step its copy repeats
+			const auto cellAt = [w0](const float _x) { return w0 + juce::jlimit(0, 31, static_cast<int>((_x - OvX) / OvRow)); };
+			const auto aim = [this, i, w0, cellAt](const float _x)
+			{
+				const auto& q = pattern();
+				const int len = q.trackLength[static_cast<size_t>(i)];
+				const int c = cellAt(_x);
+				if(q.step(i, c % len).trig)
+					return c;
+				// The trig nearest within 3 mm
+				int best = c;
+				float dist = 3;
+				for(int a = w0; a < w0 + 32; ++a)
+					if(q.step(i, a % len).trig)
+						if(const float d = std::abs(OvX + (static_cast<float>(a - w0) + 0.5f) * OvRow - _x); d < dist)
+						{
+							dist = d;
+							best = a;
+						}
+				return best;
+			};
+			Hit row;
+			row.r = {OvX, y, OvW, OvRow - 0.4f};
+			row.cursor = juce::MouseCursor::CrosshairCursor;
+			row.press = [this, i, aim]
+			{
+				m_grid = {};
+				m_grid.line = i;
+				m_grid.step = m_grid.last = aim(m_press.down.x);
+				const auto& q = pattern();
+				const int n = m_grid.step % q.trackLength[static_cast<size_t>(i)];
+				m_grid.was = q.step(i, n).trig;
+				m_grid.start = static_cast<float>(q.step(i, n).velocity) / 127;
+			};
+			row.drag = [this, i, cellAt](const float _dx, const float _dy)
+			{
+				m_grid.travel += {_dx, _dy};
+				const int len = pattern().trackLength[static_cast<size_t>(i)];
+				const auto set = [this, i, len](const int _a, const bool _on)
+				{
+					editPattern([&](Pattern& _q)
+					{
+						if(_q.step(i, _a % len).trig != _on)
+							_q.setTrig(i, _a % len, _on, 127);
+					});
+				};
+				if(!m_grid.direction)
+				{
+					if(m_grid.travel.getDistanceFromOrigin() < 2)
+						return;
+					const bool vertical = std::abs(m_grid.travel.y) > std::abs(m_grid.travel.x);
+					m_grid.direction = !vertical ? 'h' : m_grid.was ? 'v' : 'x';
+					if(m_grid.direction == 'h')
+					{
+						m_grid.to = !m_grid.was;
+						set(m_grid.step, m_grid.to);
+					}
+				}
+				if(m_grid.direction == 'h')
+				{
+					const int q = cellAt(m_press.last.x);
+					for(int a = std::min(q, m_grid.last); a <= std::max(q, m_grid.last); ++a)
+						set(a, m_grid.to);
+					m_grid.last = q;
+				}
+				else if(m_grid.direction == 'v')
+				{
+					const float v = juce::jlimit(0.0f, 1.0f, m_grid.start - m_grid.travel.y / 32);
+					const int n = m_grid.step % len;
+					editPattern([&](Pattern& _q) { _q.step(i, n).velocity = static_cast<uint8_t>(std::max(1, juce::roundToInt(v * 127))); });
+				}
+			};
+			row.click = [this, i]
+			{
+				const auto& q = pattern();
+				const int n = m_grid.step % q.trackLength[static_cast<size_t>(i)];
+				// What a double-click puts back
+				m_undoTrack = i;
+				m_undoStep = n;
+				m_undo = q.step(i, n);
+				const auto* l = q.locks(i, n);
+				m_undoLocks.assign(l, l + (l ? m_undo.lockCount : 0));
+				toggleTrig(i, n);
+			};
+			// The second click does not toggle again: a trig the first took off comes back with its values and Locks,
+			// and the step opens in Detail
+			row.doubleClick = [this, i, aim]
+			{
+				const auto& q = pattern();
+				const int n = aim(m_press.down.x) % q.trackLength[static_cast<size_t>(i)];
+				if(m_undoTrack == i && m_undoStep == n && m_undo.trig && !q.step(i, n).trig)
+					editPattern([&](Pattern& _q)
+					{
+						Step s = m_undo;
+						s.lockCount = 0;
+						s.lockFirst = 0;
+						_q.step(i, n) = s;
+						for(const auto& l : m_undoLocks)
+							_q.setLock(i, n, l.parameter, l.value);
+					});
+				m_undoTrack = -1;
+				m_track = i;
+				m_seqStep = n;
+				m_stepPage = n / 16;
+				m_seqTab = 0;
+			};
+			addHit(std::move(row));
+		}
+
+		watch({ScreenX, 22, ScreenW, ScreenH - 10}, [this]
+		{
+			const auto& q = pattern();
+			uint64_t h = mix(static_cast<uint64_t>(q.masterLength), m_processor.fillPlaying() ? 1 : 0);
+			for(int t = 0; t < SeqTracks; ++t)
+			{
+				h = mix(mix(h, static_cast<uint64_t>(q.trackLength[static_cast<size_t>(t)])),
+					static_cast<uint64_t>(q.trackScale[static_cast<size_t>(t)]));
+				h = mix(h, static_cast<uint64_t>(m_processor.playingRowStep(t) + 1));
+				h = mix(h, (m_processor.sequencer().mute(t) ? 1u : 0u) | (m_processor.sequencer().solo(t) ? 2u : 0u));
+				for(int s = 0; s < SeqSteps; ++s)
+				{
+					const auto& st = q.step(t, s);
+					h = mix(h, static_cast<uint64_t>((st.trig ? 1 : 0) | (st.accent ? 2 : 0)) | st.velocity << 2
+						| static_cast<uint64_t>(st.lockCount ? 1 : 0) << 9);
+				}
+			}
+			return h;
+		});
+	}
+
+	void Editor::drawOverview(Painter& _p)
+	{
+		const auto& p = pattern();
+		const auto& seq = m_processor.sequencer();
+		const int pages = overviewPages(p);
+		const int w0 = juce::jlimit(0, pages - 1, m_overviewPage) * 32;
+		bool anySolo = false;
+		for(int t = 0; t < SeqTracks; ++t)
+			anySolo = anySolo || seq.solo(t);
+
+		_p.rect(16, 23, 458, 0.4f, hue::t.c[1]);
+		_p.text(16, 29.2f, "PATTERN " + patternName(m_processor.currentPattern()), 3.2f, hue::t.c[4], 600);
+		const float lx = SG + 13 * SC;
+		_p.text(lx, 28.8f, "LENGTH", 3.2f, colour::mid);
+		_p.text(lx + 16, 28.8f, juce::String(p.masterLength), 4, colour::ink, 600);
+		drawButton(_p, SG + 15 * SC, 24, SC - 1, 7, "FILL", m_processor.fillPlaying());
+		if(pages > 1)
+		{
+			const int w1 = juce::jlimit(0, std::max(0, pages - 13), m_overviewPage - 6);
+			for(int w = w1; w < std::min(pages, w1 + 13); ++w)
+				drawButton(_p, SG + static_cast<float>(w - w1) * SC, 24, SC - 1, 7,
+					juce::String(w * 32 + 1) + "-" + juce::String(w * 32 + 32), w * 32 == w0);
+		}
+		// The ruler: a number every 4 steps, brighter every 16
+		for(int k = 0; k < 32; k += 4)
+		{
+			const int n = w0 + k;
+			const bool bar = n % 16 == 0;
+			_p.text(OvX + static_cast<float>(k) * OvRow + 0.2f, 35, juce::String(n + 1), 2.8f,
+				bar ? colour::mid : juce::Colour(0xff7A7A75), bar ? 600 : 500);
+			_p.rect(OvX + static_cast<float>(k) * OvRow, 35, bar ? 0.4f : 0.2f, 1, bar ? juce::Colour(0xff6E6E6A)
+				: juce::Colour(0xff37383A));
+		}
+
+		for(int i = 0; i < SeqTracks; ++i)
+		{
+			const float y = OvY + static_cast<float>(i) * OvRow;
+			const bool sel = i == m_track;
+			const bool silent = seq.mute(i) || (anySolo && !seq.solo(i));
+			if(sel)
+			{
+				_p.rect(ScreenX + 2, y, OvX - ScreenX - 2.7f, OvRow - 0.7f, juce::Colour(0xff1D1F21), 0.5f);
+				_p.rect(ScreenX + 2, y + 0.6f, 0.7f, OvRow - 1.9f, hue::t.c[0], 0.3f);
+			}
+			_p.text(ScreenX + 6.6f, y + 7.2f, juce::String(i + 1), 2.8f, sel ? colour::mid : juce::Colour(0xff7A7A75), 500,
+				Align::Right);
+			_p.text(ScreenX + 8.4f, y + 7.2f, machineName(i).substring(0, 10), 3.2f,
+				sel ? colour::ink : silent ? juce::Colour(0xff57564F) : colour::mid, sel ? 600 : 500);
+			_p.text(ScreenX + 44, y + 7.2f, "M", 3, seq.mute(i) ? colour::lock : juce::Colour(0xff7A7A75), 600, Align::Centre);
+			_p.text(ScreenX + 51, y + 7.2f, "S", 3, seq.solo(i) ? hue::t.c[4] : juce::Colour(0xff7A7A75), 600, Align::Centre);
+
+			const int len = p.trackLength[static_cast<size_t>(i)];
+			const int playing = m_processor.playingRowStep(i);
+			const float alpha = silent ? 0.4f : 1.0f;
+			for(int a = w0; a < w0 + 32; ++a)
+			{
+				const float x = OvX + static_cast<float>(a - w0) * OvRow;
+				const auto& st = p.step(i, a % len);
+				const bool group = (a / 4) % 2 == 0;
+				// A copy of a shorter Track's steps, at 55 %
+				const float k = alpha * (a >= len ? 0.55f : 1.0f);
+				_p.rect(x, y, OvRow - 0.7f, OvRow - 0.7f, (sel ? (group ? juce::Colour(0xff2A2C2E) : juce::Colour(0xff222426))
+					: group ? juce::Colour(0xff1B1D1F) : juce::Colour(0xff131517)).withMultipliedAlpha(k), 0.5f);
+				if(st.trig)
+					_p.rect(x, y, OvRow - 0.7f, OvRow - 0.7f, (st.accent ? juce::Colour(0xffF3EADA)
+						: juce::Colour(0xffE9DCC2).withAlpha(0.2f + 0.55f * static_cast<float>(st.velocity) / 127))
+						.withMultipliedAlpha(k), 0.5f);
+				if(a == playing)
+					_p.rect(x, y, OvRow - 0.7f, OvRow - 0.7f, st.trig ? juce::Colour(0x80FFFFFF) : juce::Colour(0x33E9DCC2), 0.5f);
+				if(st.lockCount)
+					_p.rect(x + 1, y + OvRow - 2.6f, OvRow - 2.7f, 0.7f, colour::lock.withMultipliedAlpha(k));
+			}
+			// The pattern's end on this row's steps, the grid darker past it
+			const float ex = OvX + static_cast<float>(rowSteps(p, i) - w0) * OvRow;
+			if(ex < OvX + OvW - 0.1f)
+			{
+				const float xe = std::max(ex, OvX);
+				_p.rect(xe - 0.7f, y, OvX + OvW - xe + 0.7f, OvRow, juce::Colour(0xcc0B0C0D));
+				if(ex >= OvX)
+					_p.rect(xe - 0.52f, y, 0.35f, OvRow, hue::t.c[0]);
+			}
+		}
+		_p.rect(OvX + 16 * OvRow - 0.45f, 35, 0.2f, 16 * OvRow, juce::Colour(0xff4A4B4D));
+		// Detail's step on the Track shown
+		if(m_seqStep >= w0 && m_seqStep < w0 + 32)
+			_p.frame(OvX + static_cast<float>(m_seqStep - w0) * OvRow + 0.15f, OvY + static_cast<float>(m_track) * OvRow + 0.15f,
+				OvRow - 1, OvRow - 1, juce::Colour(0xffD8D6D0), 0, 0.3f);
+	}
+
+	// ---- Seq, Patterns: the 128 patterns, the one asked for, the chain ----
+
+	void Editor::buildPatterns()
+	{
+		constexpr float Rh = 20.4f;
+		const float chainY = 198, sy = chainY + 13;
+		const auto inChain = [sy](const juce::Point<float> _mm) { return _mm.y >= sy - 2 && _mm.y < sy + 29; };
+		// Where a drop falls in the chain: before the entry under it
+		const auto dropIndex = [this](const float _x)
+		{
+			return juce::jlimit(0, m_processor.sequencer().chainLength(),
+				m_chainPage * 6 + juce::roundToInt((_x - 16) / (4 * Col)));
+		};
+		const auto setChain = [this](std::vector<ChainEntry> _c, const bool _play)
+		{
+			m_processor.editSequencer([&](Sequencer& _s) { _s.setChain(_c); });
+			// A chain made, or added to while none plays, takes over at the end of the pattern playing
+			if(_play && !_c.empty())
+				m_processor.requestChain();
+		};
+
+		const std::array<std::function<void()>, 5> actions{
+			[this]
+			{
+				if(auto* p = m_processor.parameter("pattern"))
+					setNormalised(*p, p->convertTo0to1(static_cast<float>(m_patternSel + 1)));
+			},
+			[this]
+			{
+				m_patternClipboard = std::make_unique<Pattern>(m_processor.sequencer().pattern(m_patternSel));
+				toast("Pattern " + patternName(m_patternSel) + " copied");
+			},
+			[this]
+			{
+				if(!m_patternClipboard)
+					return;
+				const Pattern from = *m_patternClipboard;
+				m_processor.editSequencer([&](Sequencer& _s) { _s.pattern(m_patternSel) = from; });
+			},
+			[this] { m_processor.editSequencer([this](Sequencer& _s) { _s.clearPattern(m_patternSel); }); },
+			[this]
+			{
+				const auto name = "Pattern " + patternName(m_patternSel) + ".mid";
+				m_chooser = std::make_unique<juce::FileChooser>("Export the pattern as MIDI",
+					juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile(name), "*.mid");
+				const int index = m_patternSel;
+				m_chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+					| juce::FileBrowserComponent::warnAboutOverwriting, [this, index](const juce::FileChooser& _c)
+					{
+						const auto file = _c.getResult();
+						if(file == juce::File())
+							return;
+						const auto mid = file.withFileExtension("mid");
+						toast(m_processor.exportPatternMidi(index, mid) ? "Exported " + mid.getFileName()
+							: "Could not write " + mid.getFileName());
+					});
+			}};
+		for(int i = 0; i < 5; ++i)
+		{
+			Hit b;
+			b.r = {SG + static_cast<float>(11 + i) * SC, 24, SC - 1, 7};
+			b.click = actions[static_cast<size_t>(i)];
+			addHit(std::move(b));
+		}
+
+		// The grid: a click chooses (and with APPEND ON adds to the chain), a drag into the chain inserts there
+		for(int r = 0; r < 8; ++r)
+			for(int i = 0; i < 16; ++i)
+			{
+				const int index = r * 16 + i;
+				Hit cell;
+				cell.r = {SG + static_cast<float>(i) * SC, 32 + static_cast<float>(r) * Rh, SC - 0.2f, Rh - 0.4f};
+				cell.click = [this, index, setChain]
+				{
+					m_patternSel = index;
+					if(!m_chainAppend)
+						return;
+					auto c = chainOf(m_processor.sequencer());
+					if(static_cast<int>(c.size()) < MaxChain)
+						c.push_back({static_cast<uint8_t>(index), 1, false});
+					setChain(c, m_processor.chainSlot() < 0);
+				};
+				cell.drag = [this, index](float, float) { m_patternDrag = index; };
+				cell.end = [this, index, inChain, dropIndex, setChain]
+				{
+					m_patternDrag = -1000;
+					if(!inChain(m_press.last))
+						return;
+					auto c = chainOf(m_processor.sequencer());
+					if(static_cast<int>(c.size()) < MaxChain)
+						c.insert(c.begin() + dropIndex(m_press.last.x), {static_cast<uint8_t>(index), 1, false});
+					setChain(c, m_processor.chainSlot() < 0);
+				};
+				addHit(std::move(cell));
+			}
+
+		// CHAIN: APPEND ON, EMPTY, PLAY; its pages; six entries a page
+		{
+			Hit append;
+			append.r = {ScreenX + 26, chainY + 1.6f, 31, 7};
+			append.click = [this] { m_chainAppend = !m_chainAppend; };
+			addHit(std::move(append));
+			Hit empty;
+			empty.r = {ScreenX + 59, chainY + 1.6f, 31, 7};
+			empty.click = [setChain] { setChain({}, false); };
+			addHit(std::move(empty));
+			Hit play;
+			play.r = {ScreenX + 92, chainY + 1.6f, 22, 7};
+			play.click = [this] { m_processor.requestChain(); };
+			addHit(std::move(play));
+		}
+		const auto& seq = m_processor.sequencer();
+		const int pages = (seq.chainLength() + 5) / 6;
+		m_chainPage = juce::jlimit(0, std::max(0, pages - 1), m_follow && m_processor.chainSlot() >= 0
+			? m_processor.chainSlot() / 6 : m_chainPage);
+		if(pages > 1)
+		{
+			const int w1 = juce::jlimit(0, std::max(0, pages - 5), m_chainPage - 2);
+			for(int w = w1; w < std::min(pages, w1 + 5); ++w)
+			{
+				Hit page;
+				page.r = {SG + static_cast<float>(11 + w - w1) * SC, chainY + 1.6f, SC - 1, 7};
+				page.click = [this, w] { m_chainPage = w; m_follow = false; };
+				addHit(std::move(page));
+			}
+		}
+		for(int j = 0; j < 6; ++j)
+		{
+			const int e = m_chainPage * 6 + j;
+			if(e >= seq.chainLength())
+				break;
+			const float x = cx(static_cast<float>(j * 4));
+			// The entry: dragged, it moves where it is dropped in the chain, or leaves it dropped outside
+			Hit entry;
+			entry.r = {x, sy, 4 * Col - 4, 27};
+			entry.drag = [this, e](float, float) { m_patternDrag = -1 - e; };
+			entry.end = [this, e, inChain, dropIndex, setChain]
+			{
+				m_patternDrag = -1000;
+				auto c = chainOf(m_processor.sequencer());
+				const ChainEntry moved = c[static_cast<size_t>(e)];
+				int to = inChain(m_press.last) ? dropIndex(m_press.last.x) : -1;
+				c.erase(c.begin() + e);
+				if(to >= 0)
+					c.insert(c.begin() + (to > e ? to - 1 : to), moved);
+				setChain(c, false);
+			};
+			entry.cursor = juce::MouseCursor::DraggingHandCursor;
+			addHit(std::move(entry));
+			const auto change = [this, e, setChain](const std::function<void(ChainEntry&)>& _f)
+			{
+				auto c = chainOf(m_processor.sequencer());
+				_f(c[static_cast<size_t>(e)]);
+				setChain(c, false);
+			};
+			Hit fill;
+			fill.r = {x + 52, sy + 2, 18, 7};
+			fill.click = [change] { change([](ChainEntry& _c) { _c.fill = !_c.fill; }); };
+			addHit(std::move(fill));
+			Hit minus;
+			minus.r = {x + 24, sy + 13, 13, 9.6f};
+			minus.click = [change] { change([](ChainEntry& _c) { _c.repeats = static_cast<uint8_t>(std::max(1, _c.repeats - 1)); }); };
+			addHit(std::move(minus));
+			Hit plus;
+			plus.r = {x + 39, sy + 13, 13, 9.6f};
+			plus.click = [change] { change([](ChainEntry& _c) { _c.repeats = static_cast<uint8_t>(std::min(16, _c.repeats + 1)); }); };
+			addHit(std::move(plus));
+		}
+
+		watch({ScreenX, 22, ScreenW, ScreenH - 10}, [this]
+		{
+			const auto& s = m_processor.sequencer();
+			uint64_t h = mix(static_cast<uint64_t>(m_processor.currentPattern()), static_cast<uint64_t>(m_processor.chainSlot() + 1));
+			h = mix(mix(h, static_cast<uint64_t>(m_processor.chainPass())), static_cast<uint64_t>(choiceOf("pattern")));
+			for(int i = 0; i < s.chainLength(); ++i)
+				h = mix(h, static_cast<uint64_t>(s.chainEntry(i).pattern | s.chainEntry(i).repeats << 8 | (s.chainEntry(i).fill ? 1 << 16 : 0)));
+			for(int i = 0; i < SeqPatterns; ++i)
+				h = mix(h, patternUsed(s.pattern(i)) ? 1 : 0);
+			return mix(mix(h, m_chainAppend ? 1 : 0), m_patternClipboard ? 1 : 0);
+		});
+	}
+
+	void Editor::drawPatterns(Painter& _p)
+	{
+		constexpr float Rh = 20.4f;
+		const float chainY = 198, sy = chainY + 13;
+		const auto& seq = m_processor.sequencer();
+		const int playing = m_processor.currentPattern();
+		const auto* asked = m_processor.parameter("pattern");
+		const int want = asked ? juce::roundToInt(asked->convertFrom0to1(asked->getValue())) - 1 : playing;
+
+		_p.rect(16, 23, 458, 0.4f, hue::t.c[1]);
+		_p.text(16, 29.2f, "PATTERN " + patternName(m_patternSel), 3.2f, hue::t.c[4], 600);
+		const char* actions[]{"REQUEST", "COPY", "PASTE", "CLEAR", "MIDI EXPORT"};
+		for(int i = 0; i < 5; ++i)
+			drawButton(_p, SG + static_cast<float>(11 + i) * SC, 24, SC - 1, 7, actions[i], false,
+				i != 2 || m_patternClipboard != nullptr);
+
+		for(int r = 0; r < 8; ++r)
+		{
+			const float y = 32 + static_cast<float>(r) * Rh;
+			_p.text(ScreenX + 4, y + 11.6f, juce::String::charToString(static_cast<juce::juce_wchar>('A' + r)), 3.8f,
+				colour::mid, 600);
+			for(int i = 0; i < 16; ++i)
+			{
+				const int index = r * 16 + i;
+				const float x = SG + static_cast<float>(i) * SC;
+				const bool has = patternUsed(seq.pattern(index)), pl = index == playing;
+				_p.rect(x, y + 0.2f, SC - 1.2f, Rh - 1, pl ? hue::t.c[0] : has ? hue::t.c[2] : beat(i), 0.5f);
+				if(has && !pl)
+					_p.rect(x, y + 0.2f, SC - 1.2f, 0.6f, hue::t.c[3]);
+				if(index == want && want != playing)
+					_p.frame(x + 0.2f, y + 0.4f, SC - 1.6f, Rh - 1.4f, hue::t.c[0], 0, 0.35f);
+				else if(index == m_patternSel)
+					_p.frame(x + 0.2f, y + 0.4f, SC - 1.6f, Rh - 1.4f, juce::Colour(0xff6E6E6A), 0, 0.35f);
+				_p.text(x + 2.6f, y + 11.6f, patternName(index), 3.2f, pl ? juce::Colour(0xff101113)
+					: has ? colour::ink : juce::Colour(0xff7A7A75), pl || has ? 600 : 500);
+				int order = 0;
+				for(int e = 0; e < seq.chainLength() && !order; ++e)
+					order = seq.chainEntry(e).pattern == index ? e + 1 : 0;
+				if(order)
+					_p.text(x + SC - 3.2f, y + 11.6f, juce::String(order), 3.4f, pl ? juce::Colour(0xff101113) : hue::t.c[4], 700,
+						Align::Right);
+			}
+		}
+
+		// CHAIN
+		_p.rect(16, chainY, 458, 0.8f, hue::t.c[0]);
+		_p.text(16, chainY + 6.2f, "CHAIN", 3.2f, hue::t.c[4], 600);
+		drawButton(_p, ScreenX + 26, chainY + 1.6f, 31, 7, "APPEND ON", m_chainAppend);
+		drawButton(_p, ScreenX + 59, chainY + 1.6f, 31, 7, "EMPTY", false, seq.chainLength() > 0);
+		const int slot = m_processor.chainSlot();
+		drawButton(_p, ScreenX + 92, chainY + 1.6f, 22, 7, "PLAY", slot >= 0, seq.chainLength() > 0);
+		const int pages = (seq.chainLength() + 5) / 6;
+		const int page = juce::jlimit(0, std::max(0, pages - 1), m_chainPage);
+		if(pages > 1)
+		{
+			const int w1 = juce::jlimit(0, std::max(0, pages - 5), page - 2);
+			for(int w = w1; w < std::min(pages, w1 + 5); ++w)
+				drawButton(_p, SG + static_cast<float>(11 + w - w1) * SC, chainY + 1.6f, SC - 1, 7,
+					juce::String(w * 6 + 1) + "-" + juce::String(w * 6 + 6), w == page);
+		}
+		if(!seq.chainLength())
+			_p.text(ScreenX + 4, sy + 14, "DRAG PATTERNS HERE", 3, colour::dim);
+		else
+			_p.text(ScreenX + 117, chainY + 6.6f, slot < 0 ? juce::String("PLAY STARTS IT AT THE PATTERN'S END")
+				: "SLOT " + juce::String(slot + 1) + " OF " + juce::String(seq.chainLength()) + ", PASS "
+					+ juce::String(m_processor.chainPass() + 1) + " OF " + juce::String(seq.chainEntry(slot).repeats),
+				2.8f, hue::t.c[4], 600);
+		for(int j = 0; j < 6; ++j)
+		{
+			const int e = page * 6 + j;
+			if(e >= seq.chainLength())
+				break;
+			const auto& c = seq.chainEntry(e);
+			const float x = cx(static_cast<float>(j * 4)), w = 4 * Col - 4;
+			const bool pl = e == slot;
+			_p.rect(x, sy, w, 27, pl ? juce::Colour(0xff1d1c19) : juce::Colour(0xff141517), 0.8f);
+			_p.rect(x, sy, w, 0.7f, pl ? hue::t.c[0] : juce::Colour(0xff3A3B3D));
+			_p.text(x + 3, sy + 7, juce::String(e + 1), 3.2f, colour::mid, 500);
+			_p.text(x + 11, sy + 9, patternName(c.pattern), 5, pl ? hue::t.c[4] : colour::ink, 600);
+			_p.text(x + 3, sy + 20, "x " + juce::String(c.repeats), 4, colour::ink, 600);
+			drawButton(_p, x + 52, sy + 2, 18, 7, "FILL", c.fill);
+			drawButton(_p, x + 24, sy + 13, 13, 9.6f, "-", false, c.repeats > 1);
+			drawButton(_p, x + 39, sy + 13, 13, 9.6f, "+", false, c.repeats < 16);
+			for(int k = 0; k < c.repeats && k < 8; ++k)
+				_p.rect(x + 3 + static_cast<float>(k) * 5, sy + 23.4f, 4, 1.2f,
+					pl && k <= m_processor.chainPass() ? hue::t.c[0] : juce::Colour(0xff3A3B3D));
+		}
+		// What a drag carries, under the mouse, and where it falls in the chain
+		if(m_patternDrag != -1000 && m_press.hit >= 0)
+		{
+			const auto at = m_press.last;
+			if(at.y >= sy - 2 && at.y < sy + 29)
+			{
+				const int i = juce::jlimit(0, seq.chainLength(), page * 6 + juce::roundToInt((at.x - 16) / (4 * Col))) - page * 6;
+				_p.rect(cx(static_cast<float>(i * 4)) - 2.4f, sy, 0.8f, 27, hue::t.c[0]);
+			}
+			const int shown = m_patternDrag >= 0 ? m_patternDrag : seq.chainEntry(-1 - m_patternDrag).pattern;
+			_p.rect(at.x - 9, at.y - 5, 18, 10, juce::Colour(0xff2b2a26), 0.8f);
+			_p.frame(at.x - 9, at.y - 5, 18, 10, hue::t.c[0], 0.8f, 0.3f);
+			_p.text(at.x, at.y + 1.4f, patternName(shown), 3.2f, colour::ink, 600, Align::Centre);
+		}
 	}
 
 	// ---- Master: the mix and the master section ----
+
+	namespace
+	{
+		// A return meter's value: whole dB, -inf under -60 (t-ui-spec)
+		juce::String returnDb(const float _peak)
+		{
+			if(_peak < 0.001f)
+				return juce::String::fromUTF8("\xe2\x88\x92") + "inf";
+			const int db = juce::roundToInt(20 * std::log10(_peak));
+			return db < 0 ? juce::String::fromUTF8("\xe2\x88\x92") + juce::String(-db) : juce::String(db);
+		}
+	}
 
 	void Editor::buildMaster()
 	{
@@ -1505,7 +2320,17 @@ namespace elektron::drums
 				h = mix(h, static_cast<uint64_t>(m_activity[t] * 10));
 			for(int t = 0; t < 16; ++t)
 				h = mixFloat(h, trackParameter("level", t)->getValue());
+			for(int s = 0; s < SendCount; ++s)
+				h = mix(h, static_cast<uint64_t>(m_processor.returnPeak(s) * 400));
 			return mixFloat(h, valueOf("master_volume"));
+		});
+		// The gain reduction's bar and its trace, a frame each, which scrolls while the master is on
+		watch({cx(15) + 100, 134, 9 * Col - 100, 108}, [this]
+		{
+			const float gr = m_processor.masterReduction();
+			m_grTrace[m_grAt] = gr;
+			m_grAt = (m_grAt + 1) % m_grTrace.size();
+			return choiceOf("master_on") ? mix(static_cast<uint64_t>(m_grAt), static_cast<uint64_t>(-gr * 10)) : 0;
 		});
 		watch({x1, 130, w, 108}, [this]
 		{
@@ -1541,7 +2366,9 @@ namespace elektron::drums
 		{
 			const float c = 237 + static_cast<float>(i) * 9.5f;
 			_p.text(c, 30, returns[i], 2.6f, colour::mid, 500, Align::Centre);
-			ladder(_p, c - 1.6f, 34, 3.2f, h, 0);
+			const float peak = m_processor.returnPeak(i);
+			ladder(_p, c - 1.6f, 34, 3.2f, h, juce::jlimit(0.0f, 1.0f, 1.07f * std::sqrt(peak)));
+			_p.text(c, 206.5f, returnDb(peak), 2.6f, colour::ink, 600, Align::Centre);
 		}
 		const float xm = 279;
 		_p.text(xm, 30, "MAIN", 2.8f, colour::ink, 600, Align::Centre);
@@ -1590,12 +2417,25 @@ namespace elektron::drums
 		_p.g.drawDashedLine({tx, b, tx, b + sz}, dash, 2, 0.3f);
 		_p.text(juce::jlimit(a + 1, a + sz - 20, tx + 1), b + sz - 1.6f, "THR", 2.8f, hue::k.c[4], 600);
 		_p.dot(tx, juce::jlimit(b, b + sz, Y(comp(th))), 1.5f, juce::Colours::black, hue::k.c[4], 0.5f);
-		// Gain reduction: no telemetry yet, the box alone
+		// Gain reduction, the audio thread's at the frame: a bar down from 0 to -12 dB, its number under it, and its
+		// trace of the last 240 frames, the newest on the right
 		const float gx = a + sz + 7;
 		_p.rect(gx, b, 5, sz, juce::Colour(0xff17181A), 0.4f);
 		const float trx = gx + 7, trw = x1 + w - 4 - trx;
 		_p.rect(trx, b, trw, sz, juce::Colour(0xff121315), 0.4f);
 		_p.text(trx + 1, b + 3, "GR", 2.4f, colour::mid);
+		const auto down = [&](const float _db) { return sz * juce::jlimit(0.0f, 1.0f, -_db / 12); };
+		const float gr = m_processor.masterReduction();
+		if(gr < 0)
+			_p.rect(gx, b, 5, down(gr), hue::k.c[0]);
+		_p.text(gx + 2.5f, b + sz + 3.2f, gr < -0.05f ? juce::String::fromUTF8("\xe2\x88\x92") + juce::String(-gr, 1) :
+			juce::String("0.0"), 2.4f, colour::ink, 600, Align::Centre);
+		std::vector<juce::Point<float>> trace;
+		const size_t n = m_grTrace.size();
+		for(size_t i = 0; i < n; ++i)
+			trace.push_back({trx + trw * static_cast<float>(i) / static_cast<float>(n - 1),
+				b + down(m_grTrace[(m_grAt + i) % n])});
+		_p.poly(trace, hue::k.c[0], 0.4f);
 	}
 
 	// ---- FX: the four shared effects ----
@@ -1622,13 +2462,32 @@ namespace elektron::drums
 					++slot;
 			}
 		};
+		// SYNC or HZ at the block's top right, as the LFO's: the delay's DURATION in notes or its HZ, the chorus's and
+		// the phaser's SPEED in notes or their own rate
+		const auto syncOf = [&](const int _i, const char* _id, const Hue& _hue)
+		{
+			const float x = cx(2 + static_cast<float>(_i) * 5.5f) - 2, w = 5.5f * Col + 2;
+			Cell c = cellOf(m_processor.parameter(_id), "SYNC", x + w - 30, 24.8f, 28, _hue, "");
+			c.look = Look::Segments;
+			c.labels = {"HZ", "SYNC"};
+			c.reversed = true;
+			c.h = 6;
+			addCell(c);
+		};
 		const bool echo = choiceOf("delay_source") == 0, gate = choiceOf("reverb_source") == 0;
+		const bool sync = choiceOf("delay_sync") != 0, chorusSync = choiceOf("chorus_sync") != 0,
+			phaserSync = choiceOf("phaser_sync") != 0;
 		blockOf(0, "fd", "DELAY", hue::k, {{"delay_source", "SOURCE"}, {"delay_output", "OUT"},
-			{"echo_time", "TIME"}, {"echo_mod", "MOD"}, {"echo_mfrq", "MOD FREQ"}, {"echo_fb", "FEEDBACK"},
+			{"delay_note", "DURATION"}, {"delay_free", "HZ"},
+			{"echo_mod", "MOD"}, {"echo_mfrq", "MOD FREQ"}, {"echo_fb", "FEEDBACK"},
 			{"echo_fltf", "FLT FREQ"}, {"echo_fltw", "FLT WIDTH"}, {"echo_mono", "MONO"}, {"echo_lev", "LEVEL"},
-			{"delay_time", "TIME"}, {"delay_cross", "PING PONG"}, {"delay_width", "WIDTH"}, {"delay_fdbk", "FEEDBACK"},
-			{"delay_hp", "HPF"}, {"delay_lp", "LPF"}, {"delay_rev", "TO REVERB"}, {"delay_free", "FREE HZ"}},
-			{true, true, echo, echo, echo, echo, echo, echo, echo, echo, !echo, !echo, !echo, !echo, !echo, !echo, !echo, !echo});
+			{"delay_cross", "PING PONG"}, {"delay_width", "WIDTH"}, {"delay_fdbk", "FEEDBACK"},
+			{"delay_hp", "HPF"}, {"delay_lp", "LPF"}, {"delay_rev", "TO REVERB"},
+			// The machines' TIME, in 128ths, which plays with Sync off at 0 Hz: a host's, not shown
+			{"echo_time", "TIME"}, {"delay_time", "TIME"}},
+			{true, true, sync, !sync, echo, echo, echo, echo, echo, echo, echo, !echo, !echo, !echo, !echo, !echo, !echo,
+				false, false});
+		syncOf(0, "delay_sync", hue::k);
 		blockOf(1, "fr", "REVERB", hue::a, {{"reverb_source", "SOURCE"}, {"reverb_output", "OUT"},
 			{"gate_dvol", "DRY VOL"}, {"gate_pred", "PRE DELAY"}, {"gate_dec", "DECAY"}, {"gate_damp", "DAMP"},
 			{"gate_hp", "HPF"}, {"gate_lp", "LPF"}, {"gate_gate", "GATE"}, {"gate_lev", "LEVEL"},
@@ -1636,13 +2495,24 @@ namespace elektron::drums
 			{"reverb_hp", "HPF"}, {"reverb_lp", "LPF"}},
 			{true, true, gate, gate, gate, gate, gate, gate, gate, gate, !gate, !gate, !gate, !gate, !gate, !gate});
 		blockOf(2, "fc", "CHORUS", hue::g, {{"chorus_output", "OUT"}, {"chorus_depth", "DEPTH"},
-			{"chorus_rate", "SPEED"}, {"chorus_delay", "DELAY"}, {"chorus_fdbk", "FEEDBACK"}, {"chorus_level", "MIX"},
-			{"chorus_shape", "SHAPE"}}, {});
+			{"chorus_rate", "SPEED"}, {"chorus_speed", "SPEED"}, {"chorus_delay", "DELAY"}, {"chorus_fdbk", "FEEDBACK"},
+			{"chorus_level", "MIX"}, {"chorus_shape", "SHAPE"}}, {true, true, !chorusSync, chorusSync, true, true, true, true});
+		syncOf(2, "chorus_sync", hue::g);
 		blockOf(3, "fp", "PHASER / FLANGER", hue::p, {{"phaser_mode", "MODE"}, {"phaser_output", "OUT"},
-			{"phaser_stages", "STAGES"}, {"phaser_depth", "DEPTH"}, {"phaser_rate", "SPEED"}, {"phaser_freq", "FREQ"},
-			{"phaser_spread", "SPREAD"}, {"phaser_fdbk", "FEEDBACK"}, {"phaser_level", "MIX"},
+			{"phaser_stages", "STAGES"}, {"phaser_depth", "DEPTH"}, {"phaser_rate", "SPEED"}, {"phaser_speed", "SPEED"},
+			{"phaser_freq", "FREQ"}, {"phaser_spread", "SPREAD"}, {"phaser_fdbk", "FEEDBACK"}, {"phaser_level", "MIX"},
 			{"phaser_dp4_phase", "DP4 PHASE"}, {"phaser_dp4_left", "DP4 DLY L"}, {"phaser_dp4_right", "DP4 DLY R"},
-			{"phaser_dp4_fdbk", "DP4 DLY FB"}}, {});
+			{"phaser_dp4_fdbk", "DP4 DLY FB"}, {"phaser_dp4_sh", "DP4 S&H"}},
+			{true, true, true, true, !phaserSync, phaserSync, true, true, true, true, true, true, true, true, true});
+		syncOf(3, "phaser_sync", hue::p);
+		// The returns' meters, at the frame's rate
+		watch({12, 25, 40, 210}, [this]
+		{
+			uint64_t h = 0;
+			for(int s = 0; s < SendCount; ++s)
+				h = mix(h, static_cast<uint64_t>(m_processor.returnPeak(s) * 400));
+			return h;
+		});
 		watch({cx(2), 124, 22 * Col, 116}, [this]
 		{
 			uint64_t h = 0;
@@ -1660,7 +2530,9 @@ namespace elektron::drums
 		{
 			const float c = 18 + static_cast<float>(i) * 10;
 			_p.text(c, 30, returns[i], 2.6f, colour::mid, 500, Align::Centre);
-			ladder(_p, c - 1.6f, 34, 3.2f, 196, 0);
+			const float peak = m_processor.returnPeak(i);
+			ladder(_p, c - 1.6f, 34, 3.2f, 190, juce::jlimit(0.0f, 1.0f, 1.07f * std::sqrt(peak)));
+			_p.text(c, 230, returnDb(peak), 2.6f, colour::ink, 600, Align::Centre);
 		}
 		// Each effect's view, from its values (y 128 to 238)
 		const float vy = 130, vh = 106;
@@ -1741,10 +2613,13 @@ namespace elektron::drums
 				KitRowH - 0.7f};
 		}
 
+		// LOAD, SAVE HERE; RENAME, DELETE; the FILE's IMPORT, EXPORT; then ticket 19's: the pattern's LOAD AT START, KEEP
+		// THE KIT; its IMPORT, EXPORT; the Track's SAVE SOUND, LOAD SOUND
+		constexpr int KitButtons = 12;
 		juce::Rectangle<float> kitButton(const int _i)
 		{
-			return {KitPanelX + static_cast<float>(_i % 2) * (KitButtonW + 2),
-				_i < 4 ? 47 + static_cast<float>(_i / 2) * 14.5f : 222, KitButtonW, 12.5f};
+			constexpr float rows[]{47, 61.5f, 222, 97, 111.5f, 146};
+			return {KitPanelX + static_cast<float>(_i % 2) * (KitButtonW + 2), rows[_i / 2], KitButtonW, 12.5f};
 		}
 
 		juce::String slotNumber(const int _slot)
@@ -1776,7 +2651,7 @@ namespace elektron::drums
 			};
 			addHit(std::move(row));
 		}
-		const std::array<std::function<void()>, 4> actions{
+		const std::array<std::function<void()>, KitButtons> actions{
 			[this]
 			{
 				if(m_processor.loadKit(m_kitSel))
@@ -1806,6 +2681,86 @@ namespace elektron::drums
 				m_kitDelete = -1;
 				if(m_processor.clearKit(m_kitSel))
 					toast("Slot " + slotNumber(m_kitSel) + " emptied");
+			},
+			[this]
+			{
+				const int slot = m_kitSel;
+				chooseFile("Import a kit into slot " + slotNumber(slot), "*.edkit", false, [this, slot](const juce::File& _f)
+				{
+					toast(m_processor.importKit(slot, _f) ? "Imported " + m_processor.kitSlot(slot).name + " in slot "
+						+ slotNumber(slot) : _f.getFileName() + " is not a kit");
+				});
+			},
+			[this]
+			{
+				const int slot = m_kitSel;
+				if(m_processor.kitSlot(slot).empty())
+					return;
+				chooseFile("Export kit " + slotNumber(slot), "*.edkit", true, [this, slot](const juce::File& _f)
+				{
+					const auto file = _f.withFileExtension(".edkit");
+					toast(m_processor.exportKit(slot, file) ? "Exported to " + file.getFileName()
+						: file.getFileName() + " could not be written");
+				});
+			},
+			[this]
+			{
+				if(m_processor.kitSlot(m_kitSel).empty())
+					return;
+				const int pattern = m_processor.currentPattern();
+				m_processor.setPatternKit(pattern, m_kitSel);
+				toast("Pattern " + juce::String(pattern + 1) + " loads slot " + slotNumber(m_kitSel) + " at its start");
+			},
+			[this]
+			{
+				const int pattern = m_processor.currentPattern();
+				m_processor.setPatternKit(pattern, -1);
+				toast("Pattern " + juce::String(pattern + 1) + " keeps the kit playing");
+			},
+			[this]
+			{
+				const int pattern = m_processor.currentPattern();
+				chooseFile("Import into pattern " + juce::String(pattern + 1), "*.edpattern", false,
+					[this, pattern](const juce::File& _f)
+					{
+						toast(m_processor.importPattern(pattern, _f) ? "Imported " + _f.getFileNameWithoutExtension()
+							+ " in pattern " + juce::String(pattern + 1) : _f.getFileName() + " is not a pattern");
+					});
+			},
+			[this]
+			{
+				const int pattern = m_processor.currentPattern();
+				chooseFile("Export pattern " + juce::String(pattern + 1), "*.edpattern", true,
+					[this, pattern](const juce::File& _f)
+					{
+						const auto file = _f.withFileExtension(".edpattern");
+						toast(m_processor.exportPattern(pattern, file) ? "Exported to " + file.getFileName()
+							: file.getFileName() + " could not be written");
+					});
+			},
+			[this] { saveTrackSound(); },
+			[this]
+			{
+				// The first 32 of the Library, eight a column; Browse lists them all
+				juce::StringArray names;
+				std::vector<juce::File> files;
+				for(const auto& e : m_processor.trackSounds().entries())
+				{
+					if(names.size() == 32)
+						break;
+					names.add(e.name);
+					files.push_back(e.file);
+				}
+				if(names.isEmpty())
+				{
+					toast("No track sound saved yet");
+					return;
+				}
+				const auto b = kitButton(11);
+				openSelector(b.getX(), b.getY(), names, {}, [this, files](const int _i)
+				{
+					loadTrackSound(m_track, files[static_cast<size_t>(_i)]);
+				});
 			}};
 		for(size_t i = 0; i < actions.size(); ++i)
 		{
@@ -1820,6 +2775,9 @@ namespace elektron::drums
 			uint64_t h = mix(0, static_cast<uint64_t>(m_processor.currentKit() + 1));
 			h = mix(h, m_processor.kitDiffers() ? 1 : 0);
 			h = mix(mix(h, static_cast<uint64_t>(m_kitSel)), static_cast<uint64_t>(m_kitDelete + 1));
+			const int pattern = m_processor.currentPattern();
+			h = mix(mix(h, static_cast<uint64_t>(pattern)), static_cast<uint64_t>(m_processor.patternKit(pattern) + 1));
+			h = mix(mix(h, static_cast<uint64_t>(m_track)), m_processor.trackSounds().generation());
 			for(int i = 0; i < Processor::KitSlots; ++i)
 			{
 				const auto& s = m_processor.kitSlot(i);
@@ -1882,15 +2840,27 @@ namespace elektron::drums
 			_p.text(x + 8 * Col - 4, 29.2f, edited ? "PLAYING, EDITED" : "PLAYING", 2.8f, hue::t.c[4], 500, Align::Right);
 		_p.text(x, 40, slot.empty() ? juce::String("Empty") : slot.name, 5, slot.empty() ? colour::dim : colour::ink, 600);
 		drawBlockTitle(_p, {x - 2, 213, 8 * Col + 2, "FILE", "kf", &hue::t});
+
+		// The pattern playing's Kit at its start, and its file; the Track shown's sound
+		const int pattern = m_processor.currentPattern(), loads = m_processor.patternKit(pattern);
+		drawBlockTitle(_p, {x - 2, 79, 8 * Col + 2, "PATTERN " + juce::String(pattern + 1), "kp", &hue::t});
+		_p.text(x, 92, loads < 0 ? juce::String("AT ITS START: KEEPS THE KIT PLAYING")
+			: "AT ITS START: LOADS SLOT " + slotNumber(loads) + ", " + m_processor.kitSlot(loads).name.toUpperCase(), 2.8f,
+			loads < 0 ? colour::dim : hue::t.c[4], 500);
+		drawBlockTitle(_p, {x - 2, 128, 8 * Col + 2, "TRACK " + juce::String(m_track + 1) + " SOUND", "ks", &hue::t});
+		_p.text(x, 141, machineName(m_track).toUpperCase() + ", " + juce::String(static_cast<int>(
+			m_processor.trackSounds().entries().size())) + " SOUNDS IN THE LIBRARY", 2.8f, colour::mid, 500);
+
 		const juce::String names[]{"LOAD", "SAVE HERE", "RENAME", m_kitDelete == m_kitSel ? "DELETE: AGAIN" : "DELETE",
-			"IMPORT", "EXPORT"};
-		for(int i = 0; i < 6; ++i)
+			"IMPORT", "EXPORT", "LOAD AT ITS START", "KEEP THE KIT", "IMPORT PATTERN", "EXPORT PATTERN", "SAVE SOUND",
+			"LOAD SOUND"};
+		for(int i = 0; i < KitButtons; ++i)
 		{
 			const auto b = kitButton(i);
-			// LOAD lit where it changes the sound, SAVE HERE where the Kit played was changed since
-			const bool enabled = i == 1 || (i < 4 && !slot.empty());
+			// LOAD lit where it changes the sound, SAVE HERE where the Kit played was changed since; the pattern's choice
+			const bool enabled = i == 1 || i == 4 || i >= 7 || !slot.empty();
 			const bool lit = (i == 0 && !slot.empty() && (!playing || edited)) || (i == 1 && edited)
-				|| (i == 3 && m_kitDelete == m_kitSel);
+				|| (i == 3 && m_kitDelete == m_kitSel) || (i == 6 && loads == m_kitSel) || (i == 7 && loads < 0);
 			drawButton(_p, b.getX(), b.getY(), b.getWidth(), b.getHeight(), names[i], lit, enabled);
 		}
 	}
@@ -1930,6 +2900,27 @@ namespace elektron::drums
 			const double s = static_cast<double>(_frames) / _rate;
 			return s < 1 ? juce::String(juce::roundToInt(s * 1000)) + " MS" : juce::String(s, 2) + " S";
 		}
+
+		// What an audition played, _w mm wide about _mid, _h high: min and max a column, 0.5 mm wide
+		void drawWave(Painter& _p, const float _x, const float _mid, const float _w, const float _h,
+			const std::vector<int16_t>& _pcm, const juce::Colour _colour)
+		{
+			const int columns = static_cast<int>(_w / 0.5f);
+			for(int col = 0; col < columns; ++col)
+			{
+				const size_t a = _pcm.size() * static_cast<size_t>(col) / static_cast<size_t>(columns);
+				const size_t b = std::max(a + 1, _pcm.size() * static_cast<size_t>(col + 1) / static_cast<size_t>(columns));
+				int lo = 0, hi = 0;
+				for(size_t n = a; n < b && n < _pcm.size(); ++n)
+				{
+					lo = std::min(lo, static_cast<int>(_pcm[n]));
+					hi = std::max(hi, static_cast<int>(_pcm[n]));
+				}
+				const float px = _x + static_cast<float>(col) * 0.5f + 0.25f;
+				_p.line(px, _mid - static_cast<float>(hi) / 32768.0f * _h / 2, px, _mid - static_cast<float>(lo) / 32768.0f
+					* _h / 2 + 0.2f, _colour, 0.4f);
+			}
+		}
 	}
 
 	juce::Rectangle<int> Editor::browseTreeArea(const int _tree) const
@@ -1942,9 +2933,41 @@ namespace elektron::drums
 		return toPx(browseListRow(_row, browseSamples()));
 	}
 
+	juce::Rectangle<int> Editor::browseButtonArea(const int _button) const
+	{
+		const float segment = browseSegment(browseFilters().size());
+		return toPx(_button == 0 ? juce::Rectangle<float>{cx(0), 170, 6 * Col - 4, 12.5f}
+			: _button == 1 ? juce::Rectangle<float>{cx(16) + 1, 118, BrowseInfoW - 2, 9}
+			: juce::Rectangle<float>{cx(6) + segment, 33, segment, 6});
+	}
+
+	juce::Rectangle<int> Editor::selectorItemArea(const int _item) const
+	{
+		float cw = 0;
+		const auto box = selectorBox(cw);
+		return toPx({box.getX() + static_cast<float>(_item / 8) * cw, box.getY() + static_cast<float>(_item % 8) * 7.6f, cw,
+			7.6f});
+	}
+
 	std::vector<int> Editor::browseList() const
 	{
 		std::vector<int> list;
+		if(m_browseTree == 0)
+		{
+			for(int i = 0; i < Processor::KitSlots; ++i)
+				if(!m_processor.kitSlot(i).empty())
+					list.push_back(i);
+			return list;
+		}
+		if(m_browseTree == 1)
+		{
+			const auto& sounds = m_processor.trackSounds().entries();
+			for(size_t i = 0; i < sounds.size(); ++i)
+				if(m_browseSearch.isEmpty() || sounds[i].name.containsIgnoreCase(m_browseSearch)
+					|| sounds[i].machine.containsIgnoreCase(m_browseSearch))
+					list.push_back(static_cast<int>(i));
+			return list;
+		}
 		const auto& entries = m_processor.sampleLibrary().entries();
 		for(size_t i = 0; i < entries.size(); ++i)
 		{
@@ -1975,7 +2998,7 @@ namespace elektron::drums
 
 	void Editor::buildBrowse()
 	{
-		for(const int tree : {2, 3, 4})
+		for(int tree = 0; tree < 5; ++tree)
 		{
 			Hit row;
 			row.r = browseTreeRow(tree).withHeight(BrowseRowH);
@@ -1985,6 +3008,88 @@ namespace elektron::drums
 				m_browseItem = m_browseScroll = m_browseFilter = 0;
 			};
 			addHit(std::move(row));
+		}
+		// Ticket 20: IMPORT MY ELEKTRON CONTENT, under every tree
+		Hit import;
+		import.r = {cx(0), 222, 6 * Col - 4, 12.5f};
+		import.click = [this] { chooseImport(); };
+		addHit(std::move(import));
+		watch({cx(0), 222, 6 * Col - 4, 12.5f}, [this] { return static_cast<uint64_t>(m_processor.importing()); });
+		if(m_browseTree <= 1)
+		{
+			// KITS: a click chooses, a double-click or LOAD KIT loads. TRACK SOUNDS: a click auditions, a double-click
+			// loads on the Track shown, a drag onto a Track loads there
+			const bool kits = m_browseTree == 0;
+			const auto list = browseList();
+			const auto& sounds = m_processor.trackSounds().entries();
+			const auto load = [this, kits](const int _item, const int _track)
+			{
+				const auto list = browseList();
+				if(_item >= static_cast<int>(list.size()))
+					return;
+				const int entry = list[static_cast<size_t>(_item)];
+				if(kits)
+				{
+					if(m_processor.loadKit(entry))
+						toast("Loaded " + m_processor.kitSlot(entry).name);
+					return;
+				}
+				loadTrackSound(_track, m_processor.trackSounds().entries()[static_cast<size_t>(entry)].file);
+			};
+			for(int i = 0; i < 16 && m_browseScroll + i < static_cast<int>(list.size()); ++i)
+			{
+				const int item = m_browseScroll + i, entry = list[static_cast<size_t>(item)];
+				Hit row;
+				row.r = browseListRow(i, false).withHeight(BrowseRowH);
+				const juce::File file = kits ? juce::File() : sounds[static_cast<size_t>(entry)].file;
+				row.click = [this, item, kits, file]
+				{
+					m_browseItem = item;
+					if(!kits)
+						auditionSound(file);
+				};
+				row.doubleClick = [this, item, load]
+				{
+					m_browseItem = item;
+					load(item, m_track);
+				};
+				if(!kits)
+				{
+					row.drag = [this, entry](float, float) { m_browseDrag = entry; };
+					row.end = [this, file]
+					{
+						m_browseDrag = -1;
+						const int k = static_cast<int>((m_press.last.x - 10) / KeyPitch);
+						if(m_press.last.y >= 244 && k >= 0 && k < 16)
+							loadTrackSound(k, file);
+					};
+				}
+				addHit(std::move(row));
+			}
+			if(m_browseItem < static_cast<int>(list.size()))
+			{
+				if(!kits)
+				{
+					const auto file = sounds[static_cast<size_t>(list[static_cast<size_t>(m_browseItem)])].file;
+					Hit replay;
+					replay.r = {cx(16), 32, BrowseInfoW, 185};
+					replay.click = [this, file] { auditionSound(file); };
+					addHit(std::move(replay));
+				}
+				Hit button;
+				button.r = {cx(16), 222, BrowseInfoW, 12.5f};
+				button.click = [this, load] { load(m_browseItem, m_track); };
+				addHit(std::move(button));
+			}
+			watch({cx(6), 23, 18 * Col, 216}, [this]
+			{
+				uint64_t h = mix(0, static_cast<uint64_t>(m_processor.currentKit() + 1));
+				h = mix(h, reinterpret_cast<uintptr_t>(m_processor.auditioned()));
+				for(int i = 0; i < Processor::KitSlots; ++i)
+					h = mix(h, static_cast<uint64_t>(m_processor.kitSlot(i).written.toMilliseconds()));
+				return h;
+			});
+			return;
 		}
 		if(!browseSamples())
 		{
@@ -2027,6 +3132,24 @@ namespace elektron::drums
 		add.r = {cx(0), 184, 6 * Col - 4, 12.5f};
 		add.click = [this] { chooseFolder(); };
 		addHit(std::move(add));
+		// REMOVE FOLDER, by source with a folder's segment chosen: the folder leaves the Library, its files stay
+		if(m_browseTree == 2 && m_browseFilter > 0)
+		{
+			Hit remove;
+			remove.r = {cx(0), 170, 6 * Col - 4, 12.5f};
+			remove.click = [this]
+			{
+				const auto folder = m_processor.sampleLibrary().folders()[m_browseFilter - 1];
+				if(!m_processor.sampleLibrary().removeFolder(folder))
+				{
+					toast(folder.getFileName() + " could not be removed");
+					return;
+				}
+				m_browseFilter = m_browseItem = m_browseScroll = 0;
+				toast(folder.getFileName() + " left the Library, its files stay on the disk");
+			};
+			addHit(std::move(remove));
+		}
 		const auto filters = browseFilters();
 		const float segment = browseSegment(filters.size());
 		for(int i = 0; i < filters.size(); ++i)
@@ -2079,6 +3202,27 @@ namespace elektron::drums
 			load.r = {cx(16), 222, BrowseInfoW, 12.5f};
 			load.click = [this, file] { loadSample(m_track, file); };
 			addHit(std::move(load));
+			// TYPE, its row in the panel (drawBrowseSample): a click opens the types, the one chosen kept as the user's
+			const auto fingerprint = library.entries()[static_cast<size_t>(list[static_cast<size_t>(m_browseItem)])]
+				.fingerprint;
+			Hit type;
+			type.r = {cx(16) + 1, 118, BrowseInfoW - 2, 9};
+			type.click = [this, fingerprint]
+			{
+				juce::StringArray types;
+				for(int t = 0; t < SampleLibrary::Types; ++t)
+					types.add(SampleLibrary::typeName(static_cast<SampleLibrary::Type>(t)));
+				openSelector(cx(16) + 29, 120, types, [this, fingerprint](const int _t)
+				{
+					const auto* e = m_processor.sampleLibrary().find(fingerprint);
+					return e && static_cast<int>(e->type) == _t;
+				}, [this, fingerprint](const int _t)
+				{
+					if(!m_processor.sampleLibrary().setType(fingerprint, static_cast<SampleLibrary::Type>(_t)))
+						toast("The type could not be kept");
+				});
+			};
+			addHit(std::move(type));
 		}
 		// The Track's sample and what the audition holds
 		watch({cx(6), 23, 18 * Col, 216}, [this]
@@ -2100,23 +3244,69 @@ namespace elektron::drums
 		{
 			const auto r = browseTreeRow(i);
 			const auto& h = browseHue(i);
-			const bool on = i == m_browseTree, live = i >= 2;
+			const bool on = i == m_browseTree;
 			_p.rect(r.getX(), r.getY(), r.getWidth(), r.getHeight(), on ? h.c[1] : beat(i), 0.5f);
 			_p.rect(r.getX(), r.getY() + 0.6f, 0.7f, BrowseRowH - 1.9f, h.c[0], 0.3f);
-			_p.text(r.getX() + 2.4f, r.getY() + 8, browseTreeNames[i], 3.2f, on ? h.c[4] : live ? colour::mid
-				: juce::Colour(0xff4E4E4C), on ? 600 : 500);
+			_p.text(r.getX() + 2.4f, r.getY() + 8, browseTreeNames[i], 3.2f, on ? h.c[4] : colour::mid, on ? 600 : 500);
 		}
 		if(samples)
-		{
 			drawButton(_p, x, 184, 6 * Col - 4, 12.5f, "ADD FOLDER", false);
+		if(m_browseTree == 2)
+			drawButton(_p, x, 170, 6 * Col - 4, 12.5f, "REMOVE FOLDER", false, m_browseFilter > 0);
+		if(samples || m_browseTree == 1)
+		{
 			const juce::String hints[]{"CLICK: LISTEN", "DOUBLE CLICK: LOAD ON TRACK " + juce::String(m_track + 1),
 				"DRAG: DROP ON ANY TRACK"};
 			for(int i = 0; i < 3; ++i)
 				_p.text(x, 202 + static_cast<float>(i) * 5.6f, hints[i], 2.6f, colour::dim);
 		}
-		drawButton(_p, x, 222, 6 * Col - 4, 12.5f, "IMPORT MY ELEKTRON CONTENT", false, false);
+		const bool importing = m_processor.importing();
+		drawButton(_p, x, 222, 6 * Col - 4, 12.5f, importing ? "IMPORTING" : "IMPORT MY ELEKTRON CONTENT", false,
+			!importing);
 
 		x = cx(6);
+		if(m_browseTree <= 1)
+		{
+			// The Bank's Kits, or the Track sounds' Library: a row each, the Kit played or the sound heard marked
+			const bool kits = m_browseTree == 0;
+			const auto list = browseList();
+			const auto& sounds = m_processor.trackSounds().entries();
+			drawBlockTitle(_p, {x - 2, 23, 10 * Col + 2, browseTreeNames[m_browseTree], "bs", &c});
+			_p.text(x + BrowseListW, 29.2f, juce::String(static_cast<int>(list.size())), 2.8f, c.c[4], 500, Align::Right);
+			for(int i = 0; i < 16 && m_browseScroll + i < static_cast<int>(list.size()); ++i)
+			{
+				const int item = m_browseScroll + i, entry = list[static_cast<size_t>(item)];
+				const auto r = browseListRow(i, false);
+				const bool on = item == m_browseItem;
+				_p.rect(x, r.getY(), BrowseListW, r.getHeight(), on ? c.c[1] : beat(i), 0.5f);
+				if(on)
+					_p.rect(x, r.getY() + 0.6f, 0.7f, BrowseRowH - 1.9f, c.c[0], 0.3f);
+				const auto name = kits ? slotNumber(entry) + "  " + m_processor.kitSlot(entry).name
+					: sounds[static_cast<size_t>(entry)].name;
+				_p.text(x + 2.4f, r.getY() + 8, name, 3.2f, on ? colour::ink : colour::mid, on ? 600 : 500);
+				const auto tag = kits ? (entry == m_processor.currentKit() ? juce::String("PLAYING") : juce::String())
+					: sounds[static_cast<size_t>(entry)].machine.toUpperCase();
+				_p.text(x + BrowseListW - 3, r.getY() + 8, tag, 2.8f, kits ? c.c[4] : colour::dim, 500, Align::Right);
+			}
+			if(list.empty())
+				_p.text(x + BrowseListW / 2, 126, kits ? "NO KIT SAVED: SAVE ONE ON THE KITS PAGE"
+					: m_browseSearch.isNotEmpty() ? "NOTHING MATCHES" : "NO SOUND SAVED: SAVE SOUND ON THE KITS PAGE", 2.8f,
+					colour::dim, 500, Align::Centre);
+			x = cx(16);
+			const bool chosen = m_browseItem < static_cast<int>(list.size());
+			const int entry = chosen ? list[static_cast<size_t>(m_browseItem)] : -1;
+			const auto title = !chosen ? juce::String() : kits ? m_processor.kitSlot(entry).name.toUpperCase()
+				: sounds[static_cast<size_t>(entry)].name.toUpperCase();
+			drawBlockTitle(_p, {x - 2, 23, 8 * Col + 2, title, "bi", &c});
+			_p.frame(x, 32, BrowseInfoW, 185, c.c[1], 1.2f, 0.4f);
+			if(chosen && kits)
+				drawBrowseKit(_p, x, c);
+			else if(chosen)
+				drawBrowseSound(_p, x, c);
+			drawButton(_p, x, 222, BrowseInfoW, 12.5f, kits ? juce::String("LOAD KIT")
+				: "LOAD ON TRACK " + juce::String(m_track + 1), chosen, chosen);
+			return;
+		}
 		if(!samples)
 		{
 			const auto& machines = m_processor.machines();
@@ -2202,31 +3392,15 @@ namespace elektron::drums
 		const float w = BrowseInfoW - 4, top = 36, h = 76, mid = top + h / 2;
 		const auto* heard = m_processor.auditioned();
 		if(heard && m_auditionFile == e.file && !heard->pcm.empty())
-		{
-			// Min and max a column, 0.5 mm wide
-			const int columns = static_cast<int>(w / 0.5f);
-			const auto& pcm = heard->pcm;
-			for(int col = 0; col < columns; ++col)
-			{
-				const size_t a = pcm.size() * static_cast<size_t>(col) / static_cast<size_t>(columns);
-				const size_t b = std::max(a + 1, pcm.size() * static_cast<size_t>(col + 1) / static_cast<size_t>(columns));
-				int lo = 0, hi = 0;
-				for(size_t n = a; n < b && n < pcm.size(); ++n)
-				{
-					lo = std::min(lo, static_cast<int>(pcm[n]));
-					hi = std::max(hi, static_cast<int>(pcm[n]));
-				}
-				const float px = _x + 2 + static_cast<float>(col) * 0.5f + 0.25f;
-				_p.line(px, mid - static_cast<float>(hi) / 32768.0f * h / 2, px, mid - static_cast<float>(lo) / 32768.0f * h / 2
-					+ 0.2f, _hue.c[4], 0.4f);
-			}
-		}
+			drawWave(_p, _x + 2, mid, w, h, heard->pcm, _hue.c[4]);
 		else
 			_p.text(_x + BrowseInfoW / 2, mid + 1, "CLICK TO LISTEN", 2.8f, colour::dim, 500, Align::Centre);
 
 		const juce::String channels = e.channels == 1 ? "MONO" : e.channels == 2 ? "STEREO" : juce::String(e.channels);
 		const juce::String rows[][2]{
-			{"TYPE", SampleLibrary::typeName(e.type)},
+			// Guessed by its name or its sound until the user sets it, a click on the row
+			{"TYPE", juce::String(SampleLibrary::typeName(e.type)) + (e.typeFrom == SampleLibrary::TypeFrom::User
+				? "" : ", GUESSED")},
 			{"LENGTH", lengthText(e.length, e.rate) + (static_cast<double>(e.length) / e.rate
 				> Sample::MaxLength / 44100.0 ? ", THE SAMPLER PLAYS 1.29 S" : "")},
 			{"RATE", juce::String(e.rate / 1000, 1) + " KHZ"},
@@ -2244,6 +3418,45 @@ namespace elektron::drums
 		}
 		if(e.fingerprint == m_processor.sampleFingerprint(m_track))
 			_p.text(_x + 3, y + 3, "ON TRACK " + juce::String(m_track + 1), 2.8f, _hue.c[4], 600);
+	}
+
+	// The Track sound chosen: its Hit as the audition rendered it, once heard, then its machine and file
+	void Editor::drawBrowseSound(Painter& _p, const float _x, const Hue& _hue)
+	{
+		const auto& e = m_processor.trackSounds().entries()[static_cast<size_t>(browseList()[static_cast<size_t>(
+			m_browseItem)])];
+		const float w = BrowseInfoW - 4, top = 36, h = 76, mid = top + h / 2;
+		const auto* heard = m_processor.auditioned();
+		if(heard && m_auditionFile == e.file && !heard->pcm.empty())
+			drawWave(_p, _x + 2, mid, w, h, heard->pcm, _hue.c[4]);
+		else
+			_p.text(_x + BrowseInfoW / 2, mid + 1, "CLICK TO LISTEN", 2.8f, colour::dim, 500, Align::Centre);
+		const juce::String rows[][2]{{"MACHINE", e.machine}, {"FILE", e.file.getFileName()},
+			{"SAVED", e.written.toString(true, true, false)}};
+		float y = top + h + 12;
+		for(const auto& row : rows)
+		{
+			_p.text(_x + 3, y, row[0], 2.8f, colour::mid);
+			_p.text(_x + 30, y, row[1], 3.2f, colour::ink, 600);
+			y += 9;
+		}
+	}
+
+	// The Kit chosen: its Slot and whether it plays
+	void Editor::drawBrowseKit(Painter& _p, const float _x, const Hue& _hue)
+	{
+		const int slot = browseList()[static_cast<size_t>(m_browseItem)];
+		const auto& s = m_processor.kitSlot(slot);
+		const juce::String rows[][2]{{"SLOT", slotNumber(slot)}, {"SAVED", s.written.toString(true, true, false)},
+			{"STATE", slot == m_processor.currentKit() ? (m_processor.kitDiffers() ? "PLAYING, EDITED" : "PLAYING")
+				: "DOUBLE CLICK OR LOAD KIT"}};
+		float y = 48;
+		for(const auto& row : rows)
+		{
+			_p.text(_x + 3, y, row[0], 2.8f, colour::mid);
+			_p.text(_x + 30, y, row[1], 3.2f, slot == m_processor.currentKit() ? _hue.c[4] : colour::ink, 600);
+			y += 9;
+		}
 	}
 
 	// ---- the Menu panel, over the third row ----
@@ -2279,6 +3492,15 @@ namespace elektron::drums
 		Cell os = cellOf(m_processor.parameter("oversampling"), "OVERSAMPLING", cx(13), r1, 2 * Col, hue::k, "menu");
 		os.labels = {"OFF", "2X", "4X"};
 		addCell(os);
+		// ELEKTRON CONTENT: IMPORT MY CONTENT, and its cells redrawn as an import runs and ends
+		Hit import;
+		import.r = {cx(18), r1 + 19, 4 * Col - 4, 7};
+		import.click = [this] { chooseImport(); };
+		addHit(std::move(import));
+		watch({cx(18), r1 - 1, 6 * Col, 28}, [this]
+		{
+			return mix(m_processor.imports(), m_processor.importing() ? 1 : 0);
+		});
 	}
 
 	void Editor::drawMenu(Painter& _p)
@@ -2305,8 +3527,13 @@ namespace elektron::drums
 		head(18, 6, "ELEKTRON CONTENT", hue::y);
 		const char* content[]{"UW BANK", "FACTORY PACKS", "TRANSFERS"};
 		for(int i = 0; i < 3; ++i)
-			cell(18 + 2 * static_cast<float>(i), content[i], "NOT IMPORTED", colour::dim);
-		drawButton(_p, cx(18), r1 + 19, 4 * Col - 4, 7, "IMPORT MY CONTENT", false, false);
+		{
+			const auto v = elektronContent(i);
+			cell(18 + 2 * static_cast<float>(i), content[i], v, v == "NOT IMPORTED" ? colour::dim
+				: v == "MISSING" ? colour::mid : colour::ink);
+		}
+		const bool importing = m_processor.importing();
+		drawButton(_p, cx(18), r1 + 19, 4 * Col - 4, 7, importing ? "IMPORTING" : "IMPORT MY CONTENT", false, !importing);
 		for(const auto& c : m_cells)
 			if(c.section == "menu")
 				drawCell(_p, c);

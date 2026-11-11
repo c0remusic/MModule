@@ -64,6 +64,16 @@ namespace elektron::drums::parameters
 	extern const std::array<Spec, MasterBytes> masterSpecs;
 	extern const Spec oversamplingSpec;						// 1x, 2x, 4x
 
+	// Appended by ticket 14: either delay's time as a note of the host's tempo while Sync is on, else the free Hz; the
+	// chorus's and the phaser's LFO a turn per note value while their Sync is on; the DP/4's S&H rate
+	extern const Spec delaySyncSpec, delayNoteSpec;
+	extern const std::array<Spec, 2> lfoSyncSpecs, lfoNoteSpecs;	// the chorus's, the phaser's
+	extern const Spec dp4SampleHoldSpec;
+	constexpr int DefaultDelayNote = 9, DefaultLfoNote = 6;		// 1/4, 1 Bar
+	// Beats of delayNoteSpec's and lfoNoteSpecs' choices
+	double delayNoteQuarters(int _choice);
+	double lfoNoteQuarters(int _choice);
+
 	// The defaults of the shared effects' bytes: an effect that a Track's send reaches sounds, with no feedback
 	extern const std::array<int, 8> echoDefaults, gateBoxDefaults;
 	extern const std::array<int, StDelayBytes> syntaktDelayDefaults;

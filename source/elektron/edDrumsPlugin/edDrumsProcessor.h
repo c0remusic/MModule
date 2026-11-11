@@ -10,17 +10,19 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "edDrumsElektronImport.h"
 #include "edDrumsEngine.h"
 #include "edDrumsKits.h"
 #include "edDrumsParameters.h"
 #include "edDrumsSampleLibrary.h"
 #include "edDrumsSequencer.h"
+#include "edDrumsTrackSounds.h"
 
 // The instrument: the engine (elektron::drums::Engine) as a plain JUCE AudioProcessor, VST3. Notes 36-51 on any channel
 // hit Tracks 1-16 with their velocity, their note-off ends a held voice; outputs Main and Out 01-15, stereo. It runs at
 // 44.1 kHz, the one rate both families are right at: at any other it plays silence, reporting no latency, until ticket
-// 16. The Machinedrum's flash image is read once, as the instrument loads, from the variable
-// GEARMULATOR_MD_FIRMWARE_BIN or the data folder's roms.
+// 16. As the instrument loads it reads the Machinedrum's words an import kept in the data folder
+// (edDrumsElektronImport.h), else its flash image, from the variable GEARMULATOR_MD_FIRMWARE_BIN or the data folder's roms.
 //
 // The parameters of a Track, the IDs t01_*, the names "T01 ...": Machine and Chokes, which a host does not automate,
 // Machine 1-8, Note, Level, Pan, Output; then Tempo; then, appended by ticket 18 (edDrumsParameters.h), each Track's
@@ -93,8 +95,14 @@ namespace elektron::drums
 		const juce::StringArray& ids(Section _section, int _track = 0) const;
 		const juce::StringArray& trackIds(const int _track) const { return m_trackIds[static_cast<size_t>(_track)]; }
 
-		// The Sampler's index in machines(), OPEN DRUM's four after it
-		int samplerChoice() const { return static_cast<int>(m_machines.size()) - 1 - OpenDrumMachines; }
+		// The Sampler's index in machines(), OPEN DRUM's four after it, then SOPHIE
+		int samplerChoice() const { return static_cast<int>(m_machines.size()) - 1 - OpenDrumMachines - SophieMachines; }
+		int sophieChoice() const { return static_cast<int>(m_machines.size()) - SophieMachines; }
+
+		// Message thread. One of SOPHIE's 16 factory sounds (sophie::soundValues) on _track's Machine 1-20, each an edit
+		// the host is told of, as the editor's own. The sound the Track's Machine 1-20 hold, -1 for none
+		void setSophieSound(int _track, int _sound);
+		int sophieSound(int _track) const;
 
 		// Message thread. A Track's sample from a WAV, AIFF or FLAC file (readSampleFile): false and why in _error when
 		// it cannot be read; the Track plays it on the Sampler from the next block. Its name, empty for none
@@ -109,6 +117,16 @@ namespace elektron::drums
 		bool loadLibrarySample(int _track, const juce::String& _fingerprint, juce::String& _error);
 		juce::String sampleFingerprint(const int _track) const { return m_sampleRefs[static_cast<size_t>(_track)]; }
 
+		// Message thread. "Import my Elektron content" (edDrumsElektronImport.h) from _folder: false while one runs. The
+		// timer takes its report, gives the samples' Library the folder when it holds samples the Library lacks, and
+		// counts the reports taken. The Library of an image's words imported plays from the instrument's next load.
+		// libraryFromWords: the engine plays the words imported
+		bool importElektron(const juce::File& _folder);
+		bool importing() const { return m_import->running(); }
+		const ElektronImport::Report& lastImport() const { return m_lastImport; }
+		uint32_t imports() const { return m_imports; }
+		bool libraryFromWords() const { return m_libraryFromWords; }
+
 		// Message thread. The audition: _file read as the Sampler reads it, played once on Main as it is, through no
 		// Track, from the next block; false and why when it cannot be read. What it played last, nullptr for none
 		bool auditionSample(const juce::File& _file, juce::String& _error);
@@ -117,6 +135,24 @@ namespace elektron::drums
 		// Message thread. _edit changes the message thread's copy, which the audio thread takes whole at its next block
 		void editSequencer(const std::function<void(Sequencer&)>& _edit);
 		const Sequencer& sequencer() const { return *m_edited; }
+
+		// LIVE (spec 7), not kept in the state. While it is on and the transport plays, a host's note of a Track becomes a
+		// trig of the pattern playing, at the step nearest with the micro-timing that puts it where it was played
+		// (Sequencer::nearestStep), and a Track's parameter moved in a gesture becomes a Lock of the step playing. The
+		// timer writes them into the patterns (takeLive, which a test calls)
+		void setLive(const bool _on) { m_live.store(_on); }
+		bool live() const { return m_live.load(); }
+		void takeLive();
+		// The chain asked for (Sequencer::requestChain), from the next block
+		void requestChain() { m_chainAsked.store(true); }
+		// Any thread: the chain's entry playing, -1 for none, and its pass; fill playing, held or the chain entry's
+		int chainSlot() const { return m_chainSlot.load(std::memory_order_relaxed); }
+		// The step playing counted from the pattern's start, past the Track's length, -1 stopped (Sequencer::stepSinceStart)
+		int playingRowStep(const int _track) const { return m_playingRowStep[static_cast<size_t>(_track)].load(std::memory_order_relaxed); }
+		int chainPass() const { return m_chainPass.load(std::memory_order_relaxed); }
+		bool fillPlaying() const { return m_fillPlaying.load(std::memory_order_relaxed); }
+		// One pass of a pattern as a Standard MIDI File (Sequencer::patternMidi), with the sequencer's seed
+		bool exportPatternMidi(int _pattern, const juce::File& _file) const;
 
 		// Message thread. The Kits' Bank (edDrumsKits.h): a Kit is every parameter but the Global ones (Tempo,
 		// Oversampling, Pattern) and the Tracks' samples, nothing of the sequencer. Loaded, its values change as a
@@ -134,6 +170,27 @@ namespace elektron::drums
 		bool clearKit(int _slot);
 		int currentKit() const { return m_kitSlot; }
 		bool kitDiffers() const;
+		// A Slot's Kit to a file the user chose, as the Slot's file is; a Kit file into a Slot, under its own name
+		bool exportKit(int _slot, const juce::File& _file);
+		bool importKit(int _slot, const juce::File& _file);
+
+		// Message thread. A pattern's Kit at its start (Pattern::kit), -1 to keep the Kit playing. The Kits patterns
+		// load are read from the Bank ahead, here, as a state loads and as the Slots' files change (prepareKits), so that
+		// the audio thread loads one where its pattern starts, at that sample, without a file or an allocation; the
+		// message thread then takes it as the Kit played
+		void setPatternKit(int _pattern, int _slot);
+		int patternKit(const int _pattern) const { return m_edited->pattern(_pattern).kit; }
+		// A pattern to a file and back, its Locks and its Kit at its start included
+		bool exportPattern(int _pattern, const juce::File& _file) const;
+		bool importPattern(int _pattern, const juce::File& _file);
+
+		// Message thread. The Track sounds' Library (edDrumsTrackSounds.h), which the timer follows. Saved from any
+		// Track, loaded on any, as a Kit loads: re-read by the host, none told as an edit. The audition renders the
+		// sound's Hit on an engine of its own and plays it as a sample's audition plays
+		TrackSounds& trackSounds() { return *m_trackSounds; }
+		juce::File saveTrackSound(int _track, const juce::String& _name);
+		bool loadTrackSound(int _track, const juce::File& _file);
+		bool auditionTrackSound(const juce::File& _file);
 
 		// Any thread: what the audio thread last played. The step under the transport, -1 stopped; the pattern playing,
 		// 0-127; the Tracks whose voice sounds, a bit each; an output bus's peak, both channels, falling 20 dB/s
@@ -141,6 +198,9 @@ namespace elektron::drums
 		int currentPattern() const { return m_currentPattern.load(std::memory_order_relaxed); }
 		uint32_t liveTracks() const { return m_liveTracks.load(std::memory_order_relaxed); }
 		float outputPeak(const int _bus) const { return m_outputPeak[static_cast<size_t>(_bus)].load(std::memory_order_relaxed); }
+		// A send's return's peak, as outputPeak; the master's gain reduction in dB, 0 or under, 0 while it is off
+		float returnPeak(const int _send) const { return m_returnPeak[static_cast<size_t>(_send)].load(std::memory_order_relaxed); }
+		float masterReduction() const { return m_reduction.load(std::memory_order_relaxed); }
 
 	private:
 		// A parameter and the value the engine last got from it, normalised: due, it gets it at the next block
@@ -193,6 +253,22 @@ namespace elektron::drums
 		{
 			Sample sample;
 			uint32_t serial = 0;
+			uint64_t hash = 0;		// sampleHash's
+		};
+
+		// A Kit of the Bank read ahead for a pattern's start (setPatternKit): its values normalised by parameter index (a
+		// Kit's parameters alone count), its samples and what the message thread takes of it once the audio thread has
+		// loaded it. The audio thread reads one only within a block, the message thread frees it after
+		struct PreparedKit
+		{
+			int slot = -1;
+			juce::Time written;
+			int64_t size = -1;
+			std::vector<float> values;
+			std::array<std::unique_ptr<Sample>, Tracks> samples;
+			std::array<uint64_t, Tracks> sampleHash{};
+			std::array<juce::String, Tracks> refs;
+			std::unique_ptr<juce::XmlElement> xml;
 		};
 
 		static BusesProperties buses();
@@ -218,7 +294,13 @@ namespace elektron::drums
 		void writeSound(juce::XmlElement& _xml, bool _all) const;
 		void readSound(const juce::XmlElement& _xml, bool _all);
 		void rememberKit(const juce::XmlElement* _kit);
+		std::vector<float> kitValuesOf(const juce::XmlElement& _kit) const;
+		void prepareKits(uint64_t _changed);
+		void takeKitSwitch();
+		void switchKit(const PreparedKit& _kit);
+		std::unique_ptr<juce::XmlElement> trackSoundOf(int _track) const;
 		void sync(bool _hostIsTruth);
+		void syncSound(bool _hostIsTruth);
 		void syncShared();
 		template<typename P> P* add(P* _parameter, Section _section, int _track = -1);
 		void watch(Watched& _watched, const parameters::Spec& _spec, const juce::String& _id, const juce::String& _name,
@@ -241,6 +323,8 @@ namespace elektron::drums
 		std::array<Watched, PhaserBytes> m_phaser{};
 		std::array<Watched, MasterBytes> m_master{};
 		Watched m_masterOn, m_oversampling;
+		Watched m_delaySync, m_delayNote, m_dp4SampleHold;
+		std::array<Watched, 2> m_lfoSync{}, m_lfoNote{};	// the chorus's, the phaser's
 		std::vector<Watched*> m_watched;	// all of them, made due for a new engine
 
 		std::map<juce::String, juce::RangedAudioParameter*> m_byId;
@@ -268,6 +352,10 @@ namespace elektron::drums
 		uint32_t m_sampleSerial = 0;
 		std::array<juce::String, Tracks> m_sampleRefs;	// the fingerprints
 		std::unique_ptr<SampleLibrary> m_sampleLibrary;
+		std::unique_ptr<ElektronImport> m_import;
+		ElektronImport::Report m_lastImport;
+		uint32_t m_imports = 0;
+		bool m_libraryFromWords = false;
 
 		// The audition, the same way: the message thread's copy, the mail; the serial of the one the audio thread plays,
 		// whose mail stays until a later one is taken; where it stands, nullptr when it has ended
@@ -288,6 +376,49 @@ namespace elektron::drums
 		Events m_events;
 		int m_patternAsked = 0;
 
+		// LIVE: the notes the audio thread recorded, for the timer; the Locks the message thread's gestures recorded;
+		// the gestures under way by parameter index
+		struct LiveNote
+		{
+			uint8_t pattern, track, step, velocity;
+			int8_t timing;
+		};
+		static constexpr int LiveNotes = 256;
+		std::atomic<bool> m_live{false}, m_chainAsked{false};
+		juce::AbstractFifo m_liveFifo{LiveNotes};
+		std::array<LiveNote, LiveNotes> m_liveNotes{};
+		struct LiveLock
+		{
+			int pattern, track, step, parameter;
+			float value;
+		};
+		std::vector<LiveLock> m_liveLocks;
+		std::vector<int> m_gestures;
+		struct LiveListener final : juce::AudioProcessorListener
+		{
+			Processor& processor;
+			explicit LiveListener(Processor& _p) : processor(_p) {}
+			void audioProcessorParameterChanged(juce::AudioProcessor*, const int _index, const float _value) override
+			{
+				processor.liveParameter(_index, _value);
+			}
+			void audioProcessorChanged(juce::AudioProcessor*, const ChangeDetails&) override {}
+			void audioProcessorParameterChangeGestureBegin(juce::AudioProcessor*, const int _index) override
+			{
+				processor.liveGesture(_index, true);
+			}
+			void audioProcessorParameterChangeGestureEnd(juce::AudioProcessor*, const int _index) override
+			{
+				processor.liveGesture(_index, false);
+			}
+		};
+		LiveListener m_liveListener{*this};
+		void liveParameter(int _index, float _value);
+		void liveGesture(int _index, bool _begin);
+		std::atomic<int> m_chainSlot{-1}, m_chainPass{0};
+		std::array<std::atomic<int>, Tracks> m_playingRowStep{};
+		std::atomic<bool> m_fillPlaying{false};
+
 		// The Kits: by parameter index, whether a Kit holds it; the Bank; the Slot played and what it held when the Kit
 		// played was loaded, saved or rewritten, normalised values by parameter index and samples by Track
 		std::vector<uint8_t> m_kitParameter;
@@ -297,6 +428,18 @@ namespace elektron::drums
 		std::vector<float> m_kitValues;
 		std::array<std::unique_ptr<Sample>, Tracks> m_kitSamples;
 		int m_kitFollow = 0;		// the timer's ticks since it last followed the Bank
+
+		// The Kits read ahead for the patterns' starts: the message thread's, by Slot; the pointers the audio thread
+		// reads; the ones replaced, each with the blocks done when it was, freed once a block has ended since; the one
+		// the audio thread loaded last, which the message thread takes; the blocks processed
+		std::array<std::unique_ptr<PreparedKit>, KitSlots> m_preparedKits;
+		std::array<std::atomic<PreparedKit*>, KitSlots> m_prepared{};
+		std::vector<std::pair<std::unique_ptr<PreparedKit>, uint64_t>> m_preparedRetired;
+		std::atomic<PreparedKit*> m_kitSwitched{nullptr};
+		std::atomic<uint64_t> m_blocksDone{0};
+		std::array<uint64_t, Tracks> m_engineSampleHash{};	// the audio thread's: the samples it gave the engine
+
+		std::unique_ptr<TrackSounds> m_trackSounds;
 
 		// The audio thread's Locks: by parameter index, held and the value; by Track, the ones it holds
 		std::vector<LockTarget> m_lockTargets;
@@ -332,5 +475,7 @@ namespace elektron::drums
 		std::atomic<int> m_currentPattern{0};
 		std::atomic<uint32_t> m_liveTracks{0};
 		std::array<std::atomic<float>, Outputs> m_outputPeak{};
+		std::array<std::atomic<float>, SendCount> m_returnPeak{};
+		std::atomic<float> m_reduction{0};
 	};
 }

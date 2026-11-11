@@ -10,10 +10,47 @@ namespace elektron::drums
 	{
 		constexpr int MostVisited = 200000;
 
-		bool isAudioName(const juce::String& _name)
+		// A sound's type where its name says none, from how often its first quarter second crosses zero (twice a
+		// period: a sine of f Hz crosses 2f times a second), counted past a twentieth of its peak so that the noise of a
+		// quiet tail does not count, and from its length: a kick below 200 Hz, a tom below 600 Hz, a snare below
+		// 4.5 kHz, above that noise, a cymbal when it lasts beyond 0.6 s, else a hat. Simple on purpose: the user
+		// corrects what it gets wrong
+		SampleLibrary::Type typeOfSound(juce::AudioFormatReader& _reader)
 		{
-			return _name.endsWithIgnoreCase(".wav") || _name.endsWithIgnoreCase(".aif")
-				|| _name.endsWithIgnoreCase(".aiff") || _name.endsWithIgnoreCase(".flac");
+			using Type = SampleLibrary::Type;
+			const int frames = static_cast<int>(std::min<int64_t>(_reader.lengthInSamples,
+				static_cast<int64_t>(_reader.sampleRate / 4)));
+			if(frames < 16)
+				return Type::Other;
+			juce::AudioBuffer<float> buffer(static_cast<int>(_reader.numChannels), frames);
+			if(!_reader.read(&buffer, 0, frames, 0, true, true))
+				return Type::Other;
+			std::vector<float> mono(static_cast<size_t>(frames));
+			float peak = 0;
+			for(int n = 0; n < frames; ++n)
+			{
+				float x = 0;
+				for(int c = 0; c < buffer.getNumChannels(); ++c)
+					x += buffer.getSample(c, n);
+				mono[static_cast<size_t>(n)] = x;
+				peak = std::max(peak, std::abs(x));
+			}
+			if(peak <= 0)
+				return Type::Other;
+			const float floor = peak / 20;
+			int sign = 0, crossings = 0;
+			for(const float x : mono)
+			{
+				const int s = x > floor ? 1 : x < -floor ? -1 : 0;
+				if(s != 0 && sign != 0 && s != sign)
+					++crossings;
+				if(s != 0)
+					sign = s;
+			}
+			const double perSecond = crossings * _reader.sampleRate / frames;
+			const double seconds = static_cast<double>(_reader.lengthInSamples) / _reader.sampleRate;
+			return perSecond < 400 ? Type::Kick : perSecond < 1200 ? Type::Tom : perSecond < 9000 ? Type::Snare
+				: seconds > 0.6 ? Type::Cymbal : Type::Hat;
 		}
 
 		// A name's words, lower case, the digits after letters cut off ("bd01" is "bd")
@@ -44,6 +81,12 @@ namespace elektron::drums
 	{
 		constexpr const char* names[Types]{"KICK", "SNARE", "HAT", "CLAP", "TOM", "CYMBAL", "PERC", "OTHER"};
 		return names[static_cast<int>(_type)];
+	}
+
+	bool SampleLibrary::isAudioName(const juce::String& _name)
+	{
+		return _name.endsWithIgnoreCase(".wav") || _name.endsWithIgnoreCase(".aif")
+			|| _name.endsWithIgnoreCase(".aiff") || _name.endsWithIgnoreCase(".flac");
 	}
 
 	SampleLibrary::Type SampleLibrary::guessType(const juce::String& _fileName)
@@ -103,6 +146,7 @@ namespace elektron::drums
 	{
 		m_folders = readList();
 		m_listWritten = listFile().getLastModificationTime();
+		readTypes();
 	}
 
 	SampleLibrary::~SampleLibrary()
@@ -143,15 +187,97 @@ namespace elektron::drums
 		if(!m_folders.contains(_folder))
 		{
 			m_folders.add(_folder);
-			juce::StringArray lines;
-			for(const auto& f : m_folders)
-				lines.add(f.getFullPathName());
-			const auto file = listFile();
-			if(!file.getParentDirectory().createDirectory() || !file.replaceWithText(lines.joinIntoString("\n") + "\n"))
+			if(!writeList())
 				return false;
 		}
 		m_listWritten = listFile().getLastModificationTime();
 		scan();
+		return true;
+	}
+
+	bool SampleLibrary::writeList()
+	{
+		juce::StringArray lines;
+		for(const auto& f : m_folders)
+			lines.add(f.getFullPathName());
+		const auto file = listFile();
+		return file.getParentDirectory().createDirectory() && file.replaceWithText(lines.joinIntoString("\n") + "\n");
+	}
+
+	bool SampleLibrary::removeFolder(const juce::File& _folder)
+	{
+		m_folders = readList();
+		const int index = m_folders.indexOf(_folder);
+		if(index < 0)
+			return false;
+		m_folders.remove(index);
+		if(!writeList())
+			return false;
+		m_listWritten = listFile().getLastModificationTime();
+		// Its entries go now, the others keep their folder's new index, until the scan's
+		m_entries.erase(std::remove_if(m_entries.begin(), m_entries.end(), [index](const Entry& _e)
+		{
+			return _e.folder == index;
+		}), m_entries.end());
+		for(auto& e : m_entries)
+			if(e.folder > index)
+				--e.folder;
+		++m_generation;
+		scan();
+		return true;
+	}
+
+	juce::File SampleLibrary::typesFile() const
+	{
+		return m_dataFolder.getChildFile("Samples").getChildFile("types.txt");
+	}
+
+	// "fingerprint TYPE" a line
+	void SampleLibrary::readTypes()
+	{
+		m_userTypes.clear();
+		const auto file = typesFile();
+		m_typesWritten = file.getLastModificationTime();
+		if(!file.existsAsFile() || file.getSize() > (4 << 20))
+			return;
+		juce::StringArray lines;
+		file.readLines(lines);
+		for(const auto& line : lines)
+		{
+			const auto fingerprint = line.upToFirstOccurrenceOf(" ", false, false).trim();
+			const auto name = line.fromFirstOccurrenceOf(" ", false, false).trim();
+			for(int t = 0; t < Types; ++t)
+				if(fingerprint.length() == 16 && name == typeName(static_cast<Type>(t)))
+					m_userTypes[fingerprint] = static_cast<Type>(t);
+		}
+	}
+
+	void SampleLibrary::applyTypes()
+	{
+		for(auto& e : m_entries)
+		{
+			const auto it = m_userTypes.find(e.fingerprint);
+			if(it != m_userTypes.end())
+			{
+				e.type = it->second;
+				e.typeFrom = TypeFrom::User;
+			}
+		}
+	}
+
+	bool SampleLibrary::setType(const juce::String& _fingerprint, const Type _type)
+	{
+		readTypes();
+		m_userTypes[_fingerprint] = _type;
+		juce::StringArray lines;
+		for(const auto& [fingerprint, type] : m_userTypes)
+			lines.add(fingerprint + " " + typeName(type));
+		const auto file = typesFile();
+		if(!file.getParentDirectory().createDirectory() || !file.replaceWithText(lines.joinIntoString("\n") + "\n"))
+			return false;
+		m_typesWritten = file.getLastModificationTime();
+		applyTypes();
+		++m_generation;
 		return true;
 	}
 
@@ -163,6 +289,13 @@ namespace elektron::drums
 
 	void SampleLibrary::follow()
 	{
+		// Another instance's correction of a type
+		if(typesFile().getLastModificationTime() != m_typesWritten)
+		{
+			readTypes();
+			applyTypes();
+			++m_generation;
+		}
 		const auto written = listFile().getLastModificationTime();
 		if(written == m_listWritten)
 			return;
@@ -228,6 +361,11 @@ namespace elektron::drums
 					e.channels = static_cast<int>(reader->numChannels);
 					e.fingerprint = fingerprintOf(file);
 					e.type = guessType(e.name);
+					if(e.type == Type::Other)
+					{
+						e.type = typeOfSound(*reader);
+						e.typeFrom = TypeFrom::Sound;
+					}
 					if(e.fingerprint.isNotEmpty())
 						found.push_back(std::move(e));
 				}
@@ -238,12 +376,13 @@ namespace elektron::drums
 				return _a.folder != _b.folder ? _a.folder < _b.folder
 					: _a.file.getFullPathName().compareNatural(_b.file.getFullPathName()) < 0;
 			});
-			// Done unless asked again, which scan() asks under the same lock
+			// Done unless asked again, which scan() asks under the same lock: a pass whose folders changed meanwhile
+			// (one removed shifts the others' index) is not shown
 			const juce::ScopedLock lock(m_lock);
-			m_found = std::move(found);
-			m_ready.store(true, std::memory_order_release);
 			if(!m_again)
 			{
+				m_found = std::move(found);
+				m_ready.store(true, std::memory_order_release);
 				m_busy.store(false, std::memory_order_release);
 				return;
 			}
@@ -261,6 +400,7 @@ namespace elektron::drums
 			m_found.clear();
 			m_ready.store(false, std::memory_order_release);
 		}
+		applyTypes();
 		++m_generation;
 		return true;
 	}

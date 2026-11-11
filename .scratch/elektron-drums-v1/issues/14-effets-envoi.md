@@ -82,3 +82,42 @@ plus longue que la mesure ne le disait, 0 à 1,6 s par pas de 1,6 ms ramenés à
 
 Toujours pas faits : S&H et soft clip du DP/4, sync tempo des effets, types Vintage, Hyper, Air, Vibrato et Rotary du
 chorus Virus.
+
+## État (2026-11-11)
+
+Sync au tempo. Les deux delays prennent leur temps en valeurs de note du tempo de l'hôte quand Sync est allumé
+(`delay_sync`, allumé par défaut, et `delay_note`, DURATION, de 1/32 à 1/1 avec triolets et pointées, 1/4 par défaut) :
+le temps est calculé en double depuis le BPM de l'hôte, triolets exacts, au lieu de passer par les 128es de TIME. Sync
+coupé, c'est HZ (`delay_free`), et à 0 Hz le TIME de la machine joue encore, pour les hôtes qui l'automatisent ; TIME
+n'a plus de cellule visible. Mesuré par `sendTimes` : noire à 120 BPM, 22 049 échantillons pour 22 050 ; croche de
+triolet à 100 BPM, 8 819 pour 8 820 ; à 137,5 BPM, 6 413 pour 6 415 ; croche pointée de l'Echo à 90 BPM, 22 051 pour
+22 050. Le chorus et le phaser (les trois modes) ont leur Sync et leur SPEED en valeurs de note, de 1/64 à 16 mesures,
+un tour de LFO par valeur (`chorus_sync`, `chorus_speed`, `phaser_sync`, `phaser_speed`, coupés par défaut) ; la phase
+du LFO reste la sienne, elle ne se cale pas sur la position du transport. Un ancien kit sans ces paramètres prend Sync
+allumé à la noire : son delay change de temps s'il avait un autre TIME. Les ms au tempo courant à côté de DURATION ne
+sont pas affichées.
+
+S&H du DP/4. Mesuré sur les rendus de Phaser-DDL (Host, 44,1 kHz) : la cadence vaut trois fois la loi du LFO au même
+nombre (0,74, 1,49, 2,75, 4,80, 8,4 et 14,1 Hz de 30 à 80, à 2 % près, la gigue des pas mesurés), le sinus est pris au
+départ puis une demi-période plus tard, puis à chaque période, et le coefficient est lissé ensuite comme sans S&H.
+Porté (`phaser_dp4_sh`, 0 coupé). Contre le plug-in, sur le coefficient suivi dans le temps : mêmes instants de pas à
+1 ms près à 80 et 100, valeurs tenues à 0,05 près sur la première seconde ; plus loin, l'écart de 0,5 % de vitesse du
+LFO déplace les valeurs prises. Le soft clip n'est pas porté : coupé, Phaser-DDL écrête à ±1 exactement (harmoniques
+identiques à un écrêtage franc de 0,1 à 4 d'amplitude) ; allumé, +0,37 dB de gain, une courbe douce sous 1 (H3 à
+−86 dB à 0,5, −47 dB à 1) et un plafond près de 0,99 en sortie, mais ces rendus ne disent pas sans ambiguïté où se
+placent les deux écrêtages dans la chaîne (avant ou après le remélange de l'entrée). Notre phaser du DP/4 n'écrête pas,
+comme avant.
+
+Types Vintage, Hyper, Air, Vibrato et Rotary du chorus Virus : pas faits. Les rendus d'OsTIrus se font en local
+(`virus-fx`, `vfx.exe`) et une partie des lois est déjà relevée (c8, c9 : prises, profondeurs, vitesses, X-Over de
+Vintage) ; Rotary n'a jamais été mesuré. Le port et sa vérification restent à faire.
+
+Mètres de retour : `Sends::peak` (crête des deux canaux, −20 dB/s, atomique écrit par le fil audio), relu par le
+processeur et dessiné sur FX et Master, valeur en dB entiers dessous, −inf sous −60 dB.
+
+Coût des envois, mesuré par `effectsCost` (une piste frappée quatre fois par seconde, blocs de 128, meilleur de trois,
+machine chargée par les autres sessions) : les quatre envois en plus d'une piste, Echo et Gate Box 0,80 %, Syntakt
+0,66 à 0,69 %, Syntakt avec le phaser du DP/4 0,65 à 0,83 % d'un cœur, sous le 1 % visé.
+
+Reste ouvert, et non revendiqué ici : la validation à l'écoute du chorus et du phaser/flanger par l'utilisateur, critère
+de fin du ticket. Le ticket reste donc ouvert.

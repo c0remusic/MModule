@@ -21,6 +21,8 @@ namespace elektron::drums
 	double dp4RateHz(uint8_t _rate);
 	double dp4DelayMs(uint8_t _time);
 	double dp4Signed(uint8_t _value);
+	// The DP/4's S&H, 0-127 for its 0 to 100: three times its LFO's law at the same number, 0 none
+	double dp4SampleHoldHz(uint8_t _rate);
 
 	// A stereo line an LFO shortens, fed back, each channel on the other's side of the LFO. A flanger is this at a
 	// short delay
@@ -38,6 +40,8 @@ namespace elektron::drums
 		// 0-127. The LFO takes _depth / 128 of the delay away at its top. A change of delay glides over blocks. A saw
 		// falls; the random shapes draw a value a turn, held or glided to
 		void set(uint8_t _delay, uint8_t _depth, uint8_t _rate, uint8_t _feedback, Shape _shape = Shape::Triangle);
+		// The LFO at _hz in place of the rate byte's, until the next set
+		void setHz(double _hz);
 
 		// At the settings at once
 		void settle();
@@ -69,6 +73,8 @@ namespace elektron::drums
 		// _stages 1-6; the rest 0-127. _spread narrows and widens the notches. A change of _stages fades out and in over
 		// two blocks, the rest glides
 		void set(int _stages, uint8_t _frequency, uint8_t _spread, uint8_t _depth, uint8_t _rate, uint8_t _feedback);
+		// The sweep at _hz in place of the rate byte's, until the next set
+		void setHz(double _hz);
 
 		// At the settings at once
 		void settle();
@@ -110,11 +116,14 @@ namespace elektron::drums
 			uint8_t center = 64, width = 0, rate = 0, feedback = 64, notch = 127;
 			bool outOfPhase = true;
 			uint8_t delayLeft = 0, delayRight = 0, delayFeedback = 64;
+			uint8_t sampleHold = 0;		// the S&H's rate; 0 the sine as it moves
 		};
 
 		Dp4Phaser();
 
 		void set(const Settings& _settings);
+		// The sine at _hz in place of the rate byte's, until the next set
+		void setHz(double _hz);
 		// At the settings at once
 		void settle();
 
@@ -130,7 +139,12 @@ namespace elektron::drums
 		std::vector<float> m_line;
 		uint32_t m_write = 0, m_taps[2] = {2, 2}, m_tapsFrom[2] = {2, 2};
 		float m_lowPass[2] = {};
+		float swing();
+
 		uint32_t m_phase = 0, m_step = 0;
+		// The S&H: its phase, its step a block, 0 for none; the sine's value it took at its last turn
+		uint32_t m_holdPhase = 0, m_holdStep = 0;
+		float m_held = 0;
 		float m_target[2] = {}, m_targetTo[2] = {}, m_coefficient[2] = {};
 		float m_state[Stages][2] = {};
 		float m_last[2] = {}, m_dcIn[2] = {}, m_dcOut[2] = {};

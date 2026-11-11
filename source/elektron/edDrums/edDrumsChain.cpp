@@ -111,8 +111,11 @@ namespace elektron::drums
 		s.filter.mode = 0;
 		s.filter.envelope.decay = 64;
 		s.filter.envelope.release = 64;
-		// AHD is at unity while it holds and decays, and fades the last Hit as the port's does
-		s.amp = {true, 0, 64, 127, 100, 32, _sustained};
+		// AHD: no hold, and the longest DECAY that closes, so that the machine's own DECAY ends a Hit (edDrumsAmpTest: at
+		// their defaults BD MODERN falls to -40 dB at 1694 ms against 1870 alone, SD BASIC as alone, CY ALLOY at 1635 against
+		// 1774); it fades the last Hit as the port's does. ADSR, a machine that starts sustained, as the port's new Sound
+		using Amp = ChainSettings::Amp;
+		s.amp = _sustained ? Amp{true, 0, 64, 127, 100, 32, true} : Amp{true, 0, 0, 126, 100, 32, false};
 		return s;
 	}
 

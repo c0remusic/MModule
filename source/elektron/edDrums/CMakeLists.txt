@@ -9,7 +9,7 @@ add_library(edDrums STATIC edDrumsChain.h edDrumsChain.cpp
 	edDrumsSendFx.h edDrumsSendFx.cpp edDrumsSends.h edDrumsSends.cpp
 	edDrumsSequencer.h edDrumsSequencer.cpp)
 target_include_directories(edDrums PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast PRIVATE mdEngine opendrum)
+target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast sophie PRIVATE mdEngine opendrum)
 set_property(TARGET edDrums PROPERTY FOLDER "Elektron")
 
 if(BUILD_TESTING)
@@ -47,6 +47,21 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsOpenDrumTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsOpenDrumTest COMMAND edDrumsOpenDrumTest)
 	set_tests_properties(edDrumsOpenDrumTest PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# SOPHIE through the engine against the voice alone, its factory sounds, BODY, its start, stop and cost
+	add_executable(edDrumsSophieTest edDrumsSophieTest.cpp)
+	target_link_libraries(edDrumsSophieTest PRIVATE edDrums sophie)
+	target_include_directories(edDrumsSophieTest PRIVATE ../md/mdDrums)
+	set_property(TARGET edDrumsSophieTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsSophieTest COMMAND edDrumsSophieTest)
+	set_tests_properties(edDrumsSophieTest PROPERTIES TIMEOUT 300)
+
+	# The Syntakt family's fresh amp against its machines' own decay to -40 dB
+	add_executable(edDrumsAmpTest edDrumsAmpTest.cpp)
+	target_link_libraries(edDrumsAmpTest PRIVATE edDrums)
+	set_property(TARGET edDrumsAmpTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsAmpTest COMMAND edDrumsAmpTest)
+	set_tests_properties(edDrumsAmpTest PROPERTIES TIMEOUT 300)
 
 	# The internal sequencer's core: steps at their sample whatever the block size, conditions, locks, jumps (ticket 17)
 	add_executable(edDrumsSequencerTest edDrumsSequencerTest.cpp)

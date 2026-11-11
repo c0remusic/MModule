@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 
@@ -31,7 +32,9 @@ namespace elektron::drums
 	enum PhaserByte
 	{
 		PhaserMode, PhaserStages, PhaserRate, PhaserDepth, PhaserFrequency, PhaserSpread, PhaserFeedback, PhaserLevel,
-		PhaserDp4Phase, PhaserDp4DelayLeft, PhaserDp4DelayRight, PhaserDp4DelayFeedback, PhaserBytes
+		PhaserDp4Phase, PhaserDp4DelayLeft, PhaserDp4DelayRight, PhaserDp4DelayFeedback, PhaserBytes,
+		// Appended after the host parameters PhaserBytes counts: the DP/4's S&H rate, 0 none
+		PhaserDp4SampleHold = PhaserBytes, PhaserAllBytes
 	};
 
 	// The Syntakt's bytes of each effect, in the order of its words
@@ -70,6 +73,16 @@ namespace elektron::drums
 		// and under 0.4536 Hz, 97,244 samples, its pointers slow by whole words a block: 2.2 s x 32 / k of them,
 		// 0.441 Hz, 0.427 Hz and so on to 0.114 Hz
 		void setDelayFree(double _hz);
+		// While _sync, either delay's time is a note of _quarters beats at the host's tempo, triplets exact, in place of
+		// the free time and TIME's
+		void setDelaySync(bool _sync);
+		void setDelayNote(double _quarters);
+		// While _sync, the chorus's or the phaser's LFO turns every _quarters beats at the host's tempo, in place of its
+		// rate byte's. The turn keeps its own phase, not the transport's
+		void setLfoSync(Send _send, bool _sync);
+		void setLfoNote(Send _send, double _quarters);
+		// The host's tempo for the notes above, unheld
+		void setBpm(double _bpm);
 
 		// The return fades out over the next block, the effect left is emptied, so that no tail of it can come back,
 		// and the other fades in over the block after. The chorus has one, so never it
@@ -94,6 +107,9 @@ namespace elektron::drums
 		// Whether a return may hold anything: mixing nothing costs nothing
 		bool sounding() const { return m_quiet < QuietBlocks; }
 
+		// A return's peak, both channels, falling 20 dB/s; from any thread
+		float peak(const Send _send) const { return m_peak[static_cast<size_t>(_send)].load(std::memory_order_relaxed); }
+
 		// The block just mixed goes in, its return comes out for the next. Past QuietBlocks with nothing in, nothing
 		// runs
 		void block();
@@ -113,6 +129,8 @@ namespace elektron::drums
 			m_stTarget[static_cast<size_t>(_word)] = _value << 8;
 		}
 		void giveSyntaktWords();
+		void giveDelayTime();
+		void giveLfoRates();
 		void fade(Send _send);
 		void changeSource(Send _send);
 		template<typename Effect> void runOurs(Send _send, Effect& _effect, float _level, float& _played);
@@ -124,17 +142,21 @@ namespace elektron::drums
 		std::unique_ptr<syntakt::fast::Reverb> m_stReverb;
 		std::array<int, SyntaktWords> m_stTarget{}, m_stWords{};
 		int32_t m_echoFree = 0;								// a free time in samples; 0: TIME's
+		double m_bpm = 120, m_freeHz = 0, m_delayNote = 1;	// the note in beats
+		double m_lfoNote[2] = {1, 1};						// the chorus's, the phaser's
+		bool m_delaySync = false, m_lfoSync[2] = {};
 		std::unique_ptr<ModulatedDelay> m_chorus, m_flanger;
 		std::unique_ptr<Phaser> m_phaser;
 		std::unique_ptr<Dp4Phaser> m_dp4;
 		std::array<uint8_t, ChorusBytes> m_chorusBytes{};
-		std::array<uint8_t, PhaserBytes> m_phaserBytes{};
+		std::array<uint8_t, PhaserAllBytes> m_phaserBytes{};
 		float m_chorusPlayed = 0, m_phaserPlayed = 0;		// the gain the last block ended on
 		std::array<SendSource, SendCount> m_source{};		// what plays
 		std::array<SendSource, SendCount> m_wanted{};		// what setSource asks: until then, it fades out
 		std::array<bool, SendCount> m_entering{};			// what plays fades in
 		std::array<Block, SendCount> m_in{}, m_out{};
 		std::array<int, SendCount> m_output{};
+		std::array<std::atomic<float>, SendCount> m_peak{};
 		int m_quiet = QuietBlocks;
 		bool m_fed = false;
 		int m_tick = 0;

@@ -49,3 +49,17 @@ d'effet en dehors de Main. La réduction de gain se lit par `Master::reduction()
 vumètre de l'interface. Le saturateur seul, pour le drive de piste « DT2 Overdrive », se sortira avec ce drive.
 
 Reste : « sonne pareil » à 44,1 et 48 kHz à l'écoute.
+
+## État (2026-11-11)
+
+Le vumètre de réduction de gain est sur la page Master : `Master::reduction()`, l'atomique que le fil audio écrit au
+début de chaque bloc de 32, est recopié par le processeur à chaque bloc de l'hôte (`Processor::masterReduction`, 0
+quand le master est coupé) et lu par l'éditeur à chaque trame : barre de la couleur du bloc qui descend de 0 à −12 dB,
+chiffre dessous, trace des 240 dernières trames à droite. `master` dans `edDrumsEngineTest` vérifie qu'elle suit le
+Hit : −25,9 dB dans le Hit au réglage serré du test, −2,0 dB une seconde plus tard.
+
+Coût du master, mesuré par `effectsCost` (une piste, blocs de 128, 44,1 kHz, machine chargée par d'autres sessions) :
+0,22 à 0,33 % d'un cœur en plus, du même ordre que les 0,21 à 0,28 % mesurés à 48 kHz le 2026-11-07.
+
+Reste ouvert, et non revendiqué ici : « sonne pareil » à 44,1 et 48 kHz à l'écoute de l'utilisateur. Toujours pas
+construits : le second bus, les sources de sidechain autres que l'entrée, le saturateur seul en drive de piste.

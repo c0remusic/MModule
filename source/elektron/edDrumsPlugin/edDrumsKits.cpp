@@ -44,7 +44,12 @@ namespace elektron::drums
 	{
 		if(!valid(_slot))
 			return {};
-		juce::FileInputStream in(file(_slot));
+		return readFile(file(_slot), Tag);
+	}
+
+	std::unique_ptr<juce::XmlElement> KitBank::readFile(const juce::File& _file, const char* _tag)
+	{
+		juce::FileInputStream in(_file);
 		if(!in.openedOk())
 			return {};
 		juce::GZIPDecompressorInputStream gzip(in);
@@ -54,16 +59,19 @@ namespace elektron::drums
 		if(gzip.readIntoMemoryBlock(text, static_cast<int>(MostBytes + 1)) > MostBytes)
 			return {};
 		auto xml = juce::parseXML(text.toString());
-		if(!xml || !xml->hasTagName(Tag))
+		if(!xml || !xml->hasTagName(_tag))
 			return {};
 		return xml;
 	}
 
 	bool KitBank::write(const int _slot, const juce::XmlElement& _kit)
 	{
-		if(!valid(_slot) || !m_folder.createDirectory())
-			return false;
-		const juce::TemporaryFile temp(file(_slot));
+		return valid(_slot) && m_folder.createDirectory() && writeFile(file(_slot), _kit);
+	}
+
+	bool KitBank::writeFile(const juce::File& _file, const juce::XmlElement& _kit)
+	{
+		const juce::TemporaryFile temp(_file);
 		{
 			juce::FileOutputStream out(temp.getFile());
 			if(!out.openedOk())

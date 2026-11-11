@@ -6,7 +6,8 @@
  * soejrd/digisophie (MIT), commit ee4ff40.
  *
  * Ported from src/dsp/sophie.c: one voice per instance. render_voice is the original's, line for line, its pad
- * target read from the instance's patch; trigger_voice is the original's with a pool of one voice.
+ * target read from the instance's patch; trigger_voice is the original's with a pool of one voice. Upstream's
+ * "pad_index == 0" (the kick body) is a flag of its own, so that any pad can play the body.
  */
 
 #include "sophieVoice.h"
@@ -98,6 +99,11 @@ void sophie_init(sophie_t *s, int sample_rate, int pad) {
 
 void sophie_set_pad(sophie_t *s, int pad) {
     s->pad = pad < 0 ? 0 : (pad >= SOPHIE_PADS ? SOPHIE_PADS - 1 : pad);
+    s->body = s->pad == 0;
+}
+
+void sophie_set_body(sophie_t *s, int on) {
+    s->body = on != 0;
 }
 
 int sophie_set_param(sophie_t *s, sophie_param_t param, float value) {
@@ -164,7 +170,6 @@ void sophie_trigger(sophie_t *s, int velocity) {
     velocity &= 0x7f;
     if (velocity == 0) return;
     int note = SOPHIE_FIRST_NOTE + s->pad;
-    int pad_index = s->pad;
     sophie_voice_t *v = &s->voice;
     float tail = v->active ? v->last : 0.0f;
     int stolen = v->active;
@@ -174,11 +179,11 @@ void sophie_trigger(sophie_t *s, int velocity) {
     v->active = 1;
     v->velocity = clampf((float)velocity / 127.0f, 0.01f, 1.0f);
     v->patch = s->patch;
-    v->pad_index = pad_index;
+    v->body = s->body;
     v->color_s = v->patch.color; v->metal_s = v->patch.metal;
     v->feedback_s = v->patch.feedback; v->cutoff_s = v->patch.cutoff;
     v->resonance_s = v->patch.resonance;
-    int legacy_kick = pad_index == 0 && v->patch.model < 4;
+    int legacy_kick = v->body && v->patch.model < 4;
     float pitch_time = legacy_kick ? 0.075f : 0.028f;
     v->amp_mul = expf(logf(0.00012f) / (clampf(v->patch.decay, 0.03f, 4) * s->sample_rate));
     v->pitch_mul = expf(-1.0f / (pitch_time * s->sample_rate));
@@ -199,7 +204,7 @@ static float render_voice(sophie_t *s, sophie_voice_t *v) {
     if (!v->active) return 0.0f;
     const sophie_patch_t *p = &v->patch;
 
-    int legacy_kick = v->pad_index == 0 && p->model < 4;
+    int legacy_kick = v->body && p->model < 4;
     int shaped = p->metal_decay > 0 || p->model >= 4;
     int smooth = p->feedback_mode == 1;
     if (p->tail_mode == 1) {

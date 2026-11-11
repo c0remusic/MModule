@@ -106,7 +106,10 @@ namespace
 
 	void levels()
 	{
-		const double md = decibels(gainOf(machinedrumChain(), Machinedrum)), st = decibels(gainOf(syntaktChain(), Syntakt));
+		// The Syntakt's stages: its fresh amp decays from the Hit (DECAY 126) and is left out
+		auto syntaktStages = syntaktChain();
+		syntaktStages.amp.on = false;
+		const double md = decibels(gainOf(machinedrumChain(), Machinedrum)), st = decibels(gainOf(syntaktStages, Syntakt));
 		std::printf("  a family's chain at 1 kHz: Machinedrum %+.3f dB, Syntakt %+.3f dB\n", md, st);
 		require(std::abs(st) < 0.01, "the Syntakt's chain is not at unity");
 		require(std::abs(md) < 0.1, "the Machinedrum's chain is not at unity");
@@ -985,14 +988,17 @@ namespace
 		require(f.type == FilterType::Syntakt && f.mode == 0 && f.frequency == 127 && f.resonance == 0 && f.depth == 64, "a new Sound's filter");
 		require(f.envelope.delay == 0 && f.envelope.attack == 0 && f.envelope.decay == 64 && f.envelope.sustain == 0
 			&& f.envelope.release == 64 && !f.envelope.reset, "a new Sound's filter envelope");
-		const auto amp = [](const ChainSettings::Amp& _a)
+		const auto amp = [](const ChainSettings::Amp& _a, const int _hold, const int _decay)
 		{
-			return _a.attack == 0 && _a.hold == 64 && _a.decay == 127 && _a.sustain == 100 && _a.release == 32;
+			return _a.attack == 0 && _a.hold == _hold && _a.decay == _decay && _a.sustain == 100 && _a.release == 32;
 		};
-		require(amp(s.amp) && s.amp.on && !s.amp.adsr, "a new Sound's amp");
+		// The OS's AHD holds 64 and never decays: the instrument's has no hold and DECAY 126, so that the machine's DECAY
+		// ends a Hit (edDrumsAmpTest)
+		require(amp(s.amp, 0, 126) && s.amp.on && !s.amp.adsr, "a new Sound's amp");
 		const auto held = syntaktChain(true);
-		require(amp(held.amp) && held.amp.on && held.amp.adsr, "the amp of a machine that starts in ADSR");
-		std::printf("  a new Sound: TYPE 0, FREQ 127, RESO 0, ENV 64, DEC and REL 64, FENR 0; amp on, 0 64 127 100 32, AHD, ADSR where a machine holds\n");
+		require(amp(held.amp, 64, 127) && held.amp.on && held.amp.adsr, "the amp of a machine that starts in ADSR");
+		std::printf("  a new Sound: TYPE 0, FREQ 127, RESO 0, ENV 64, DEC and REL 64, FENR 0; amp on, AHD 0 0 126 100 32,"
+			" ADSR 0 64 127 100 32 where a machine holds\n");
 	}
 
 	// SYN1-8 as the engine's defaults, with the flag CPU #1 sets (0x400a4bc6)

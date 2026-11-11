@@ -47,8 +47,32 @@ namespace sophie
 
 	void setMachineValue(sophie_t& _sophie, const int _index, const uint8_t _value)
 	{
+		if (_index == Body)
+			sophie_set_body(&_sophie, _value >= 64);
 		if (_index < 0 || _index >= MachineParamCount)
 			return;
 		sophie_set_param(&_sophie, static_cast<sophie_param_t>(_index), machineValue(_index, _value));
+	}
+
+	std::array<uint8_t, MachineSlots> soundValues(const int _sound)
+	{
+		const int pad = std::clamp(_sound, 0, Sounds - 1);
+		sophie_t s;
+		sophie_init(&s, 44100, pad);
+		std::array<uint8_t, MachineSlots> values{};
+		for (int i = 0; i < MachineParamCount; ++i)
+		{
+			float want = sophie_get_param(&s, static_cast<sophie_param_t>(i));
+			if (i == SOPHIE_TUNE)
+				want = std::clamp(want + static_cast<float>(pad), -24.0f, 24.0f);
+			int best = 0;
+			for (int v = 1; v < 128; ++v)
+				if (std::fabs(machineValue(i, static_cast<uint8_t>(v)) - want)
+					< std::fabs(machineValue(i, static_cast<uint8_t>(best)) - want))
+					best = v;
+			values[static_cast<size_t>(i)] = static_cast<uint8_t>(best);
+		}
+		values[Body] = pad == 0 ? 127 : 0;
+		return values;
 	}
 }

@@ -28,3 +28,12 @@ L'éditeur JUCE suit la maquette Lockstep (spec section 10 amendée), pas le moc
 `edDrumsPlugin/edDrumsEditor*`, plaques en ressources. Pages Sound, Seq Detail, Master, FX, Menu ; Kits et Browse inertes
 là où rien n'existe. Écarts restants : valeurs en 0-127 et non en unités, ASSIGN, COLOR et CPU absents, police
 Bahnschrift à la place de Barlow.
+
+## État (2026-11-11)
+
+Bloc Amp de la page Sound : les cellules de l'enveloppe (MODE, ATTACK, HOLD, DECAY, SUSTAIN, RELEASE) et sa courbe sont
+grisées tant que AMP est sur OFF, ce qui est le cas des pistes Machinedrum, OPEN DRUM et SOPHIE dont la voix garde son
+enveloppe ; grisées, elles ne se tirent plus, comme les drives éteints. Bloc Machine sur SOPHIE : 20 noms sur les trois
+pages (MODEL à TAIL, BODY en 20), et l'image du bloc montre le son d'usine que tiennent Machine 1-20, ou EDITED ; un
+clic ouvre la liste des 16 sons d'usine, dont le choix écrit Machine 1-20 comme des gestes. Rendus `sound-sophie.png`
+et `sound-sophie-p3.png` de `edDrumsEditorTest`. Les valeurs de SOPHIE restent en 0-127, sans unités.

@@ -165,6 +165,10 @@ namespace
 			"TRX-BD: one page, page 1 shown again");
 		click(_editor, _editor.machinePageArea(1).getCentre());
 		check(_editor.machinePage() == 0 && nameOf("t01_m9").isEmpty(), "TRX-BD: a click on the greyed 2 opens nothing");
+		put(choiceOf({Family::Sophie, 0}));
+		check(_editor.machinePages() == 3 && nameOf("t01_m1") == "MODEL", "SOPHIE: three pages, Machine 1 MODEL");
+		click(_editor, _editor.machinePageArea(2).getCentre());
+		check(nameOf("t01_m20") == "BODY" && nameOf("t01_m21") == "off", "SOPHIE: Machine 20 BODY, 21 greyed");
 		put(choiceOf({Family::OpenDrum, 0}));
 		click(_editor, _editor.machinePageArea(1).getCentre());
 	}
@@ -322,10 +326,83 @@ namespace
 			click(editor, editor.browseTreeArea(2).getCentre());
 			click(editor, editor.browseRowArea(0).getCentre());	// auditioned: its sound drawn
 			check(processor.auditioned() != nullptr, "a click auditions the sample");
+
+			// Ticket 20: a click on TYPE opens the types, CLAP chosen is the user's; REMOVE FOLDER on the folder's
+			// segment takes its samples out of the Library and leaves its files
+			click(editor, editor.browseButtonArea(1).getCentre());
+			editor.tick();
+			click(editor, editor.selectorItemArea(static_cast<int>(SampleLibrary::Type::Clap)).getCentre());
+			editor.tick();
+			const auto clap = std::count_if(library.entries().begin(), library.entries().end(), [](const auto& _e)
+			{
+				return _e.type == SampleLibrary::Type::Clap && _e.typeFrom == SampleLibrary::TypeFrom::User;
+			});
+			check(clap == 1, "TYPE set to CLAP on " + juce::String(static_cast<int>(clap)) + " samples");
+			click(editor, editor.browseButtonArea(2).getCentre());
+			editor.tick();
+			snapshot(editor, _folder.getChildFile("browse-samples.png"));
+			click(editor, editor.browseButtonArea(0).getCentre());
+			editor.tick();
+			check(library.folders().isEmpty() && library.entries().empty() && editor.browseCount() == 0
+				&& samples.getChildFile("kick_01.wav").existsAsFile(), "REMOVE FOLDER leaves "
+				+ juce::String(static_cast<int>(library.entries().size())) + " samples, the files on the disk");
+		}
+
+		// Ticket 19: Kits' LOAD AT ITS START gives the pattern playing the Slot selected; Browse's KITS lists the Bank, a
+		// double-click loads; TRACK SOUNDS lists the Library, a double-click loads on the Track shown, a drag onto Track 4
+		{
+			editor.showPage(Editor::Page::Kits);
+			click(editor, editor.kitSlotArea(2).getCentre());
+			click(editor, editor.kitActionArea(6).getCentre());
+			check(processor.patternKit(processor.currentPattern()) == 2, "LOAD AT ITS START: pattern's Kit Slot 3");
+			snapshot(editor, _folder.getChildFile("kits-pattern.png"));
+			click(editor, editor.kitActionArea(7).getCentre());
+			check(processor.patternKit(processor.currentPattern()) == -1, "KEEP THE KIT");
+
+			auto* level = processor.parameter("t01_level");
+			level->setValueNotifyingHost(level->convertTo0to1(33));
+			check(processor.saveTrackSound(0, "Low kick").existsAsFile(), "a Track sound saved");
+			level->setValueNotifyingHost(level->convertTo0to1(100));
+			editor.showPage(Editor::Page::Browse);
+			click(editor, editor.browseTreeArea(0).getCentre());
+			editor.tick();
+			check(editor.browseCount() >= 2, "KITS lists " + juce::String(editor.browseCount()) + " Kits");
+			doubleClick(editor, editor.browseRowArea(0).getCentre());
+			check(processor.currentKit() == 2, "a double-click on KITS' first row loads Slot 3");
+			click(editor, editor.browseTreeArea(1).getCentre());
+			editor.tick();
+			check(editor.browseCount() == 1 && editor.searchField().isVisible(), "TRACK SOUNDS lists the sound saved");
+			click(editor, editor.browseRowArea(0).getCentre());
+			check(processor.auditioned() != nullptr, "a click auditions the Track sound");
+			snapshot(editor, _folder.getChildFile("browse-sounds.png"));
+			doubleClick(editor, editor.browseRowArea(0).getCentre());
+			check(juce::roundToInt(level->convertFrom0to1(level->getValue())) == 33, "a double-click loads it on Track 1");
+			drag(editor, editor.browseRowArea(0).getCentre(), editor.stepKeyArea(3).getCentre()
+				- editor.browseRowArea(0).getCentre());
+			auto* level4 = processor.parameter("t04_level");
+			check(juce::roundToInt(level4->convertFrom0to1(level4->getValue())) == 33, "a drag loads it on Track 4");
 		}
 
 		editor.showPage(Editor::Page::Sound);
 		snapshot(editor, _folder.getChildFile("sound.png"));
+		{
+			// SOPHIE: its factory sound in the Machine block; page 3 with AMP off, the amp's envelope greyed
+			auto* machine = processor.parameter("t01_machine");
+			auto* ampOn = processor.parameter("t01_amp_on");
+			const float ampWas = ampOn->getValue();
+			const float was = machine->getValue();
+			machine->setValueNotifyingHost(machine->convertTo0to1(static_cast<float>(processor.sophieChoice())));
+			processor.setSophieSound(0, 13);
+			editor.showMachinePage(0);
+			snapshot(editor, _folder.getChildFile("sound-sophie.png"));
+			editor.showMachinePage(2);
+			ampOn->setValueNotifyingHost(0.0f);
+			snapshot(editor, _folder.getChildFile("sound-sophie-p3.png"));
+			ampOn->setValueNotifyingHost(ampWas);
+			editor.showMachinePage(0);
+			machine->setValueNotifyingHost(was);
+			editor.tick();
+		}
 		editor.showLfo(1);
 		snapshot(editor, _folder.getChildFile("sound-lfo2.png"));
 		editor.showLfo(0);
@@ -334,6 +411,33 @@ namespace
 		editor.showMenu(false);
 		editor.showPage(Editor::Page::Seq);
 		snapshot(editor, _folder.getChildFile("seq.png"));
+		// Ticket 17: Overview's rows take a click as a trig; Patterns shows the chain
+		{
+			const auto px = [&](const float _x, const float _y)
+			{
+				const float s = static_cast<float>(editor.getWidth()) / ui::UnitWidth;
+				return juce::Point<int>(juce::roundToInt(_x * s), juce::roundToInt(_y * s));
+			};
+			processor.editSequencer([](Sequencer& _s)
+			{
+				for(int t = 0; t < 6; ++t)
+					for(int i = t % 3; i < 16; i += 3 + t)
+						_s.pattern(_s.currentPattern()).setTrig(t, i, true, 60 + 10 * t);
+				_s.pattern(_s.currentPattern()).trackLength[2] = 12;
+				_s.pattern(5).setTrig(0, 0, true);
+				_s.setChain({{0, 2, false}, {5, 1, true}});
+				_s.setMute(4, true);
+			});
+			editor.showSeqTab(1);
+			const int pattern = processor.currentPattern();
+			const bool before = processor.sequencer().pattern(pattern).step(7, 3).trig;
+			click(editor, px(474.7f - 32 * 12.65f + 3.5f * 12.65f, 36 + 7.5f * 12.65f));
+			check(processor.sequencer().pattern(pattern).step(7, 3).trig != before, "a click on Overview's row 8 toggles step 4");
+			snapshot(editor, _folder.getChildFile("seq-overview.png"));
+			editor.showSeqTab(2);
+			snapshot(editor, _folder.getChildFile("seq-patterns.png"));
+			editor.showSeqTab(0);
+		}
 		editor.showPage(Editor::Page::Master);
 		snapshot(editor, _folder.getChildFile("master.png"));
 		editor.showPage(Editor::Page::Fx);

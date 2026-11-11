@@ -39,10 +39,15 @@ namespace elektron::drums
 			return a.value * std::pow(b.value / a.value, t);
 		}
 
-		// A triangle's phase for a block, whole turns in 32 bits
+		// An LFO's phase for a block, whole turns in 32 bits
+		uint32_t stepOf(const double _hz)
+		{
+			return static_cast<uint32_t>(_hz * ModulatedDelay::BlockSize / Rate * 4294967296.0);
+		}
+
 		uint32_t phaseStep(const uint8_t _rate)
 		{
-			return static_cast<uint32_t>(sendFxRateHz(_rate) * ModulatedDelay::BlockSize / Rate * 4294967296.0);
+			return stepOf(sendFxRateHz(_rate));
 		}
 
 		// 0 to 1 and back in a turn
@@ -78,6 +83,14 @@ namespace elektron::drums
 		return rate > 0 ? std::exp(-5.684159 + 0.040309 * rate) * std::pow(rate, 0.913459) : 0;
 	}
 
+	double dp4SampleHoldHz(const uint8_t _rate)
+	{
+		// Measured on Phaser-DDL: 0.74, 1.49, 2.75, 4.80, 8.4 and 14.1 Hz at 30 to 80, 3.0 times the LFO's rate at the
+		// same number within the steps' 2 % of jitter
+		const double rate = _rate * 100.0 / 127;
+		return rate > 0 ? 3 * std::exp(-5.684159 + 0.040309 * rate) * std::pow(rate, 0.913459) : 0;
+	}
+
 	double dp4DelayMs(const uint8_t _time)
 	{
 		return 1.6 * std::lround(_time * 1000.0 / 127);
@@ -111,6 +124,11 @@ namespace elektron::drums
 		m_swingTo = static_cast<float>(m_samplesPerStep * _delay * _depth / 128);
 		m_step = phaseStep(_rate);
 		m_feedbackTo = (static_cast<float>(_feedback) - 64) / 65.6f;
+	}
+
+	void ModulatedDelay::setHz(const double _hz)
+	{
+		m_step = stepOf(_hz);
 	}
 
 	void ModulatedDelay::settle()
@@ -208,6 +226,11 @@ namespace elektron::drums
 		m_feedbackTo = 0.9375f * (static_cast<float>(_feedback) - 64) / 64;
 	}
 
+	void Phaser::setHz(const double _hz)
+	{
+		m_step = stepOf(_hz);
+	}
+
 	void Phaser::settle()
 	{
 		m_sweep = m_frequency;
@@ -287,8 +310,16 @@ namespace elektron::drums
 		const double center = signedDp4(s.center);
 		m_center = static_cast<float>(center >= 0 ? center / 99 : center / 99.79);
 		m_width = static_cast<float>(s.width * 99.0 / 127 / 99.8);
-		const double hz = dp4RateHz(s.rate);
-		m_step = static_cast<uint32_t>(hz * BlockSize / Rate * 4294967296.0);
+		m_step = stepOf(dp4RateHz(s.rate));
+		// An S&H that comes on takes the sine at once and again half a turn later, then at each turn, as Phaser-DDL
+		// does from its start
+		const uint32_t holdStep = stepOf(dp4SampleHoldHz(s.sampleHold));
+		if(holdStep && !m_holdStep)
+		{
+			m_holdPhase = 1u << 31;
+			m_held = std::cos(static_cast<float>(m_phase >> 8) * 3.7450702829239286e-7f);
+		}
+		m_holdStep = holdStep;
 		m_feedback = static_cast<float>(0.992 * signedDp4(s.feedback) / 99);
 		m_notch = static_cast<float>(signedDp4(s.notch) / 99);
 		m_outOfPhase = s.outOfPhase;
@@ -302,9 +333,27 @@ namespace elektron::drums
 		}
 	}
 
+	void Dp4Phaser::setHz(const double _hz)
+	{
+		m_step = stepOf(_hz);
+	}
+
+	float Dp4Phaser::swing()
+	{
+		const float sine = std::cos(static_cast<float>(m_phase >> 8) * 3.7450702829239286e-7f);
+		if(!m_holdStep)
+			return m_width * sine;
+		const uint32_t before = m_holdPhase;
+		m_holdPhase += m_holdStep;
+		if(m_holdPhase < before)
+			m_held = sine;
+		return m_width * m_held;
+	}
+
 	void Dp4Phaser::settle()
 	{
-		const float swing = m_width * std::cos(static_cast<float>(m_phase >> 8) * 3.7450702829239286e-7f);
+		m_held = std::cos(static_cast<float>(m_phase >> 8) * 3.7450702829239286e-7f);
+		const float swing = m_width * m_held;
 		m_targetTo[0] = std::clamp(m_center - (m_outOfPhase ? swing : -swing), -Edge, Edge);
 		m_targetTo[1] = std::clamp(m_center + swing, -Edge, Edge);
 		for(int c = 0; c < 2; ++c)
@@ -330,7 +379,7 @@ namespace elektron::drums
 		// The sine moves the coefficients, L on the other side of it or not. Its value at the block's end, a line
 		// between
 		m_phase += m_step;
-		const float swing = m_width * std::cos(static_cast<float>(m_phase >> 8) * 3.7450702829239286e-7f);
+		const float swing = this->swing();
 		const float left = m_outOfPhase ? -swing : swing;
 		const float to[2] = {std::clamp(m_center + left, -Edge, Edge), std::clamp(m_center + swing, -Edge, Edge)};
 		float step[2];

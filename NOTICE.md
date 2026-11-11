@@ -19,5 +19,10 @@ sound engine, Copyright (C) 2012-2026 Erica Synths, from `erica-synths/lxr-deskt
 "LXR-02" are not licensed: they appear here only to name the source, never in the instrument, which presents the voices
 as a modified version under a name of its own and suggests no link with Erica Synths.
 
+The drum instrument's SOPHIE machine (`source/elektron/sophie/`) is a percussion voice ported from Sophie, Copyright (c)
+2026 Matt Estela and the digisophie contributors, from `mestela/schwung-sophie` at commit
+`abd132dc50b43f1f1bd775d3a9faf11e70fb9d9c`, under the MIT licence (kept there as `LICENSE`); its Pipe, Boom and smooth
+feedback come from `soejrd/digisophie` (MIT), as upstream says. Its `README.md` lists what was kept and what changed.
+
 Elektron's firmware is not part of this repository: the plug-in needs the user's own Machinedrum flash image.
 "Elektron" and "Machinedrum" are trademarks of Elektron Music Machines MAQ AB, used only to name the hardware.
