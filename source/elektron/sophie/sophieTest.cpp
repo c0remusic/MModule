@@ -8,6 +8,11 @@
 #include <cstdio>
 #include <vector>
 
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 #include "sophieMachine.h"
 #include "sophieVoice.h"
 
@@ -199,7 +204,10 @@ namespace
 				sophie_set_param(&s, SOPHIE_DECAY, 4.0f);
 				if (heavy)
 				{
-					for (const auto& setting : scenarios()[2].settings)
+					// The scenarios held for the loop: a range over scenarios()[2].settings reads them after the
+					// vector returned has gone, which the gate saw crash
+					const auto all = scenarios();
+					for (const auto& setting : all[2].settings)
 						sophie_set_param(&s, setting.param, setting.value);
 					sophie_set_param(&s, SOPHIE_DECAY, 4.0f);
 					sophie_set_param(&s, SOPHIE_FILTER_TYPE, 3);
@@ -343,9 +351,26 @@ namespace
 	}
 }
 
+#ifdef _WIN32
+// The gate saw this test crash where a run by hand never did: a crash names its code, where it happened in the
+// executable and what it touched, so that it can be found again
+static LONG WINAPI reportCrash(EXCEPTION_POINTERS* _e)
+{
+	const auto* r = _e->ExceptionRecord;
+	const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleA(nullptr));
+	std::printf("CRASH: code 0x%08lx at exe+0x%llx, touching 0x%llx\n", static_cast<unsigned long>(r->ExceptionCode),
+		static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(r->ExceptionAddress) - base),
+		static_cast<unsigned long long>(r->NumberParameters > 1 ? r->ExceptionInformation[1] : 0));
+	return EXCEPTION_CONTINUE_SEARCH;
+}
+#endif
+
 int main()
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
+#ifdef _WIN32
+	SetUnhandledExceptionFilter(reportCrash);
+#endif
 
 	measureStartAndDecay();
 	checkRetrigger();
