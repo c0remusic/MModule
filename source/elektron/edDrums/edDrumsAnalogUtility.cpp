@@ -76,6 +76,7 @@ namespace elektron::drums::analog::port
 			std::array<int32_t, 128> t{};
 			DecayTable(const double _seconds, const double _base, const double _fs, const bool _micro)
 			{
+				++tablesBuilt();
 				for(int k = 1; k < 128; ++k)
 				{
 					double time = _seconds * (std::pow(_base, k / 127.0) - 1) / (_base - 1);
@@ -138,6 +139,7 @@ namespace elektron::drums::analog::port
 		{
 			static const std::array<int32_t, 128> t = []
 			{
+				++tablesBuilt();
 				std::array<int32_t, 128> r{};
 				for(int k = 0; k < 128; ++k)
 				{
@@ -343,5 +345,15 @@ namespace elektron::drums::analog::port
 	{
 		_count = static_cast<int>(std::size(utilityTableList));
 		return utilityTableList;
+	}
+}
+
+namespace elektron::drums::analog::port
+{
+	void warmUpUtility()
+	{
+		blockDecay(25);
+		impulseDecay(64);
+		noiseAttack(64);
 	}
 }

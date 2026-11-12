@@ -67,6 +67,9 @@ namespace elektron::drums::analog
 	enum class Region : uint8_t { Params, State, Smooth, OutA, Heads, OutB, Frame, Switch, Noise, Count };
 	uint8_t* regionOf(VoiceIo& _io, Region _region, size_t& _size);
 
+	// Every table the port builds at its first use built now: the engine calls it before audio runs
+	void warmUp();
+
 	// A trig, as the note handler gives one: the state machine's first two longs cleared
 	void trig(VoiceIo& _io);
 	// One block of _m on _io: the routine the CPU calls for the voice at every block

@@ -527,6 +527,7 @@ namespace elektron::drums
 			m_tracks[t].od = reinterpret_cast<OpenDrumVoice*>(m_odMemory.data() + t * odWords);
 		m_sophie = std::make_unique<SophieVoices>();
 		m_analog = std::make_unique<AnalogVoices>();
+		analog::warmUp();	// every table the analog port builds, here rather than on the audio thread at a first Hit
 
 		using namespace syntakt::fast;
 		makeSources<Source, BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage, CpVintage, SyToy, SyBits, SpTwinshot>(m_sources,

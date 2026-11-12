@@ -92,6 +92,7 @@ namespace elektron::drums::analog::port
 		{
 			static const std::array<int32_t, 128> t = []
 			{
+				++tablesBuilt();
 				std::array<int32_t, 128> r{};
 				for(int k = 0; k < 128; ++k)
 				{
@@ -317,6 +318,7 @@ namespace elektron::drums::analog::port
 		{
 			static const std::array<int32_t, 128> t = []
 			{
+				++tablesBuilt();
 				std::array<int32_t, 128> r{};
 				for(int k = 0; k < 128; ++k)
 				{
@@ -332,6 +334,7 @@ namespace elektron::drums::analog::port
 		{
 			static const std::array<int32_t, 128> t = []
 			{
+				++tablesBuilt();
 				std::array<int32_t, 128> r{};
 				for(int k = 0; k < 128; ++k)
 				{
@@ -487,6 +490,7 @@ namespace elektron::drums::analog::port
 				120, 100, 60, 50, 30, 25};
 			static const std::array<int32_t, 66> t = []
 			{
+				++tablesBuilt();
 				std::array<int32_t, 66> r{};
 				size_t at = 0;
 				for(int n = 0; n < 8; ++n)
@@ -507,6 +511,7 @@ namespace elektron::drums::analog::port
 		{
 			static const std::array<int32_t, 768> t = []
 			{
+				++tablesBuilt();
 				std::array<int32_t, 768> r{};
 				for(int i = 0; i < 768; ++i)
 				{
@@ -525,6 +530,7 @@ namespace elektron::drums::analog::port
 		{
 			static const std::array<int32_t, 128> t = []
 			{
+				++tablesBuilt();
 				std::array<int32_t, 128> r{};
 				for(int k = 1; k < 127; ++k)
 				{
@@ -824,5 +830,18 @@ namespace elektron::drums::analog::port
 		setBe32(_io.heads.data(), 0);
 		setBe32(_io.heads.data() + 4, 0);
 		setStateLong(_io, 2, pitchStep + 4 * programStep + 16 * played);
+	}
+}
+
+namespace elektron::drums::analog::port
+{
+	void warmUpSynth()
+	{
+		levelScale(64);
+		rawLevelA(64);
+		rawLevelB(64);
+		stepLength(30);
+		phaseStep(64);
+		chipDecay(64);
 	}
 }

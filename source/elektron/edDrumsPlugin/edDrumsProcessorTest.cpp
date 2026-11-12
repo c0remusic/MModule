@@ -1763,6 +1763,58 @@ namespace
 		p.setTrig(1, 6, true, 60);
 	}
 
+	// Tracks 1-3 on analog machines (ticket 28), a parameter set and a Lock of Machine 2 on step 4: the state saved and
+	// restored in another instance plays the same samples, the Lock's Hit apart from what it plays without the Lock
+	void analogState()
+	{
+		constexpr int Length = 846 * Block;
+		const auto prepare = [](Processor& _p, const bool _lock)
+		{
+			allOutputs(_p);
+			const int first = _p.analogChoice();
+			set(find(_p, "t01_machine"), first + static_cast<int>(analog::Machine::KickHard));
+			set(find(_p, "t02_machine"), first + static_cast<int>(analog::Machine::SnareClassic));
+			set(find(_p, "t03_machine"), first + static_cast<int>(analog::Machine::ClosedClassic));
+			_p.prepareToPlay(SampleRate, Block);
+			block(_p);	// a block takes the machines, whose defaults Machine 1-8 take before what follows
+			set(find(_p, "t02_m2"), 30);
+			_p.editSequencer([&](Sequencer& _s)
+			{
+				basicPattern(_s);
+				_s.pattern(0).setTrig(2, 2, true);
+				if(_lock)
+					_s.pattern(0).setLock(0, 4, indexOf(_p, "t01_m2"), 110);
+			});
+		};
+		auto one = std::make_unique<Processor>();
+		prepare(*one, true);
+		require(one->machines()[static_cast<size_t>(plain(find(*one, "t01_machine")))].family == Family::SyntaktAnalog,
+			"Track 1 not on an analog machine");
+		juce::MemoryBlock saved;
+		one->getStateInformation(saved);
+		const auto values = valuesOf(*one);
+		const auto take = playSequenced(*one, Length);
+		auto other = std::make_unique<Processor>();
+		allOutputs(*other);
+		other->setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+		other->prepareToPlay(SampleRate, Block);
+		block(*other);	// a block in, as the first took its machines
+		const auto restored = valuesOf(*other);
+		for(const auto& [id, v] : values)
+			// to a float's rounding: a value of a wide range (an LFO's rate) comes back within its normalised float
+			require(restored.count(id) && std::abs(restored.at(id) - v) <= 1e-5 * std::max(1.0, std::abs(v)),
+				"an analog Track's parameter in the state: " + id.toStdString());
+		require(other->sequencer().pattern(0).step(0, 4).lockCount == 1, "an analog Track's Lock in the state");
+		requireSame(take, playSequenced(*other, Length), "an analog kit restored: ");
+		require(peakOf(take, 0) > 0.05f, "the analog kit is silent");
+		auto unlocked = std::make_unique<Processor>();
+		prepare(*unlocked, false);
+		const int differs = firstDifference(take, playSequenced(*unlocked, Length));
+		require(differs >= stepSample(1.0) && differs < stepSample(9 * 0.25), "the Lock does not play on its step");
+		std::printf("  analog Tracks and a Lock: the state restored plays the same; the Lock from sample %d (step 4 at %d)\n",
+			differs, stepSample(1.0));
+	}
+
 	void sequencer(const Library& _library)
 	{
 		constexpr int Length = 846 * Block;	// a pattern of 16 steps, 88200 samples, and its start again
@@ -2856,6 +2908,7 @@ int main(const int _argc, char** _argv)
 		const Library library(Library::findFlashImage({}));
 		everyParameter(library);
 		sequencer(library);
+		analogState();
 		sequencerFunctions(library);
 		familyChange();
 		state();

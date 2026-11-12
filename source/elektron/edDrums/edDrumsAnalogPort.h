@@ -180,6 +180,15 @@ namespace elektron::drums::analog::port
 	const Table* metalTables(int& _count);
 	const Table* utilityTables(int& _count);
 
+	// How many tables a routine builds on its first use have been built: warmUp builds them all before audio runs, so that
+	// none is built on the audio thread (edDrumsAnalogTest counts that none is during a render)
+	int& tablesBuilt();
+	// Each family's tables built at once, called by warmUp
+	void warmUpKick();
+	void warmUpSnare();
+	void warmUpSynth();
+	void warmUpUtility();
+
 	// The machines' routines, each one block of the voice (control() calls them; a family a file)
 	void kickHard(VoiceIo& _io);
 	void kickClassic(VoiceIo& _io);

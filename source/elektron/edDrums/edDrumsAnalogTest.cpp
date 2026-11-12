@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "edDrumsAnalogPort.h"
 #include "edDrumsAnalogVoice.h"
 #include "edDrumsEngine.h"
 #include "edDrumsTestSupport.h"
@@ -89,6 +90,32 @@ namespace
 		for(const float v : _x)
 			p = std::max(p, std::abs(v));
 		return p;
+	}
+
+	// What the port builds at its first use is built with the engine: a Hit of every machine, in a fresh engine, builds nothing
+	// on the audio thread
+	void tablesBeforeAudio(const Library& _library)
+	{
+		Engine e(_library);
+		const int built = analog::port::tablesBuilt();
+		require(built > 0, "the engine built no table");
+		std::vector<float> l(BlockSize), r(BlockSize);
+		std::array<float*, Channels> outs{};
+		outs[0] = l.data();
+		outs[1] = r.data();
+		for(int m = 0; m < SyntaktAnalogMachines; ++m)
+		{
+			const int t = m % Tracks;
+			e.setMachine(t, machineOf(m));
+			for(int i = 0; i < 8; ++i)
+				e.setParameter(t, i, static_cast<uint8_t>((m * 37 + i * 53) & 127));
+			e.noteOn(t, 127);
+			for(int b = 0; b < 64; ++b)
+				e.render(outs.data(), BlockSize);
+		}
+		require(analog::port::tablesBuilt() == built, "a table built during a render");
+		std::printf("PASS: the port's %d tables built with the engine, none during the Hits of the %d machines\n", built,
+			SyntaktAnalogMachines);
 	}
 
 	void sounds()
@@ -285,6 +312,7 @@ int main()
 	try
 	{
 		const Library library;
+		tablesBeforeAudio(library);
 		sounds();
 		againstAlone(library);
 		pages(library);

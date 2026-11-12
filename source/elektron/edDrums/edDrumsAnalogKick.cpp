@@ -70,6 +70,7 @@ namespace elektron::drums::analog::port
 		{
 			static const std::array<int32_t, 128> t = []
 			{
+				++tablesBuilt();
 				std::array<int32_t, 128> r{};
 				for(int k = 0; k < 128; ++k)
 					r[static_cast<size_t>(k)] = static_cast<int32_t>(std::llround(-std::ldexp(std::pow(10.0, 0.9 * k / 127), 28)));
@@ -620,6 +621,7 @@ namespace elektron::drums::analog::port
 		{
 			static const std::array<int32_t, 256> t = []
 			{
+				++tablesBuilt();
 				std::array<int32_t, 256> r{};
 				for(int k = 0; k < 128; ++k)
 				{
@@ -1306,5 +1308,14 @@ namespace elektron::drums::analog::port
 		k.setState(2, twiceSat(next));
 		k.setState(3, rate);
 		k.setState(7, trigged);
+	}
+}
+
+namespace elektron::drums::analog::port
+{
+	void warmUpKick()
+	{
+		accentScale(64);
+		silkyKeep(64);
 	}
 }

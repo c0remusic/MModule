@@ -63,6 +63,12 @@ namespace elektron::drums::analog
 			m_acc[_n] = r;
 		}
 
+		int& tablesBuilt()
+		{
+			static int n = 0;
+			return n;
+		}
+
 		int ff1(const uint32_t _v)
 		{
 			for(int i = 0; i < 32; ++i)
@@ -79,6 +85,7 @@ namespace elektron::drums::analog
 			{
 				static const std::array<int32_t, 2049> t = []
 				{
+					++tablesBuilt();
 					std::array<int32_t, 2049> r{};
 					for(int k = 0; k <= 2048; ++k)
 					{
@@ -223,6 +230,15 @@ namespace elektron::drums::analog
 		case Region::Noise:		_size = _io.noise.size(); return _io.noise.data();
 		default:				_size = 0; return nullptr;
 		}
+	}
+
+	void warmUp()
+	{
+		port::exp2Table();
+		port::warmUpKick();
+		port::warmUpSnare();
+		port::warmUpSynth();
+		port::warmUpUtility();
 	}
 
 	void trig(VoiceIo& _io)

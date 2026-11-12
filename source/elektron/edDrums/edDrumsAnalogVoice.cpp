@@ -128,6 +128,9 @@ namespace elektron::drums::analog
 		// a machine change takes effect at a Hit, as on the original; track 12's voice sets its topology first
 		const bool changed = m_pending != m_machine || !m_sounding;
 		m_machine = m_pending;
+		// Tracks 9-11's three voices run the same routines: their control differs only in the switch numbers and the
+		// frame words, which VoiceIo lays out the same for all three (the vectors of all three pass on voice 0's code);
+		// track 12's is its own. So every Track off the metal plays voice 0
 		m_io.voice = isMetal(m_machine) ? MetalVoice : 0;
 		if(changed)
 		{
@@ -155,7 +158,7 @@ namespace elektron::drums::analog
 
 	void Voice::render(float* _out, const int _n, const double _rate)
 	{
-		if(!m_sounding)
+		if(!m_sounding || _rate > MaxRate)
 			return;
 		const auto rate = static_cast<int64_t>(std::llround(_rate));
 		m_rate = _rate;

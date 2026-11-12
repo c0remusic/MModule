@@ -209,6 +209,7 @@ namespace elektron::drums::analog::port
 		{
 			static const std::array<int32_t, 256> t = []
 			{
+				++tablesBuilt();
 				std::array<int32_t, 256> r{};
 				for(int k = 0; k < 128; ++k)
 				{
@@ -1153,5 +1154,13 @@ namespace elektron::drums::analog::port
 		};
 		_count = static_cast<int>(std::size(t));
 		return t;
+	}
+}
+
+namespace elektron::drums::analog::port
+{
+	void warmUpSnare()
+	{
+		tables::tune(64);
 	}
 }

@@ -57,6 +57,7 @@ namespace elektron::drums::analog
 	public:
 		static constexpr int TickSamples = 32;			// a control tick, in 48 kHz samples
 		static constexpr double ControlRate = 48000.0;
+		static constexpr int MaxRate = 192000;			// the highest host rate render takes: it plays nothing above
 
 		// _m from its next Hit; the controls as setControls gives them
 		void setMachine(Machine _m);
@@ -85,7 +86,7 @@ namespace elektron::drums::analog
 		Circuit m_circuit;
 		bool m_sounding = false;	// a Hit has started the control
 		int64_t m_ticks = 0;		// ticks since the Hit: tick k ends at host sample (k + 1) 32 rate / 48000, rounded down
-		std::array<float, 64> m_buf{};	// the current tick's host samples
+		std::array<float, MaxRate * TickSamples / 48000 + 8> m_buf{};	// the current tick's host samples, at MaxRate
 		int m_count = 0, m_pos = 0;
 		int64_t m_clock = 0;		// host samples rendered or passed, as trig's _now counts them
 		double m_rate = 44100.0;

@@ -75,3 +75,12 @@ le kit le plus cher (WARP SNARE à fond, CLICK RIM, BAND RIDE, BEAT HAT) coûte 
 **À écouter** (`C:\dev\elektron\elektron-work\control-listen\analog\analog-0.wav` à `analog-29.wav`, réglages par
 défaut puis quatre variantes) : tout le réglage final, et en particulier le niveau de SIX CLOSED (crête 0,205 par
 défaut). Les notes de l'utilisateur ne sont pas encore appliquées : le ticket reste ouvert.
+
+**Après relecture (2026-11-12).** Les tables que le port construit à leur premier usage le sont désormais avec le moteur
+(`analog::warmUp`, appelé par son constructeur), plus jamais sur le fil audio à la première frappe : edDrumsAnalogTest
+compte qu'aucune ne se construit pendant les frappes des trente machines. Le tampon d'un tick de la voix est
+dimensionné pour 192 kHz, au-delà la voix ne joue rien. Les pistes 9 à 11 jouent toutes la voix 0 : leurs routines ne
+diffèrent que par les numéros de commutateurs et les mots de la trame, que VoiceIo range pareil pour les trois (les
+vecteurs des trois passent sur le même code). edDrumsProcessorTest sauve et restaure un état avec trois pistes
+analogiques et un verrou : mêmes échantillons, le verrou joué sur son pas. `analog-28.wav` (NOISE GEN, filtres
+refaits) est rendu à nouveau.
