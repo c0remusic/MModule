@@ -16,23 +16,108 @@ namespace elektron::drums
 
 	namespace
 	{
-		constexpr float R1 = 23, R2 = 96.1f, R3 = 169.2f, PicH = 23.1f;
+		// Sound, after u.html's variant 2 (u-html-synthese-v19.md): three groups, SOURCE, TIMBRE, AMP & MOD, on 9, 8 and 7
+		// of the 24 columns, their names above; the blocks from y 30, 5 mm apart down a column, the bottom row's at 185.
+		// TIMBRE in halves of 4 columns: the drives, EQ and SENDS
+		constexpr float SoundY = 30, LowY = 185, FltY = SoundY + 27 + 5, LfoY = SoundY + 92 + 5;
+		constexpr float SrcX = cx(0) - 2, SrcW = 9 * Col + 2, TimX = cx(9) - 2, TimW = 8 * Col + 2, ModX = cx(17) - 2,
+			ModW = 7 * Col + 2, HalfW = 4 * Col + 2, SndX = TimX + 4 * Col;
+		// The pictures: VOICE's, the filter's response and envelope, the amp's envelope, the LFO's wave and its two cards
+		const juce::Rectangle<float> voicePicture{SrcX + 2, SoundY + 9, SrcW - 6, 84};
+		const juce::Rectangle<float> responsePicture{TimX + 66, FltY + 9, TimW - 70, 40};
+		const juce::Rectangle<float> envelopePicture{TimX + 35, FltY + 63, TimW - 39, 36};
+		const juce::Rectangle<float> ampPicture{ModX + 2, SoundY + 43, ModW - 6, 30};
+		const juce::Rectangle<float> lfoPicture{ModX + 2, LfoY + 47, ModW - 6, 33};
+		juce::Rectangle<float> lfoCard(const int _i)
+		{
+			const float w = (ModW - 8) / 2;
+			return {ModX + 2 + static_cast<float>(_i) * (w + 2), LfoY + 83, w, 28};
+		}
+		// EQ's curve: under its row of cells, lower and shorter under 3 BAND's two rows
+		juce::Rectangle<float> eqPicture(const int _type)
+		{
+			return _type == 3 ? juce::Rectangle<float>{TimX + 2, LowY + 38.5f, HalfW - 6, 13}
+				: juce::Rectangle<float>{TimX + 2, LowY + 27, HalfW - 6, 23};
+		}
+		// SENDS: a bar each send, its name above, its value's cell under it
+		juce::Rectangle<float> sendBar(const int _i)
+		{
+			const float gap = 3, w = (HalfW - 6 - 3 * gap) / 4;
+			return {SndX + 2 + static_cast<float>(_i) * (w + gap), LowY + 14.5f, w, 31};
+		}
+
 		constexpr float SG = cx(2), SC = (22 * Col - 4 + 1.2f) / 16;	// Seq's 16 columns
 		const juce::Colour beatA{0xff191B1D}, beatB{0xff111315};
 		juce::Colour beat(const int _i) { return (_i / 4) % 2 == 0 ? beatA : beatB; }
 
-		// The Machine block's page selector: three segments of 7 mm in its head (block at _x, _w wide), left of the
-		// machine's name
-		juce::Rectangle<float> machinePageBox(const float _x, const float _w, const int _page)
+		// Detail's lock lanes, five a page, and what the + LOCK menu lays out: ten columns of rows of 8.6 mm over the page
+		constexpr float LaneY = 86, LanePitch = 25, LaneH = 23.4f, MenuY = 86, MenuRow = 8.6f;
+		constexpr int Lanes = 5, MenuRows = 13;
+		juce::Rectangle<float> laneBox(const int _row)
 		{
-			return {_x + _w - 61 + 7 * static_cast<float>(_page), R1 + 1.8f, 7, 6};
+			return {SG, LaneY + static_cast<float>(_row) * LanePitch, 16 * SC, LaneH};
+		}
+		juce::Rectangle<float> laneDeleteBox(const int _row)
+		{
+			return {SG - 8.5f, LaneY + static_cast<float>(_row) * LanePitch + 0.5f, 7, 7.6f};
+		}
+		const juce::Rectangle<float> addLockBox{SG + 15 * SC, 78, SC - 1, 7}, lanesBox{SG + 13 * SC, 78, 2 * SC - 1, 7};
+
+		// A Track parameter's block, as Sound names it: its hue, its name, its column in the + LOCK menu (VOICE takes two)
+		struct LaneSection
+		{
+			const Hue* hue;
+			const char* name;
+			int column;
+		};
+		LaneSection laneSection(const juce::String& _id)
+		{
+			// The last that matches: "_amp_mode" holds "_m" too
+			static const std::pair<const char*, LaneSection> sections[]{{"_m", {&hue::k, "VOICE", 0}},
+				{"_note", {&hue::k, "VOICE", 0}}, {"_drv1", {&hue::a, "DRIVE 1", 2}}, {"_drv2", {&hue::a, "DRIVE 2", 3}},
+				{"_flt", {&hue::s, "FILTER", 4}}, {"_fenv", {&hue::s, "FILTER", 4}}, {"_band", {&hue::b, "EQ", 5}},
+				{"_amp", {&hue::p, "AMP", 6}}, {"_vel", {&hue::p, "AMP", 6}}, {"_level", {&hue::p, "AMP", 6}},
+				{"_pan", {&hue::p, "AMP", 6}}, {"_accent", {&hue::p, "AMP", 6}}, {"_lfo1", {&hue::y, "LFO 1", 7}},
+				{"_lfo2", {&hue::m, "LFO 2", 8}}, {"_send", {&hue::w, "SENDS", 9}}};
+			LaneSection found{&hue::t, "", 0};
+			for(const auto& s : sections)
+				if(_id.contains(s.first))
+					found = s.second;
+			return found;
 		}
 
-		// The Sampler's GRAIN in the Machine block's head: two segments from 46 mm in, its name at 34 (t.js); 22 mm, not the
-		// mockup's 14, which hold MD and DT2 but not 12-BIT and VINTAGE, and still end before the page selector
-		juce::Rectangle<float> grainBox(const float _x, const int _i)
+		// _text cut to _width mm
+		juce::String fitted(const Painter& _p, juce::String _text, const float _cap, const float _width,
+			const int _weight = 500)
 		{
-			return {_x + 46 + 22 * static_cast<float>(_i), R1 + 1.8f, 22, 6};
+			while(_text.isNotEmpty() && _p.textWidth(_text, _cap, _weight) > _width)
+				_text = _text.dropLastCharacters(1);
+			return _text;
+		}
+
+		// A level line dashed in steps of 1.2 mm, its dashes a list of rectangles: a dashed stroke or a path of them costs
+		// some 0.6 ms a line, the list 0.02
+		void dashed(const Painter& _p, const float _x0, const float _x1, const float _y, const juce::Colour _colour,
+			const float _width)
+		{
+			juce::RectangleList<float> d;
+			for(float x = _x0; x < _x1; x += 2.4f)
+				d.addWithoutMerging({x, _y - _width / 2, std::min(1.2f, _x1 - x), _width});
+			_p.g.setColour(_colour);
+			_p.g.fillRectList(d);
+		}
+
+		// VOICE's page selector: three segments of 7 mm in its head, left of the machine's name
+		juce::Rectangle<float> machinePageBox(const int _page)
+		{
+			return {SrcX + SrcW - 61 + 7 * static_cast<float>(_page), SoundY + 1.8f, 7, 6};
+		}
+
+		// The Sampler's GRAIN in VOICE's head: two segments from 46 mm in, its name at 34 (t.js); 22 mm, not the mockup's
+		// 14, which hold MD and DT2 but not 12-BIT and VINTAGE, and still end before the page selector
+		juce::Rectangle<float> grainBox(const int _i)
+		{
+			return {SrcX + 46 + 22 * static_cast<float>(_i), SoundY + 1.8f, 22, 6};
 		}
 
 		// Machine 1-8 of _page 0, 9-16 of 1, 17-24 of 2, as _machine names them (edDrumsNames.h): empty for one it does
@@ -320,11 +405,11 @@ namespace elektron::drums
 	// ---- shared pieces ----
 
 	void Editor::block(const float _x, const float _y, const float _w, const juce::String& _section,
-		const juce::String& _title, const Hue& _hue)
+		const juce::String& _title, const Hue& _hue, const float _h, const int _rank)
 	{
-		m_blocks.push_back({_x, _y, _w, _title, _section, &_hue});
+		m_blocks.push_back({_x, _y, _w, _title, _section, &_hue, _rank});
 		Hit focus;
-		focus.r = {_x, _y, _w - 1, 68};
+		focus.r = {_x, _y, _w - 1, _h};
 		focus.press = [this, _section] { m_focus = _section; };
 		focus.cursor = juce::MouseCursor::NormalCursor;
 		addHit(std::move(focus));
@@ -334,19 +419,22 @@ namespace elektron::drums
 	{
 		const bool focus = _b.section == m_focus;
 		const bool off = sectionOff(_b.section) || _b.section == "x";
-		_p.rect(_b.x + 2, _b.y, _b.w - 6, focus ? 1.0f : 0.4f, focus ? _b.hue->c[0] : off ? colour::faint : _b.hue->c[1]);
-		_p.text(_b.x + 2, _b.y + 6.2f, _b.title, 3.2f, off ? colour::dim : _b.hue->c[4], 600);
+		// Rank 1, the page's first block: a full rule, its name at 4.0 mm; rank 2, a block that matters less: a thin rule,
+		// its name at 2.8 in grey (u.js blockTitle)
+		const float rule = focus ? 1.0f : _b.rank == 1 ? 0.8f : _b.rank == 2 ? 0.25f : 0.4f;
+		_p.rect(_b.x + 2, _b.y, _b.w - 6, rule, focus || _b.rank == 1 ? _b.hue->c[0] : off ? colour::faint : _b.hue->c[1]);
+		_p.text(_b.x + 2, _b.y + 6.2f, _b.title, _b.rank == 1 ? 4.0f : _b.rank == 2 ? 2.8f : 3.2f, off ? colour::dim
+			: _b.rank == 2 ? colour::mid : _b.hue->c[4], 600);
 	}
 
-	void Editor::drawHeader(Painter& _p, const juce::String& _title, const juce::String& _sub)
+	void Editor::drawHeader(Painter& _p, const juce::String& _title, const juce::String& _sub, const juce::String& _right)
 	{
 		const float x = ScreenX + 4, y = ScreenY + 7.4f;
 		_p.text(x, y, _title, 4, colour::ink, 600);
 		if(_sub.isNotEmpty())
 			_p.text(x + static_cast<float>(_title.length()) * 2.6f + 6, y, _sub, 2.8f, colour::mid);
-		const int pat = m_processor.currentPattern();
-		_p.text(ScreenX + ScreenW - 36, y, juce::String::charToString(static_cast<juce::juce_wchar>('A' + pat / 16))
-			+ juce::String(pat % 16 + 1).paddedLeft('0', 2), 2.8f, colour::mid, 500, Align::Right);
+		_p.text(ScreenX + ScreenW - 36, y, _right.isNotEmpty() ? _right : patternName(m_processor.currentPattern()), 2.8f,
+			colour::mid, 500, Align::Right);
 		bool playing = false;
 		for(int t = 0; t < 16; ++t)
 			playing = playing || m_processor.playingStep(t) >= 0;
@@ -427,7 +515,7 @@ namespace elektron::drums
 		}
 		const bool edit = lockEdit() && lockable(_c) && !off;
 		_p.text(_c.x, _c.y + 3.3f, _c.name, 3.2f, locked ? colour::lock : edit ? colour::lockLight : off ? colour::dim
-			: _c.velocity ? hue::v.c[4] : colour::mid);
+			: colour::mid);
 		if(m_page == Page::Sound && _c.parameter && _c.look == Look::Cell)
 			_p.rect(_c.x, _c.y + 4, static_cast<float>(_c.name.length()) * 1.72f + 0.2f, 0.15f, colour::rule);
 		_p.text(_c.x, _c.y + 10, text, 4, locked ? colour::lock : off ? colour::dim : colour::ink, 600);
@@ -479,44 +567,65 @@ namespace elektron::drums
 
 	juce::Rectangle<int> Editor::machinePageArea(const int _page) const
 	{
-		return toPx(machinePageBox(cx(0) - 2, 8 * Col + 2, _page));
+		return toPx(machinePageBox(_page));
 	}
 
 	juce::Rectangle<int> Editor::grainArea(const int _i) const
 	{
-		return toPx(grainBox(cx(0) - 2, _i));
+		return toPx(grainBox(_i));
+	}
+
+	juce::Rectangle<int> Editor::lfoCardArea(const int _lfo) const
+	{
+		return toPx(lfoCard(_lfo));
 	}
 
 	void Editor::buildSound()
 	{
 		const auto t = [this](const char* _suffix) { return trackParameter(_suffix); };
-		// A block's cells: 2 columns each, rows of 18 mm, at _slots of its grid
-		const auto put = [this](const float _x, const float _y, const float _w, const int _columns, const int _slot,
-			juce::RangedAudioParameter* _p, const juce::String& _name, const Hue& _hue, const juce::String& _section)
+		// A block's cells: _columns across its width, rows of 18 mm from _top. A cell hidden is made so, taking no mouse
+		const auto put = [this](const float _x, const float _top, const float _w, const int _columns, const int _slot,
+			juce::RangedAudioParameter* _p, const juce::String& _name, const Hue& _hue, const juce::String& _section,
+			const bool _visible = true)
 		{
 			const float cw = (_w - 2) / static_cast<float>(_columns);
-			return addCell(cellOf(_p, _name, _x + 2 + static_cast<float>(_slot % _columns) * cw,
-				_y + 9 + static_cast<float>(_slot / _columns) * 18, cw, _hue, _section));
+			Cell c = cellOf(_p, _name, _x + 2 + static_cast<float>(_slot % _columns) * cw,
+				_top + static_cast<float>(_slot / _columns) * 18, cw, _hue, _section);
+			c.visible = _visible;
+			return addCell(c);
+		};
+		// A list on a block's title line, right-aligned at _right; two segments there
+		const auto title = [this](juce::RangedAudioParameter* _p, const float _right, const float _y, const float _w,
+			const Hue& _hue, const juce::String& _section)
+		{
+			Cell c = cellOf(_p, "", _right, _y, _w, _hue, _section);
+			c.look = Look::Title;
+			return addCell(c);
+		};
+		const auto segments = [this](juce::RangedAudioParameter* _p, const juce::String& _name, const float _x,
+			const float _y, const float _w, const juce::StringArray& _labels, const Hue& _hue, const juce::String& _section)
+		{
+			Cell c = cellOf(_p, _name, _x, _y + 1.8f, _w, _hue, _section);
+			c.look = Look::Segments;
+			c.labels = _labels;
+			c.h = 6;
+			return addCell(c);
 		};
 
-		// The title line: the Track's note and chokes
+		// VOICE: the machine, its name on the title line (a click opens Browse), its picture, NOTE and CHOKES, its eight
+		// values named by the machine
 		{
-			Cell note = cellOf(t("note"), "NOTE", 100, ScreenY + 7.4f, 26, hue::t, "");
-			note.look = Look::Field;
+			const float x = SrcX, w = SrcW;
+			block(x, SoundY, w, "m", "VOICE", hue::k, 150, 1);
+			title(t("machine"), x + w - 4, SoundY, 34, hue::k, "m");
+			const float cw = (w - 2) / 4;
+			Cell note = cellOf(t("note"), "NOTE", x + 2, SoundY + 96, cw, hue::k, "");
+			note.look = Look::Plain;
 			addCell(note);
-			Cell chokes = cellOf(t("chokes"), "CHOKES", 130, ScreenY + 7.4f, 60, hue::t, "");
-			chokes.look = Look::Field;
+			Cell chokes = cellOf(t("chokes"), "CHOKES", x + 2 + cw, SoundY + 96, 3 * cw, hue::k, "");
+			chokes.look = Look::Plain;
 			chokes.format = Format::Chokes;
 			addCell(chokes);
-		}
-
-		// Machine: its eight values named by the machine, its name on the title line (a click opens Browse)
-		{
-			const float x = cx(0) - 2, w = 8 * Col + 2;
-			block(x, R1, w, "m", "MACHINE", hue::k);
-			Cell machine = cellOf(t("machine"), "", x + w - 4, R1, 34, hue::k, "m");
-			machine.look = Look::Title;
-			addCell(machine);
 			const auto& machines = m_processor.machines();
 			const int choice = choiceOf(t("machine")->getParameterID());
 			m_machinePage = std::min(m_machinePage, machinePages() - 1);
@@ -526,7 +635,7 @@ namespace elektron::drums
 			{
 				const auto& l = labels[static_cast<size_t>(i)];
 				const int n = m_machinePage * 8 + i + 1;
-				const int c = put(x, R1, w, 4, i, t(("m" + juce::String(n)).toRawUTF8()),
+				const int c = put(x, SoundY + 113, w, 4, i, t(("m" + juce::String(n)).toRawUTF8()),
 					l.isEmpty() ? "M" + juce::String(n) : l, hue::k, "m");
 				m_cells[static_cast<size_t>(c)].off = l.isEmpty();
 			}
@@ -534,7 +643,7 @@ namespace elektron::drums
 			for(int i = 0; i < 3; ++i)
 			{
 				Hit page;
-				page.r = machinePageBox(x, w, i);
+				page.r = machinePageBox(i);
 				page.click = [this, i] { showMachinePage(i); };
 				addHit(std::move(page));
 			}
@@ -544,7 +653,7 @@ namespace elektron::drums
 				for(int i = 0; i < 2; ++i)
 				{
 					Hit grain;
-					grain.r = grainBox(x, i);
+					grain.r = grainBox(i);
 					grain.click = [this, i]
 					{
 						setNormalised(*trackParameter("m9"), i ? 1.0f : 0.0f);
@@ -567,106 +676,98 @@ namespace elektron::drums
 					};
 					addHit(std::move(grain));
 				}
-				watch(grainBox(x, 0).getUnion(grainBox(x, 1)), [this] { return hashOf({trackParameter("m9")}); });
+				watch(grainBox(0).getUnion(grainBox(1)), [this] { return hashOf({trackParameter("m9")}); });
 			}
 			// SOPHIE: its 16 factory sounds in the block's picture, a click lists them (Machine 1-20 as each sets them)
 			if(choice == m_processor.sophieChoice())
 			{
 				Hit sound;
-				sound.r = {cx(0), R1 + 46, 8 * Col - 4, PicH};
+				sound.r = voicePicture;
 				sound.click = [this]
 				{
 					juce::StringArray names;
 					for(const char* n : sophie::SoundNames)
 						names.add(n);
-					openSelector(cx(0) - 1, R1 + 46 - 16, names,
+					openSelector(SrcX + 1, voicePicture.getY() + 4, names,
 						[this](const int _i) { return m_processor.sophieSound(m_track) == _i; },
 						[this](const int _i) { m_processor.setSophieSound(m_track, _i); repaint(); });
 				};
 				addHit(std::move(sound));
 			}
+			watch(voicePicture, [this]
+			{
+				return mix(mix(static_cast<uint64_t>(choiceOf(trackParameter("machine")->getParameterID())),
+					static_cast<uint64_t>(m_processor.sampleName(m_track).hashCode64())),
+					static_cast<uint64_t>(m_processor.sophieSound(m_track) + 1));
+			});
 		}
 
-		// Sample: the Sampler's file, LOAD; the layer's values arrive with J2, greyed
+		// SAMPLE LAYER: LOAD, the Sampler's file and CLEAR on the title line; the layer's values arrive with J2, greyed,
+		// all on one page, MIX M/S a cell of the second row
 		{
-			const float x = cx(8) - 2, w = 8 * Col + 2, cw = (w - 2) / 4;
-			block(x, R1, w, "x", "SAMPLE", hue::g);
-			for(int i = 0; i < 2; ++i)
-			{
-				Hit tab;
-				tab.r = {x + w - 48 + static_cast<float>(i) * 22, R1 + 1.8f, 22, 7};
-				tab.click = [this, i] { m_sampleTab = i; };
-				addHit(std::move(tab));
-			}
-			if(m_sampleTab == 0)
-			{
-				Hit load;
-				load.r = {x + 2 + cw, R1 + 11, cw - 3, 7.6f};
-				load.click = [this] { chooseSample(m_track); };
-				addHit(std::move(load));
-				const char* names[]{"START", "END", "LOOP", "TUNE", "LEVEL", "MIX M/S"};
-				for(int i = 0; i < 6; ++i)
-				{
-					const int c = put(x, R1, w, 4, i + 2, nullptr, names[i], hue::g, "x");
-					m_cells[static_cast<size_t>(c)].off = true;
-				}
-			}
-			else
-				for(int i = 0; i < 2; ++i)
-				{
-					Cell c = cellOf(nullptr, i ? "NOTE" : "PLAY", x + 2 + static_cast<float>(i) * (w - 2) / 2, R1 + 10,
-						(w - 2) / 2, hue::g, "x");
-					c.off = true;
-					addCell(c);
-				}
+			const float x = SrcX, w = SrcW;
+			block(x, LowY, w, "x", "SAMPLE LAYER", hue::g, 53.5f);
+			Hit load;
+			load.r = {x + 30, LowY + 1.4f, 19, 6};
+			load.click = [this] { chooseSample(m_track); };
+			addHit(std::move(load));
+			const char* first[]{"START", "END", "LOOP", "TUNE", "LEVEL"};
+			for(int i = 0; i < 5; ++i)
+				m_cells[static_cast<size_t>(put(x, LowY + 9.2f, w, 5, i, nullptr, first[i], hue::g, "x"))].off = true;
+			const char* second[]{"PLAY", "NOTE", "MIX M/S"};
+			for(int i = 0; i < 3; ++i)
+				m_cells[static_cast<size_t>(put(x, LowY + 31, w, 3, i, nullptr, second[i], hue::g, "x"))].off = true;
 			if(m_processor.sampleName(m_track).isNotEmpty())
 			{
 				Hit clear;
-				clear.r = {cx(16) - 4 - 22, R1 + 46 + 2, 20, 6};
+				clear.r = {x + w - 24, LowY + 1.4f, 20, 6};
 				clear.click = [this] { m_processor.clearSample(m_track); layout(); repaint(); };
 				addHit(std::move(clear));
 			}
 		}
 
-		// Drive 1 and 2
+		// Drive 1 and 2, side by side: TYPE and PLACE on the title line, AMOUNT and MIX; no picture, a sine through the
+		// curve said nothing of the sound. TYPE stays live while the drive is off, being what turns it on
 		for(int d = 0; d < 2; ++d)
 		{
-			const float x = cx(static_cast<float>(16 + 4 * d)) - 2, w = 4 * Col + 2;
+			const float x = TimX + static_cast<float>(d) * 4 * Col, w = HalfW;
 			const juce::String s = d ? "d2" : "d1", pre = d ? "drv2_" : "drv1_";
-			block(x, R1, w, s, d ? "DRIVE 2" : "DRIVE 1", hue::a);
-			put(x, R1, w, 2, 0, t((pre + "type").toRawUTF8()), "TYPE", hue::a, s);
-			const int place = put(x, R1, w, 2, 1, t((pre + "post").toRawUTF8()), "PLACE", hue::a, s);
-			m_cells[static_cast<size_t>(place)].labels = {"PRE", "POST"};
-			put(x, R1, w, 2, 2, t((pre + "mix").toRawUTF8()), "MIX", hue::a, s);
-			put(x, R1, w, 2, 3, t((pre + "amount").toRawUTF8()), "AMOUNT", hue::a, s);
-			const auto drv = [this, pre] { return std::vector<juce::RangedAudioParameter*>{
-				trackParameter(pre + "type"), trackParameter(pre + "mix"), trackParameter(pre + "amount")}; };
-			watch({cx(static_cast<float>(16 + 4 * d)), R1 + 46, 4 * Col - 4, PicH}, [drv] { return hashOf(drv()); });
+			block(x, SoundY, w, s, d ? "DRIVE 2" : "DRIVE 1", hue::a, 27);
+			title(t((pre + "type").toRawUTF8()), x + w - 30, SoundY, 30, hue::a, "");
+			segments(t((pre + "post").toRawUTF8()), "PLACE", x + w - 26, SoundY, 22, {"PRE", "POST"}, hue::a, s);
+			put(x, SoundY + 9, w, 2, 0, t((pre + "amount").toRawUTF8()), "AMOUNT", hue::a, s);
+			put(x, SoundY + 9, w, 2, 1, t((pre + "mix").toRawUTF8()), "MIX", hue::a, s);
 		}
 
-		// Filter: the response and the envelope under it; WIDTH with the Machinedrum's filter only
+		// Filter: TYPE on the title line; CUTOFF, RESO, KEY TRACK and MODE (WIDTH with the window filter, which has no
+		// mode) beside the response; ENVELOPE under it, ENV AMT beside its picture, its five times in a row
 		{
-			const float x = cx(0) - 2, w = 12 * Col + 2;
-			block(x, R2, w, "f", "FILTER", hue::s);
+			const float x = TimX, w = TimW, y = FltY, cw = 31;
+			block(x, y, w, "f", "FILTER", hue::s, 118);
 			const bool md = choiceOf(t("flt_type")->getParameterID()) == 2;
-			put(x, R2, w, 6, 0, t("flt_freq"), "CUTOFF", hue::s, "f");
-			put(x, R2, w, 6, 1, t("flt_res"), "RESO", hue::s, "f");
-			put(x, R2, w, 6, 2, t("fenv_depth"), "ENV AMT", hue::s, "f");
-			put(x, R2, w, 6, 3, t("flt_key"), "KEY TRACK", hue::s, "f");
-			const int width = put(x, R2, w, 6, 4, t("flt_width"), "WIDTH", hue::s, "f");
-			m_cells[static_cast<size_t>(width)].visible = md;
-			put(x, R2, w, 6, 5, t("flt_type"), "TYPE", hue::s, "f");
-			put(x, R2, w, 6, 6, t("fenv_delay"), "DELAY", hue::s, "f");
-			put(x, R2, w, 6, 7, t("fenv_attack"), "ATTACK", hue::s, "f");
-			put(x, R2, w, 6, 8, t("fenv_decay"), "DECAY", hue::s, "f");
-			put(x, R2, w, 6, 9, t("fenv_sustain"), "SUSTAIN", hue::s, "f");
-			put(x, R2, w, 6, 10, t("fenv_release"), "RELEASE", hue::s, "f");
-			put(x, R2, w, 6, 11, t("flt_mode"), "MODE", hue::s, "f");
-			Cell reset = cellOf(t("fenv_reset"), "ENV RETRIG", x + w - 34, R2 + 1.8f, 30, hue::s, "f");
+			title(t("flt_type"), x + w - 4, y, 40, hue::s, "f");
+			const auto at = [&](const float _x, const float _y, const char* _id, const char* _name, const bool _visible)
+			{
+				Cell c = cellOf(t(_id), _name, _x, _y, cw, hue::s, "f");
+				c.visible = _visible;
+				addCell(c);
+			};
+			at(x + 2, y + 9, "flt_freq", "CUTOFF", true);
+			at(x + 2 + cw, y + 9, "flt_res", "RESO", true);
+			at(x + 2, y + 27, "flt_key", "KEY TRACK", true);
+			at(x + 2 + cw, y + 27, "flt_mode", "MODE", !md);
+			at(x + 2 + cw, y + 27, "flt_width", "WIDTH", md);
+			const float ey = y + 54;
+			Cell reset = cellOf(t("fenv_reset"), "ENV RETRIG", x + w - 34, ey + 1.2f, 30, hue::s, "f");
 			reset.look = Look::Button;
 			reset.h = 6;
 			addCell(reset);
-			watch({cx(0), R2 + 46, 12 * Col - 4, PicH}, [this]
+			at(x + 2, ey + 9, "fenv_depth", "ENV AMT", true);
+			const char* ids[]{"fenv_delay", "fenv_attack", "fenv_decay", "fenv_sustain", "fenv_release"};
+			const char* names[]{"DELAY", "ATTACK", "DECAY", "SUSTAIN", "RELEASE"};
+			for(int i = 0; i < 5; ++i)
+				put(x, ey + 48, w, 5, i, t(ids[i]), names[i], hue::s, "f");
+			watch(responsePicture.getUnion(envelopePicture), [this]
 			{
 				return hashOf({trackParameter("flt_type"), trackParameter("flt_mode"), trackParameter("flt_freq"),
 					trackParameter("flt_res"), trackParameter("fenv_delay"), trackParameter("fenv_attack"),
@@ -674,26 +775,30 @@ namespace elektron::drums
 			});
 		}
 
-		// Amp
+		// Amp: MODE on the title line; LEVEL, PAN, ACCENT; VEL TARGET, VEL AMT, AMP ENV; the envelope's picture, then the
+		// times its mode has (AHD or ADSR), the others hidden. The envelope's cells, "ae", greyed while AMP ENV is off: a
+		// Machinedrum voice keeps its own
 		{
-			const float x = cx(12) - 2, w = 12 * Col + 2;
-			block(x, R2, w, "a", "AMP", hue::p);
-			put(x, R2, w, 6, 0, t("level"), "LEVEL", hue::p, "a");
-			const int pan = put(x, R2, w, 6, 1, t("pan"), "PAN", hue::p, "a");
+			const float x = ModX, w = ModW, y = SoundY;
+			block(x, y, w, "a", "AMP", hue::p, 92);
+			segments(t("amp_mode"), "MODE", x + w - 34, y, 30, {"AHD", "ADSR"}, hue::p, "ae");
+			put(x, y + 9, w, 3, 0, t("level"), "LEVEL", hue::p, "a");
+			const int pan = put(x, y + 9, w, 3, 1, t("pan"), "PAN", hue::p, "a");
 			m_cells[static_cast<size_t>(pan)].format = Format::Pan;
-			put(x, R2, w, 6, 2, t("accent"), "ACCENT", hue::p, "a");
-			const int vd = put(x, R2, w, 6, 3, t("vel_target"), "VEL TARGET", hue::p, "a");
-			const int va = put(x, R2, w, 6, 4, t("vel_depth"), "VEL AMT", hue::p, "a");
-			m_cells[static_cast<size_t>(vd)].velocity = m_cells[static_cast<size_t>(va)].velocity = true;
-			// The envelope's cells, "ae", greyed while AMP is off: a Machinedrum voice keeps its own
-			put(x, R2, w, 6, 5, t("amp_mode"), "MODE", hue::p, "ae");
-			put(x, R2, w, 6, 6, t("amp_attack"), "ATTACK", hue::p, "ae");
-			put(x, R2, w, 6, 7, t("amp_hold"), "HOLD", hue::p, "ae");
-			put(x, R2, w, 6, 8, t("amp_decay"), "DECAY", hue::p, "ae");
-			put(x, R2, w, 6, 9, t("amp_sustain"), "SUSTAIN", hue::p, "ae");
-			put(x, R2, w, 6, 10, t("amp_release"), "RELEASE", hue::p, "ae");
-			put(x, R2, w, 6, 11, t("amp_on"), "AMP ENV", hue::p, "a");
-			watch({cx(12), R2 + 46, 12 * Col - 4, PicH}, [this]
+			put(x, y + 9, w, 3, 2, t("accent"), "ACCENT", hue::p, "a");
+			put(x, y + 27, w, 3, 0, t("vel_target"), "VEL TARGET", hue::p, "a");
+			put(x, y + 27, w, 3, 1, t("vel_depth"), "VEL AMT", hue::p, "a");
+			put(x, y + 27, w, 3, 2, t("amp_on"), "AMP ENV", hue::p, "a");
+			const bool adsr = choiceOf(t("amp_mode")->getParameterID()) == 1;
+			const char* ids[]{"amp_attack", "amp_hold", "amp_decay", "amp_sustain", "amp_release"};
+			const char* names[]{"ATTACK", "HOLD", "DECAY", "SUSTAIN", "RELEASE"};
+			const int ahdSlot[]{0, 1, 2, -1, -1}, adsrSlot[]{0, -1, 1, 2, 3};
+			for(int i = 0; i < 5; ++i)
+			{
+				const int slot = adsr ? adsrSlot[i] : ahdSlot[i];
+				put(x, y + 75.5f, w, adsr ? 4 : 3, std::max(0, slot), t(ids[i]), names[i], hue::p, "ae", slot >= 0);
+			}
+			watch(ampPicture, [this]
 			{
 				return hashOf({trackParameter("amp_mode"), trackParameter("amp_attack"), trackParameter("amp_hold"),
 					trackParameter("amp_decay"), trackParameter("amp_sustain"), trackParameter("amp_release"),
@@ -701,17 +806,19 @@ namespace elektron::drums
 			});
 		}
 
-		// LFO: one block, its two LFOs on tabs; RATE or HZ as SYNC says; MULT, FADE, PHASE have no engine
+		// LFO: the one shown named on the title line, its ten values, its wave; two cards under it choose it, a dot on one
+		// whose LFO aims somewhere with a depth. RATE or HZ as SYNC says; MULT, FADE, PHASE have no engine. TARGET stays
+		// live while the LFO aims nowhere, being what turns it on
 		{
-			const float x = cx(0) - 2, w = 10 * Col + 2, cw = 2 * Col;
+			const float x = ModX, w = ModW, cw = (w - 2) / 5;
 			const juce::String s = m_lfo ? "l2" : "l1";
-			block(x, R3, w, s, "LFO", m_lfo ? hue::m : hue::y);
+			block(x, LfoY, w, s, m_lfo ? "LFO 2" : "LFO 1", m_lfo ? hue::m : hue::y, 111.5f);
 			for(int i = 0; i < 2; ++i)
 			{
-				Hit tab;
-				tab.r = {x + 14 + static_cast<float>(i) * 22, R3 + 1.8f, 22, 7};
-				tab.click = [this, i] { showLfo(i); };
-				addHit(std::move(tab));
+				Hit card;
+				card.r = lfoCard(i);
+				card.click = [this, i] { showLfo(i); };
+				addHit(std::move(card));
 			}
 			const juce::StringArray shapes{"TRI", "SIN", "SQR", "SAW", "EXP", "RMP", "RND"};
 			juce::StringArray tracks{"OWN"};
@@ -726,7 +833,7 @@ namespace elektron::drums
 				const auto at = [&](const int _n, const char* _suffix, const juce::String& _name)
 				{
 					Cell c = cellOf(_suffix ? trackParameter(pre + _suffix) : nullptr, _name,
-						x + 2 + static_cast<float>(_n % 5) * cw, R3 + 9 + static_cast<float>(_n / 5) * 18, cw, hl, sec);
+						x + 2 + static_cast<float>(_n % 5) * cw, LfoY + 9 + static_cast<float>(_n / 5) * 18, cw, hl, sec);
 					c.visible = shown;
 					c.off = _suffix == nullptr;
 					return c;
@@ -746,17 +853,18 @@ namespace elektron::drums
 				Cell track = at(5, "track", "ON TRACK");
 				track.labels = tracks;
 				addCell(track);
-				// Machine 1-24 named by the machine of the Track the LFO aims at
-				Cell target = at(6, "target", "TARGET");
+				addCell(at(6, nullptr, "MULT"));
+				addCell(at(7, nullptr, "FADE"));
+				addCell(at(8, nullptr, "PHASE"));
+				// Machine 1-24 named by the machine of the Track the LFO aims at; last in its row, its names the longest
+				Cell target = at(9, "target", "TARGET");
+				target.section = "";
 				const int aimed = choiceOf(trackParameter(pre + "track")->getParameterID()) - 1;
 				target.labels = targetLabels(*dynamic_cast<const juce::AudioParameterChoice*>(target.parameter),
 					m_processor.machines()[static_cast<size_t>(choiceOf(trackParameter("machine", aimed < 0 ? m_track
 						: aimed)->getParameterID()))]);
 				addCell(target);
-				addCell(at(7, nullptr, "MULT"));
-				addCell(at(8, nullptr, "FADE"));
-				addCell(at(9, nullptr, "PHASE"));
-				Cell syncCell = cellOf(trackParameter(pre + "sync"), "SYNC", x + w - 66, R3 + 1.8f, 28, hl, "");
+				Cell syncCell = cellOf(trackParameter(pre + "sync"), "SYNC", x + w - 32, LfoY + 1.8f, 28, hl, "");
 				syncCell.look = Look::Segments;
 				syncCell.labels = {"HZ", "SYNC"};
 				syncCell.reversed = true;
@@ -764,33 +872,43 @@ namespace elektron::drums
 				syncCell.visible = shown;
 				addCell(syncCell);
 			}
-			watch({cx(0), R3 + 46, 10 * Col - 4, PicH}, [this]
+			watch(lfoPicture.getUnion(lfoCard(0)).getUnion(lfoCard(1)), [this]
 			{
-				const juce::String pre = "lfo" + juce::String(m_lfo + 1) + "_";
-				return hashOf({trackParameter(pre + "shape"), trackParameter(pre + "depth"),
-					trackParameter(pre + "target")});
+				std::vector<juce::RangedAudioParameter*> ps;
+				for(const char* p : {"lfo1_", "lfo2_"})
+					for(const char* v : {"shape", "depth", "target", "mode", "sync", "speed", "hz"})
+						ps.push_back(trackParameter(juce::String(p) + v));
+				return hashOf(ps);
 			});
 		}
 
-		// Band: TYPE, PLACE, and the values its type has, named by it
+		// EQ: TYPE and PLACE on the title line, the values its type has named by it, its curve under them
 		{
-			const float x = cx(10) - 2, w = 8 * Col + 2;
-			block(x, R3, w, "b", "EQ", hue::b);
+			const float x = TimX, w = HalfW, y = LowY;
+			block(x, y, w, "b", "EQ", hue::b, 53.5f, 2);
 			const int type = choiceOf(t("band_type")->getParameterID());
-			const int t2 = put(x, R3, w, 4, 0, t("band_type"), "TYPE", hue::b, "b");
+			const int t2 = title(t("band_type"), x + w - 28, y, 30, hue::b, "b");
 			m_cells[static_cast<size_t>(t2)].labels = {"OFF", "CUTS", "PEAK", "3 BAND"};
-			const int place = put(x, R3, w, 4, 1, t("band_after"), "PLACE", hue::b, "b");
-			m_cells[static_cast<size_t>(place)].labels = {"PRE", "POST"};
+			segments(t("band_after"), "PLACE", x + w - 26, y, 22, {"PRE", "POST"}, hue::b, "b");
 			const std::array<juce::StringArray, 4> names{{{}, {"HPF", "LPF"}, {"PEAK FREQ", "PEAK GAIN"},
 				{"LOW F", "LOW G", "MID F", "MID G", "HIGH F", "HIGH G"}}};
 			const auto& n = names[static_cast<size_t>(juce::jlimit(0, 3, type))];
+			const float cw3 = (w - 2) / 3;
 			for(int i = 0; i < 6; ++i)
 			{
-				const int c = put(x, R3, w, 4, 2 + i, t(("band_" + juce::String(i + 1)).toRawUTF8()),
-					i < n.size() ? n[i] : "EQ " + juce::String(i + 1), hue::b, "b");
-				m_cells[static_cast<size_t>(c)].visible = i < n.size();
+				auto* p = t(("band_" + juce::String(i + 1)).toRawUTF8());
+				const juce::String name = i < n.size() ? n[i] : "EQ " + juce::String(i + 1);
+				if(type == 3)
+				{
+					Cell c = cellOf(p, name, x + 2 + static_cast<float>(i % 3) * cw3, y + 8.4f + static_cast<float>(i / 3) * 15.5f,
+						cw3, hue::b, "b");
+					c.h = 15.5f;
+					addCell(c);
+				}
+				else
+					put(x, y + 9, w, 2, i, p, name, hue::b, "b", i < n.size());
 			}
-			watch({cx(10), R3 + 46, 8 * Col - 4, PicH}, [this]
+			watch(eqPicture(type), [this]
 			{
 				std::vector<juce::RangedAudioParameter*> ps{trackParameter("band_type")};
 				for(int i = 1; i <= 6; ++i)
@@ -799,25 +917,27 @@ namespace elektron::drums
 			});
 		}
 
-		// Sends: four values and OUT, and the four bars under them, dragged vertically
+		// Sends: OUT on the title line; a bar each send, dragged vertically, its value's cell under it
 		{
-			const float x = cx(18) - 2, w = 6 * Col + 2;
-			block(x, R3, w, "s", "SENDS", hue::w);
-			put(x, R3, w, 3, 0, t("send_delay"), "DELAY", hue::w, "s");
-			put(x, R3, w, 3, 1, t("send_reverb"), "REVERB", hue::w, "s");
-			const int out = put(x, R3, w, 3, 2, t("output"), "OUT", hue::w, "s");
+			const float x = SndX, w = HalfW, y = LowY;
+			block(x, y, w, "s", "SENDS", hue::w, 53.5f, 2);
+			const int out = title(t("output"), x + w - 4, y, 24, hue::w, "s");
 			m_cells[static_cast<size_t>(out)].labels = outputs();
-			put(x, R3, w, 3, 3, t("send_chorus"), "CHORUS", hue::w, "s");
-			put(x, R3, w, 3, 4, t("send_phaser"), "PHASER", hue::w, "s");
-			const float px = cx(18), pw = 6 * Col - 4, gap = 3, sw = (pw - gap * 5) / 4, bh = PicH - 8;
 			const char* ids[]{"send_delay", "send_reverb", "send_chorus", "send_phaser"};
+			const char* names[]{"DELAY", "REVERB", "CHORUS", "PHASER"};
 			for(int i = 0; i < 4; ++i)
 			{
+				const auto r = sendBar(i);
+				Cell value = cellOf(t(ids[i]), names[i], r.getX(), r.getBottom() + 0.3f, r.getWidth(), hue::w, "s");
+				value.look = Look::Small;
+				value.h = 6;
+				addCell(value);
 				Hit bar;
-				bar.r = {px + gap + static_cast<float>(i) * (sw + gap), R3 + 46, sw, PicH};
+				bar.r = r;
 				bar.cursor = juce::MouseCursor::UpDownResizeCursor;
 				bar.keepsLocks = true;
 				const juce::String id = ids[i];
+				const float bh = r.getHeight();
 				bar.press = [this, id]
 				{
 					m_press.value = trackParameter(id)->getValue();
@@ -832,97 +952,74 @@ namespace elektron::drums
 				bar.click = bar.end;
 				addHit(std::move(bar));
 			}
-			watch({px, R3 + 46, pw, PicH}, [this]
+			watch(sendBar(0).getUnion(sendBar(3)), [this]
 			{
 				return hashOf({trackParameter("send_delay"), trackParameter("send_reverb"), trackParameter("send_chorus"),
 					trackParameter("send_phaser")});
 			});
 		}
-		watch({cx(0), R1 + 46, 16 * Col - 4, PicH}, [this]
-		{
-			return mix(mix(static_cast<uint64_t>(choiceOf(trackParameter("machine")->getParameterID())),
-				static_cast<uint64_t>(m_processor.sampleName(m_track).hashCode64())),
-				static_cast<uint64_t>(m_processor.sophieSound(m_track) + 1));
-		});
 	}
 
 	void Editor::drawSoundPictures(Painter& _p)
 	{
-		const float y1 = R1 + 46, y2 = R2 + 46, y3 = R3 + 46;
 		const auto v = [this](const char* _s) { return trackParameter(_s)->getValue(); };
-
-		// Machine: the page selector; the Sampler's file; the hit's preview has no engine yet
+		const auto frame = [&](const juce::Rectangle<float>& _r, const juce::Colour _c)
 		{
-			const auto box = machinePageBox(cx(0) - 2, 8 * Col + 2, 0);
+			_p.frame(_r.getX(), _r.getY(), _r.getWidth(), _r.getHeight(), _c, 1.2f, 0.4f);
+		};
+
+		// The groups' names above their columns; the oversampling at TIMBRE's right
+		_p.text(SrcX + 2, 27.6f, "SOURCE", 2.8f, colour::mid, 600);
+		_p.text(TimX + 2, 27.6f, "TIMBRE", 2.8f, colour::mid, 600);
+		_p.text(ModX + 2, 27.6f, "AMP & MOD", 2.8f, colour::mid, 600);
+		{
+			const juce::String os[]{"OFF", "2X", "4X"};
+			_p.text(TimX + TimW - 4, 27.6f, "OS " + os[juce::jlimit(0, 2, choiceOf("oversampling"))], 2.8f, hue::a.c[4],
+				500, Align::Right);
+		}
+
+		// VOICE: the page selector; the Sampler's GRAIN and file, SOPHIE's factory sound; the hit's preview has no
+		// engine yet
+		{
+			const auto box = machinePageBox(0);
 			drawSegments(_p, box.getX(), box.getY(), box.getWidth(), {"1", "2", "3"}, m_machinePage, &hue::k,
 				machinePages());
-			const float x = cx(0), w = 8 * Col - 4;
-			_p.frame(x, y1, w, PicH, hue::k.c[1], 1.2f, 0.4f);
+			const auto r = voicePicture;
+			frame(r, hue::k.c[1]);
 			if(choiceOf(trackParameter("machine")->getParameterID()) == m_processor.samplerChoice())
 			{
-				const float bx = cx(0) - 2;
-				const auto grain = grainBox(bx, 0);
-				_p.text(bx + 34, R1 + 5.2f, "GRAIN", 2.8f, colour::mid);
+				const auto grain = grainBox(0);
+				_p.text(SrcX + 34, SoundY + 5.2f, "GRAIN", 2.8f, colour::mid);
 				const bool vintage = vintage::isVintage(juce::roundToInt(trackParameter("m9")->convertFrom0to1(v("m9"))));
 				drawSegments(_p, grain.getX(), grain.getY(), grain.getWidth(), {"12-BIT", "VINTAGE"}, vintage ? 1 : 0, &hue::k);
 				const auto name = m_processor.sampleName(m_track);
-				_p.text(x + w / 2, y1 + 12.6f, name.isEmpty() ? "NO SAMPLE" : name.toUpperCase(), 2.6f,
+				_p.text(r.getCentreX(), r.getCentreY() + 1.6f, name.isEmpty() ? "NO SAMPLE" : name.toUpperCase(), 3.2f,
 					name.isEmpty() ? colour::mid : hue::k.c[4], 500, Align::Centre);
 			}
 			else if(choiceOf(trackParameter("machine")->getParameterID()) == m_processor.sophieChoice())
 			{
 				const int sound = m_processor.sophieSound(m_track);
-				_p.text(x + 3, y1 + 6.4f, "FACTORY SOUND", 2.6f, colour::mid);
-				_p.text(x + w / 2, y1 + 14.6f, sound < 0 ? "EDITED" : sophie::SoundNames[static_cast<size_t>(sound)], 3.2f,
-					sound < 0 ? colour::mid : hue::k.c[4], 500, Align::Centre);
+				_p.text(r.getX() + 3, r.getY() + 6.4f, "FACTORY SOUND", 2.8f, colour::mid);
+				_p.text(r.getCentreX(), r.getCentreY() + 2, sound < 0 ? "EDITED" : sophie::SoundNames[static_cast<size_t>(sound)],
+					4, sound < 0 ? colour::mid : hue::k.c[4], 600, Align::Centre);
 			}
 		}
-		// Sample
+		// SAMPLE LAYER's title line: LOAD, the file, CLEAR
 		{
-			const float x = cx(8) - 2, w = 8 * Col + 2, cw = (w - 2) / 4;
-			_p.text(x + 23, R1 + 6.2f, "GRAIN J2", 2.6f, colour::dim);
-			drawSegments(_p, x + w - 48, R1 + 1.8f, 22, {"LAYER", "OPTIONS"}, m_sampleTab, &hue::t);
-			const auto name = m_processor.sampleName(m_track);
-			if(m_sampleTab == 0)
-			{
-				_p.text(x + 2, R1 + 12.3f, "SAMPLE", 3.2f, colour::mid);
-				_p.text(x + 2, R1 + 19, name.isEmpty() ? "NONE" : name.toUpperCase().substring(0, 10), 4,
-					name.isEmpty() ? colour::dim : colour::ink, 600);
-				_p.rect(x + 2 + cw, R1 + 11, cw - 3, 7.6f, colour::button, 0.8f);
-				_p.text(x + 2 + cw + (cw - 3) / 2, R1 + 16, "LOAD", 3, colour::mid, 500, Align::Centre);
-			}
-			_p.frame(cx(8), y1, 8 * Col - 4, PicH, juce::Colour(0xff242526), 1.2f, 0.4f);
-			_p.text(cx(12) - 2, y1 + 12.6f, name.isEmpty() ? "NO SAMPLE" : name.toUpperCase(), 2.6f,
-				name.isEmpty() ? colour::dim : hue::g.c[4], 500, Align::Centre);
-			if(name.isNotEmpty())
-				drawButton(_p, cx(16) - 4 - 22, y1 + 2, 20, 6, "CLEAR", false);
+			const float x = SrcX, w = SrcW;
+			drawButton(_p, x + 30, LowY + 1.4f, 19, 6, "LOAD", false);
+			_p.text(x + w - 26, LowY + 6.2f, "GRAIN J2", 2.8f, colour::dim, 500, Align::Right);
+			const auto name = fitted(_p, m_processor.sampleName(m_track).toUpperCase(), 2.8f,
+				w - 26 - _p.textWidth("GRAIN J2", 2.8f) - 4 - 52, 600);
+			_p.text(x + 52, LowY + 6.2f, name.isEmpty() ? "NO SAMPLE" : name, 2.8f, name.isEmpty() ? colour::dim
+				: hue::g.c[4], 600);
+			if(m_processor.sampleName(m_track).isNotEmpty())
+				drawButton(_p, x + w - 24, LowY + 1.4f, 20, 6, "CLEAR", false);
 		}
-		// Drives: a sine through the drive's curve, AMOUNT and MIX
-		for(int d = 0; d < 2; ++d)
+		// Filter: its response from FREQ and RESO; ENVELOPE's rule and name, its picture
 		{
-			const juce::String pre = d ? "drv2_" : "drv1_";
-			const float x = cx(static_cast<float>(16 + 4 * d)), w = 4 * Col - 4, m = y1 + PicH / 2, r = PicH * 0.46f;
-			const bool off = sectionOff(d ? "d2" : "d1");
-			const float am = trackParameter(pre + "amount")->getValue(), mx = trackParameter(pre + "mix")->getValue(),
-				k = 0.2f + am * 5;
-			// The DAC: the sine held at its clock and taken to its codes, a cycle every 1.5 ms (vintage::driveSetting)
-			const bool dac = choiceOf(trackParameter(pre + "type")->getParameterID()) == static_cast<int>(DriveType::Dac);
-			const auto setting = vintage::driveSetting(am * 127, m_processor.chainRate(m_track));
-			const float ticks = static_cast<float>(setting.clockHz * 0.0045);	// the clock's ticks across the 3 cycles
-			std::vector<juce::Point<float>> guide, curve;
-			for(int i = 0; i <= 200; ++i)
-			{
-				const float u = static_cast<float>(i) / 200, q = std::sin(u * 3 * 6.283f);
-				const float held = std::sin(std::floor(u * ticks) / ticks * 3 * 6.283f);
-				const float o = dac ? vintage::dac(held, setting.bits, setting.companding) : std::tanh(q * k) / std::tanh(k);
-				guide.push_back({x + 1 + (w - 2) * u, m - q * r * 0.72f});
-				curve.push_back({x + 1 + (w - 2) * u, m - (off ? q * 0.72f : q * 0.72f * (1 - mx) + o * mx) * r});
-			}
-			picture(_p, x, y1, w, PicH, hue::a, guide, curve, off);
-		}
-		// Filter: its response from FREQ and RESO, its envelope
-		{
-			const float x = cx(0), w = 6 * Col - 4;
+			const auto r = responsePicture;
+			const float x = r.getX(), y = r.getY(), w = r.getWidth(), h = r.getHeight();
 			const int type = choiceOf(trackParameter("flt_type")->getParameterID());
 			const auto* mode = dynamic_cast<const juce::AudioParameterChoice*>(trackParameter("flt_mode"));
 			const juce::String name = type == 0 ? "OFF" : type == 2 ? "MD" : mode->getCurrentChoiceName();
@@ -932,31 +1029,34 @@ namespace elektron::drums
 			for(int i = 0; i <= 80; ++i)
 			{
 				const float hz = 20 * std::pow(1000.0f, static_cast<float>(i) / 80);
-				curve.push_back({x + w * static_cast<float>(i) / 80, juce::jlimit(y2 + 1, y2 + PicH - 1,
-					y2 + PicH * 0.35f - f(hz) / 36 * PicH * 0.6f)});
+				curve.push_back({x + w * static_cast<float>(i) / 80, juce::jlimit(y + 1, y + h - 1,
+					y + h * 0.35f - f(hz) / 36 * h * 0.6f)});
 			}
-			picture(_p, x, y2, w, PicH, hue::s, {}, curve, false);
-			const float gx = x + w * v("flt_freq"), gy = juce::jlimit(y2 + 1, y2 + PicH - 1,
-				y2 + PicH * 0.35f - f(fc) / 36 * PicH * 0.6f);
+			picture(_p, x, y, w, h, hue::s, {}, curve, false);
+			const float gx = x + w * v("flt_freq"), gy = juce::jlimit(y + 1, y + h - 1, y + h * 0.35f - f(fc) / 36 * h * 0.6f);
 			_p.dot(gx, gy, 1.5f, juce::Colours::black, hue::s.c[4], 0.5f);
 
-			const float ex = x + 6 * Col, ew = 6 * Col - 4;
+			_p.rect(TimX + 2, FltY + 54, TimW - 6, 0.25f, hue::s.c[1]);
+			_p.text(TimX + 2, FltY + 59, "ENVELOPE", 2.8f, hue::s.c[4], 600);
+			const auto e = envelopePicture;
+			const float ex = e.getX(), ey = e.getY(), ew = e.getWidth(), eh = e.getHeight();
 			const float d0 = v("fenv_delay") * 0.2f, at = v("fenv_attack") * 0.25f, dc = v("fenv_decay") * 0.25f,
 				su = v("fenv_sustain"), rl = v("fenv_release") * 0.25f, hd = 0.14f;
 			const float total = std::max(d0 + at + dc + hd + rl, 1.0f);
 			const auto X = [&](const float _u) { return ex + 1 + (ew - 2) * _u / total; };
-			const auto Y = [&](const float _l) { return y2 + PicH - 1.5f - _l * (PicH - 4); };
+			const auto Y = [&](const float _l) { return ey + eh - 1.5f - _l * (eh - 4); };
 			const std::vector<juce::Point<float>> env{{X(0), Y(0)}, {X(d0), Y(0)}, {X(d0 + at), Y(1)},
 				{X(d0 + at + dc), Y(su)}, {X(d0 + at + dc + hd), Y(su)}, {X(d0 + at + dc + hd + rl), Y(0)}};
-			picture(_p, ex, y2, ew, PicH, hue::s, {}, env, false);
+			picture(_p, ex, ey, ew, eh, hue::s, {}, env, false);
 			for(const size_t i : {size_t(1), size_t(2), size_t(3), size_t(5)})
 				_p.dot(env[i].x, env[i].y, 1.5f, juce::Colours::black, hue::s.c[4], 0.5f);
 		}
 		// Amp: AHD or ADSR
 		{
-			const float x = cx(12), w = 12 * Col - 4;
+			const auto r = ampPicture;
+			const float x = r.getX(), y = r.getY(), w = r.getWidth(), h = r.getHeight();
 			const auto X = [&](const float _u) { return x + 1 + (w - 2) * _u; };
-			const auto Y = [&](const float _l) { return y2 + PicH - 1.5f - _l * (PicH - 4); };
+			const auto Y = [&](const float _l) { return y + h - 1.5f - _l * (h - 4); };
 			const float at = v("amp_attack") * 0.25f;
 			std::vector<juce::Point<float>> env;
 			if(choiceOf(trackParameter("amp_mode")->getParameterID()) == 1)
@@ -971,15 +1071,16 @@ namespace elektron::drums
 				env = {{X(0), Y(0)}, {X(at), Y(1)}, {X(hd), Y(1)}, {X(hd + v("amp_decay") * 0.5f), Y(0)}, {X(1), Y(0)}};
 			}
 			const bool ampOff = sectionOff("ae");
-			picture(_p, x, y2, w, PicH, hue::p, {}, env, ampOff);
+			picture(_p, x, y, w, h, hue::p, {}, env, ampOff);
 			for(size_t i = 1; !ampOff && i + 1 < env.size(); ++i)
 				_p.dot(env[i].x, env[i].y, 1.5f, juce::Colours::black, hue::p.c[4], 0.5f);
 		}
-		// LFO: its wave, scaled by its depth
+		// LFO: the wave of the one shown, scaled by its depth; the two cards
 		{
 			const juce::String pre = "lfo" + juce::String(m_lfo + 1) + "_";
 			const Hue& h = m_lfo ? hue::m : hue::y;
-			const float x = cx(0), w = 10 * Col - 4, m = y3 + PicH / 2, r = PicH * 0.44f;
+			const auto r = lfoPicture;
+			const float x = r.getX(), w = r.getWidth(), m = r.getCentreY(), a = r.getHeight() * 0.44f;
 			const auto* p = trackParameter(pre + "depth");
 			const float depth = p->convertFrom0to1(p->getValue()) / 127;
 			const juce::String shapes[]{"TRI", "SIN", "SQR", "SAW", "EXP", "RMP", "RND"};
@@ -988,25 +1089,48 @@ namespace elektron::drums
 			for(int i = 0; i <= 160; ++i)
 			{
 				const float u = static_cast<float>(i) / 160, wv = wave(shape, u * 4);
-				guide.push_back({x + 1 + (w - 2) * u, m - wv * r});
-				curve.push_back({x + 1 + (w - 2) * u, m - wv * r * depth});
+				guide.push_back({x + 1 + (w - 2) * u, m - wv * a});
+				curve.push_back({x + 1 + (w - 2) * u, m - wv * a * depth});
 			}
-			picture(_p, x, y3, w, PicH, h, guide, curve, sectionOff(m_lfo ? "l2" : "l1"));
-			// The tabs
-			const float bx = cx(0) - 2;
-			drawSegments(_p, bx + 14, R3 + 1.8f, 22, {"LFO 1", "LFO 2"}, m_lfo, &h);
+			picture(_p, x, r.getY(), w, r.getHeight(), h, guide, curve, sectionOff(m_lfo ? "l2" : "l1"));
+			// A card: its LFO's wave and mode, where it aims, its depth and rate, as its cells write them
 			for(int i = 0; i < 2; ++i)
 			{
 				const juce::String pi = "lfo" + juce::String(i + 1) + "_";
+				const Hue& hi = i ? hue::m : hue::y;
+				const auto c = lfoCard(i);
+				const bool shown = i == m_lfo;
+				const auto text = [&](const char* _suffix)
+				{
+					Cell cell;
+					cell.parameter = trackParameter(pi + _suffix);
+					return cell.valueText(cell.parameter->getValue());
+				};
+				auto* target = dynamic_cast<const juce::AudioParameterChoice*>(trackParameter(pi + "target"));
+				const bool active = target->getIndex() != 0;
+				const int aimed = choiceOf(trackParameter(pi + "track")->getParameterID()) - 1;
+				const auto aim = targetLabels(*target, m_processor.machines()[static_cast<size_t>(choiceOf(trackParameter(
+					"machine", aimed < 0 ? m_track : aimed)->getParameterID()))])[target->getIndex()];
 				const auto* d = trackParameter(pi + "depth");
-				if(std::abs(d->convertFrom0to1(d->getValue())) > 1 && choiceOf(trackParameter(pi + "target")->getParameterID()))
-					_p.rect(bx + 14 + static_cast<float>(i) * 22 + 18, R3 + 3.9f, 1.8f, 1.8f, (i ? hue::m : hue::y).c[0], 0.9f);
+				_p.rect(c.getX(), c.getY(), c.getWidth(), c.getHeight(), shown ? hi.c[2] : colour::cellBack, 1);
+				_p.frame(c.getX(), c.getY(), c.getWidth(), c.getHeight(), shown ? hi.c[0] : hi.c[1], 1, shown ? 0.5f : 0.3f);
+				_p.text(c.getX() + 3, c.getY() + 5.5f, "LFO " + juce::String(i + 1), 2.8f, hi.c[4], 600);
+				if(active && std::abs(d->convertFrom0to1(d->getValue())) > 1)
+					_p.rect(c.getX() + 14, c.getY() + 3.2f, 1.6f, 1.6f, hi.c[0], 0.8f);
+				_p.text(c.getRight() - 3, c.getY() + 5.5f, text("shape") + "  " + text("mode"), 2.8f, active ? hi.c[0]
+					: colour::dim, 500, Align::Right);
+				_p.text(c.getX() + 3, c.getY() + 14, active ? aim : juce::String("NONE"), 3.2f, active ? colour::ink
+					: colour::dim, 600);
+				const bool sync = choiceOf(trackParameter(pi + "sync")->getParameterID()) != 0;
+				_p.text(c.getX() + 3, c.getY() + 22, "DEPTH " + text("depth") + "  " + text(sync ? "speed" : "hz"), 2.8f,
+					colour::mid);
 			}
 		}
-		// Band: its shape by type
+		// EQ: its shape by type
 		{
-			const float x = cx(10), w = 8 * Col - 4, m = y3 + PicH / 2;
 			const int type = choiceOf(trackParameter("band_type")->getParameterID());
+			const auto r = eqPicture(type);
+			const float x = r.getX(), w = r.getWidth(), m = r.getCentreY(), h = r.getHeight();
 			const auto b = [&](const int _i) { return trackParameter("band_" + juce::String(_i))->getValue(); };
 			const auto bell = [](const float _u, const float _f, const float _g)
 			{
@@ -1027,33 +1151,26 @@ namespace elektron::drums
 					l = bell(u, b(1), b(2));
 				else if(type == 3)
 					l = bell(u, b(1), b(2)) + bell(u, b(3), b(4)) + bell(u, b(5), b(6));
-				curve.push_back({x + 1 + (w - 2) * u, m - juce::jlimit(-1.0f, 1.0f, l) * PicH * 0.42f});
+				curve.push_back({x + 1 + (w - 2) * u, m - juce::jlimit(-1.0f, 1.0f, l) * h * 0.42f});
 			}
-			picture(_p, x, y3, w, PicH, hue::b, {}, curve, type == 0);
+			picture(_p, x, r.getY(), w, h, hue::b, {}, curve, type == 0);
 		}
-		// Sends: four bars
+		// Sends: a bar each, its name above
 		{
-			const float x = cx(18), w = 6 * Col - 4, gap = 3, sw = (w - gap * 5) / 4, by = y3 + 6, bh = PicH - 8;
-			_p.frame(x, y3, w, PicH, hue::w.c[1], 1.2f, 0.4f);
 			const char* names[]{"DLY", "REV", "CHO", "PHA"};
 			const char* ids[]{"send_delay", "send_reverb", "send_chorus", "send_phaser"};
 			for(int i = 0; i < 4; ++i)
 			{
-				const float bx = x + gap + static_cast<float>(i) * (sw + gap), fh = bh * v(ids[i]);
-				_p.text(bx + sw / 2, y3 + 4.4f, names[i], 2.6f, colour::mid, 500, Align::Centre);
-				_p.rect(bx, by, sw, bh, juce::Colour(0xff17181A), 0.4f);
+				const auto r = sendBar(i);
+				const float fh = r.getHeight() * v(ids[i]);
+				_p.text(r.getCentreX(), LowY + 12.6f, names[i], 2.8f, colour::mid, 600, Align::Centre);
+				_p.rect(r.getX(), r.getY(), r.getWidth(), r.getHeight(), juce::Colour(0xff17181A), 0.8f);
 				if(fh > 0.05f)
 				{
-					_p.rect(bx, by + bh - fh, sw, fh, hue::w.c[3], 0.4f);
-					_p.rect(bx, by + bh - fh, sw, 0.5f, hue::w.c[0]);
+					_p.rect(r.getX(), r.getBottom() - fh, r.getWidth(), fh, hue::w.c[3], 0.8f);
+					_p.rect(r.getX(), r.getBottom() - fh, r.getWidth(), 0.6f, hue::w.c[0]);
 				}
 			}
-		}
-		// Oversampling, beside Drive 1's title
-		{
-			const juce::String os[]{"OFF", "2X", "4X"};
-			_p.text(cx(20) - 4, R1 + 6.2f, "OS " + os[juce::jlimit(0, 2, choiceOf("oversampling"))], 2.8f, hue::a.c[4],
-				500, Align::Right);
 		}
 	}
 
@@ -1328,54 +1445,38 @@ namespace elektron::drums
 			addHit(std::move(n));
 		}
 
-		// LOCKS: + LOCK opens the Track's parameters that take a Lock; five lines, an arrow scrolls
+		// LOCKS (u.html, variant 2): + LOCK opens the menu of the Track's parameters over the page; five lanes a page,
+		// LANES turns it past five; with none, three empty lanes open the menu too. A lane's X takes it off, asking again
+		// first where it holds Locks
 		{
 			Hit add;
-			add.r = {SG + 15 * SC, 78, SC - 1, 7};
-			add.click = [this]
-			{
-				std::vector<int> indices;
-				juce::StringArray names;
-				for(const auto& id : m_processor.trackIds(m_track))
-				{
-					if(id.endsWith("_machine") || id.endsWith("_output") || id.endsWith("_chokes"))
-						continue;
-					auto* p = m_processor.parameter(id);
-					indices.push_back(p->getParameterIndex());
-					names.add(lockName(*p));
-				}
-				openSelector(SG + 4 * SC, 70, names, [](int) { return false; }, [this, indices](const int _i)
-				{
-					auto& lines = m_lockLines[static_cast<size_t>(m_track)];
-					if(std::find(lines.begin(), lines.end(), indices[static_cast<size_t>(_i)]) == lines.end())
-						lines.push_back(indices[static_cast<size_t>(_i)]);
-					m_lockScroll = std::max(0, static_cast<int>(lockLineList().size()) - 5);
-				});
-			};
+			add.r = addLockBox;
+			add.click = [this] { m_lockMenu = !m_lockMenu; };
 			addHit(std::move(add));
 			const auto lines = lockLineList();
-			m_lockScroll = juce::jlimit(0, std::max(0, static_cast<int>(lines.size()) - 5), m_lockScroll);
-			if(m_lockScroll > 0)
+			const int count = static_cast<int>(lines.size());
+			m_lockScroll = count > Lanes ? juce::jlimit(0, (count - 1) / Lanes * Lanes, m_lockScroll / Lanes * Lanes) : 0;
+			if(count > Lanes)
 			{
-				Hit up;
-				up.r = {39, 91.7f, 9, 12};
-				up.click = [this] { --m_lockScroll; };
-				addHit(std::move(up));
+				Hit page;
+				page.r = lanesBox;
+				page.click = [this, count] { m_lockScroll = m_lockScroll + Lanes < count ? m_lockScroll + Lanes : 0; };
+				addHit(std::move(page));
 			}
-			if(m_lockScroll + 5 < static_cast<int>(lines.size()))
+			for(int r = 0; lines.empty() && r < 3; ++r)
 			{
-				Hit down;
-				down.r = {39, 191.7f, 9, 12};
-				down.click = [this] { ++m_lockScroll; };
-				addHit(std::move(down));
+				Hit empty;
+				empty.r = laneBox(r);
+				empty.click = [this] { m_lockMenu = true; };
+				addHit(std::move(empty));
 			}
-			for(int r = 0; r < 5 && m_lockScroll + r < static_cast<int>(lines.size()); ++r)
+			for(int r = 0; r < Lanes && m_lockScroll + r < count; ++r)
 			{
 				const int line = lines[static_cast<size_t>(m_lockScroll + r)];
-				const float yy = 86 + static_cast<float>(r) * 25;
-				grid({SG, yy, 16 * SC, 23.4f}, line);
+				grid(laneBox(r), line);
 				Hit x;
-				x.r = {46.5f, yy, 7, 8};
+				x.r = laneDeleteBox(r);
+				x.keepsArmed = true;
 				x.click = [this, line]
 				{
 					bool has = false;
@@ -1513,6 +1614,86 @@ namespace elektron::drums
 			h = mix(h, (m_processor.live() ? 1u : 0u) | (m_stepCopied ? 2u : 0u));
 			return mix(h, static_cast<uint64_t>(m_processor.playingStep(m_track) + 1));
 		});
+
+		// + LOCK's menu, over all the rest: an entry without a lane adds one, at its page; a press beside the entries
+		// shuts it
+		if(m_lockMenu)
+		{
+			Hit shut;
+			shut.r = {ScreenX, ScreenY, ScreenW, ScreenH};
+			shut.click = [this] { m_lockMenu = false; };
+			shut.cursor = juce::MouseCursor::NormalCursor;
+			addHit(std::move(shut));
+			for(const auto& e : lockMenuEntries())
+			{
+				if(e.taken)
+					continue;
+				Hit h;
+				h.r = e.r;
+				h.click = [this, parameter = e.parameter]
+				{
+					m_lockLines[static_cast<size_t>(m_track)].push_back(parameter);
+					m_lockMenu = false;
+					m_lockScroll = (static_cast<int>(lockLineList().size()) - 1) / Lanes * Lanes;
+				};
+				addHit(std::move(h));
+			}
+		}
+	}
+
+	std::vector<Editor::MenuEntry> Editor::lockMenuEntries() const
+	{
+		const auto& machines = m_processor.machines();
+		const auto& machine = machines[static_cast<size_t>(juce::jlimit(0, static_cast<int>(machines.size()) - 1,
+			choiceOf(trackParameter("machine")->getParameterID())))];
+		const auto lines = lockLineList();
+		std::vector<MenuEntry> entries;
+		std::array<int, 10> rows{};
+		const float cw = (ScreenW - 8) / 10;
+		for(const auto& id : m_processor.trackIds(m_track))
+		{
+			if(id.endsWith("_machine") || id.endsWith("_output") || id.endsWith("_chokes"))
+				continue;
+			const auto suffix = id.substring(4);
+			if(suffix.startsWithChar('m') && suffix.substring(1).containsOnly("0123456789")
+				&& suffix.substring(1).getIntValue() > machineParameters(machine))
+				continue;
+			const auto section = laneSection(id);
+			// VOICE runs on into the column after its own
+			const int column = section.column == 0 && rows[0] >= MenuRows ? 1 : section.column;
+			const int row = rows[static_cast<size_t>(column)]++;
+			auto* p = m_processor.parameter(id);
+			const int index = p->getParameterIndex();
+			entries.push_back({index, {ScreenX + 4 + static_cast<float>(column) * cw, MenuY + 10 + static_cast<float>(row)
+				* MenuRow, cw - 2, MenuRow - 1}, section.hue, column == 1 ? juce::String() : juce::String(section.name),
+				lockName(*p), std::find(lines.begin(), lines.end(), index) != lines.end()});
+		}
+		return entries;
+	}
+
+	juce::Rectangle<int> Editor::seqButtonArea(const SeqButton _button) const
+	{
+		return toPx(_button == SeqButton::AddLock ? addLockBox : lanesBox);
+	}
+
+	juce::Rectangle<int> Editor::laneArea(const int _row) const
+	{
+		return toPx(laneBox(_row));
+	}
+
+	juce::Rectangle<int> Editor::laneDeleteArea(const int _row) const
+	{
+		return toPx(laneDeleteBox(_row));
+	}
+
+	juce::Rectangle<int> Editor::lockMenuArea(const int _parameter) const
+	{
+		if(!m_lockMenu)
+			return {};
+		for(const auto& e : lockMenuEntries())
+			if(e.parameter == _parameter && !e.taken)
+				return toPx(e.r);
+		return {};
 	}
 
 	void Editor::drawSeq(Painter& _p)
@@ -1521,7 +1702,15 @@ namespace elektron::drums
 		const int o0 = m_stepPage * 16;
 		const int length = p.trackLength[static_cast<size_t>(m_track)];
 		const int playing = m_processor.playingStep(m_track);
-		drawHeader(_p, "SEQ", {});
+		// The pattern's name in the title; at the right, CHAIN n/m while a chain plays, else nothing
+		{
+			bool running = false;
+			for(int t = 0; t < 16; ++t)
+				running = running || m_processor.playingStep(t) >= 0;
+			const int chain = m_processor.sequencer().chainLength(), slot = m_processor.chainSlot();
+			drawHeader(_p, "SEQ " + patternName(m_processor.currentPattern()), {}, running && chain > 1 && slot >= 0
+				? "CHAIN " + juce::String(slot + 1) + "/" + juce::String(chain) : juce::String(" "));
+		}
 		drawSegments(_p, SG, ScreenY + 2, SC, {"DETAIL", "OVERVIEW", "PATTERNS"}, m_seqTab);
 		if(m_seqTab == 1)
 		{
@@ -1555,112 +1744,261 @@ namespace elektron::drums
 			_p.rect(16, _y, 458, _focus ? 0.8f : 0.4f, _focus ? hue::t.c[0] : hue::t.c[1]);
 			_p.text(16, _y + 6.2f, _name, 3.2f, hue::t.c[4], 600);
 		};
-		// TRIGS
+		// TRIGS, the steps shown of the Track's length beside the title; the mode's name, and under it what the marks
+		// drawn in the steps say
 		rule(38, "TRIGS", false);
+		_p.text(31, 44.2f, juce::String(o0 + 1) + juce::String::fromUTF8("\xe2\x80\x93") + juce::String(o0 + 16) + " / "
+			+ juce::String(length), 2.8f, colour::mid);
 		const char* modes[]{"VEL", "ACCENT", "SLIDE"};
 		for(int i = 0; i < 3; ++i)
 			drawButton(_p, SG + static_cast<float>(13 + i) * SC, 39, SC - 1, 7, modes[i], m_seqMode == i);
 		_p.text(16, 54, modes[m_seqMode], 3.2f, hue::t.c[4], 600);
-		_p.text(16, 59.4f, "TRIG", 2.4f, colour::dim);
 		const float yb = 47, bh = 22;
+		{
+			const float l1 = yb + 14.5f, l2 = yb + 19.5f;
+			_p.text(16, l1, "1:2", 2.8f, hue::y.c[4], 600);
+			_p.text(22, l1, "COND", 2.8f, colour::mid);
+			for(int k = 0; k < 3; ++k)
+				_p.rect(34 + static_cast<float>(k) * 2.1f, l1 - 2.2f, 1.3f, 1.8f, hue::t.c[4], 0.3f);
+			_p.text(41, l1, "RAT", 2.8f, colour::mid);
+			_p.rect(16.6f, l2 - 2.2f, 1.2f, 1.8f, hue::k.c[4], 0.3f);
+			_p.text(19, l2, "MICRO", 2.8f, colour::mid);
+			_p.line(34, l2 - 1.2f, 39, l2 - 1.2f, hue::t.c[4], 0.5f);
+			_p.text(41, l2, "SLIDE", 2.8f, colour::mid);
+		}
 		for(int i = 0; i < 16; ++i)
 		{
 			const int n = o0 + i;
 			const auto& st = p.step(m_track, n);
-			const float x = SG + static_cast<float>(i) * SC;
+			const float x = SG + static_cast<float>(i) * SC, w = SC - 1.2f;
 			const float val = m_seqMode == 0 ? (st.trig ? static_cast<float>(st.velocity) / 127 : 0)
 				: m_seqMode == 1 ? (st.accent ? 1.0f : 0.0f) : (st.slide ? 1.0f : 0.0f);
-			_p.rect(x, yb, SC - 1.2f, bh, beat(i), 0.5f);
+			_p.rect(x, yb, w, bh, beat(i), 0.5f);
 			if(val > 0.01f)
 			{
-				_p.rect(x, yb + bh * (1 - val), SC - 1.2f, bh * val, hue::t.c[3], 0.5f);
-				_p.rect(x, yb + bh * (1 - val), SC - 1.2f, 0.6f, hue::t.c[0]);
+				_p.rect(x, yb + bh * (1 - val), w, bh * val, hue::t.c[3], 0.5f);
+				_p.rect(x, yb + bh * (1 - val), w, 0.6f, hue::t.c[0]);
+			}
+			// The trig's marks: its condition, its ratchet's Hits, its slide to the next step, its micro timing
+			if(st.trig)
+			{
+				if(const int c = conditionList().indexOf(st.condition))
+					_p.text(x + 1.4f, yb + 3.6f, fitted(_p, conditionList().names[c], 2.4f, w - 8, 600), 2.4f, hue::y.c[4], 600);
+				for(int k = 0; st.ratchets > 1 && k < std::min<int>(st.ratchets, 4); ++k)
+					_p.rect(x + w - 2.2f - static_cast<float>(k) * 2.1f, yb + 1.5f, 1.3f, 1.8f, hue::t.c[4], 0.3f);
+				if(st.slide && i < 15)
+					_p.line(x + w - 1, yb + bh * 0.55f, x + SC + 1, yb + bh * 0.55f, hue::t.c[4], 0.5f);
+				if(st.timing != 0)
+				{
+					const float mx = juce::jlimit(x + 1.5f, x + w - 1.5f, x + w / 2 + static_cast<float>(st.timing)
+						/ static_cast<float>(TimingUnits) * w * 0.4f);
+					_p.rect(mx - 0.6f, yb + bh - 2.2f, 1.2f, 1.8f, hue::k.c[4], 0.3f);
+				}
 			}
 			if(n == playing)
-				_p.rect(x, yb, SC - 1.2f, bh, juce::Colour(0x33E9DCC2), 0.5f);
+				_p.rect(x, yb, w, bh, juce::Colour(0x33E9DCC2), 0.5f);
 			const bool sel = n == m_seqStep;
-			_p.text(x + (SC - 1.2f) / 2, yb + bh + 4.4f, juce::String(n + 1), 2.8f, sel ? colour::ink : i % 4 == 0
+			_p.text(x + w / 2, yb + bh + 4.4f, juce::String(n + 1), 2.8f, sel ? colour::ink : i % 4 == 0
 				? colour::mid : juce::Colour(0xff5E5E5A), sel || i % 4 == 0 ? 600 : 500, Align::Centre);
 		}
 
-		// LOCKS
+		// LOCKS: + LOCK, LANES past five; a lane each parameter locked or added, five a page
 		rule(77, "LOCKS", false);
-		drawButton(_p, SG + 15 * SC, 78, SC - 1, 7, "+ LOCK", false);
+		drawButton(_p, addLockBox.getX(), addLockBox.getY(), addLockBox.getWidth(), addLockBox.getHeight(), "+ LOCK",
+			m_lockMenu);
 		const auto lines = lockLineList();
-		if(lines.empty())
-			_p.text(16, 92, "NO LOCK LINE", 3, colour::dim);
+		const int count = static_cast<int>(lines.size());
+		if(count > Lanes)
+			drawButton(_p, lanesBox.getX(), lanesBox.getY(), lanesBox.getWidth(), lanesBox.getHeight(), "LANES "
+				+ juce::String(m_lockScroll + 1) + juce::String::fromUTF8("\xe2\x80\x93")
+				+ juce::String(std::min(count, m_lockScroll + Lanes)) + " / " + juce::String(count), false);
+		const float right = SG + 16 * SC - 1.2f;
+		// A lane's frame: the beats in bands of four steps, a fine line between steps, its outline
+		const auto laneFrame = [&](const juce::Rectangle<float>& _r)
+		{
+			for(int g = 0; g < 4; ++g)
+				_p.rect(SG + static_cast<float>(g) * 4 * SC, _r.getY(), 4 * SC - (g < 3 ? 0 : 1.2f), _r.getHeight(),
+					g % 2 ? juce::Colour(0xff131517) : beatA);
+			for(int q = 1; q < 16; ++q)
+				if(q % 4)
+					_p.rect(SG + static_cast<float>(q) * SC - 0.6f, _r.getY() + 0.6f, 0.15f, _r.getHeight() - 1.2f,
+						juce::Colour(0x12ECEBE4));
+			_p.frame(SG, _r.getY(), right - SG, _r.getHeight(), juce::Colour(0xff34363A), 0.6f, 0.35f);
+		};
+		// None: three empty lanes, each opening the menu
+		for(int r = 0; lines.empty() && r < 3; ++r)
+		{
+			const auto b = laneBox(r);
+			_p.text(16, b.getY() + 6.2f, "EMPTY LANE", 3.2f, colour::dim, 600);
+			dashed(_p, SG, right, b.getY(), juce::Colour(0xff3A3B3D), 0.35f);
+			dashed(_p, SG, right, b.getBottom(), juce::Colour(0xff3A3B3D), 0.35f);
+			_p.rect(SG, b.getY(), 0.35f, b.getHeight(), juce::Colour(0xff3A3B3D));
+			_p.rect(right - 0.35f, b.getY(), 0.35f, b.getHeight(), juce::Colour(0xff3A3B3D));
+			_p.text((SG + right) / 2, b.getCentreY() + 1.2f, "+ LOCK", 2.8f, colour::mid, 600, Align::Centre);
+		}
 		const auto& params = m_processor.getParameters();
-		for(int r = 0; r < 5 && m_lockScroll + r < static_cast<int>(lines.size()); ++r)
+		for(int r = 0; r < Lanes && m_lockScroll + r < count; ++r)
 		{
 			const int line = lines[static_cast<size_t>(m_lockScroll + r)];
-			const float yy = 86 + static_cast<float>(r) * 25, hh = 23.4f;
+			const auto b = laneBox(r);
+			const float yy = b.getY(), hh = b.getHeight();
 			auto* rp = dynamic_cast<juce::RangedAudioParameter*>(params[line]);
-			// The name and the block of the Sound page's cell
-			juce::String name = rp ? lockName(*rp) : "?";
-			const Hue* h = &hue::t;
-			juce::String section;
-			const auto& id = rp ? rp->getParameterID() : juce::String();
-			const std::pair<const char*, std::pair<const Hue*, const char*>> sections[]{{"_m", {&hue::k, "MACH"}},
-				{"_note", {&hue::k, "MACH"}}, {"_drv1", {&hue::a, "D1"}}, {"_drv2", {&hue::a, "D2"}},
-				{"_band", {&hue::b, "EQ"}}, {"_flt", {&hue::s, "FILTER"}}, {"_fenv", {&hue::s, "FILTER"}},
-				{"_amp", {&hue::p, "AMP"}}, {"_vel", {&hue::p, "AMP"}}, {"_level", {&hue::p, "AMP"}},
-				{"_pan", {&hue::p, "AMP"}}, {"_accent", {&hue::p, "AMP"}}, {"_lfo1", {&hue::y, "LFO 1"}},
-				{"_lfo2", {&hue::m, "LFO 2"}}, {"_send", {&hue::w, "SENDS"}}};
-			for(const auto& s : sections)
-				if(id.contains(s.first))
-				{
-					h = s.second.first;
-					section = s.second.second;
-				}
-			const bool armed = m_armedLine == line;
-			int count = 0;
+			if(!rp)
+				continue;
+			const auto section = laneSection(rp->getParameterID());
+			const Hue& h = *section.hue;
+			const bool list = dynamic_cast<juce::AudioParameterChoice*>(rp) || dynamic_cast<juce::AudioParameterBool*>(rp);
+			const float base = rp->getValue();
+			const auto valueText = [&](const float _v)
+			{
+				Cell c;
+				c.parameter = rp;
+				return c.valueText(_v);
+			};
+			// Its Locks, normalised, on the steps that hold one
+			std::array<float, SeqSteps> lock{};
+			std::array<bool, SeqSteps> locked{};
+			int locks = 0;
 			for(int s = 0; s < SeqSteps; ++s)
 			{
 				const auto* l = p.locks(m_track, s);
 				for(int i = 0; l && i < p.step(m_track, s).lockCount; ++i)
-					count += l[i].parameter == line ? 1 : 0;
-			}
-			_p.text(16, yy + 7, name.substring(0, 12), 3.2f, h->c[4], 600);
-			_p.text(16, yy + 12.4f, armed ? juce::String(count) + " LOCKS: AGAIN" : section, 2.4f,
-				armed ? colour::lock : colour::dim);
-			// The X, under the mouse or asking AGAIN; right of the column, the names being longer than the mockup's
-			if(armed || (m_mouse.x >= ScreenX && m_mouse.x < SG && m_mouse.y >= yy && m_mouse.y < yy + hh))
-				_p.text(50, yy + 7, "X", 3, armed ? colour::lock : colour::mid, 600, Align::Centre);
-			for(int q = 0; q < 16; ++q)
-			{
-				const int n = o0 + q;
-				const float x = SG + static_cast<float>(q) * SC;
-				_p.rect(x, yy, SC - 1.2f, hh, beat(q), 0.5f);
-				const auto& st = p.step(m_track, n);
-				const auto* l = p.locks(m_track, n);
-				for(int i = 0; l && rp && i < st.lockCount; ++i)
 					if(l[i].parameter == line)
 					{
-						const float v = std::max(0.02f, rp->convertTo0to1(l[i].value));
-						_p.rect(x, yy + hh * (1 - v), SC - 1.2f, hh * v, h->c[3], 0.5f);
-						_p.rect(x, yy + hh * (1 - v), SC - 1.2f, 0.6f, h->c[0]);
+						lock[static_cast<size_t>(s)] = rp->convertTo0to1(l[i].value);
+						locked[static_cast<size_t>(s)] = true;
+						++locks;
 					}
 			}
-		}
-		if(m_lockScroll > 0)
-			_p.poly({{41.1f, 98.9f}, {43.5f, 96.3f}, {45.9f, 98.9f}}, colour::mid, 0.5f);
-		if(m_lockScroll + 5 < static_cast<int>(lines.size()))
-			_p.poly({{41.1f, 196.4f}, {43.5f, 199}, {45.9f, 196.4f}}, colour::mid, 0.5f);
+			// The names' column: the name, its block or the X's question, its base; the X, framed
+			const bool armed = m_armedLine == line;
+			const float nameW = SG - 16 - 9;
+			_p.text(16, yy + 6.2f, fitted(_p, lockName(*rp), 3.2f, nameW, 600), 3.2f, h.c[4], 600);
+			_p.text(16, yy + 11.4f, armed ? fitted(_p, "DELETE " + juce::String(locks) + " LOCKS?", 2.8f, SG - 18, 600)
+				: juce::String(section.name), 2.8f, armed ? colour::lock : colour::dim, armed ? 600 : 500);
+			_p.text(16, yy + 16.8f, fitted(_p, "BASE " + valueText(base), 2.8f, SG - 18), 2.8f, colour::base);
+			const auto x = laneDeleteBox(r);
+			if(armed)
+				_p.rect(x.getX() + 0.5f, x.getY() + 0.5f, 6, 6.6f, juce::Colour(0xff5A2622), 0.8f);
+			_p.frame(x.getX() + 0.5f, x.getY() + 0.5f, 6, 6.6f, armed ? colour::lock : colour::panelLine, 0.8f, 0.3f);
+			_p.text(x.getX() + 3.5f, x.getY() + 5.3f, juce::String::fromUTF8("\xc3\x97"), 3.2f, armed ? colour::ink
+				: colour::mid, 600, Align::Centre);
 
-		// The step chosen, and what lies beyond the Track's length
+			laneFrame(b);
+			if(list)
+			{
+				// A list's Lock: a pill with its value; the base written where a run of steps without one starts
+				for(int q = 0; q < 16; ++q)
+				{
+					const int n = o0 + q;
+					const float sx = SG + static_cast<float>(q) * SC, w = SC - 1.2f;
+					if(locked[static_cast<size_t>(n)])
+					{
+						_p.rect(sx + 1.2f, yy + 4, w - 2.4f, hh - 8, h.c[3], 1.2f);
+						_p.frame(sx + 1.2f, yy + 4, w - 2.4f, hh - 8, h.c[0], 1.2f, 0.4f);
+						_p.text(sx + w / 2, yy + hh / 2 + 1.4f, fitted(_p, valueText(lock[static_cast<size_t>(n)]), 2.8f, w - 3, 600),
+							2.8f, h.c[4], 600, Align::Centre);
+					}
+					else if(q == 0 || locked[static_cast<size_t>(n - 1)])
+					{
+						int run = 1;
+						while(q + run < 16 && !locked[static_cast<size_t>(n + run)])
+							++run;
+						_p.text(sx + 1.6f, yy + hh / 2 + 1.2f, fitted(_p, valueText(base), 2.8f,
+							static_cast<float>(run) * SC - 3), 2.8f, colour::base);
+					}
+				}
+				continue;
+			}
+			// A value: held steps as the sequencer plays them (Processor::applyEvent): a Lock holds to the Track's next
+			// event, a trig or a Lock, then the base comes back; a trig with SLIDE glides what it locks to the next trig's
+			// Lock, or to the base, across the steps between (edDrumsSequencer.cpp). Filled from the base line
+			std::array<float, SeqSteps> from, to;
+			from.fill(base);
+			to.fill(base);
+			{
+				float held = base;
+				for(int s = 0; s < length && s < SeqSteps; ++s)
+				{
+					const auto& step = p.step(m_track, s);
+					if(step.trig || step.lockCount)
+						held = locked[static_cast<size_t>(s)] ? lock[static_cast<size_t>(s)] : base;
+					from[static_cast<size_t>(s)] = to[static_cast<size_t>(s)] = held;
+				}
+				for(int s = 0; s < length && s < SeqSteps; ++s)
+				{
+					const auto& step = p.step(m_track, s);
+					if(!step.trig || !step.slide || !locked[static_cast<size_t>(s)])
+						continue;
+					for(int d = 1; d <= length; ++d)
+					{
+						const int next = (s + d) % length;
+						if(!p.step(m_track, next).trig)
+							continue;
+						const float v0 = lock[static_cast<size_t>(s)];
+						const float vt = locked[static_cast<size_t>(next)] ? lock[static_cast<size_t>(next)] : base;
+						for(int k = 0; k < d; ++k)
+						{
+							const auto at = static_cast<size_t>((s + k) % length);
+							from[at] = v0 + (vt - v0) * static_cast<float>(k) / static_cast<float>(d);
+							to[at] = v0 + (vt - v0) * static_cast<float>(k + 1) / static_cast<float>(d);
+						}
+						break;
+					}
+				}
+			}
+			const auto Y = [&](const float _v) { return yy + 0.6f + (hh - 1.2f) * (1 - _v); };
+			const float baseY = Y(base);
+			std::vector<juce::Point<float>> curve;
+			for(int q = 0; q < 16; ++q)
+			{
+				const auto n = static_cast<size_t>(o0 + q);
+				const float x0 = SG + static_cast<float>(q) * SC, x1 = q < 15 ? x0 + SC : right;
+				curve.push_back({x0, Y(from[n])});
+				curve.push_back({x1, Y(to[n])});
+			}
+			juce::Path fill;
+			fill.startNewSubPath(SG, baseY);
+			for(const auto& pt : curve)
+				fill.lineTo(pt);
+			fill.lineTo(right, baseY);
+			fill.closeSubPath();
+			_p.g.setColour(h.c[2]);
+			_p.g.fillPath(fill);
+			// Its line with plain joints: Painter::poly's curved ones cost 0.4 ms a lane
+			juce::Path stroke;
+			stroke.startNewSubPath(curve.front());
+			for(size_t i = 1; i < curve.size(); ++i)
+				stroke.lineTo(curve[i]);
+			_p.g.setColour(h.c[0]);
+			_p.g.strokePath(stroke, juce::PathStrokeType(0.65f));
+			dashed(_p, SG, right, baseY, juce::Colour(0x8c8E8C88), 0.35f);
+			for(int q = 0; q < 16; ++q)
+				if(locked[static_cast<size_t>(o0 + q)])
+					_p.dot(SG + static_cast<float>(q) * SC + (SC - 1.2f) / 2, Y(lock[static_cast<size_t>(o0 + q)]), 1.4f,
+						h.c[4], h.c[4], 0.1f);
+		}
+
+		// The step chosen: a frame on its trig, a column through the lanes; what lies beyond the Track's length
+		const int shown = std::min(Lanes, count - m_lockScroll);
 		if(m_seqStep >= o0 && m_seqStep < o0 + 16)
 		{
 			const float sx = SG + static_cast<float>(m_seqStep - o0) * SC;
 			_p.rect(sx, yb, SC - 1.2f, bh, juce::Colour(0x12E9DCC2), 0.5f);
 			_p.frame(sx + 0.15f, yb + 0.15f, SC - 1.5f, bh - 0.3f, hue::t.c[0], 0.5f, 0.3f);
+			if(shown > 0)
+			{
+				const float hh = static_cast<float>(shown - 1) * LanePitch + LaneH;
+				_p.rect(sx, LaneY, SC - 1.2f, hh, juce::Colour(0x12E9DCC2), 0.5f);
+				_p.frame(sx + 0.1f, LaneY + 0.1f, SC - 1.4f, hh - 0.2f, juce::Colour(0x52E9DCC2), 0.5f, 0.25f);
+			}
 		}
 		if(length < o0 + 16)
 		{
 			const float ox = SG + static_cast<float>(std::max(0, length - o0)) * SC, ow = SG + 16 * SC - 1.2f - ox;
 			_p.rect(ox, yb, ow, bh, juce::Colour(0x9e0B0C0D));
-			if(!lines.empty())
-				_p.rect(ox, 86, ow, static_cast<float>(std::min<size_t>(5, lines.size())) * 25 - 1.6f,
-					juce::Colour(0x9e0B0C0D));
+			if(shown > 0)
+				_p.rect(ox, LaneY, ow, static_cast<float>(shown) * LanePitch - 1.6f, juce::Colour(0x9e0B0C0D));
 		}
 
 		// STEP
@@ -1681,6 +2019,27 @@ namespace elektron::drums
 		}
 		drawButton(_p, SG + 14 * SC, 222.5f, SC - 1, 9.6f, "COPY", false);
 		drawButton(_p, SG + 15 * SC, 222.5f, SC - 1, 9.6f, "PASTE", false, m_stepCopied);
+
+		// + LOCK's menu, last, over the page: a column each block, every parameter that takes a Lock; one with a lane
+		// already greyed
+		if(m_lockMenu)
+		{
+			const auto entries = lockMenuEntries();
+			float bottom = MenuY;
+			for(const auto& e : entries)
+				bottom = std::max(bottom, e.r.getBottom());
+			_p.rect(ScreenX + 3, MenuY, ScreenW - 6, bottom + 2 - MenuY, colour::panel, 1);
+			_p.frame(ScreenX + 3, MenuY, ScreenW - 6, bottom + 2 - MenuY, colour::panelLine, 1, 0.3f);
+			for(const auto& e : entries)
+			{
+				if(e.r.getY() < MenuY + 10.5f && e.section.isNotEmpty())
+					_p.text(e.r.getX(), MenuY + 6.5f, e.section, 2.8f, e.hue->c[4], 600);
+				_p.rect(e.r.getX(), e.r.getY(), e.r.getWidth(), e.r.getHeight(), e.taken ? juce::Colour(0xff1D1F21)
+					: colour::cellBack, 0.6f);
+				_p.text(e.r.getX() + 2, e.r.getY() + 5.2f, fitted(_p, e.name, 2.8f, e.r.getWidth() - 4), 2.8f, e.taken
+					? colour::dim : e.hue->c[4]);
+			}
+		}
 	}
 
 	// ---- Seq, Overview: every Track, 32 square steps a page, each row on its own steps ----

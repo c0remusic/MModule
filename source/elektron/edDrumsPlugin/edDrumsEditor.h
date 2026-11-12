@@ -51,8 +51,11 @@ namespace elektron::drums
 		juce::Rectangle<int> machinePageArea(int _page) const;
 		// The Sampler's GRAIN segment _i (0 the ROM player's, 1 VINTAGE) in the Machine block's head
 		juce::Rectangle<int> grainArea(int _i) const;
+		// The LFO block's card of LFO _lfo, a click on which shows that LFO
+		juce::Rectangle<int> lfoCardArea(int _lfo) const;
+		int lfo() const { return m_lfo; }
 
-		// For tests: the page shown's cells, hidden ones included (an LFO's tab, a source's set); a cell's and a step
+		// For tests: the page shown's cells, hidden ones included (the LFO not shown, a source's set); a cell's and a step
 		// key's area in pixels
 		const std::vector<ui::Cell>& cells() const { return m_cells; }
 		juce::Rectangle<int> cellArea(const juce::String& _parameterId) const;
@@ -76,6 +79,16 @@ namespace elektron::drums
 		juce::Rectangle<int> browseSegmentArea(int _segment) const;
 		int browseSegments() const { return browseFilters().size(); }
 		juce::Rectangle<int> selectorItemArea(int _item) const;
+		// Seq's Detail: + LOCK, LANES (the lanes' page, past five), a lane's row shown and its X, the + LOCK menu's entry
+		// of a parameter (by its index; empty when the menu is shut or the parameter has a lane already)
+		enum class SeqButton { AddLock, Lanes };
+		juce::Rectangle<int> seqButtonArea(SeqButton _button) const;
+		juce::Rectangle<int> laneArea(int _row) const;
+		juce::Rectangle<int> laneDeleteArea(int _row) const;
+		juce::Rectangle<int> lockMenuArea(int _parameter) const;
+		bool lockMenuOpen() const { return m_lockMenu; }
+		int lockLanes() const { return static_cast<int>(lockLineList().size()); }
+		int lockScroll() const { return m_lockScroll; }
 		// The timer's work, once
 		void tick();
 
@@ -114,12 +127,13 @@ namespace elektron::drums
 			bool gesture = false;			// a parameter's gesture begun
 		};
 
-		// A block's title line: a rule in its hue, its name
+		// A block's title line: a rule in its hue, its name; rank 0 a block, 1 the page's first, 2 one that matters less
 		struct Block
 		{
 			float x, y, w;
 			juce::String title, section;
 			const ui::Hue* hue;
+			int rank;
 		};
 
 		// A gesture on Detail's trig row or a lock line: a click toggles, the first 2 mm fix the direction, horizontal
@@ -156,9 +170,9 @@ namespace elektron::drums
 		void buildBrowse();
 		void buildMenu();
 		void buildSelector();
-		// A block: its title line, and a press anywhere in it gives it the focus
+		// A block: its title line, and a press anywhere in its _h mm gives it the focus
 		void block(float _x, float _y, float _w, const juce::String& _section, const juce::String& _title,
-			const ui::Hue& _hue);
+			const ui::Hue& _hue, float _h = 68, int _rank = 0);
 		juce::Rectangle<float> selectorBox(float& _columnWidth) const;
 
 		// A cell's gestures
@@ -172,7 +186,9 @@ namespace elektron::drums
 		void drawSprites(juce::Graphics& _g);
 		void drawHardware(ui::Painter& _p);
 		void drawPage(ui::Painter& _p);
-		void drawHeader(ui::Painter& _p, const juce::String& _title, const juce::String& _sub);
+		// _right in place of the pattern's name at the right (Seq: CHAIN n/m while a chain plays)
+		void drawHeader(ui::Painter& _p, const juce::String& _title, const juce::String& _sub,
+			const juce::String& _right = {});
 		void drawCell(ui::Painter& _p, const ui::Cell& _cell);
 		void drawBlockTitle(ui::Painter& _p, const Block& _block);
 		void drawSoundPictures(ui::Painter& _p);
@@ -212,6 +228,17 @@ namespace elektron::drums
 		void toggleTrig(int _track, int _step);
 		int trackLength(int _track) const;
 		std::vector<int> lockLineList() const;	// Detail's lines: the parameters the Track shown locks, then the added
+		// The + LOCK menu: each parameter of the Track that takes a Lock (Machine 1-24 its machine uses), in its block's
+		// column, its box, its block's hue and name, whether it has a lane already
+		struct MenuEntry
+		{
+			int parameter;
+			juce::Rectangle<float> r;
+			const ui::Hue* hue;
+			juce::String section, name;
+			bool taken;
+		};
+		std::vector<MenuEntry> lockMenuEntries() const;
 		void toast(const juce::String& _text);
 
 		void openSelector(float _x, float _y, const juce::StringArray& _items, std::function<bool(int)> _current,
@@ -258,7 +285,6 @@ namespace elektron::drums
 		int m_track = 0;
 		bool m_menu = false;
 		int m_lfo = 0;
-		int m_sampleTab = 0;
 		int m_machinePage = 0;
 		juce::String m_focus = "f";
 		int m_stepPage = 0;
@@ -267,8 +293,8 @@ namespace elektron::drums
 		int m_seqStep = 0;					// Detail's step
 		int m_seqMode = 0;					// VEL, ACCENT, SLIDE
 		std::array<std::vector<int>, 16> m_lockLines;	// Detail's lines added without a Lock yet, parameter indices
-		int m_lockScroll = 0;
-		juce::Point<float> m_mouse{-1, -1};	// mm, for what shows under the mouse alone (a lock line's X)
+		int m_lockScroll = 0;				// the first lane shown, a multiple of five
+		bool m_lockMenu = false;			// + LOCK's menu open
 		int m_browseItem = 0, m_browseScroll = 0;	// in the list shown
 		int m_browseTree = 3, m_browseFilter = 0;	// LIBRARY's entry, the list's segment
 		juce::String m_browseSearch;

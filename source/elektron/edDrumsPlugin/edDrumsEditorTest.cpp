@@ -4,8 +4,10 @@
 // LOCKER takes a folder dropped, filters by SEARCH, loads a sample by a double-click, a drag onto a Track and LOAD ON
 // TRACK, renames and removes its sources, keeps a set's sample; nothing drawn on Browse and the Menu names a brand; the
 // names of ticket 27: every machine and control named, nothing the host sees or the pages draw names a brand or an old
-// machine, every cell's name fits; each page is rendered to a PNG (first argument: the folder, else the temporary
-// folder's edDrumsEditor).
+// machine, every cell's name fits; Sound's LFO cards choose the LFO shown and a drive's TYPE stays live while it is off;
+// Seq's lanes: empty ones open + LOCK's menu, the menu lists every parameter that takes a Lock and adds a lane, LANES
+// turns their page, a lane's X asks again where it holds Locks; what a full repaint of Sound and Seq costs is printed;
+// each page is rendered to a PNG (first argument: the folder, else the temporary folder's edDrumsEditor).
 
 #include <algorithm>
 #include <cmath>
@@ -471,6 +473,26 @@ namespace
 			processor.removeListener(&gestures);
 		}
 
+		// Sound after u.html's variant 2: the LFO cards choose the LFO shown, no tabs; a drive's TYPE stays live while the
+		// drive is off, its list opening on a click
+		{
+			click(editor, editor.lfoCardArea(1).getCentre());
+			check(editor.lfo() == 1 && !editor.cellArea("t01_lfo2_depth").isEmpty() && editor.cellArea("t01_lfo1_depth").isEmpty(),
+				"a click on LFO 2's card shows LFO 2's cells");
+			click(editor, editor.lfoCardArea(0).getCentre());
+			check(editor.lfo() == 0, "a click on LFO 1's card shows LFO 1 again");
+			auto* type = processor.parameter("t01_drv2_type");
+			const float was = type->getValue();
+			type->setValueNotifyingHost(0.0f);
+			editor.tick();
+			click(editor, editor.cellArea("t01_drv2_type").getCentre());
+			click(editor, editor.selectorItemArea(1).getCentre());
+			check(juce::roundToInt(type->convertFrom0to1(type->getValue())) == 1, "Drive 2 off: a click on its TYPE and one on "
+				"the list's second entry turn it on");
+			type->setValueNotifyingHost(was);
+			editor.tick();
+		}
+
 		// A click on step key 3 toggles Track 1's step 3, a second takes it off
 		{
 			const auto trig = [&] { return processor.sequencer().pattern(processor.currentPattern()).step(0, 2).trig; };
@@ -784,6 +806,102 @@ namespace
 		editor.showMenu(false);
 		editor.showPage(Editor::Page::Seq);
 		snapshot(editor, _folder.getChildFile("seq.png"));
+		// Seq's lanes after u.html's variant 2: empty lanes open + LOCK's menu; the menu lists every parameter that takes a
+		// Lock, one with a lane greyed and inert, and a press beside it shuts it; past five lanes LANES turns the page; a
+		// lane's X asks again where it holds Locks, any other press disarms it
+		{
+			using SB = Editor::SeqButton;
+			const auto index = [&](const juce::String& _id) { return processor.parameter(_id)->getParameterIndex(); };
+			const auto locksOf = [&](const juce::String& _id)
+			{
+				int n = 0;
+				const auto& p = processor.sequencer().pattern(processor.currentPattern());
+				for(int s = 0; s < SeqSteps; ++s)
+					for(int i = 0; p.locks(0, s) && i < p.step(0, s).lockCount; ++i)
+						n += p.locks(0, s)[i].parameter == index(_id) ? 1 : 0;
+				return n;
+			};
+			processor.editSequencer([](Sequencer& _s)
+			{
+				auto& p = _s.pattern(_s.currentPattern());
+				for(int s = 0; s < SeqSteps; ++s)
+					while(p.step(0, s).lockCount)
+						p.removeLock(0, s, p.locks(0, s)[0].parameter);
+			});
+			editor.tick();
+			check(editor.lockLanes() == 0 && !editor.lockMenuOpen(), "Track 1 without a Lock: no lane");
+			snapshot(editor, _folder.getChildFile("seq-empty-lanes.png"));
+			click(editor, editor.laneArea(1).getCentre());
+			check(editor.lockMenuOpen(), "a click on an empty lane opens + LOCK's menu");
+			int listed = 0, expected = 0;
+			const auto* machine = dynamic_cast<juce::AudioParameterChoice*>(processor.parameter("t01_machine"));
+			const int used = machineParameters(processor.machines()[static_cast<size_t>(machine->getIndex())]);
+			for(const auto& id : processor.trackIds(0))
+			{
+				if(id.endsWith("_machine") || id.endsWith("_output") || id.endsWith("_chokes"))
+					continue;
+				const auto suffix = id.substring(4);
+				if(suffix.startsWithChar('m') && suffix.substring(1).containsOnly("0123456789")
+					&& suffix.substring(1).getIntValue() > used)
+					continue;
+				++expected;
+				listed += editor.lockMenuArea(index(id)).isEmpty() ? 0 : 1;
+			}
+			check(listed == expected && expected > 50, "the menu lists " + juce::String(listed) + " of the Track's "
+				+ juce::String(expected) + " parameters that take a Lock");
+			snapshot(editor, _folder.getChildFile("seq-lock-menu.png"));
+			click(editor, editor.lockMenuArea(index("t01_flt_res")).getCentre());
+			check(editor.lockLanes() == 1 && !editor.lockMenuOpen(), "an entry adds its lane and shuts the menu");
+			click(editor, editor.seqButtonArea(SB::AddLock).getCentre());
+			check(editor.lockMenuOpen() && editor.lockMenuArea(index("t01_flt_res")).isEmpty(), "+ LOCK opens it again, "
+				"RESO's entry greyed and inert");
+			const float s = static_cast<float>(editor.getWidth()) / ui::UnitWidth;
+			click(editor, {juce::roundToInt(470 * s), juce::roundToInt(236 * s)});
+			check(!editor.lockMenuOpen(), "a press beside the entries shuts it");
+			for(const char* id : {"t01_flt_type", "t01_flt_freq", "t01_amp_decay", "t01_lfo1_depth", "t01_send_delay",
+				"t01_drv1_amount"})
+			{
+				click(editor, editor.seqButtonArea(SB::AddLock).getCentre());
+				click(editor, editor.lockMenuArea(index(id)).getCentre());
+			}
+			check(editor.lockLanes() == 7 && editor.lockScroll() == 5, "seven lanes, the page of the last added shown");
+			click(editor, editor.seqButtonArea(SB::Lanes).getCentre());
+			check(editor.lockScroll() == 0, "LANES turns back to lanes 1-5");
+
+			// Locks to draw: RESO on trigs 5 and 9, 5 sliding to 9; the filter's TYPE on 9
+			processor.editSequencer([&](Sequencer& _s)
+			{
+				auto& p = _s.pattern(_s.currentPattern());
+				for(const int t : {0, 4, 8, 12})
+					p.setTrig(0, t, true);
+				p.step(0, 4).slide = true;
+				auto* res = processor.parameter("t01_flt_res");
+				p.setLock(0, 4, static_cast<uint16_t>(index("t01_flt_res")), res->convertFrom0to1(0.85f));
+				p.setLock(0, 8, static_cast<uint16_t>(index("t01_flt_res")), res->convertFrom0to1(0.2f));
+				p.setLock(0, 8, static_cast<uint16_t>(index("t01_flt_type")), 2);
+			});
+			editor.tick();
+			snapshot(editor, _folder.getChildFile("seq-lanes.png"));
+			click(editor, editor.seqButtonArea(SB::Lanes).getCentre());
+			snapshot(editor, _folder.getChildFile("seq-lanes-p2.png"));
+			click(editor, editor.seqButtonArea(SB::Lanes).getCentre());
+
+			// RESO's lane, first: its X asks again; another press disarms; the X twice takes its two Locks off
+			check(locksOf("t01_flt_res") == 2, "RESO holds 2 Locks");
+			click(editor, editor.laneDeleteArea(0).getCentre());
+			snapshot(editor, _folder.getChildFile("seq-delete-armed.png"));
+			check(locksOf("t01_flt_res") == 2 && editor.lockLanes() == 7, "a first click on RESO's X keeps its Locks");
+			click(editor, {juce::roundToInt(20 * s), juce::roundToInt(75 * s)});	// on the screen, nothing there
+			click(editor, editor.laneDeleteArea(0).getCentre());
+			check(locksOf("t01_flt_res") == 2, "a press elsewhere disarms it: the next click asks again");
+			click(editor, editor.laneDeleteArea(0).getCentre());
+			check(locksOf("t01_flt_res") == 0 && editor.lockLanes() == 6, "the second click in a row takes RESO's Locks "
+				"and its lane off");
+			// The rest: a lane without a Lock goes at one click
+			for(int guard = 0; editor.lockLanes() > 0 && guard < 20; ++guard)
+				click(editor, editor.laneDeleteArea(0).getCentre());
+			check(editor.lockLanes() == 0, "every lane taken off");
+		}
 		// Ticket 17: Overview's rows take a click as a trig; Patterns shows the chain
 		{
 			const auto px = [&](const float _x, const float _y)
@@ -893,9 +1011,23 @@ namespace
 			machine->setValueNotifyingHost(was);
 			target->setValueNotifyingHost(targetWas);
 		}
+		// What a full repaint of Sound and of Seq costs at 1600: printed, to compare before and after a layout's change
+		for(const auto page : {Editor::Page::Sound, Editor::Page::Seq})
+		{
+			editor.showPage(page);
+			editor.tick();
+			const int frames = 40;
+			const double start = juce::Time::getMillisecondCounterHiRes();
+			for(int i = 0; i < frames; ++i)
+				editor.createComponentSnapshot(editor.getLocalBounds(), true, 1.0f);
+			std::printf("frame cost, %s: %.2f ms a full repaint\n", page == Editor::Page::Sound ? "Sound" : "Seq",
+				(juce::Time::getMillisecondCounterHiRes() - start) / frames);
+		}
 		editor.showPage(Editor::Page::Sound);
 		editor.setSize(Editor::SmallWidth, Editor::SmallHeight);
 		snapshot(editor, _folder.getChildFile("sound-1280.png"));
+		editor.showPage(Editor::Page::Seq);
+		snapshot(editor, _folder.getChildFile("seq-1280.png"));
 	}
 }
 

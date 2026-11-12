@@ -86,6 +86,7 @@ namespace elektron::drums
 		m_page = _page;
 		m_menu = false;
 		m_selector.open = false;
+		m_lockMenu = false;
 		if(_page != Page::Sound)
 			m_lockSteps.clear();
 		layout();
@@ -101,6 +102,7 @@ namespace elektron::drums
 		m_selector.open = false;
 		m_armedLine = -1;
 		m_lockScroll = 0;
+		m_lockMenu = false;
 		layout();
 		repaint();
 	}
@@ -184,9 +186,9 @@ namespace elektron::drums
 	{
 		juce::String key;
 		key << static_cast<int>(m_page) << "/" << m_track << "/" << (m_menu ? 1 : 0) << "/" << m_lfo << "/"
-			<< m_sampleTab << "/" << m_machinePage << "/" << m_focus << "/" << m_stepPage << "/" << (m_follow ? 1 : 0) << "/"
+			<< m_machinePage << "/" << m_focus << "/" << m_stepPage << "/" << (m_follow ? 1 : 0) << "/"
 			<< (m_selector.open ? 1 : 0) << "/" << m_seqStep << "/" << m_seqMode << "/" << m_lockScroll << "/"
-			<< m_armedLine << "/" << m_browseItem << "/" << m_browseScroll << "/" << getWidth() << "/" << m_browseTree << "/"
+			<< m_armedLine << "/" << (m_lockMenu ? 1 : 0) << "/" << m_browseItem << "/" << m_browseScroll << "/" << getWidth() << "/" << m_browseTree << "/"
 			<< m_browseFilter << "/" << m_browseSearch << "/" << static_cast<int>(m_processor.sampleLibrary().generation())
 			<< "/" << static_cast<int>(m_processor.trackSounds().generation()) << "/";
 		// The LOCKER: FACTORY, IN THIS SET, the source whose REMOVE asks again, the walks ended
@@ -202,6 +204,7 @@ namespace elektron::drums
 		key << "/" << choiceOf(trackParameter("machine")->getParameterID()) << "/"
 			<< choiceOf(trackParameter("flt_type")->getParameterID()) << "/"
 			<< choiceOf(trackParameter("band_type")->getParameterID()) << "/"
+			<< choiceOf(trackParameter("amp_mode")->getParameterID()) << "/"
 			<< choiceOf(trackParameter("lfo1_sync")->getParameterID()) << "/"
 			<< choiceOf(trackParameter("lfo2_sync")->getParameterID()) << "/" << choiceOf("delay_source") << "/"
 			<< choiceOf("reverb_source") << "/" << choiceOf("delay_sync") << choiceOf("chorus_sync")
@@ -452,6 +455,7 @@ namespace elektron::drums
 			uint64_t h = 0;
 			for(int t = 0; t < 16; ++t)
 				h = mix(h, m_processor.playingStep(t) >= 0 ? 1 : 0);
+			h = mix(h, static_cast<uint64_t>(m_processor.chainSlot() + 1));	// Seq's CHAIN n/m
 			return mix(h, static_cast<uint64_t>(m_processor.currentPattern()));
 		});
 	}
@@ -609,7 +613,7 @@ namespace elektron::drums
 			m_lockSteps.clear();
 			repaint();
 		}
-		if(m_armedLine >= 0)
+		if(m_armedLine >= 0 && (found < 0 || !m_hits[static_cast<size_t>(found)].keepsArmed))
 			m_armedLine = -1;
 		m_press = {};
 		if(found < 0)
@@ -681,10 +685,6 @@ namespace elektron::drums
 	void Editor::mouseMove(const juce::MouseEvent& _e)
 	{
 		const auto mm = toMm(_e.position);
-		const juce::Rectangle<float> names{ScreenX, 86, cx(2) - ScreenX, 125};
-		if(m_page == Page::Seq && (names.contains(mm) || names.contains(m_mouse)))
-			repaint(toPx(names));
-		m_mouse = mm;
 		for(auto it = m_hits.rbegin(); it != m_hits.rend(); ++it)
 			if(it->r.contains(mm))
 			{

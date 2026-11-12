@@ -88,7 +88,6 @@ namespace elektron::drums::ui
 		Format format = Format::Plain;
 		bool visible = true;
 		bool off = false;			// greyed: no engine behind it
-		bool velocity = false;		// its name in the velocity hue
 		bool reversed = false;		// Segments: the second label first
 		juce::String section;		// the block: its focus, its off state, a lock line's subtitle
 
@@ -126,6 +125,7 @@ namespace elektron::drums::ui
 		std::function<void()> end;					// after a drag
 		juce::MouseCursor::StandardCursorType cursor = juce::MouseCursor::PointingHandCursor;
 		bool keepsLocks = false;					// a press here leaves the lock edit as it is
+		bool keepsArmed = false;					// ... and a lane's X asking again (another X's press arms that one)
 	};
 
 	// An area whose look follows a state the timer reads: when the state changes, the area alone is repainted
