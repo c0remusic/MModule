@@ -191,6 +191,125 @@ namespace
 		put(choiceOf({Family::OpenDrum, 0}));
 		click(_editor, _editor.machinePageArea(1).getCentre());
 	}
+	// A host's transport playing at 120 BPM, at the quarter set
+	struct Transport final : juce::AudioPlayHead
+	{
+		juce::Optional<PositionInfo> getPosition() const override
+		{
+			PositionInfo info;
+			info.setBpm(120);
+			info.setIsPlaying(true);
+			info.setPpqPosition(quarters);
+			return info;
+		}
+		double quarters = 0;
+	};
+
+	// Seq's lanes drawn as the Processor plays them (Editor::laneSteps): a Processor of its own plays Track 1 for two laps
+	// at 120 BPM, Machine 1 read from its engine at each step's middle on the second lap and compared with what the lane
+	// draws there. Machine 1 is locked on trigless steps alone: on a trig its Lock is the Hit's (Engine::lock), which the
+	// engine's parameter does not report
+	void lanesAsPlayed()
+	{
+		Processor processor;
+		Editor editor(processor);
+		auto* m1 = processor.parameter("t01_m1");
+		const auto lockOf = [](juce::RangedAudioParameter* _p) { return static_cast<uint16_t>(_p->getParameterIndex()); };
+		m1->setValueNotifyingHost(m1->convertTo0to1(40));
+		const auto lap = [&](const std::function<void(Pattern&)>& _set, const juce::String& _what)
+		{
+			processor.editSequencer([&](Sequencer& _s)
+			{
+				auto& p = _s.pattern(_s.currentPattern());
+				p.clearTrack(0);
+				_set(p);
+			});
+			editor.tick();
+			const auto drawn = editor.laneSteps(m1->getParameterIndex());
+			Transport transport;
+			processor.setPlayHead(&transport);
+			constexpr int Block = 256;
+			constexpr double Rate = 44100, Step = Rate / 2 / 4;	// a 16th at 120 BPM
+			processor.prepareToPlay(Rate, Block);
+			juce::AudioBuffer<float> buffer(processor.getTotalNumOutputChannels(), Block);
+			juce::MidiBuffer midi;
+			std::array<int, 16> played{};
+			for(int at = 0, next = 16; next < 32; at += Block)
+			{
+				transport.quarters = at / (Rate / 2);
+				processor.processBlock(buffer, midi);
+				while(next < 32 && (next + 0.5) * Step <= at + Block)
+					played[static_cast<size_t>(next++ - 16)] = processor.engine()->parameter(0, 0);
+			}
+			processor.setPlayHead(nullptr);
+			juce::StringArray wrong;
+			for(int s = 0; s < 16; ++s)
+			{
+				const auto& d = drawn[static_cast<size_t>(s)];
+				const float mid = m1->convertFrom0to1((d.from + d.to) / 2);
+				if(std::abs(mid - static_cast<float>(played[static_cast<size_t>(s)])) > 1.5f)
+					wrong.add(juce::String(s + 1) + ": drawn " + juce::String(mid, 1) + ", played "
+						+ juce::String(played[static_cast<size_t>(s)]));
+			}
+			check(wrong.isEmpty(), "a lane drawn as played, " + _what + (wrong.isEmpty() ? juce::String()
+				: ": " + wrong.joinIntoString(" | ")));
+		};
+		// 1: a trig on 5, a trigless Lock on 9: from the second lap on, steps 1-5 play the Lock
+		lap([&](Pattern& _p)
+		{
+			_p.setTrig(0, 4, true);
+			_p.setLock(0, 8, lockOf(m1), 100);
+		}, "a Lock held across the loop's end");
+		// 2: a trigless Lock on 4, the next trig on 9: steps 4-8 play it, then the base
+		lap([&](Pattern& _p)
+		{
+			_p.setLock(0, 3, lockOf(m1), 100);
+			_p.setTrig(0, 8, true);
+		}, "a Lock held to the next trig");
+		// 3: a trig on 1 sliding Machine 1 from 100 to the base of the trig on 9; a trigless Lock of Machine 2 on 5 ends
+		// the glide there
+		lap([&](Pattern& _p)
+		{
+			_p.setTrig(0, 0, true);
+			_p.step(0, 0).slide = true;
+			_p.setLock(0, 0, lockOf(m1), 100);
+			_p.setLock(0, 4, lockOf(processor.parameter("t01_m2")), 90);
+			_p.setTrig(0, 8, true);
+		}, "a slide ended by the next event");
+
+		// A list holds its Lock the same way: the filter's TYPE locked on 4, the next trig on 9
+		auto* type = processor.parameter("t01_flt_type");
+		processor.editSequencer([&](Sequencer& _s)
+		{
+			auto& p = _s.pattern(_s.currentPattern());
+			p.clearTrack(0);
+			p.setLock(0, 3, lockOf(type), 2);
+			p.setTrig(0, 8, true);
+		});
+		const auto list = editor.laneSteps(type->getParameterIndex());
+		bool held = true;
+		for(int s = 0; s < 16; ++s)
+			held = held && juce::roundToInt(type->convertFrom0to1(list[static_cast<size_t>(s)].from)) == (s >= 3 && s < 8 ? 2
+				: juce::roundToInt(type->convertFrom0to1(type->getValue())));
+		check(held, "the filter's TYPE locked on 4: steps 4-8 play WINDOW, the others the base");
+
+		// NOTE: on a trig the step's note plays over a Lock of Note (Processor::applyEvent), and holds to the next event
+		auto* note = processor.parameter("t01_note");
+		processor.editSequencer([&](Sequencer& _s)
+		{
+			auto& p = _s.pattern(_s.currentPattern());
+			p.clearTrack(0);
+			p.setTrig(0, 2, true);
+			p.step(0, 2).note = 72;
+			p.setLock(0, 2, lockOf(note), 50);
+			p.setTrig(0, 6, true);
+		});
+		const auto notes = editor.laneSteps(note->getParameterIndex());
+		const auto plain = [&](const int _s) { return juce::roundToInt(note->convertFrom0to1(notes[static_cast<size_t>(_s)].from)); };
+		check(plain(2) == 72 && plain(5) == 72 && plain(6) == juce::roundToInt(note->convertFrom0to1(note->getValue())),
+			"NOTE: the trig's note 72 over its Lock of 50, held to the next trig");
+	}
+
 	void snapshot(Editor& _editor, const juce::File& _file)
 	{
 		_editor.tick();
@@ -432,6 +551,7 @@ namespace
 		Editor editor(processor);
 		std::printf("face: %s\n", ui::Painter::faceName().toRawUTF8());
 		check(editor.getWidth() == Editor::Width && editor.getHeight() == Editor::Height, "the editor at 1600 x 1000");
+		lanesAsPlayed();
 
 		using S = Processor::Section;
 		soundCoverage(editor, processor, 0, "Sound, Track 1");

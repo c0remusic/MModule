@@ -89,6 +89,14 @@ namespace elektron::drums
 		bool lockMenuOpen() const { return m_lockMenu; }
 		int lockLanes() const { return static_cast<int>(lockLineList().size()); }
 		int lockScroll() const { return m_lockScroll; }
+		// What a lane draws: the parameter _line (its index) on each step of the Track shown, normalised, at the step's
+		// start and end (they differ where a slide glides), and whether the step holds its own Lock
+		struct LaneStep
+		{
+			float from, to;
+			bool locked;
+		};
+		std::vector<LaneStep> laneSteps(int _line) const;
 		// The timer's work, once
 		void tick();
 

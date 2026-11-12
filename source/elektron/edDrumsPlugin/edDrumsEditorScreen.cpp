@@ -1193,6 +1193,83 @@ namespace elektron::drums
 		return lines;
 	}
 
+	// As the sequencer plays the Track's steps (edDrumsSequencer.cpp) and Processor::applyEvent applies them: a step with
+	// a trig or a Lock is an event, and an event releases what the Track's last one locked and locks its own; so a Lock
+	// holds to the next event, then the base comes back, across the loop's end too. A trig with SLIDE glides what it locks
+	// towards the next trig's Lock, or the base, until the next event. On a trig, a step's note plays over a Lock of Note
+	std::vector<Editor::LaneStep> Editor::laneSteps(const int _line) const
+	{
+		const auto& p = pattern();
+		auto* rp = dynamic_cast<juce::RangedAudioParameter*>(m_processor.getParameters()[_line]);
+		const float base = rp ? rp->getValue() : 0.0f;
+		std::vector<LaneStep> steps(static_cast<size_t>(SeqSteps), {base, base, false});
+		const int length = std::min(SeqSteps, p.trackLength[static_cast<size_t>(m_track)]);
+		if(!rp || length <= 0)
+			return steps;
+		const bool note = _line == trackParameter("note")->getParameterIndex();
+		// Each step's own Lock, the step's note over it on a trig; whether a Lock in its list slides
+		std::vector<bool> own(static_cast<size_t>(length), false);
+		for(int s = 0; s < length; ++s)
+		{
+			auto& st = steps[static_cast<size_t>(s)];
+			const auto& step = p.step(m_track, s);
+			const auto* l = p.locks(m_track, s);
+			for(int i = 0; l && i < step.lockCount; ++i)
+				if(l[i].parameter == _line)
+				{
+					st.from = rp->convertTo0to1(l[i].value);
+					st.locked = own[static_cast<size_t>(s)] = true;
+				}
+			if(note && step.trig && step.note != NoNote)
+			{
+				st.from = rp->convertTo0to1(static_cast<float>(step.note));
+				st.locked = true;
+			}
+		}
+		const auto event = [&](const int _s) { return p.step(m_track, _s).trig || p.step(m_track, _s).lockCount > 0; };
+		// Held from the loop's last event, as the second lap and every later one play it
+		float held = base;
+		for(int s = length - 1; s >= 0; --s)
+			if(event(s))
+			{
+				held = steps[static_cast<size_t>(s)].locked ? steps[static_cast<size_t>(s)].from : base;
+				break;
+			}
+		for(int s = 0; s < length; ++s)
+		{
+			auto& st = steps[static_cast<size_t>(s)];
+			if(event(s))
+				held = st.locked ? st.from : base;
+			st.from = st.to = held;
+		}
+		for(int s = 0; s < length; ++s)
+		{
+			const auto& step = p.step(m_track, s);
+			if(!step.trig || !step.slide || !own[static_cast<size_t>(s)])
+				continue;
+			for(int d = 1; d <= length; ++d)
+			{
+				const int next = (s + d) % length;
+				if(!p.step(m_track, next).trig)
+					continue;
+				const float v0 = steps[static_cast<size_t>(s)].from;
+				float vt = base;
+				const auto* l = p.locks(m_track, next);
+				for(int i = 0; l && i < p.step(m_track, next).lockCount; ++i)
+					if(l[i].parameter == _line)
+						vt = rp->convertTo0to1(l[i].value);
+				for(int k = 0; k < d && (k == 0 || !event((s + k) % length)); ++k)
+				{
+					auto& st = steps[static_cast<size_t>((s + k) % length)];
+					st.from = v0 + (vt - v0) * static_cast<float>(k) / static_cast<float>(d);
+					st.to = v0 + (vt - v0) * static_cast<float>(k + 1) / static_cast<float>(d);
+				}
+				break;
+			}
+		}
+		return steps;
+	}
+
 	void Editor::buildSeq()
 	{
 		for(int i = 0; i < 3; ++i)
@@ -1855,20 +1932,14 @@ namespace elektron::drums
 				c.parameter = rp;
 				return c.valueText(_v);
 			};
-			// Its Locks, normalised, on the steps that hold one
-			std::array<float, SeqSteps> lock{};
-			std::array<bool, SeqSteps> locked{};
+			// What it plays on each step (laneSteps), and how many Locks it holds
+			const auto steps = laneSteps(line);
 			int locks = 0;
 			for(int s = 0; s < SeqSteps; ++s)
 			{
 				const auto* l = p.locks(m_track, s);
 				for(int i = 0; l && i < p.step(m_track, s).lockCount; ++i)
-					if(l[i].parameter == line)
-					{
-						lock[static_cast<size_t>(s)] = rp->convertTo0to1(l[i].value);
-						locked[static_cast<size_t>(s)] = true;
-						++locks;
-					}
+					locks += l[i].parameter == line ? 1 : 0;
 			}
 			// The names' column: the name, its block or the X's question, its base; the X, framed
 			const bool armed = m_armedLine == line;
@@ -1885,77 +1956,42 @@ namespace elektron::drums
 				: colour::mid, 600, Align::Centre);
 
 			laneFrame(b);
+			const auto at = [&](const int _q) { return steps[static_cast<size_t>(o0 + _q)]; };
 			if(list)
 			{
-				// A list's Lock: a pill with its value; the base written where a run of steps without one starts
+				// A list's Lock: a pill with its value; where a run of steps without one starts, what they play, the base
+				// in grey, a Lock held in the lane's hue
 				for(int q = 0; q < 16; ++q)
 				{
-					const int n = o0 + q;
 					const float sx = SG + static_cast<float>(q) * SC, w = SC - 1.2f;
-					if(locked[static_cast<size_t>(n)])
+					if(at(q).locked)
 					{
 						_p.rect(sx + 1.2f, yy + 4, w - 2.4f, hh - 8, h.c[3], 1.2f);
 						_p.frame(sx + 1.2f, yy + 4, w - 2.4f, hh - 8, h.c[0], 1.2f, 0.4f);
-						_p.text(sx + w / 2, yy + hh / 2 + 1.4f, fitted(_p, valueText(lock[static_cast<size_t>(n)]), 2.8f, w - 3, 600),
-							2.8f, h.c[4], 600, Align::Centre);
+						_p.text(sx + w / 2, yy + hh / 2 + 1.4f, fitted(_p, valueText(at(q).from), 2.8f, w - 3, 600), 2.8f,
+							h.c[4], 600, Align::Centre);
 					}
-					else if(q == 0 || locked[static_cast<size_t>(n - 1)])
+					else if(q == 0 || at(q - 1).locked || at(q - 1).from != at(q).from)
 					{
 						int run = 1;
-						while(q + run < 16 && !locked[static_cast<size_t>(n + run)])
+						while(q + run < 16 && !at(q + run).locked && at(q + run).from == at(q).from)
 							++run;
-						_p.text(sx + 1.6f, yy + hh / 2 + 1.2f, fitted(_p, valueText(base), 2.8f,
-							static_cast<float>(run) * SC - 3), 2.8f, colour::base);
+						const bool held = at(q).from != base;
+						_p.text(sx + 1.6f, yy + hh / 2 + 1.2f, fitted(_p, valueText(at(q).from), 2.8f,
+							static_cast<float>(run) * SC - 3), 2.8f, held ? h.c[4] : colour::base, held ? 600 : 500);
 					}
 				}
 				continue;
 			}
-			// A value: held steps as the sequencer plays them (Processor::applyEvent): a Lock holds to the Track's next
-			// event, a trig or a Lock, then the base comes back; a trig with SLIDE glides what it locks to the next trig's
-			// Lock, or to the base, across the steps between (edDrumsSequencer.cpp). Filled from the base line
-			std::array<float, SeqSteps> from, to;
-			from.fill(base);
-			to.fill(base);
-			{
-				float held = base;
-				for(int s = 0; s < length && s < SeqSteps; ++s)
-				{
-					const auto& step = p.step(m_track, s);
-					if(step.trig || step.lockCount)
-						held = locked[static_cast<size_t>(s)] ? lock[static_cast<size_t>(s)] : base;
-					from[static_cast<size_t>(s)] = to[static_cast<size_t>(s)] = held;
-				}
-				for(int s = 0; s < length && s < SeqSteps; ++s)
-				{
-					const auto& step = p.step(m_track, s);
-					if(!step.trig || !step.slide || !locked[static_cast<size_t>(s)])
-						continue;
-					for(int d = 1; d <= length; ++d)
-					{
-						const int next = (s + d) % length;
-						if(!p.step(m_track, next).trig)
-							continue;
-						const float v0 = lock[static_cast<size_t>(s)];
-						const float vt = locked[static_cast<size_t>(next)] ? lock[static_cast<size_t>(next)] : base;
-						for(int k = 0; k < d; ++k)
-						{
-							const auto at = static_cast<size_t>((s + k) % length);
-							from[at] = v0 + (vt - v0) * static_cast<float>(k) / static_cast<float>(d);
-							to[at] = v0 + (vt - v0) * static_cast<float>(k + 1) / static_cast<float>(d);
-						}
-						break;
-					}
-				}
-			}
+			// A value: held steps, ramps where a slide glides, filled from the base line
 			const auto Y = [&](const float _v) { return yy + 0.6f + (hh - 1.2f) * (1 - _v); };
 			const float baseY = Y(base);
 			std::vector<juce::Point<float>> curve;
 			for(int q = 0; q < 16; ++q)
 			{
-				const auto n = static_cast<size_t>(o0 + q);
 				const float x0 = SG + static_cast<float>(q) * SC, x1 = q < 15 ? x0 + SC : right;
-				curve.push_back({x0, Y(from[n])});
-				curve.push_back({x1, Y(to[n])});
+				curve.push_back({x0, Y(at(q).from)});
+				curve.push_back({x1, Y(at(q).to)});
 			}
 			juce::Path fill;
 			fill.startNewSubPath(SG, baseY);
@@ -1974,9 +2010,8 @@ namespace elektron::drums
 			_p.g.strokePath(stroke, juce::PathStrokeType(0.65f));
 			dashed(_p, SG, right, baseY, juce::Colour(0x8c8E8C88), 0.35f);
 			for(int q = 0; q < 16; ++q)
-				if(locked[static_cast<size_t>(o0 + q)])
-					_p.dot(SG + static_cast<float>(q) * SC + (SC - 1.2f) / 2, Y(lock[static_cast<size_t>(o0 + q)]), 1.4f,
-						h.c[4], h.c[4], 0.1f);
+				if(at(q).locked)
+					_p.dot(SG + static_cast<float>(q) * SC + (SC - 1.2f) / 2, Y(at(q).from), 1.4f, h.c[4], h.c[4], 0.1f);
 		}
 
 		// The step chosen: a frame on its trig, a column through the lanes; what lies beyond the Track's length
