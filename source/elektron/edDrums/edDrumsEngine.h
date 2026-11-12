@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <limits>
@@ -39,8 +40,16 @@ struct OpenDrumVoice;
 // a TRIG LFO meets a Hit the same wherever its note fell. A Track takes what is aimed at it at the blocks of its own family,
 // each block by its target's limit, which is what keeps a square's edge from clicking: SYN1-8 at the machine, level and pan at
 // the Track, the rest at its chain. A Hit of the Track takes it all at once.
+//
+// At another host rate (ticket 16: 48, 88.2, 96 and 192 kHz) each family keeps its own (edDrumsRate.h): the Machinedrum's
+// ring is read through a RateFir at a phase a Hit sets, as the Syntakt's is at 44.1 kHz, the Syntakt's through another, or
+// as it is at 48 kHz; the sends run at their 44.1 kHz through SendsAtRate; the master, the pan's and the sends' ramps, the
+// transport and the LFOs' quarter notes go by the host's samples. HitDelay becomes hitDelay(rate), 44.1 kHz's unchanged.
 namespace elektron::drums
 {
+	class RateFir;
+	class SendsAtRate;
+
 	// The chain's value an LFO target at or past DriveA is
 	constexpr VelocityTarget chainTarget(const LfoTarget _target)
 	{
@@ -145,7 +154,14 @@ namespace elektron::drums
 		// the first and the FIR places it Latency on, with room left: a Hit holds its voice back by what is left past its
 		// chain's delay (Chain::delay), so that a raised drive arrives on time
 		static constexpr int HitDelay = 81;
-
+		// ... at host rate _rate, in its samples: HitDelay at 44.1 kHz; elsewhere the Machinedrum's wait, its latest voice and
+		// chain, and its RateFir's half length, or the Syntakt's blocks, chain and FIR, whichever is longer
+		static int hitDelay(double _rate);
+		// The host's block at _rate: 32 samples at 44.1 and 48 kHz, 64 at 88.2 and 96, 128 at 192, about 0.7 ms
+		static constexpr int hostBlockOf(const double _rate)
+		{
+			return BlockSize * (_rate >= 88200 ? static_cast<int>(_rate / 44100) : 1);
+		}
 		// A voice whose peak stays under Silence (-100 dB) that many blocks is off: not rendered until its next Hit. As long
 		// as the longest silence inside a Hit, which the engine test measures
 		static constexpr float Silence = 1e-5f;
@@ -173,9 +189,12 @@ namespace elektron::drums
 		// 1/512 of the cycle of a 1/64
 		static constexpr double PositionTolerance = 1.0 / 8192;
 
-		// _library outlives the engine
-		explicit Engine(const Library& _library);
+		// _library outlives the engine. _rate the host's, one playableRate (edDrumsRate.h) holds: throws on another
+		explicit Engine(const Library& _library, double _rate = SampleRate);
 		~Engine();
+
+		double rate() const { return m_rate; }
+		int hitDelay() const { return m_hitDelay; }
 
 		Engine(const Engine&) = delete;
 		Engine& operator=(const Engine&) = delete;
@@ -285,6 +304,7 @@ namespace elektron::drums
 			void close();
 			int64_t end() const { return m_end; }
 			const float* window(int64_t _from) const { return m_x + (_from & (Size - 1)); }
+			const float* data() const { return m_x; }
 
 		private:
 			float at(const int64_t _position) const { return m_x[_position & (Size - 1)]; }
@@ -345,6 +365,9 @@ namespace elektron::drums
 			float mdTail[TailBlocks][BlockSize]{};	// a cut voice, ahead of its blocks: its own voice is free at once
 			int mdTailBlocks = 0;
 			int mdHitSkip = 0;				// the filter's pure delay: what still comes of the last voice in a Hit's first block
+			int mdPhase = 0, mdNextPhase = 0;	// away from 44.1 kHz, as phase and nextPhase below, for its ring
+			int64_t mdPhaseAt = Never;
+			int mdFade = 0, stFade = 0;		// ... how long the old phase fades into the new before phaseAt (phaseFade)
 
 			// OPEN DRUM, on the Machinedrum's blocks
 			OpenDrumVoice* od = nullptr;	// its voice, in m_odMemory
@@ -407,10 +430,70 @@ namespace elektron::drums
 		static bool vintageGrain(const Track& _track);
 		void renderVintage(int _track, float* _x);
 		void renderSyntakt();
+
+		// How a family's ring is read at the host's rate: host sample m reads up to its sample (down m - phase) / up, through
+		// table's rows of 48 taps (Resample48To44's, a RateFir's), or as it is where table is nullptr (up = down = 1)
+		struct Reading
+		{
+			int up = 1, down = 1;
+			int delay = 0;					// the FIR's, in 1/up of a ring's sample
+			const float* table = nullptr;
+			double inverse = 1;				// 1 / up
+			const int8_t* unit = nullptr;	// a half-band's (RateFir::units), its phases that are a sample of the ring alone
+			bool fast = false;				// read by rate::readFir: away from 44.1 kHz where the CPU runs AVX2
+
+			// _q / up rounded down, _q >= 0, exactly: by the inverse, put right, a division of 64 bits being dear where it
+			// runs for every Track at every run
+			int64_t below(const int64_t _q) const
+			{
+				auto i = static_cast<int64_t>(static_cast<double>(_q) * inverse);
+				while(i * up > _q)
+					--i;
+				while((i + 1) * up <= _q)
+					++i;
+				return i;
+			}
+		};
+		// The ring's sample that sounds at host sample _host
+		static int64_t soundsAt(const Reading& _r, const int64_t _host, const int _phase)
+		{
+			return (_r.down * _host - _phase - _r.delay) / _r.up;
+		}
+		// Where a Hit's phase must be read from: the first host sample whose newest tap, at any phase before, can reach its
+		// first block, _ahead ring samples before the sample that sounds at host sample _sounds. A sample early, and as many
+		// more as a phase can move the newest tap by
+		static int64_t phaseFrom(const Reading& _r, const int64_t _sounds, const int _ahead)
+		{
+			return _sounds - (_r.delay + _r.up * _ahead + _r.down - 1) / _r.down - 1 - (_r.up - 1) / _r.down;
+		}
+		// Whether the next _count host samples read nothing of _ring
+		bool readOver(const Ring& _ring, const Reading& _r, int _phase, int64_t _phaseAt, int _fade, int _count) const;
+		// _count host samples of _ring through _r's FIR, from m_now, the Hit's phase taken at _phaseAt, crossfaded from the
+		// old one over the _fade samples before it
+		void readThrough(const Ring& _ring, const Reading& _r, int& _phase, int _nextPhase, int64_t& _phaseAt, int _fade,
+			float* _out, int _count) const;
+		// The crossfade of a Hit's phase away from 44.1 kHz: CutSamples' time, or what is left before its phase is due
+		int phaseFade(const int64_t _phaseAt) const
+		{
+			return m_bridge ? static_cast<int>(std::clamp<int64_t>(_phaseAt - m_now, 0, m_cutHost)) : 0;
+		}
 		void read(int _track, float* _out, int _count);
 		void mix(float* const* _outputs, int _offset, int _count);
+		void mixAtRate(float* const* _outputs, int _offset, int _count);
 
 		const Library& m_library;
+
+		// The host's rate and what it changes
+		const double m_rate;
+		const int m_hitDelay;
+		// The host's block, the sends' and the master's: 32 samples at 44.1 and 48 kHz, as many 32 as 44.1 kHz goes into
+		// the rate above (hostBlockOf), so that it lasts about the 0.7 ms of 44.1 kHz's
+		const int m_hostBlock;
+		float m_ramp = 1.0f / CutSamples;	// the pan's and the sends' step a host sample: a full swing in CutSamples at 44.1 kHz
+		int m_cutHost = CutSamples;			// CutSamples' time in host samples
+		std::unique_ptr<RateFir> m_mdFir, m_stFir;	// none where the host's rate is the family's, or 44.1 kHz's for the Syntakt
+		Reading m_mdRead, m_stRead;
+		std::unique_ptr<SendsAtRate> m_bridge;		// none at 44.1 kHz
 
 		std::array<Track, Tracks> m_tracks;
 
@@ -431,6 +514,7 @@ namespace elektron::drums
 		std::unique_ptr<Block> m_mdIn;
 		uint32_t m_tempo = 120 * 24;
 		int64_t m_mdBlock = 0;			// the next block
+		int64_t m_mdNext = 0;			// the host sample it renders at: where the Machinedrum's time reaches it
 
 		// OPEN DRUM: a voice per Track, made at once
 		std::vector<std::max_align_t> m_odMemory;
@@ -463,7 +547,7 @@ namespace elektron::drums
 		// The transport: position m_quarters at sample m_quartersAt, and on at the tempo
 		double m_quarters = 0;
 		int64_t m_quartersAt = 0;
-		double m_quartersPerSample = 120.0 / 60 / SampleRate;
+		double m_quartersPerSample = 120.0 / 60 / SampleRate;	// a host sample's
 
 		int64_t m_now = 0;				// the next host sample
 	};

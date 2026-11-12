@@ -2179,6 +2179,43 @@ namespace
 
 	// Track 1 on steps 0 and 4, Filter Freq and Machine 1 locked to 20 on step 0 and 100 on step 4; step 0 slides or not.
 	// A slide moves its step's Locks in a line to the next trig's, a step every 32 samples from its Hit
+	// One instance at 44.1 kHz, then 96, then 44.1 again, prepareToPlay each time as a host that changes its rate does:
+	// each sounds, reports its engine's hitDelay as its latency, and 44.1 kHz plays the same samples after as before
+	void rateSwitch()
+	{
+		Processor p;
+		allOutputs(p);
+		const auto take = [&](const double _rate)
+		{
+			p.prepareToPlay(_rate, Block);
+			std::vector<float> out;
+			for(int b = 0; b < 60; ++b)
+			{
+				juce::AudioBuffer<float> buffer(Channels, Block);
+				buffer.clear();
+				juce::MidiBuffer midi;
+				if(b == 1)
+					for(int t = 0; t < 4; ++t)
+						midi.addEvent(juce::MidiMessage::noteOn(1, 36 + t, static_cast<juce::uint8>(100 + t)), 17 + 23 * t);
+				p.processBlock(buffer, midi);
+				for(int c = 0; c < Channels; ++c)
+					out.insert(out.end(), buffer.getReadPointer(c), buffer.getReadPointer(c) + Block);
+			}
+			double peak = 0;
+			for(const float v : out)
+				peak = std::max(peak, static_cast<double>(std::abs(v)));
+			require(peak > 0.01, "the instance at " + std::to_string(_rate) + " Hz is silent");
+			require(p.getLatencySamples() == Engine::hitDelay(_rate), "the latency at " + std::to_string(_rate) + " Hz");
+			return out;
+		};
+		const auto before = take(44100);
+		take(96000);
+		const auto after = take(44100);
+		require(before == after, "44.1 kHz after 96 kHz plays other samples");
+		std::printf("  44.1, 96, 44.1 kHz in one instance: latency %d, %d, %d; 44.1 kHz the same samples after (%zu)\n",
+			Engine::HitDelay, Engine::hitDelay(96000), Engine::HitDelay, before.size());
+	}
+
 	void slides(const Library& _library)
 	{
 		constexpr int Length = 210 * Block;			// 26880: steps 0 to 4 and some
@@ -2828,6 +2865,7 @@ int main(const int _argc, char** _argv)
 		sampleLibrary();
 		wav.deleteFile();
 		slides(library);
+		rateSwitch();
 		return 0;
 	}
 	catch(const std::exception& e)

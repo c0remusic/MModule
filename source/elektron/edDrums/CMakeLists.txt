@@ -5,10 +5,17 @@ cmake_minimum_required(VERSION 3.15)
 add_library(edDrums STATIC edDrumsChain.h edDrumsChain.cpp
 	edDrumsEngine.h edDrumsEngine.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
 	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
-	edDrumsMaster.h edDrumsMaster.cpp edDrumsSamples.h edDrumsSamples.cpp
+	edDrumsMaster.h edDrumsMaster.cpp edDrumsRate.h edDrumsRate.cpp edDrumsRateAvx2.cpp edDrumsSamples.h edDrumsSamples.cpp
 	edDrumsSendFx.h edDrumsSendFx.cpp edDrumsSends.h edDrumsSends.cpp
 	edDrumsSequencer.h edDrumsSequencer.cpp edDrumsVintage.h edDrumsVintage.cpp)
 target_include_directories(edDrums PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+# The rates' FIRs in AVX2 and FMA, which run only where rate::fastFir() finds the CPU has them: their file alone built
+# for it, as stEngine's stSimdAvx2.cpp
+if(MSVC AND CMAKE_CXX_COMPILER_ARCHITECTURE_ID MATCHES "x64")
+	set_source_files_properties(edDrumsRateAvx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+	set_source_files_properties(edDrumsRateAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma")
+endif()
 target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast sophie PRIVATE mdEngine opendrum)
 set_property(TARGET edDrums PROPERTY FOLDER "Elektron")
 
@@ -21,6 +28,14 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsEngineTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsEngineTest COMMAND edDrumsEngineTest)
 	set_tests_properties(edDrumsEngineTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# The engine at 44.1, 48, 88.2, 96 and 192 kHz: 44.1 unchanged, Q15, pitch, HitDelay and its jitter, the cost
+	# (GEARMULATOR_MD_FIRMWARE_BIN: exit 77 without it)
+	add_executable(edDrumsRateTest edDrumsRateTest.cpp)
+	target_link_libraries(edDrumsRateTest PRIVATE edDrums)
+	set_property(TARGET edDrumsRateTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsRateTest COMMAND edDrumsRateTest)
+	set_tests_properties(edDrumsRateTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 600)
 
 	# A Track's chain on its own: Q5, Q6, Q7, Q9, Q12, the skeleton's order; Q3 against the exact port (SYNTAKT_SECTION7,
 	# SYNTAKT_SAMPLES: exit 77 without them)

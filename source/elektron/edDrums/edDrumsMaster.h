@@ -2,7 +2,7 @@
 // firmware's order. Laws fitted on the firmware's tables and code, about 40 numbers; against the firmware run in an
 // emulator, a model of them errs by -100 dB or less. Main goes in at -10 dB, where a Digitakt II's Track sits under its
 // +10 dB, so that a Main under the threshold leaves as it came; but it leaves clipped at full scale, as the firmware's.
-// The settings take effect at the engine's blocks of 32, where their ramps start.
+// The settings take effect at the engine's blocks (32 samples at 44.1 kHz, as long elsewhere), where their ramps start.
 #pragma once
 
 #include <array>
@@ -35,7 +35,8 @@ namespace elektron::drums
 	class Master
 	{
 	public:
-		explicit Master(double _rate);
+		// _block: the engine's block, in samples at _rate, over which a setting ramps
+		explicit Master(double _rate, int _block = elektron::BlockSize);
 
 		// From the next block
 		void set(const int _byte, const uint8_t _value)
@@ -59,7 +60,7 @@ namespace elektron::drums
 		struct Ramp
 		{
 			double from = 0, to = 0;
-			double at(const int _n) const { return from + (to - from) * _n / elektron::BlockSize; }
+			double at(const int _n, const int _length) const { return from + (to - from) * _n / _length; }
 			void next(const double _to) { from = to, to = _to; }
 		};
 
@@ -67,6 +68,7 @@ namespace elektron::drums
 		void sample(float& _left, float& _right, int _n);
 
 		const double m_rate, m_mixPole;
+		const int m_block;
 		std::array<uint8_t, MasterBytes> m_bytes{};
 		// The block's
 		double m_threshold = 0, m_thresholdPeak = 1, m_ratio = 1, m_attack = 0, m_release = 0, m_wetTo = 1, m_dryTo = 0;

@@ -3,11 +3,14 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <numeric>
+#include <stdexcept>
 #include <utility>
 #include <type_traits>
 
 #include <emmintrin.h>
 
+#include "edDrumsRate.h"
 #include "openDrum.h"
 #include "sophieMachine.h"
 #include "stFastBdModern.h"
@@ -116,6 +119,29 @@ namespace elektron::drums
 		float moved(const int _value, const int _offset)
 		{
 			return static_cast<float>(wordOf(_value, _offset)) / 128.0f;
+		}
+
+		// _y[i] += _x[i] _a _b for i under _n, four at a time: the mix's steady gains away from 44.1 kHz, which run for every
+		// Track, output and send at every host sample. Not at 44.1 kHz: the compiler's loop there may fuse a multiply and
+		// an add, which this does not, and 44.1 kHz renders what it did before
+		inline void addScaled(float* _y, const float* _x, const float _a, const float _b, const int _n)
+		{
+			const __m128 a = _mm_set1_ps(_a), b = _mm_set1_ps(_b);
+			int i = 0;
+			for(; i + 4 <= _n; i += 4)
+				_mm_storeu_ps(_y + i, _mm_add_ps(_mm_loadu_ps(_y + i), _mm_mul_ps(_mm_mul_ps(_mm_loadu_ps(_x + i), a), b)));
+			for(; i < _n; ++i)
+				_y[i] += _x[i] * _a * _b;
+		}
+
+		inline void addScaled(float* _y, const float* _x, const float _a, const int _n)
+		{
+			const __m128 a = _mm_set1_ps(_a);
+			int i = 0;
+			for(; i + 4 <= _n; i += 4)
+				_mm_storeu_ps(_y + i, _mm_add_ps(_mm_loadu_ps(_y + i), _mm_mul_ps(_mm_loadu_ps(_x + i), a)));
+			for(; i < _n; ++i)
+				_y[i] += _x[i] * _a;
 		}
 
 		// A sum over the taps of one Track, oldest first
@@ -380,8 +406,49 @@ namespace elektron::drums
 		std::array<sophie_t, Tracks> v;
 	};
 
-	Engine::Engine(const Library& _library)
-		: m_library(_library), m_shared(std::make_unique<md::voice::Shared>()),
+	namespace
+	{
+		// Engine::hitDelay away from 44.1 kHz, at a whole rate _rate. The Machinedrum: a note waits for its block, which
+		// starts up to a block after its time and one sample more, the latest voice and the longest chain, and the FIR's half
+		// length; its position rounded down to a whole sample. The Syntakt: the block that sees its trig, up to a block after
+		// its time, the block that sounds it, the longest chain, the FIR's half length where it has one
+		constexpr int hitDelayAt(const int64_t _rate)
+		{
+			const auto ceilDiv = [](const int64_t _a, const int64_t _b) { return static_cast<int>((_a + _b - 1) / _b); };
+			const int64_t md = std::gcd(_rate, int64_t{44100}), mdUp = _rate / md, mdDown = 44100 / md;
+			const int mdWait = ceilDiv(mdUp * (BlockSize + 1 + LatestStart + Chain::MaxDelay + RateFir::Taps / 2) - 1, mdDown);
+			const int64_t st = std::gcd(_rate, int64_t{48000}), stUp = _rate / st, stDown = 48000 / st;
+			const int64_t stDelay = stUp == stDown ? 0 : stUp * RateFir::Taps / 2;
+			const int stWait = ceilDiv(stDelay + stUp * (2 * BlockSize + Chain::MaxDelay), stDown);
+			return mdWait > stWait ? mdWait : stWait;
+		}
+
+		// The rings hold it all at every rate: twice the lead a Hit is written at, in each family's samples, its blocks, a
+		// cut's ramp and a window of the FIR, as 44.1 kHz's static_assert in the constructor has it
+		constexpr bool ringsHold(const int64_t _rate)
+		{
+			const int64_t delay = _rate == 44100 ? Engine::HitDelay : hitDelayAt(_rate);
+			const int64_t md = (delay * 44100 + _rate - 1) / _rate, st = (delay * 48000 + _rate - 1) / _rate;
+			return 2 * (md > st ? md : st) + 2 * BlockSize + Engine::CutSamples + RateFir::Taps < 512;
+		}
+		static_assert(ringsHold(44100) && ringsHold(48000) && ringsHold(88200) && ringsHold(96000) && ringsHold(192000),
+			"the rings hold a Hit's lead at every rate");
+		static_assert(Engine::hostBlockOf(192000) <= SendsAtRate::MaxHost, "a run fits the mix's sum, a host block the sends'");
+
+		// phaseFrom gives 44.1 kHz's Syntakt the phase as before, its Latency and chainDelay as 48 kHz samples, while
+		// ceil(147 c / 160) is c: for every chain delay c up to 12
+		static_assert(13 * Chain::MaxDelay <= Down - 1, "phaseFrom's 44.1 kHz phase as before");
+	}
+
+	int Engine::hitDelay(const double _rate)
+	{
+		if(!playableRate(_rate))
+			throw std::invalid_argument("the engine plays at 44.1, 48, 88.2, 96 or 192 kHz");
+		return _rate == SampleRate ? HitDelay : hitDelayAt(std::lround(_rate));
+	}
+
+	Engine::Engine(const Library& _library, const double _rate)
+		: m_library(_library), m_rate(_rate), m_hitDelay(hitDelay(_rate)), m_hostBlock(hostBlockOf(_rate)), m_shared(std::make_unique<md::voice::Shared>()),
 		m_mdChain(std::make_unique<Chain>(SampleRate, false)), m_mdIn(std::make_unique<Block>()),
 		m_stChain(std::make_unique<Chain>(syntakt::fast::MachineRate, true)), m_stIn(std::make_unique<Block>())
 	{
@@ -389,6 +456,7 @@ namespace elektron::drums
 			"a Machinedrum Hit waits its block, the latest voice and its chain");
 		static_assert(HitDelay * Down >= SyntaktWait, "a Syntakt Hit waits its blocks and the FIR");
 		static_assert(2 * HitDelay + 2 * BlockSize + CutSamples + Ring::Mirror < Ring::Size, "the rings hold it all");
+		static_assert(Ring::Size == 512 && Ring::Mirror == RateFir::Taps, "ringsHold's ring, at every rate");
 		static_assert(FirTaps == Ring::Mirror, "a window of the ring is a row of the FIR");
 
 		m_shared->tables = &m_library.rom;
@@ -407,7 +475,32 @@ namespace elektron::drums
 		m_shared->e12 = m_library.e12.empty() ? nullptr : m_library.e12.data();
 		m_shared->pi = m_library.pi.data();
 		m_sends = std::make_unique<Sends>(*m_library.os, m_library.trx.sine.data());
-		m_master = std::make_unique<Master>(Sends::Rate);
+		m_master = std::make_unique<Master>(m_rate, m_hostBlock);
+
+		// What the host's rate changes: at 44.1 kHz nothing, the Syntakt read through Resample48To44 as before
+		static_assert(RateFir::Taps == FirTaps, "a RateFir's row is a window of the ring");
+		m_stRead = {Up, Down, FirDelay, &Resample48To44::Table[0][0], 1.0 / Up};
+		if(m_rate != SampleRate)
+		{
+			m_mdFir = std::make_unique<RateFir>(SampleRate, m_rate);
+			m_mdRead = {m_mdFir->up(), m_mdFir->down(), m_mdFir->delay(), m_mdFir->row(0), 1.0 / m_mdFir->up()};
+			m_stRead = {};
+			if(m_rate != syntakt::fast::MachineRate)
+			{
+				// At a whole multiple of 48 kHz a half-band, a cutoff at 24 kHz, whose first phase is the Syntakt's own
+				// sample: what lies past 20.5 kHz is the Syntakt's at 48 kHz, its images from 27.5 kHz on down by 80 dB
+				const bool halfBand = std::lround(m_rate) % 48000 == 0;
+				m_stFir = std::make_unique<RateFir>(syntakt::fast::MachineRate, m_rate, RateFir::Taps,
+					halfBand ? syntakt::fast::MachineRate / 2 : RateFir::Cutoff);
+				m_stRead = {m_stFir->up(), m_stFir->down(), m_stFir->delay(), m_stFir->row(0), 1.0 / m_stFir->up(),
+					halfBand ? m_stFir->units() : nullptr};
+			}
+			m_bridge = std::make_unique<SendsAtRate>(*m_sends, m_rate, m_hostBlock);
+			m_mdRead.fast = m_stRead.fast = rate::fastFir();
+			m_ramp = static_cast<float>(SampleRate / (CutSamples * m_rate));
+			m_cutHost = static_cast<int>(std::lround(CutSamples * m_rate / SampleRate));
+			m_quartersPerSample = 120.0 / 60 / m_rate;
+		}
 		m_sends->setTempo(m_tempo);
 		m_voices.reserve(Tracks);
 		for(uint32_t t = 0; t < Tracks; ++t)
@@ -594,7 +687,7 @@ namespace elektron::drums
 		m_tempo = static_cast<uint32_t>(std::lround(std::clamp(_bpm, 30.0, 300.0) * 24.0));
 		m_sends->setTempo(m_tempo);
 		m_sends->setBpm(std::clamp(_bpm, 1.0, 1000.0));
-		const double perSample = std::clamp(_bpm, 1.0, 1000.0) / 60 / SampleRate;
+		const double perSample = std::clamp(_bpm, 1.0, 1000.0) / 60 / m_rate;
 		if(perSample == m_quartersPerSample)
 			return;
 		m_quarters = position();
@@ -701,7 +794,7 @@ namespace elektron::drums
 
 	void Engine::modulate(const uint32_t _tracks, const double _seconds)
 	{
-		m_lfos.step(_tracks, position(), _seconds * SampleRate * m_quartersPerSample, _seconds);
+		m_lfos.step(_tracks, position(), _seconds * m_rate * m_quartersPerSample, _seconds);
 		for(uint32_t bits = m_lfos.waiting() & _tracks, t = 0; bits; bits >>= 1, ++t)
 			if(bits & 1)
 				takeMoves(static_cast<int>(t));
@@ -827,7 +920,20 @@ namespace elektron::drums
 		// The voice's first sample lands HitDelay after the note, wherever its block falls. The VINTAGE grain's sounds from
 		// its block's first sample
 		const int start = vintageGrain(t) ? 0 : voiceStart(t.machine);
-		const int64_t at = m_now + HitDelay - start - m_mdChain->delay(_track);
+		const int64_t sounds = m_now + m_hitDelay;
+		int64_t at = sounds - start - m_mdChain->delay(_track);
+		if(m_mdRead.table)
+		{
+			// Away from 44.1 kHz the voice's first sample out of its chain is what the FIR places at that host sample, at
+			// the phase that puts it there, as a Syntakt Hit is placed (hitSyntakt); the old phase reads on up to the first
+			// output whose newest tap reaches this voice's first block
+			const int ahead = start + m_mdChain->delay(_track);
+			const int64_t q = m_mdRead.down * sounds - m_mdRead.delay;
+			at = q / m_mdRead.up - ahead;
+			t.mdNextPhase = static_cast<int>(q % m_mdRead.up);
+			t.mdPhaseAt = phaseFrom(m_mdRead, sounds, ahead);
+			t.mdFade = phaseFade(t.mdPhaseAt);
+		}
 		t.mdHitSkip = m_mdChain->pureDelay(_track);
 		const float tail = tailGain(t.md.velocity, _gain);
 		t.md.start(at, _gain, t.level);
@@ -920,24 +1026,28 @@ namespace elektron::drums
 		// FIR places at output sample m_now + HitDelay, read - FirDelay = 147 (position of that sample in the ring)
 		const int chainDelay = m_stChain->delay(_track);
 		const int64_t first = BlockSize * (m_stBlock + 1);
-		const int64_t rest = Down * (m_now + HitDelay) - FirDelay - Up * (first + chainDelay);
-		t.stNext = first + rest / Up;
+		const auto& r = m_stRead;
+		const int64_t rest = r.down * (m_now + m_hitDelay) - r.delay - r.up * (first + chainDelay);
+		t.stNext = first + rest / r.up;
 		t.stNextGain = _gain;
 		t.stNextVelocity = _velocity;
 		t.stGateOff = false;
-		t.nextPhase = static_cast<int>(rest % Up);
-		// The first output whose newest tap reaches that sample, whatever the phase before it: chainDelay is in 48 kHz
-		// samples here, so that the phase comes a sample early at a chain of 12, never late
-		t.phaseAt = m_now + HitDelay - Resample48To44::Latency - chainDelay - 1;
+		t.nextPhase = static_cast<int>(rest % r.up);
+		// The first output whose newest tap reaches that sample, whatever the phase before it: at 44.1 kHz the FIR's Latency
+		// and chainDelay as it is in 48 kHz samples, which comes a sample early at a chain of 12, never late
+		t.phaseAt = phaseFrom(r, m_now + m_hitDelay, chainDelay);
+		t.stFade = phaseFade(t.phaseAt);
 	}
 
 	void Engine::cut(const int _track)
 	{
-		const int64_t at = m_now + HitDelay;
+		const int64_t at = m_now + m_hitDelay;
 		auto& t = m_tracks[static_cast<size_t>(_track)];
 		const uint32_t bit = 1u << _track;
 		if(m_mdLive & bit)
 		{
+			// Where in the ring the ramp starts: what sounds at that host sample
+			const int64_t fadeAt = m_mdRead.table ? soundsAt(m_mdRead, at, t.mdPhase) : at;
 			auto& md = m_mdTracks[static_cast<size_t>(_track)];
 			// A Hit that waits for its block starts now; the voice's tail goes ahead of its blocks, so that the voice is free
 			// at once for the Track's next Hit
@@ -946,10 +1056,10 @@ namespace elektron::drums
 				md.takeLocks();
 				md.update(*m_library.os, m_tempo, m_voices[static_cast<size_t>(_track)]);
 			}
-			t.mdRing.fade(at);
-			t.mdFadeAt = at;
+			t.mdRing.fade(fadeAt);
+			t.mdFadeAt = fadeAt;
 			int blocks = 0;
-			for(int64_t p = t.md.at; p < at + CutSamples && blocks < TailBlocks; p += BlockSize)
+			for(int64_t p = t.md.at; p < fadeAt + CutSamples && blocks < TailBlocks; p += BlockSize)
 				renderVoice(_track, t.mdTail[blocks++]);
 			t.mdTailBlocks = std::max(t.mdTailBlocks, blocks);
 			// The rest of an OPEN DRUM block lies past the ramp: the voice's next Hit starts a block of its own
@@ -964,6 +1074,8 @@ namespace elektron::drums
 			{
 				m_mdChain->clear(_track);
 				t.mdFadeAt = Never;
+				if(m_mdRead.table)
+					t.mdRing.close();	// a FIR reads past the end
 			}
 			m_mdLive &= ~bit;
 		}
@@ -978,7 +1090,7 @@ namespace elektron::drums
 			}
 			else
 			{
-				lane.fadeAt = (Down * at - t.phase - FirDelay) / Up;
+				lane.fadeAt = soundsAt(m_stRead, at, t.phase);
 				t.stRing.fade(lane.fadeAt);
 				t.stFadeAt = lane.fadeAt;
 			}
@@ -1175,6 +1287,8 @@ namespace elektron::drums
 			{
 				m_mdChain->clear(static_cast<int>(track));
 				t.mdFadeAt = Never;
+				if(m_mdRead.table)
+					t.mdRing.close();	// a FIR reads past the end
 			}
 		}
 		// An OPEN DRUM or SOPHIE lock without a Hit in its block goes
@@ -1182,6 +1296,8 @@ namespace elektron::drums
 			if(bits & 1)
 				m_tracks[track].pendingLocks = 0;
 		++m_mdBlock;
+		if(m_mdRead.table)
+			m_mdNext = (m_mdRead.up * m_mdBlock * BlockSize + m_mdRead.down - 1) / m_mdRead.down;
 	}
 
 	void Engine::renderSyntakt()
@@ -1292,7 +1408,8 @@ namespace elektron::drums
 		for(auto& t : m_tracks)
 			t.pendingLocks = 0;
 		++m_stBlock;
-		m_stNext = (Up * m_stBlock * BlockSize + Down - 1) / Down;
+		m_stNext = m_bridge ? (m_stRead.up * m_stBlock * BlockSize + m_stRead.down - 1) / m_stRead.down
+			: (Up * m_stBlock * BlockSize + Down - 1) / Down;	// 44.1 kHz's by its constants
 	}
 
 	// OVERDRIVE, the stage the Syntakt has after the voice, on the _live Tracks where it is on or ramps: it gives its input
@@ -1310,43 +1427,92 @@ namespace elektron::drums
 		m_overRun = (m_overRun & ~_live) | m_overOn;
 	}
 
-	void Engine::read(const int _track, float* _out, const int _count)
+	bool Engine::readOver(const Ring& _ring, const Reading& _r, const int _phase, const int64_t _phaseAt, const int _fade,
+		const int _count) const
 	{
-		auto& t = m_tracks[static_cast<size_t>(_track)];
-		if(m_now < t.mdRing.end())
+		if(!_r.table)
+			return m_now >= _ring.end();
+		// (down m - phase) / up - FirTaps >= end, without a division: it runs for every Track at every run
+		return _r.down * m_now - _phase >= _r.up * (_ring.end() + FirTaps) && _phaseAt - _fade > m_now + _count;
+	}
+
+	void Engine::readThrough(const Ring& _ring, const Reading& _r, int& _phase, const int _nextPhase, int64_t& _phaseAt,
+		const int _fade, float* _out, const int _count) const
+	{
+		if(!_r.table)
 		{
-			const int n = static_cast<int>(std::min<int64_t>(_count, t.mdRing.end() - m_now));
-			const float* x = t.mdRing.window(m_now);
-			for(int i = 0; i < n; ++i)
-				_out[i] += x[i];
+			// The ring at the host's rate: as it is
+			if(m_now < _ring.end())
+			{
+				const int n = static_cast<int>(std::min<int64_t>(_count, _ring.end() - m_now));
+				const float* x = _ring.window(m_now);
+				for(int i = 0; i < n; ++i)
+					_out[i] += x[i];
+			}
+			return;
 		}
 		for(int done = 0; done < _count;)
 		{
 			const int64_t m = m_now + done;
-			if(m >= t.phaseAt)
+			if(m >= _phaseAt)
 			{
-				t.phase = t.nextPhase;
-				t.phaseAt = Never;
+				_phase = _nextPhase;
+				_phaseAt = Never;
 			}
-			const int64_t q = Down * m - t.phase;
-			int64_t i = q >= 0 ? q / Up : -1;
-			int p = static_cast<int>(q - i * Up);
-			if(i - FirTaps >= t.stRing.end())
+			const int64_t fadeFrom = _phaseAt == Never ? Never : _phaseAt - _fade;
+			if(m >= fadeFrom)
+			{
+				// The old phase's reading into the new one's, sample by sample, ending where the new can reach the Hit's
+				// first block: what the ring holds from before slides by under a sample, without a step
+				const auto at = [&](const int _ph)
+				{
+					const int64_t q = _r.down * m - _ph;
+					const int64_t i = q >= 0 ? q / _r.up : -1;
+					const auto p = static_cast<int>(q - i * _r.up);
+					return i - FirTaps >= _ring.end() ? 0.0f : dot(_ring.window(i - (FirTaps - 1)), _r.table + p * FirTaps);
+				};
+				const float w = static_cast<float>(m - fadeFrom + 1) / static_cast<float>(_fade + 1);
+				_out[done] += (1 - w) * at(_phase) + w * at(_nextPhase);
+				++done;
+				continue;
+			}
+			const int64_t q = _r.down * m - _phase;
+			int64_t i = q >= 0 ? _r.below(q) : -1;
+			int p = static_cast<int>(q - i * _r.up);
+			// Past what the ring holds: nothing to read, at either phase, until a block is written, which no run sees
+			if(i - FirTaps >= _ring.end())
 				return;
-			const int n = static_cast<int>(std::min<int64_t>(_count - done, t.phaseAt - m));
+			const int n = static_cast<int>(std::min<int64_t>(_count - done, fadeFrom - m));
+			if(_r.fast)
+			{
+				rate::readFir(_ring.data(), Ring::Size - 1, i, p, _r.up, _r.down, _r.table, _r.unit, _out + done, n);
+				done += n;
+				continue;
+			}
 			for(int k = 0; k < n; ++k)
 			{
-				_out[done + k] += dot(t.stRing.window(i - (FirTaps - 1)), Resample48To44::Table[p]);
-				++i;
-				p += Down - Up;
-				if(p >= Up)
+				const float* window = _ring.window(i - (FirTaps - 1));
+				if(_r.unit && _r.unit[p] >= 0)
+					_out[done + k] += window[_r.unit[p]];
+				else
+					_out[done + k] += dot(window, _r.table + p * FirTaps);
+				// A host sample on: down / up of the ring's
+				p += _r.down;
+				while(p >= _r.up)
 				{
-					p -= Up;
+					p -= _r.up;
 					++i;
 				}
 			}
 			done += n;
 		}
+	}
+
+	void Engine::read(const int _track, float* _out, const int _count)
+	{
+		auto& t = m_tracks[static_cast<size_t>(_track)];
+		readThrough(t.mdRing, m_mdRead, t.mdPhase, t.mdNextPhase, t.mdPhaseAt, t.mdFade, _out, _count);
+		readThrough(t.stRing, m_stRead, t.phase, t.nextPhase, t.phaseAt, t.stFade, _out, _count);
 	}
 
 	void Engine::mix(float* const* _outputs, const int _offset, const int _count)
@@ -1414,26 +1580,126 @@ namespace elektron::drums
 				}
 	}
 
+	// mix away from 44.1 kHz: the sends through SendsAtRate in host blocks, the ramps at the host's rate, the steady gains
+	// four at a time. 44.1 kHz keeps mix as it was, which runs for every Track at every run, off or not
+	void Engine::mixAtRate(float* const* _outputs, const int _offset, const int _count)
+	{
+		alignas(16) float sum[SendsAtRate::MaxHost];		// a run: a host block at most
+		const int at = static_cast<int>(m_now % m_hostBlock);	// in the sends' block
+		for(int track = 0; track < Tracks; ++track)
+		{
+			auto& t = m_tracks[static_cast<size_t>(track)];
+			if(readOver(t.mdRing, m_mdRead, t.mdPhase, t.mdPhaseAt, t.mdFade, _count)
+				&& readOver(t.stRing, m_stRead, t.phase, t.phaseAt, t.stFade, _count))
+			{
+				continue;
+			}
+			std::fill_n(sum, _count, 0.0f);
+			read(track, sum, _count);
+			for(size_t c = 0; c < 2; ++c)
+			{
+				float* out = _outputs[2 * static_cast<size_t>(t.output) + c];
+				if(out)
+					out += _offset;
+				// The pan moves a full swing in CutSamples, sample by sample whatever the runs
+				float g = t.panNow[c];
+				const float to = t.pan[c];
+				int i = 0;
+				for(; i < _count && g != to; ++i)
+				{
+					if(out)
+						out[i] += sum[i] * g;
+					const float move = to - g;
+					g = std::abs(move) <= m_ramp ? to : g + (move > 0 ? m_ramp : -m_ramp);
+				}
+				t.panNow[c] = g;
+				if(out)
+					addScaled(out + i, sum + i, g, _count - i);
+			}
+			// Each send moves a full swing in CutSamples too
+			for(int s = 0; s < SendCount; ++s)
+			{
+				const auto index = static_cast<size_t>(s);
+				float g = t.sendNow[index];
+				const float to = t.send[index];
+				if(g == 0 && to == 0)
+					continue;
+				const auto send = static_cast<Send>(s);
+				float* const left = m_bridge->input(send, 0, at);
+				float* const right = m_bridge->input(send, 1, at);
+				int i = 0;
+				for(; i < _count && g != to; ++i)
+				{
+					left[i] += sum[i] * g * t.panNow[0];
+					right[i] += sum[i] * g * t.panNow[1];
+					const float move = to - g;
+					g = std::abs(move) <= m_ramp ? to : g + (move > 0 ? m_ramp : -m_ramp);
+				}
+				// The rest at its level, as the pan's: twice the samples a run at 88.2 and 96 kHz
+				addScaled(left + i, sum + i, g, t.panNow[0], _count - i);
+				addScaled(right + i, sum + i, g, t.panNow[1], _count - i);
+				t.sendNow[index] = g;
+			}
+		}
+		if(!m_bridge->sounding())
+			return;
+		for(int s = 0; s < SendCount; ++s)
+			for(int c = 0; c < 2; ++c)
+				if(float* const out = _outputs[2 * m_sends->output(static_cast<Send>(s)) + c])
+				{
+					const auto send = static_cast<Send>(s);
+					const float* const back = m_bridge->output(send, c, at);
+					for(int i = 0; i < _count; ++i)
+						out[_offset + i] += back[i];
+				}
+	}
+
 	void Engine::render(float* const* _outputs, const int _count)
 	{
 		const syntakt::fast::FlushDenormals ftz;
 		for(int b = 0; b < 2 * Outputs; ++b)
 			if(_outputs[b])
 				std::fill_n(_outputs[b], _count, 0.0f);
+		if(!m_bridge)
+		{
+			// 44.1 kHz as before: the Machinedrum's blocks are the host's, the sends' and the master's
+			for(int done = 0; done < _count;)
+			{
+				if(m_now == m_mdBlock * BlockSize)
+				{
+					if(m_now)
+						m_sends->block();
+					m_master->block();
+					renderMachinedrum();
+				}
+				if(m_now == m_stNext)
+					renderSyntakt();
+				const auto run = static_cast<int>(std::min({static_cast<int64_t>(_count - done),
+					m_mdBlock * BlockSize - m_now, m_stNext - m_now}));
+				mix(_outputs, done, run);
+				if(m_masterOn && _outputs[0] && _outputs[1])
+					m_master->process(_outputs[0] + done, _outputs[1] + done, run);
+				m_now += run;
+				done += run;
+			}
+			return;
+		}
 		for(int done = 0; done < _count;)
 		{
-			if(m_now == m_mdBlock * BlockSize)
+			// The host's blocks, the sends' and the master's: about 0.7 ms, a run each but where a family's block falls
+			if(m_now % m_hostBlock == 0)
 			{
 				if(m_now)
-					m_sends->block();
+					m_bridge->block();
 				m_master->block();
-				renderMachinedrum();
 			}
+			if(m_now == m_mdNext)
+				renderMachinedrum();
 			if(m_now == m_stNext)
 				renderSyntakt();
 			const auto run = static_cast<int>(std::min({static_cast<int64_t>(_count - done),
-				m_mdBlock * BlockSize - m_now, m_stNext - m_now}));
-			mix(_outputs, done, run);
+				(m_now / m_hostBlock + 1) * m_hostBlock - m_now, m_mdNext - m_now, m_stNext - m_now}));
+			mixAtRate(_outputs, done, run);
 			if(m_masterOn && _outputs[0] && _outputs[1])
 				m_master->process(_outputs[0] + done, _outputs[1] + done, run);
 			m_now += run;

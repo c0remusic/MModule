@@ -470,13 +470,18 @@ namespace
 
 		openEditor(plugin);
 
-		// A rate not yet supported: silence
+		// Ticket 16's rates: sound, the latency hitDelay's; a rate it does not play: silence, no latency
 		{
 			auto other = load(formats, description, 48000.0);
 			const auto take = render(*other->plugin, notes, 20000, g_block);
-			require(take.getMagnitude(0, take.getNumSamples()) == 0 && other->plugin->getLatencySamples() == 0,
-				"at 48 kHz");
-			std::printf("at 48 kHz: silence, as ticket 16 leaves it\n");
+			require(take.getMagnitude(0, take.getNumSamples()) > 0
+				&& other->plugin->getLatencySamples() == Engine::hitDelay(48000.0), "at 48 kHz");
+			auto unplayable = load(formats, description, 22050.0);
+			const auto none = render(*unplayable->plugin, notes, 20000, g_block);
+			require(none.getMagnitude(0, none.getNumSamples()) == 0 && unplayable->plugin->getLatencySamples() == 0,
+				"at 22.05 kHz");
+			std::printf("at 48 kHz: sound, latency %d samples; at 22.05 kHz: silence, latency 0\n",
+				other->plugin->getLatencySamples());
 		}
 	}
 }

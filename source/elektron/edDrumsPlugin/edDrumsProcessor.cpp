@@ -10,6 +10,7 @@
 
 #include "edDrumsEditor.h"
 #include "edDrumsNames.h"
+#include "edDrumsRate.h"
 #include "edDrumsSampleFiles.h"
 #include "mdProtocol/mdmachines.h"
 #include "sophieMachine.h"
@@ -1371,8 +1372,9 @@ namespace elektron::drums
 
 	void Processor::prepareToPlay(const double _sampleRate, const int)
 	{
-		m_engine = _sampleRate == SampleRate ? std::make_unique<Engine>(*m_library) : nullptr;
-		setLatencySamples(m_engine ? Engine::HitDelay : 0);
+		m_engine = playableRate(_sampleRate) ? std::make_unique<Engine>(*m_library, _sampleRate) : nullptr;
+		m_rate = m_engine ? _sampleRate : SampleRate;
+		setLatencySamples(m_engine ? m_engine->hitDelay() : 0);
 		// A new engine knows nothing yet, and holds no family's chain
 		for(auto* w : m_watched)
 			w->due = true;
@@ -1617,7 +1619,7 @@ namespace elektron::drums
 		transport.playing = m_blockPlaying;
 		transport.quarters = m_blockQuarters;
 		transport.bpm = m_blockBpm;
-		transport.sampleRate = SampleRate;
+		transport.sampleRate = m_rate;
 		transport.length = count;
 		sequencer.process(transport, m_events);
 		// A pattern that began in the block (the transport starting on one included) loads its Kit there, read ahead
@@ -1709,7 +1711,7 @@ namespace elektron::drums
 				// LIVE: the note to the timer, as a trig of the step nearest; a full queue drops it
 				int step = 0, timing = 0;
 				if(m_live.load(std::memory_order_relaxed) && sequencer.nearestStep(track,
-					m_blockQuarters + at * m_blockBpm / (60.0 * SampleRate), step, timing))
+					m_blockQuarters + at * m_blockBpm / (60.0 * m_rate), step, timing))
 				{
 					const juce::AbstractFifo::ScopedWrite write(m_liveFifo, 1);
 					if(write.blockSize1 > 0)
@@ -1732,7 +1734,7 @@ namespace elektron::drums
 		if(m_auditionPlaying && outputs[0] && outputs[1])
 		{
 			const auto& pcm = m_auditionPlaying->pcm;
-			const double step = m_auditionPlaying->rate / SampleRate;
+			const double step = m_auditionPlaying->rate / m_rate;
 			constexpr float Gain = 0.7f / 32768.0f;
 			for(int n = 0; n < count; ++n, m_auditionAt += step)
 			{
@@ -1750,7 +1752,7 @@ namespace elektron::drums
 		}
 
 		// What the editor shows: the peaks fall 20 dB a second, 10^-1 of the gain
-		const float fall = static_cast<float>(std::pow(10.0, -count / SampleRate));
+		const float fall = static_cast<float>(std::pow(10.0, -count / m_rate));
 		for(size_t b = 0; b < m_outputPeak.size(); ++b)
 		{
 			float peak = 0;

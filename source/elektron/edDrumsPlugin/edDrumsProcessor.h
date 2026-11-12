@@ -20,8 +20,8 @@
 
 // The instrument: the engine (elektron::drums::Engine) as a plain JUCE AudioProcessor, VST3. Notes 36-51 on any channel
 // hit Tracks 1-16 with their velocity, their note-off ends a held voice; outputs Main and Out 01-15, stereo. It runs at
-// 44.1 kHz, the one rate both families are right at: at any other it plays silence, reporting no latency, until ticket
-// 16. As the instrument loads it reads the factory bank's words the LOCKER keeps in the data folder
+// 44.1, 48, 88.2, 96 and 192 kHz (ticket 16: each family at its own rate, edDrumsRate.h), reporting the engine's
+// hitDelay as its latency; at any other it plays silence, reporting none. As the instrument loads it reads the factory bank's words the LOCKER keeps in the data folder
 // (edDrumsLockerImport.h), else its flash image, from the variable GEARMULATOR_MD_FIRMWARE_BIN or the data folder's roms.
 //
 // The parameters of a Track, the IDs t01_*, the names "T01 ...": Machine and Chokes, which a host does not automate,
@@ -117,7 +117,8 @@ namespace elektron::drums
 
 		// The Sampler's index in machines(), OPEN DRUM's four after it, then SOPHIE
 		int samplerChoice() const { return static_cast<int>(m_machines.size()) - 1 - OpenDrumMachines - SophieMachines; }
-		// The rate _track's chain runs at: the Syntakt's for a Track that took its chain, the host's 44.1 kHz otherwise
+		// The rate _track's chain runs at: the Syntakt's for a Track that took its chain, the Machinedrum's 44.1 kHz
+		// otherwise, whatever the host's
 		double chainRate(const int _track) const
 		{
 			return m_chainFamily[static_cast<size_t>(_track)] == Family::Syntakt ? syntakt::fast::MachineRate : SampleRate;
@@ -536,6 +537,7 @@ namespace elektron::drums
 		};
 		std::array<Slide, Tracks> m_slides;
 		int64_t m_now = 0;		// samples processed since prepareToPlay
+		double m_rate = SampleRate;	// the host's, since prepareToPlay
 
 		// The audio thread's transport at the block, from sync
 		double m_blockBpm = 120;

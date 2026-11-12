@@ -59,7 +59,8 @@ namespace elektron::drums
 		return 0.8465 * drive * drive + 0.1534;
 	}
 
-	Master::Master(const double _rate) : m_rate(_rate), m_mixPole(std::pow(0.995, 48000 / _rate))
+	Master::Master(const double _rate, const int _block)
+		: m_rate(_rate), m_mixPole(std::pow(0.995, 48000 / _rate)), m_block(_block)
 	{
 		m_bytes = {127, 0, 0, 64, 0, 127, 64, 0, 127};
 		settle();
@@ -130,7 +131,7 @@ namespace elektron::drums
 		const double x[2] = {_left / Lift, _right / Lift};
 
 		// The detector: the filtered peak of both channels
-		const double b0 = m_b0.at(_n), b1 = m_b1.at(_n), a1 = m_a1.at(_n);
+		const double b0 = m_b0.at(_n, m_block), b1 = m_b1.at(_n, m_block), a1 = m_a1.at(_n, m_block);
 		double peak = Floor;
 		for(int c = 0; c < 2; ++c)
 		{
@@ -144,9 +145,9 @@ namespace elektron::drums
 		// More reduction at once, less as a one-pole; then the attack's one-pole
 		m_releaseDb = std::min(reduction, (1 - m_release) * reduction + m_release * m_releaseDb);
 		m_attackDb = m_attack * m_attackDb + (1 - m_attack) * m_releaseDb;
-		const double gain = 16 * std::exp(DbToLog * (m_attackDb + m_makeup.at(_n)));
+		const double gain = 16 * std::exp(DbToLog * (m_attackDb + m_makeup.at(_n, m_block)));
 
-		const double satGain = m_satGain.at(_n), satMix = m_satMix.at(_n), volume = m_volume.at(_n);
+		const double satGain = m_satGain.at(_n, m_block), satMix = m_satMix.at(_n, m_block), volume = m_volume.at(_n, m_block);
 		float* const out[2] = {&_left, &_right};
 		for(int c = 0; c < 2; ++c)
 		{
