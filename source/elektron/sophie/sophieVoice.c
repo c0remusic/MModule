@@ -372,6 +372,9 @@ static float render_voice(sophie_t *s, sophie_voice_t *v) {
     delay_samples = clampf(delay_samples, 1.0f, (float)(SOPHIE_MAX_DELAY_SAMPLES - 2));
     float read = (float)v->delay_pos - delay_samples;
     while (read < 0.0f) read += (float)SOPHIE_MAX_DELAY_SAMPLES;
+    /* A read a hair below zero rounds to exactly the buffer's length when the length is added: that
+     * is the wrap point, the buffer's first sample, not one past its end */
+    if (read >= (float)SOPHIE_MAX_DELAY_SAMPLES) read = 0.0f;
     int r0 = (int)read;
     int rnext = (r0 + 1) % SOPHIE_MAX_DELAY_SAMPLES;
     float frac = read - (float)r0;
