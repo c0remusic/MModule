@@ -746,6 +746,15 @@ namespace elektron::drums
 		t.lockPendingValue[static_cast<size_t>(_index)] = _value;
 	}
 
+	uint8_t Engine::played(const int _track, const int _index) const
+	{
+		const auto& t = m_tracks[static_cast<size_t>(_track)];
+		// A Machinedrum machine's locks are its voice's Track's
+		if(t.machine.family == Family::Machinedrum && playsSlot(t.machine, _index))
+			return m_mdTracks[static_cast<size_t>(_track)].target(static_cast<size_t>(_index));
+		return static_cast<uint8_t>(playedValue(t, _index));
+	}
+
 	void Engine::noteOn(const int _track, const int _velocity, const bool _accent)
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];

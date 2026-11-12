@@ -64,10 +64,10 @@ namespace md::voice
 
 		const Smoother::Values& values() const { return m_smoother.values(); }
 		uint8_t machine() const { return m_machine; }
-
-	private:
+		// What the parameter goes to: the last Hit's lock where it holds one, else the Kit's value
 		uint8_t target(size_t _param) const;
 
+	private:
 		Smoother m_smoother;
 		std::array<uint8_t, kParams> m_kit{};	// the Kit's values, which a knob sets
 		uint32_t m_locked = 0;					// bit n: parameter n plays m_lockValue, the last Hit's

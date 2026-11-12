@@ -19,10 +19,10 @@ namespace elektron::drums::names
 			Eight controls;
 		};
 
-		// The sample players' Machine 3 and 4 differ, the rest is theirs alike
-		constexpr Eight lofi(const char* _third, const char* _fourth)
+		// The sample players but the kick: Machine 4 differs, the rest is theirs alike
+		constexpr Eight lofi(const char* _fourth)
 		{
-			return {"TUNE", "DECAY", _third, _fourth, "START", "REPEATS", "REPEAT GAP", "BEND"};
+			return {"TUNE", "DECAY", "HPF", _fourth, "START", "REPEATS", "REPEAT GAP", "BEND"};
 		}
 		constexpr Eight Sweep{"TUNE", "DECAY", "SWEEP", "SWEEP TIME", "DAMPING", "DRIVE", "DRIVE TYPE", ""};
 		constexpr Eight Hat{"TAIL", "DECAY", "HPF", "LPF", "METAL", "", "", ""};
@@ -60,21 +60,21 @@ namespace elektron::drums::names
 			{39, "FM CYMBAL", {"TUNE", "DECAY", "FM FDBK", "HPF", "FM AMOUNT", "FM FREQ", "FM DECAY", ""}},
 			// CRUNCH 12: 12-bit samples
 			{48, "LOFI KICK", {"TUNE", "DECAY", "CLICK", "CLICK DECAY", "START", "REPEATS", "REPEAT GAP", "BEND"}},
-			{49, "LOFI SNARE", lofi("HPF", "RING")},
-			{50, "LOFI HITOM", lofi("HPF", "HPF RESO")},
-			{51, "LOFI LOTOM", lofi("HPF", "HPF RESO")},
-			{52, "LOFI CLAP", lofi("HPF", "HPF RESO")},
-			{53, "LOFI RIM", lofi("HPF", "RATTLE")},
-			{54, "LOFI COW", lofi("HPF", "HPF RESO")},
-			{55, "LOFI HAT", lofi("HPF", "HPF RESO")},
-			{56, "LOFI OPEN", lofi("HPF", "LENGTH")},
-			{57, "LOFI RIDE", lofi("HPF", "BELL")},
-			{58, "LOFI CRASH", lofi("HPF", "HPF RESO")},
-			{59, "LOFI BRUSH", lofi("HPF", "GAIN")},
-			{60, "LOFI TAMB", lofi("HPF", "HPF RESO")},
-			{61, "LOFI TRI", lofi("HPF", "HPF RESO")},
-			{62, "LOFI SHAKE", lofi("HPF", "SLEW")},
-			{63, "LOFI BONGO", lofi("HPF", "HPF 2")},
+			{49, "LOFI SNARE", lofi("RING")},
+			{50, "LOFI HITOM", lofi("HPF RESO")},
+			{51, "LOFI LOTOM", lofi("HPF RESO")},
+			{52, "LOFI CLAP", lofi("HPF RESO")},
+			{53, "LOFI RIM", lofi("RATTLE")},
+			{54, "LOFI COW", lofi("HPF RESO")},
+			{55, "LOFI HAT", lofi("HPF RESO")},
+			{56, "LOFI OPEN", lofi("LENGTH")},
+			{57, "LOFI RIDE", lofi("BELL")},
+			{58, "LOFI CRASH", lofi("HPF RESO")},
+			{59, "LOFI BRUSH", lofi("GAIN")},
+			{60, "LOFI TAMB", lofi("HPF RESO")},
+			{61, "LOFI TRI", lofi("HPF RESO")},
+			{62, "LOFI SHAKE", lofi("SLEW")},
+			{63, "LOFI BONGO", lofi("HPF 2")},
 			// PHYSICAL: skins, wood and metal struck
 			{64, "REAL KICK", {"TUNE", "DECAY", "HARDNESS", "STRIKE", "TENSION", "DAMPING", "", ""}},
 			{65, "REAL SNARE", {"TUNE", "DECAY", "HARDNESS", "RING", "TENSION", "RING LEVEL", "RING DECAY", ""}},
@@ -115,7 +115,7 @@ namespace elektron::drums::names
 		constexpr std::array<const char*, vintage::SamplerParameters> samplerControls{"TUNE", "DECAY", "HOLD", "BIT CRUSH",
 			"START", "END", "REPEATS", "REPEAT GAP", "GRAIN", "BITS", "COMPANDING", "OUTPUT LPF"};
 
-		// VA DRUMS, in openDrumMachineNames' order, their controls in openDrum.c's
+		// VA DRUMS, by id (edDrumsEngine.h, OpenDrumMachines), their controls in openDrum.c's
 		constexpr std::array<const char*, OpenDrumMachines> openDrumNames{"VA DRUM", "VA SNARE", "VA CYMBAL", "VA HIHAT"};
 		const std::array<std::array<const char*, MachineParameters>, OpenDrumMachines> openDrumControls{{
 			{"TUNE", "DECAY", "SWEEP TIME", "SWEEP", "FM AMOUNT", "FM FREQ", "CLICK", "DRIVE", "FINE TUNE", "WAVE",

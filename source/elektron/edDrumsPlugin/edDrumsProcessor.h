@@ -104,6 +104,17 @@ namespace elektron::drums
 		const juce::StringArray& ids(Section _section, int _track = 0) const;
 		const juce::StringArray& trackIds(const int _track) const { return m_trackIds[static_cast<size_t>(_track)]; }
 
+		// What a host parameter is to a Lock of the sequencer's: whose Track, and which of its values
+		enum class LockKind : uint8_t { None, Machine, Note, Level, Pan, Chain, Lfo, Send, Accent };
+		struct LockTarget
+		{
+			int track = -1;
+			LockKind kind = LockKind::None;
+			int a = 0, b = 0;	// Machine 1-8's, the chain's or the send's index; the LFO and its value's
+		};
+		// The parameter of index _index's, one of getParameters()
+		const LockTarget& lockTarget(const int _index) const { return m_lockTargets[static_cast<size_t>(_index)]; }
+
 		// The Sampler's index in machines(), OPEN DRUM's four after it, then SOPHIE
 		int samplerChoice() const { return static_cast<int>(m_machines.size()) - 1 - OpenDrumMachines - SophieMachines; }
 		// The rate _track's chain runs at: the Syntakt's for a Track that took its chain, the host's 44.1 kHz otherwise
@@ -278,15 +289,6 @@ namespace elektron::drums
 			std::array<std::array<Watched, parameters::LfoValues>, 2> lfo{};
 			std::array<Watched, SendCount> sends{};
 			Watched accent;
-		};
-
-		// What a host parameter is to a Lock of the sequencer's: whose Track, and which of its values
-		enum class LockKind : uint8_t { None, Machine, Note, Level, Pan, Chain, Lfo, Send, Accent };
-		struct LockTarget
-		{
-			int track = -1;
-			LockKind kind = LockKind::None;
-			int a = 0, b = 0;	// Machine 1-8's, the chain's or the send's index; the LFO and its value's
 		};
 
 		// A sample on its way to the audio thread, numbered in the order published

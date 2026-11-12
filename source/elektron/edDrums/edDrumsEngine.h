@@ -99,18 +99,14 @@ namespace elektron::drums
 	// per Track on the Machinedrum's blocks, rings and chain, at the 44.1 kHz host rate. The firmware steps its envelopes
 	// once in 64 samples: a voice renders 64 every other block of 32, its second half played by the next, and a Hit
 	// starts it afresh at the next block of 32, so that it plays the original's samples. Velocity is the Track's, after
-	// the voice, as the Machinedrum's is. The family's name, and the machines', are what the interface shows
-	constexpr const char* OpenDrumFamilyName = "OPEN DRUM";
+	// the voice, as the Machinedrum's is. Ids 0-3: drum, snare, cymbal, hihat
 	constexpr int OpenDrumMachines = 4;
-	constexpr std::array<const char*, OpenDrumMachines> openDrumMachineNames{"OD DRUM", "OD SNARE", "OD CYMBAL",
-		"OD HIHAT"};
 
 	// SOPHIE: the metallic FM percussion voice of mestela/schwung-sophie (MIT, source/elektron/sophie), a voice per Track
 	// on the Machinedrum's blocks, rings and chain like OPEN DRUM's, at the 44.1 kHz host rate it runs at sample by
 	// sample. Every Track plays upstream's pad 1 (its base note 36), Machine 1-19 Sophie's parameters and Machine 20 the
 	// kick body (sophieMachine.h); velocity is the Track's, after the voice, the voice itself triggered at 127
 	constexpr int SophieMachines = 1;
-	constexpr std::array<const char*, SophieMachines> sophieMachineNames{"SOPHIE"};
 
 	// Whether a Track can play _machine: every Syntakt machine here, a Machinedrum one whose render is ported or a MID or
 	// CTR one, which stops the voice
@@ -203,6 +199,9 @@ namespace elektron::drums
 		{
 			return m_tracks[static_cast<size_t>(_track)].params[static_cast<size_t>(_index)];
 		}
+		// What the Track plays of Machine _index + 1: the last Hit's lock (lock) where it holds one, else parameter(). For
+		// the tests, which compare it with what the editor draws
+		uint8_t played(int _track, int _index) const;
 
 		// The Syntakt's machines play a note, in semitones; the Machinedrum's take none
 		void setNote(int _track, int _note);

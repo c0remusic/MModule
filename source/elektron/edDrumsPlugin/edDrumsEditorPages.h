@@ -15,7 +15,7 @@
 namespace elektron::drums::ui
 {
 	// The unit, in mm: 533.33 x 333.33, 3 px/mm at 1600 x 1000
-	constexpr float UnitWidth = 533.33f, UnitHeight = 333.33f;
+	constexpr float UnitWidth = 533.33f;
 	constexpr float ScreenX = 12, ScreenY = 12, ScreenW = 466, ScreenH = 230.5f;
 	constexpr float Col = 19.25f;	// the screen's 24 columns, from x 16
 	constexpr float cx(const float _k) { return 16 + _k * Col; }
@@ -125,7 +125,6 @@ namespace elektron::drums::ui
 		std::function<void()> end;					// after a drag
 		juce::MouseCursor::StandardCursorType cursor = juce::MouseCursor::PointingHandCursor;
 		bool keepsLocks = false;					// a press here leaves the lock edit as it is
-		bool keepsArmed = false;					// ... and a lane's X asking again (another X's press arms that one)
 	};
 
 	// An area whose look follows a state the timer reads: when the state changes, the area alone is repainted

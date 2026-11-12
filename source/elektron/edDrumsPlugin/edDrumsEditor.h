@@ -43,7 +43,6 @@ namespace elektron::drums
 		void showLfo(int _lfo);
 		// Seq's tabs: 0 Detail, 1 Overview, 2 Patterns
 		void showSeqTab(int _tab);
-		int seqTab() const { return m_seqTab; }
 		// Sound's Machine block: page 0-2 of Machine 1-24, eight a page; one the Track's machine does not use stays shut
 		void showMachinePage(int _page);
 		int machinePage() const { return m_machinePage; }
@@ -90,13 +89,17 @@ namespace elektron::drums
 		int lockLanes() const { return static_cast<int>(lockLineList().size()); }
 		int lockScroll() const { return m_lockScroll; }
 		// What a lane draws: the parameter _line (its index) on each step of the Track shown, normalised, at the step's
-		// start and end (they differ where a slide glides), and whether the step holds its own Lock
+		// start and end (they differ where a slide glides), and whether the step holds its own Lock; a step whose condition
+		// may not play it holds none, and may: its Lock's value would. _locks, where given, gets the steps of the 64 that
+		// hold a Lock of it
 		struct LaneStep
 		{
 			float from, to;
 			bool locked;
+			bool may = false;
+			float would = 0;
 		};
-		std::vector<LaneStep> laneSteps(int _line) const;
+		std::vector<LaneStep> laneSteps(int _line, int* _locks = nullptr) const;
 		// The timer's work, once
 		void tick();
 
@@ -133,6 +136,7 @@ namespace elektron::drums
 			float accumulated = 0;			// mm not yet turned into steps
 			float value = 0;				// a cell's value as the drag goes, normalised
 			bool gesture = false;			// a parameter's gesture begun
+			int armed = -1;					// the line armed before the press, which a lane's X keeps
 		};
 
 		// A block's title line: a rule in its hue, its name; rank 0 a block, 1 the page's first, 2 one that matters less
@@ -219,9 +223,11 @@ namespace elektron::drums
 		// Values
 		juce::RangedAudioParameter* trackParameter(const juce::String& _suffix, int _track = -1) const;
 		int choiceOf(const juce::String& _id) const;
+		static int choiceOf(const juce::RangedAudioParameter& _p) { return juce::roundToInt(_p.convertFrom0to1(_p.getValue())); }
+		// The machine _track's Machine parameter chooses
+		const Machine& trackMachine(int _track) const;
 		float valueOf(const juce::String& _id) const;
 		void setNormalised(juce::RangedAudioParameter& _p, float _value);
-		void setGestured(juce::RangedAudioParameter& _p, float _normalised);
 		void cellSet(const ui::Cell& _cell, float _normalised);
 		bool lockOf(const ui::Cell& _cell, float& _normalised) const;
 		void removeLocks(const ui::Cell& _cell);
@@ -338,6 +344,17 @@ namespace elektron::drums
 		Selector m_selector;
 		Press m_press;
 		juce::String m_key;
+		// Each Track's parameters that layoutKey reads every frame, and NOTE, which laneSteps compares with
+		struct KeyChoices
+		{
+			juce::RangedAudioParameter *machine, *lfo1Track, *lfo2Track, *fltType, *bandType, *ampMode, *lfo1Sync, *lfo2Sync,
+				*note;
+		};
+		std::array<KeyChoices, 16> m_keyChoices{};
+		// Seq's Detail, as layout() built it: its lines (lockLineList), refreshed by an edit of the pattern too; + LOCK's
+		// entries while its menu is open
+		std::vector<int> m_lines;
+		std::vector<MenuEntry> m_menuEntries;
 		GridGesture m_grid;
 		int m_armedLine = -1;				// Detail's line whose X asks AGAIN
 		bool m_stripDragOn = false;			// a drag over the strips adds steps, else takes them off

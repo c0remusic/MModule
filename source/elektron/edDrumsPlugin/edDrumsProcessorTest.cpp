@@ -1667,7 +1667,6 @@ namespace
 	// ---- the sequencer ----
 
 	constexpr double SamplesPerQuarter = SampleRate / 2;	// 120 BPM
-	constexpr int MidiChannelOne = 1;
 
 	// A step's sample at 120 BPM, as the sequencer places it: the first at or after its time
 	int stepSample(const double _quarters)
@@ -2669,6 +2668,22 @@ namespace
 			file.deleteFile();
 			old.deleteFile();
 			std::printf("  a Track sound saved under its machine's old name loads and plays as one saved now\n");
+		}
+
+		// A Track sound naming a machine no list holds: of an older version it is Off, of this one the name it was saved
+		// with, never a name looked up by its id
+		{
+			Processor p;
+			TrackSounds::Entry e;
+			e.machineChoice = 9999;
+			e.version = 1;
+			require(p.trackSoundMachine(e) == "OFF", "an old Track sound's unknown machine: "
+				+ p.trackSoundMachine(e).toStdString());
+			e.version = KitBank::Version;
+			e.machine = "PUNCH KICK";
+			require(p.trackSoundMachine(e) == "PUNCH KICK", "a Track sound's unknown machine: "
+				+ p.trackSoundMachine(e).toStdString());
+			std::printf("  a Track sound naming a machine no list holds: OFF, or the name it was saved with\n");
 		}
 
 		// A Track sound of version 3, before page order, whose LFO aims at T05's Machine 2: the sound holds Track 1 alone,

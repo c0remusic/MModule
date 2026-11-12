@@ -17,7 +17,6 @@ namespace elektron::drums
 		// from y 272 mm
 		enum Plate { B0, B1, B2, Sa };
 		constexpr float B2Y = 172, SaY = 272;
-		constexpr std::array<const char*, 7> ModeNames{"Sound", "Seq", "Master", "FX", "Kits", "Browse", "Menu"};
 
 		juce::Image load(const char* _data, const int _size)
 		{
@@ -35,6 +34,11 @@ namespace elektron::drums
 	Editor::Editor(Processor& _processor) : AudioProcessorEditor(_processor), m_processor(_processor)
 	{
 		m_importsSeen = m_processor.imports();
+		for(int t = 0; t < 16; ++t)
+			m_keyChoices[static_cast<size_t>(t)] = {trackParameter("machine", t), trackParameter("lfo1_track", t),
+				trackParameter("lfo2_track", t), trackParameter("flt_type", t), trackParameter("band_type", t),
+				trackParameter("amp_mode", t), trackParameter("lfo1_sync", t), trackParameter("lfo2_sync", t),
+				trackParameter("note", t)};
 		using namespace LockstepAssets;
 		m_plates[B0] = {load(b0_1x_jpg, b0_1x_jpgSize), load(b0_2x_jpg, b0_2x_jpgSize)};
 		m_plates[B1] = {load(b1_1x_jpg, b1_1x_jpgSize), load(b1_2x_jpg, b1_2x_jpgSize)};
@@ -132,9 +136,7 @@ namespace elektron::drums
 
 	int Editor::machinePages() const
 	{
-		const auto& machines = m_processor.machines();
-		const int choice = juce::jlimit(0, static_cast<int>(machines.size()) - 1, choiceOf(trackParameter("machine")->getParameterID()));
-		return std::max(1, (machineParameters(machines[static_cast<size_t>(choice)]) + 7) / 8);
+		return std::max(1, (machineParameters(trackMachine(m_track)) + 7) / 8);
 	}
 
 	void Editor::showMachinePage(const int _page)
@@ -201,22 +203,19 @@ namespace elektron::drums
 				key << (m_processor.kitSlot(i).empty() ? "0" : "1");
 		for(const int s : m_lockSteps)
 			key << s << ",";
-		key << "/" << choiceOf(trackParameter("machine")->getParameterID()) << "/"
-			<< choiceOf(trackParameter("flt_type")->getParameterID()) << "/"
-			<< choiceOf(trackParameter("band_type")->getParameterID()) << "/"
-			<< choiceOf(trackParameter("amp_mode")->getParameterID()) << "/"
-			<< choiceOf(trackParameter("lfo1_sync")->getParameterID()) << "/"
-			<< choiceOf(trackParameter("lfo2_sync")->getParameterID()) << "/" << choiceOf("delay_source") << "/"
-			<< choiceOf("reverb_source") << "/" << choiceOf("delay_sync") << choiceOf("chorus_sync")
-			<< choiceOf("phaser_sync") << "/" << m_processor.sampleName(m_track) << "/";
+		const auto& shown = m_keyChoices[static_cast<size_t>(m_track)];
+		key << "/" << choiceOf(*shown.machine) << "/" << choiceOf(*shown.fltType) << "/" << choiceOf(*shown.bandType) << "/"
+			<< choiceOf(*shown.ampMode) << "/" << choiceOf(*shown.lfo1Sync) << "/" << choiceOf(*shown.lfo2Sync) << "/"
+			<< choiceOf("delay_source") << "/" << choiceOf("reverb_source") << "/" << choiceOf("delay_sync")
+			<< choiceOf("chorus_sync") << choiceOf("phaser_sync") << "/" << m_processor.sampleName(m_track) << "/";
 		// The LFOs' TARGET lists name Machine 1-24 by the machine of the Track each aims at
-		key << choiceOf(trackParameter("lfo1_track")->getParameterID()) << ","
-			<< choiceOf(trackParameter("lfo2_track")->getParameterID()) << ",";
-		for(int t = 0; t < 16; ++t)
-			key << choiceOf(trackParameter("machine", t)->getParameterID()) << ",";
+		key << choiceOf(*shown.lfo1Track) << "," << choiceOf(*shown.lfo2Track) << ",";
+		for(const auto& t : m_keyChoices)
+			key << choiceOf(*t.machine) << ",";
 		key << "/";
 		if(m_page == Page::Seq)
 		{
+			// The lines as the pattern has them now, not m_lines: this is what tells layout() to rebuild them
 			for(const int l : lockLineList())
 				key << l << ",";
 			key << "/" << m_seqTab << "/" << m_overviewPage << "/" << m_patternSel << "/" << m_chainPage << "/"
@@ -232,6 +231,9 @@ namespace elektron::drums
 		m_hits.clear();
 		m_regions.clear();
 		m_blocks.clear();
+		m_menuEntries.clear();
+		if(m_page == Page::Seq)
+			m_lines = lockLineList();
 		buildHardware();
 		switch(m_page)
 		{
@@ -613,9 +615,10 @@ namespace elektron::drums
 			m_lockSteps.clear();
 			repaint();
 		}
-		if(m_armedLine >= 0 && (found < 0 || !m_hits[static_cast<size_t>(found)].keepsArmed))
-			m_armedLine = -1;
+		// A press disarms a lane's X; an X's press arms the line again (Press::armed)
 		m_press = {};
+		m_press.armed = m_armedLine;
+		m_armedLine = -1;
 		if(found < 0)
 			return;
 		m_press.hit = found;
@@ -900,7 +903,14 @@ namespace elektron::drums
 	int Editor::choiceOf(const juce::String& _id) const
 	{
 		const auto* p = m_processor.parameter(_id);
-		return p ? juce::roundToInt(p->convertFrom0to1(p->getValue())) : 0;
+		return p ? choiceOf(*p) : 0;
+	}
+
+	const Machine& Editor::trackMachine(const int _track) const
+	{
+		const auto& machines = m_processor.machines();
+		const int choice = choiceOf(*m_keyChoices[static_cast<size_t>(_track)].machine);
+		return machines[static_cast<size_t>(juce::jlimit(0, static_cast<int>(machines.size()) - 1, choice))];
 	}
 
 	float Editor::valueOf(const juce::String& _id) const
@@ -917,18 +927,10 @@ namespace elektron::drums
 
 	juce::String Editor::lockName(const juce::RangedAudioParameter& _parameter) const
 	{
-		const auto& id = _parameter.getParameterID();
-		const auto suffix = id.substring(4);
-		if(id.startsWithChar('t') && suffix.startsWithChar('m') && suffix.length() > 1
-			&& suffix.substring(1).containsOnly("0123456789"))
-		{
-			const int track = id.substring(1, 3).getIntValue() - 1;
-			const auto& machines = m_processor.machines();
-			const int choice = choiceOf(trackParameter("machine", track)->getParameterID());
-			if(choice >= 0 && choice < static_cast<int>(machines.size()))
-				if(const char* name = names::control(machines[static_cast<size_t>(choice)], suffix.substring(1).getIntValue() - 1))
-					return name;
-		}
+		const auto& target = m_processor.lockTarget(_parameter.getParameterIndex());
+		if(target.kind == Processor::LockKind::Machine)
+			if(const char* name = names::control(trackMachine(target.track), target.a))
+				return name;
 		return _parameter.getName(32).fromFirstOccurrenceOf(" ", false, false).toUpperCase();
 	}
 
@@ -955,6 +957,9 @@ namespace elektron::drums
 	{
 		const int current = m_processor.currentPattern();
 		m_processor.editSequencer([&](Sequencer& _s) { _edit(_s.pattern(current)); });
+		// Detail draws its lanes as the pattern has them at once, a drag's edits too, before the release lays it out
+		if(m_page == Page::Seq)
+			m_lines = lockLineList();
 		repaint();
 	}
 

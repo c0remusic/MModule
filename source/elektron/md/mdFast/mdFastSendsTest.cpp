@@ -76,7 +76,7 @@ namespace
 
 	constexpr uint32_t kLevel = 0x1000d7c, kLevelTarget = 0x1000f5c, kLevelSmooth = 0x100029e, kTempo = 0x100150c;
 	constexpr uint32_t kGateValues = kLevel + 2 * 16, kEchoValues = kGateValues + 2 * 8;
-	constexpr uint32_t kGateTargets = kLevelTarget + 16, kEchoTargets = kGateTargets + 8;
+	constexpr uint32_t kGateTargets = kLevelTarget + 16;
 	constexpr uint32_t kEchoBody = 0x20b4ae, kEchoExit = 0x20b5f8, kEchoStaging = 0x1001af4;
 	constexpr uint32_t kGateBody = 0x20b940, kGateExit = 0x20ba4c, kGateStaging = 0x1001b74;
 	constexpr uint16_t kRts = 0x4e75;

@@ -299,22 +299,24 @@ namespace elektron::drums
 			return list;
 		}
 
-		// The filter's response, drawn: a biquad's, an EQ's bell, or the Machinedrum's (t.js biq)
-		std::function<float(float)> response(const float _fc, const float _q, const juce::String& _type)
+		// The filter's response, drawn: a biquad's, an EQ's bell, or the Machinedrum's (t.js biq). _mode: Filter Mode's
+		// choice, LP, HP, EQ1-EQ5, OFF
+		std::function<float(float)> response(const float _fc, const float _q, const FilterType _type, const int _mode)
 		{
-			if(_type == "OFF")
+			constexpr int Hp = 1, Eq1 = 2, Eq5 = 6, ModeOff = 7;
+			if(_type == FilterType::Off || (_type != FilterType::Machinedrum && _mode == ModeOff))
 				return [](float) { return 0.0f; };
-			if(_type.startsWith("EQ"))
+			if(_type != FilterType::Machinedrum && _mode >= Eq1 && _mode <= Eq5)
 			{
 				const float widths[]{0.7f, 1.1f, 1.6f, 2.4f, 3.4f};
-				const float wd = widths[juce::jlimit(0, 4, _type.getTrailingIntValue() - 1)];
+				const float wd = widths[_mode - Eq1];
 				return [=](const float _f)
 				{
 					const float l = std::log2(_f / _fc) * wd;
 					return 12 * std::exp(-l * l) * std::min(1.5f, _q / 3);
 				};
 			}
-			if(_type == "MD")
+			if(_type == FilterType::Machinedrum)
 				return [=](const float _f)
 				{
 					const float l = std::log2(_f / _fc);
@@ -322,7 +324,7 @@ namespace elektron::drums
 				};
 			const float w0 = 2 * juce::MathConstants<float>::pi * _fc / 44100, al = std::sin(w0) / (2 * _q),
 				co = std::cos(w0), a0 = 1 + al, a1 = -2 * co, a2 = 1 - al;
-			const bool hp = _type == "HP";
+			const bool hp = _mode == Hp;
 			const float b0 = hp ? (1 + co) / 2 : (1 - co) / 2, b1 = hp ? -(1 + co) : 1 - co, b2 = b0;
 			return [=](const float _f)
 			{
@@ -334,24 +336,23 @@ namespace elektron::drums
 			};
 		}
 
-		float wave(const juce::String& _shape, const float _u)
+		float wave(const LfoShape _shape, const float _u)
 		{
 			const float f = _u - std::floor(_u);
-			if(_shape == "SIN")
-				return std::sin(f * 6.2832f);
-			if(_shape == "SQR")
-				return f < 0.5f ? 1.0f : -1.0f;
-			if(_shape == "SAW")
-				return 1 - 2 * f;
-			if(_shape == "RND")
+			switch(_shape)
+			{
+			case LfoShape::Sine:		return std::sin(f * 6.2832f);
+			case LfoShape::Square:		return f < 0.5f ? 1.0f : -1.0f;
+			case LfoShape::Saw:			return 1 - 2 * f;
+			case LfoShape::Random:
 			{
 				const float q = std::sin(std::floor(_u * 16) * 12.9898f) * 43758.5f;
 				return (q - std::floor(q)) * 2 - 1;
 			}
-			if(_shape == "EXP")
-				return 1 - f * 2;
-			if(_shape == "RMP")
-				return f < 0.5f ? 2 * f : 0.0f;
+			case LfoShape::Exponential:	return 1 - f * 2;
+			case LfoShape::Ramp:		return f < 0.5f ? 2 * f : 0.0f;
+			case LfoShape::Triangle:	break;
+			}
 			return f < 0.25f ? 4 * f : f < 0.75f ? 2 - 4 * f : 4 * f - 4;
 		}
 
@@ -399,6 +400,25 @@ namespace elektron::drums
 				if(p)
 					h = mixFloat(h, p->getValue());
 			return h;
+		}
+
+		// The Lock of parameter _parameter on _track's step _step, nullptr for none (Pattern::setLock keeps one a parameter)
+		const Lock* lockAt(const Pattern& _p, const int _track, const int _step, const int _parameter)
+		{
+			const auto* l = _p.locks(_track, _step);
+			for(int i = 0; l && i < _p.step(_track, _step).lockCount; ++i)
+				if(l[i].parameter == _parameter)
+					return &l[i];
+			return nullptr;
+		}
+
+		// The steps of _track's 64 that hold a Lock of _parameter
+		int lockCount(const Pattern& _p, const int _track, const int _parameter)
+		{
+			int n = 0;
+			for(int s = 0; s < SeqSteps; ++s)
+				n += lockAt(_p, _track, s, _parameter) ? 1 : 0;
+			return n;
 		}
 	}
 
@@ -626,11 +646,9 @@ namespace elektron::drums
 			chokes.look = Look::Plain;
 			chokes.format = Format::Chokes;
 			addCell(chokes);
-			const auto& machines = m_processor.machines();
-			const int choice = choiceOf(t("machine")->getParameterID());
+			const int choice = choiceOf(*t("machine"));
 			m_machinePage = std::min(m_machinePage, machinePages() - 1);
-			const auto labels = machineLabels(machines[static_cast<size_t>(juce::jlimit(0,
-				static_cast<int>(machines.size()) - 1, choice))], m_machinePage);
+			const auto labels = machineLabels(trackMachine(m_track), m_machinePage);
 			for(int i = 0; i < 8; ++i)
 			{
 				const auto& l = labels[static_cast<size_t>(i)];
@@ -767,11 +785,13 @@ namespace elektron::drums
 			const char* names[]{"DELAY", "ATTACK", "DECAY", "SUSTAIN", "RELEASE"};
 			for(int i = 0; i < 5; ++i)
 				put(x, ey + 48, w, 5, i, t(ids[i]), names[i], hue::s, "f");
-			watch(responsePicture.getUnion(envelopePicture), [this]
+			watch(responsePicture.getUnion(envelopePicture), [this, ids]
 			{
-				return hashOf({trackParameter("flt_type"), trackParameter("flt_mode"), trackParameter("flt_freq"),
-					trackParameter("flt_res"), trackParameter("fenv_delay"), trackParameter("fenv_attack"),
-					trackParameter("fenv_decay"), trackParameter("fenv_sustain"), trackParameter("fenv_release")});
+				std::vector<juce::RangedAudioParameter*> ps{trackParameter("flt_type"), trackParameter("flt_mode"),
+					trackParameter("flt_freq"), trackParameter("flt_res")};
+				for(const char* id : ids)
+					ps.push_back(trackParameter(id));
+				return hashOf(ps);
 			});
 		}
 
@@ -798,11 +818,13 @@ namespace elektron::drums
 				const int slot = adsr ? adsrSlot[i] : ahdSlot[i];
 				put(x, y + 75.5f, w, adsr ? 4 : 3, std::max(0, slot), t(ids[i]), names[i], hue::p, "ae", slot >= 0);
 			}
-			watch(ampPicture, [this]
+			watch(ampPicture, [this, ids]
 			{
-				return hashOf({trackParameter("amp_mode"), trackParameter("amp_attack"), trackParameter("amp_hold"),
-					trackParameter("amp_decay"), trackParameter("amp_sustain"), trackParameter("amp_release"),
-					trackParameter("amp_on")});
+				std::vector<juce::RangedAudioParameter*> ps{trackParameter("amp_mode")};
+				for(const char* id : ids)
+					ps.push_back(trackParameter(id));
+				ps.push_back(trackParameter("amp_on"));
+				return hashOf(ps);
 			});
 		}
 
@@ -861,8 +883,7 @@ namespace elektron::drums
 				target.section = "";
 				const int aimed = choiceOf(trackParameter(pre + "track")->getParameterID()) - 1;
 				target.labels = targetLabels(*dynamic_cast<const juce::AudioParameterChoice*>(target.parameter),
-					m_processor.machines()[static_cast<size_t>(choiceOf(trackParameter("machine", aimed < 0 ? m_track
-						: aimed)->getParameterID()))]);
+					trackMachine(aimed < 0 ? m_track : aimed));
 				addCell(target);
 				Cell syncCell = cellOf(trackParameter(pre + "sync"), "SYNC", x + w - 32, LfoY + 1.8f, 28, hl, "");
 				syncCell.look = Look::Segments;
@@ -1020,11 +1041,10 @@ namespace elektron::drums
 		{
 			const auto r = responsePicture;
 			const float x = r.getX(), y = r.getY(), w = r.getWidth(), h = r.getHeight();
-			const int type = choiceOf(trackParameter("flt_type")->getParameterID());
-			const auto* mode = dynamic_cast<const juce::AudioParameterChoice*>(trackParameter("flt_mode"));
-			const juce::String name = type == 0 ? "OFF" : type == 2 ? "MD" : mode->getCurrentChoiceName();
+			const auto type = static_cast<FilterType>(choiceOf(trackParameter("flt_type")->getParameterID()));
+			const int mode = choiceOf(trackParameter("flt_mode")->getParameterID());
 			const float fc = 20 * std::pow(1000.0f, v("flt_freq")), q = 0.6f + v("flt_res") * 9;
-			const auto f = response(fc, q, name);
+			const auto f = response(fc, q, type, mode);
 			std::vector<juce::Point<float>> curve;
 			for(int i = 0; i <= 80; ++i)
 			{
@@ -1083,8 +1103,8 @@ namespace elektron::drums
 			const float x = r.getX(), w = r.getWidth(), m = r.getCentreY(), a = r.getHeight() * 0.44f;
 			const auto* p = trackParameter(pre + "depth");
 			const float depth = p->convertFrom0to1(p->getValue()) / 127;
-			const juce::String shapes[]{"TRI", "SIN", "SQR", "SAW", "EXP", "RMP", "RND"};
-			const auto& shape = shapes[juce::jlimit(0, 6, choiceOf(trackParameter(pre + "shape")->getParameterID()))];
+			const auto shape = static_cast<LfoShape>(juce::jlimit(0, static_cast<int>(LfoShape::Random),
+				choiceOf(trackParameter(pre + "shape")->getParameterID())));
 			std::vector<juce::Point<float>> guide, curve;
 			for(int i = 0; i <= 160; ++i)
 			{
@@ -1109,8 +1129,7 @@ namespace elektron::drums
 				auto* target = dynamic_cast<const juce::AudioParameterChoice*>(trackParameter(pi + "target"));
 				const bool active = target->getIndex() != 0;
 				const int aimed = choiceOf(trackParameter(pi + "track")->getParameterID()) - 1;
-				const auto aim = targetLabels(*target, m_processor.machines()[static_cast<size_t>(choiceOf(trackParameter(
-					"machine", aimed < 0 ? m_track : aimed)->getParameterID()))])[target->getIndex()];
+				const auto aim = targetLabels(*target, trackMachine(aimed < 0 ? m_track : aimed))[target->getIndex()];
 				const auto* d = trackParameter(pi + "depth");
 				_p.rect(c.getX(), c.getY(), c.getWidth(), c.getHeight(), shown ? hi.c[2] : colour::cellBack, 1);
 				_p.frame(c.getX(), c.getY(), c.getWidth(), c.getHeight(), shown ? hi.c[0] : hi.c[1], 1, shown ? 0.5f : 0.3f);
@@ -1195,52 +1214,73 @@ namespace elektron::drums
 
 	// As the sequencer plays the Track's steps (edDrumsSequencer.cpp) and Processor::applyEvent applies them: a step with
 	// a trig or a Lock is an event, and an event releases what the Track's last one locked and locks its own; so a Lock
-	// holds to the next event, then the base comes back, across the loop's end too. A trig with SLIDE glides what it locks
-	// towards the next trig's Lock, or the base, until the next event. On a trig, a step's note plays over a Lock of Note
-	std::vector<Editor::LaneStep> Editor::laneSteps(const int _line) const
+	// holds to the next event, then the base comes back, across the loop's end too. A trig's Lock of Machine 1-24 without
+	// SLIDE is the Hit's (Engine::lock), which only the Track's next trig releases, or a trigless Lock of it. A trig with
+	// SLIDE glides what it locks towards the next trig's Lock, or the base, until the next event. On a trig, a step's note
+	// plays over a Lock of Note. A step whose condition is not Always may not play (Sequencer::emit): it neither releases
+	// nor locks here, and its own Lock is drawn as one that may play
+	std::vector<Editor::LaneStep> Editor::laneSteps(const int _line, int* _locks) const
 	{
 		const auto& p = pattern();
 		auto* rp = dynamic_cast<juce::RangedAudioParameter*>(m_processor.getParameters()[_line]);
 		const float base = rp ? rp->getValue() : 0.0f;
 		std::vector<LaneStep> steps(static_cast<size_t>(SeqSteps), {base, base, false});
 		const int length = std::min(SeqSteps, p.trackLength[static_cast<size_t>(m_track)]);
-		if(!rp || length <= 0)
+		if(_locks)
+			*_locks = 0;
+		if(!rp)
 			return steps;
-		const bool note = _line == trackParameter("note")->getParameterIndex();
-		// Each step's own Lock, the step's note over it on a trig; whether a Lock in its list slides
-		std::vector<bool> own(static_cast<size_t>(length), false);
-		for(int s = 0; s < length; ++s)
+		const bool note = _line == m_keyChoices[static_cast<size_t>(m_track)].note->getParameterIndex();
+		const bool machine = m_processor.lockTarget(_line).kind == Processor::LockKind::Machine;
+		// Each step's own Lock, the step's note over it on a trig; whether a Lock in its list slides; whether the step is an
+		// event, sure to play; whether its Lock is the Hit's; the value it locks
+		std::array<bool, SeqSteps> own{}, events{}, hits{};
+		std::array<float, SeqSteps> value;
+		value.fill(base);
+		// Past the Track's length, a step's Lock is counted only
+		for(int s = 0; s < SeqSteps; ++s)
 		{
-			auto& st = steps[static_cast<size_t>(s)];
+			const auto* lock = lockAt(p, m_track, s, _line);
+			if(_locks && lock)
+				++*_locks;
+			if(s >= length)
+				continue;
+			const auto i = static_cast<size_t>(s);
+			auto& st = steps[i];
 			const auto& step = p.step(m_track, s);
-			const auto* l = p.locks(m_track, s);
-			for(int i = 0; l && i < step.lockCount; ++i)
-				if(l[i].parameter == _line)
-				{
-					st.from = rp->convertTo0to1(l[i].value);
-					st.locked = own[static_cast<size_t>(s)] = true;
-				}
+			const bool locks = lock != nullptr;
+			bool has = locks;
+			if(lock)
+				value[i] = rp->convertTo0to1(lock->value);
 			if(note && step.trig && step.note != NoNote)
 			{
-				st.from = rp->convertTo0to1(static_cast<float>(step.note));
-				st.locked = true;
+				value[i] = rp->convertTo0to1(static_cast<float>(step.note));
+				has = true;
 			}
-		}
-		const auto event = [&](const int _s) { return p.step(m_track, _s).trig || p.step(m_track, _s).lockCount > 0; };
-		// Held from the loop's last event, as the second lap and every later one play it
-		float held = base;
-		for(int s = length - 1; s >= 0; --s)
-			if(event(s))
+			if(step.condition.kind != ConditionKind::Always)
 			{
-				held = steps[static_cast<size_t>(s)].locked ? steps[static_cast<size_t>(s)].from : base;
-				break;
+				st.may = has;
+				st.would = value[i];
+				continue;
 			}
-		for(int s = 0; s < length; ++s)
+			st.locked = has;
+			own[i] = locks;
+			events[i] = step.trig || step.lockCount > 0;
+			hits[i] = machine && step.trig && locks && !step.slide;
+		}
+		// Two laps, the second drawn: what the first left held is what every later lap starts with
+		float held = base;
+		bool hitHeld = false;
+		for(int n = 0; n < 2 * length; ++n)
 		{
-			auto& st = steps[static_cast<size_t>(s)];
-			if(event(s))
-				held = st.locked ? st.from : base;
-			st.from = st.to = held;
+			const auto i = static_cast<size_t>(n % length);
+			if(events[i] && (p.step(m_track, n % length).trig || steps[i].locked || !hitHeld))
+			{
+				held = steps[i].locked ? value[i] : base;
+				hitHeld = hits[i];
+			}
+			if(n >= length)
+				steps[i].from = steps[i].to = held;
 		}
 		for(int s = 0; s < length; ++s)
 		{
@@ -1253,12 +1293,9 @@ namespace elektron::drums
 				if(!p.step(m_track, next).trig)
 					continue;
 				const float v0 = steps[static_cast<size_t>(s)].from;
-				float vt = base;
-				const auto* l = p.locks(m_track, next);
-				for(int i = 0; l && i < p.step(m_track, next).lockCount; ++i)
-					if(l[i].parameter == _line)
-						vt = rp->convertTo0to1(l[i].value);
-				for(int k = 0; k < d && (k == 0 || !event((s + k) % length)); ++k)
+				const auto* lock = lockAt(p, m_track, next, _line);
+				const float vt = lock ? rp->convertTo0to1(lock->value) : base;
+				for(int k = 0; k < d && (k == 0 || !events[static_cast<size_t>((s + k) % length)]); ++k)
 				{
 					auto& st = steps[static_cast<size_t>((s + k) % length)];
 					st.from = v0 + (vt - v0) * static_cast<float>(k) / static_cast<float>(d);
@@ -1405,11 +1442,7 @@ namespace elektron::drums
 				const auto& s = pattern().step(m_track, _n);
 				if(_line < 0)
 					return m_seqMode == 0 ? s.trig : m_seqMode == 1 ? s.accent : s.slide;
-				const auto* l = pattern().locks(m_track, _n);
-				for(int i = 0; l && i < s.lockCount; ++i)
-					if(l[i].parameter == _line)
-						return true;
-				return false;
+				return lockAt(pattern(), m_track, _n, _line) != nullptr;
 			};
 			const auto set = [this, _line](const int _n, const bool _to)
 			{
@@ -1465,11 +1498,8 @@ namespace elektron::drums
 						else
 						{
 							auto* rp = dynamic_cast<juce::RangedAudioParameter*>(m_processor.getParameters()[_line]);
-							const auto& s = pattern().step(m_track, m_grid.step);
-							const auto* l = pattern().locks(m_track, m_grid.step);
-							for(int i = 0; l && i < s.lockCount; ++i)
-								if(l[i].parameter == _line && rp)
-									m_grid.start = rp->convertTo0to1(l[i].value);
+							if(const auto* lock = lockAt(pattern(), m_track, m_grid.step, _line); lock && rp)
+								m_grid.start = rp->convertTo0to1(lock->value);
 						}
 					}
 				}
@@ -1530,7 +1560,7 @@ namespace elektron::drums
 			add.r = addLockBox;
 			add.click = [this] { m_lockMenu = !m_lockMenu; };
 			addHit(std::move(add));
-			const auto lines = lockLineList();
+			const auto& lines = m_lines;
 			const int count = static_cast<int>(lines.size());
 			m_lockScroll = count > Lanes ? juce::jlimit(0, (count - 1) / Lanes * Lanes, m_lockScroll / Lanes * Lanes) : 0;
 			if(count > Lanes)
@@ -1553,16 +1583,11 @@ namespace elektron::drums
 				grid(laneBox(r), line);
 				Hit x;
 				x.r = laneDeleteBox(r);
-				x.keepsArmed = true;
+				// An X's press keeps the line armed (another X's click then arms its own)
+				x.press = [this] { m_armedLine = m_press.armed; };
 				x.click = [this, line]
 				{
-					bool has = false;
-					for(int s = 0; s < SeqSteps; ++s)
-					{
-						const auto* l = pattern().locks(m_track, s);
-						for(int i = 0; l && i < pattern().step(m_track, s).lockCount; ++i)
-							has = has || l[i].parameter == line;
-					}
+					const bool has = lockCount(pattern(), m_track, line) > 0;
 					if(has && m_armedLine != line)
 					{
 						m_armedLine = line;
@@ -1680,6 +1705,9 @@ namespace elektron::drums
 				const auto& st = p.step(m_track, s);
 				h = mix(h, static_cast<uint64_t>((st.trig ? 1 : 0) | (st.accent ? 2 : 0) | (st.slide ? 4 : 0)) | st.velocity << 3
 					| static_cast<uint64_t>(st.lockCount) << 11);
+				// A step's condition decides what its lanes draw
+				h = mix(h, static_cast<uint64_t>(st.condition.kind) | static_cast<uint64_t>(st.condition.a) << 8
+					| static_cast<uint64_t>(st.condition.b) << 16);
 				const auto* l = p.locks(m_track, s);
 				for(int i = 0; l && i < st.lockCount; ++i)
 					h = mixFloat(mix(h, l[i].parameter), l[i].value);
@@ -1701,7 +1729,8 @@ namespace elektron::drums
 			shut.click = [this] { m_lockMenu = false; };
 			shut.cursor = juce::MouseCursor::NormalCursor;
 			addHit(std::move(shut));
-			for(const auto& e : lockMenuEntries())
+			m_menuEntries = lockMenuEntries();
+			for(const auto& e : m_menuEntries)
 			{
 				if(e.taken)
 					continue;
@@ -1720,10 +1749,8 @@ namespace elektron::drums
 
 	std::vector<Editor::MenuEntry> Editor::lockMenuEntries() const
 	{
-		const auto& machines = m_processor.machines();
-		const auto& machine = machines[static_cast<size_t>(juce::jlimit(0, static_cast<int>(machines.size()) - 1,
-			choiceOf(trackParameter("machine")->getParameterID())))];
-		const auto lines = lockLineList();
+		const int used = machineParameters(trackMachine(m_track));
+		const auto& lines = m_lines;
 		std::vector<MenuEntry> entries;
 		std::array<int, 10> rows{};
 		const float cw = (ScreenW - 8) / 10;
@@ -1731,16 +1758,15 @@ namespace elektron::drums
 		{
 			if(id.endsWith("_machine") || id.endsWith("_output") || id.endsWith("_chokes"))
 				continue;
-			const auto suffix = id.substring(4);
-			if(suffix.startsWithChar('m') && suffix.substring(1).containsOnly("0123456789")
-				&& suffix.substring(1).getIntValue() > machineParameters(machine))
+			auto* p = m_processor.parameter(id);
+			const int index = p->getParameterIndex();
+			if(const auto& target = m_processor.lockTarget(index); target.kind == Processor::LockKind::Machine
+				&& target.a >= used)
 				continue;
 			const auto section = laneSection(id);
 			// VOICE runs on into the column after its own
 			const int column = section.column == 0 && rows[0] >= MenuRows ? 1 : section.column;
 			const int row = rows[static_cast<size_t>(column)]++;
-			auto* p = m_processor.parameter(id);
-			const int index = p->getParameterIndex();
 			entries.push_back({index, {ScreenX + 4 + static_cast<float>(column) * cw, MenuY + 10 + static_cast<float>(row)
 				* MenuRow, cw - 2, MenuRow - 1}, section.hue, column == 1 ? juce::String() : juce::String(section.name),
 				lockName(*p), std::find(lines.begin(), lines.end(), index) != lines.end()});
@@ -1767,7 +1793,7 @@ namespace elektron::drums
 	{
 		if(!m_lockMenu)
 			return {};
-		for(const auto& e : lockMenuEntries())
+		for(const auto& e : m_menuEntries)
 			if(e.parameter == _parameter && !e.taken)
 				return toPx(e.r);
 		return {};
@@ -1883,7 +1909,7 @@ namespace elektron::drums
 		rule(77, "LOCKS", false);
 		drawButton(_p, addLockBox.getX(), addLockBox.getY(), addLockBox.getWidth(), addLockBox.getHeight(), "+ LOCK",
 			m_lockMenu);
-		const auto lines = lockLineList();
+		const auto& lines = m_lines;
 		const int count = static_cast<int>(lines.size());
 		if(count > Lanes)
 			drawButton(_p, lanesBox.getX(), lanesBox.getY(), lanesBox.getWidth(), lanesBox.getHeight(), "LANES "
@@ -1933,14 +1959,8 @@ namespace elektron::drums
 				return c.valueText(_v);
 			};
 			// What it plays on each step (laneSteps), and how many Locks it holds
-			const auto steps = laneSteps(line);
 			int locks = 0;
-			for(int s = 0; s < SeqSteps; ++s)
-			{
-				const auto* l = p.locks(m_track, s);
-				for(int i = 0; l && i < p.step(m_track, s).lockCount; ++i)
-					locks += l[i].parameter == line ? 1 : 0;
-			}
+			const auto steps = laneSteps(line, &locks);
 			// The names' column: the name, its block or the X's question, its base; the X, framed
 			const bool armed = m_armedLine == line;
 			const float nameW = SG - 16 - 9;
@@ -1959,22 +1979,24 @@ namespace elektron::drums
 			const auto at = [&](const int _q) { return steps[static_cast<size_t>(o0 + _q)]; };
 			if(list)
 			{
-				// A list's Lock: a pill with its value; where a run of steps without one starts, what they play, the base
-				// in grey, a Lock held in the lane's hue
+				// A list's Lock: a pill with its value, black ringed in the hue where the step's condition may not play it;
+				// where a run of steps without one starts, what they play, the base in grey, a Lock held in the lane's hue
+				const auto pill = [&](const int _q) { return at(_q).locked || at(_q).may; };
 				for(int q = 0; q < 16; ++q)
 				{
 					const float sx = SG + static_cast<float>(q) * SC, w = SC - 1.2f;
-					if(at(q).locked)
+					if(pill(q))
 					{
-						_p.rect(sx + 1.2f, yy + 4, w - 2.4f, hh - 8, h.c[3], 1.2f);
+						const bool may = !at(q).locked;
+						_p.rect(sx + 1.2f, yy + 4, w - 2.4f, hh - 8, may ? juce::Colours::black : h.c[3], 1.2f);
 						_p.frame(sx + 1.2f, yy + 4, w - 2.4f, hh - 8, h.c[0], 1.2f, 0.4f);
-						_p.text(sx + w / 2, yy + hh / 2 + 1.4f, fitted(_p, valueText(at(q).from), 2.8f, w - 3, 600), 2.8f,
-							h.c[4], 600, Align::Centre);
+						_p.text(sx + w / 2, yy + hh / 2 + 1.4f, fitted(_p, valueText(may ? at(q).would : at(q).from), 2.8f,
+							w - 3, 600), 2.8f, h.c[4], 600, Align::Centre);
 					}
-					else if(q == 0 || at(q - 1).locked || at(q - 1).from != at(q).from)
+					else if(q == 0 || pill(q - 1) || at(q - 1).from != at(q).from)
 					{
 						int run = 1;
-						while(q + run < 16 && !at(q + run).locked && at(q + run).from == at(q).from)
+						while(q + run < 16 && !pill(q + run) && at(q + run).from == at(q).from)
 							++run;
 						const bool held = at(q).from != base;
 						_p.text(sx + 1.6f, yy + hh / 2 + 1.2f, fitted(_p, valueText(at(q).from), 2.8f,
@@ -2009,9 +2031,13 @@ namespace elektron::drums
 			_p.g.setColour(h.c[0]);
 			_p.g.strokePath(stroke, juce::PathStrokeType(0.65f));
 			dashed(_p, SG, right, baseY, juce::Colour(0x8c8E8C88), 0.35f);
+			// A Lock's dot; black ringed in the hue where the step's condition may not play it, at what it would lock
 			for(int q = 0; q < 16; ++q)
 				if(at(q).locked)
 					_p.dot(SG + static_cast<float>(q) * SC + (SC - 1.2f) / 2, Y(at(q).from), 1.4f, h.c[4], h.c[4], 0.1f);
+				else if(at(q).may)
+					_p.dot(SG + static_cast<float>(q) * SC + (SC - 1.2f) / 2, Y(at(q).would), 1.4f, juce::Colours::black,
+						h.c[4], 0.5f);
 		}
 
 		// The step chosen: a frame on its trig, a column through the lanes; what lies beyond the Track's length
@@ -2059,7 +2085,7 @@ namespace elektron::drums
 		// already greyed
 		if(m_lockMenu)
 		{
-			const auto entries = lockMenuEntries();
+			const auto& entries = m_menuEntries;
 			float bottom = MenuY;
 			for(const auto& e : entries)
 				bottom = std::max(bottom, e.r.getBottom());
@@ -2921,7 +2947,7 @@ namespace elektron::drums
 		const bool sync = choiceOf("delay_sync") != 0, chorusSync = choiceOf("chorus_sync") != 0,
 			phaserSync = choiceOf("phaser_sync") != 0;
 		blockOf(0, "fd", "DELAY", hue::k, {{"delay_source", "SOURCE"}, {"delay_output", "OUT"},
-			{"delay_note", "TIME"}, {"delay_free", "TIME"},
+			{"delay_note", "TIME"}, {"delay_free", "RATE"},
 			{"echo_mod", "MOD DEPTH"}, {"echo_mfrq", "MOD RATE"}, {"echo_fb", "FEEDBACK"},
 			{"echo_fltf", "HPF"}, {"echo_fltw", "BANDWIDTH"}, {"echo_mono", "MONO"}, {"echo_lev", "LEVEL"},
 			{"delay_cross", "PING-PONG"}, {"delay_width", "WIDTH"}, {"delay_fdbk", "FEEDBACK"},

@@ -108,12 +108,12 @@ namespace elektron::drums
 			return FactoryRef + juce::String(_slot);
 		}
 
-		// Ticket 27's house name (edDrumsNames.h); a machine the list once held and no longer offers keeps its id's
+		// Ticket 27's house name (edDrumsNames.h); a machine without one, by its id alone, no code of an old machine
 		juce::String machineName(const Machine& _machine)
 		{
 			if(const char* name = names::machine(_machine))
 				return name;
-			return juce::String(std::string(md::machines::find(md::MachineModel::Machinedrum, _machine.id)->name));
+			return "MACHINE " + juce::String(_machine.id);
 		}
 
 		// Tracks 1-8 start on the Syntakt's machines, which need nothing, Track 9 on TRX-CL for SP TWINSHOT, which
@@ -507,7 +507,7 @@ namespace elektron::drums
 			// A delay time of 1 / Hz in place of TIME's, 0 TIME's (Sends::setDelayFree)
 			juce::NormalisableRange<float> range(0.0f, 1378.125f);
 			range.setSkewForCentre(4.0f);
-			m_delayFree.parameter = add(new juce::AudioParameterFloat({"delay_free", 1}, "Delay Free Time", range, 0.0f),
+			m_delayFree.parameter = add(new juce::AudioParameterFloat({"delay_free", 1}, "Delay Free Rate", range, 0.0f),
 				Section::Effects);
 			m_watched.push_back(&m_delayFree);
 		}

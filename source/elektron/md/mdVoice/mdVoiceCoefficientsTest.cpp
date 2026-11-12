@@ -14,7 +14,6 @@
 
 #include "mdVoice.h"
 #include "mdVoiceCoefficients.h"
-#include "mdVoiceDsp.h"
 #include "mdVoiceInternal.h"
 #include "mdVoicePiImport.h"
 #include "mdVoiceTrack.h"

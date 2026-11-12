@@ -205,11 +205,13 @@ namespace
 		double quarters = 0;
 	};
 
+	void snapshot(Editor& _editor, const juce::File& _file);
+
 	// Seq's lanes drawn as the Processor plays them (Editor::laneSteps): a Processor of its own plays Track 1 for two laps
-	// at 120 BPM, Machine 1 read from its engine at each step's middle on the second lap and compared with what the lane
-	// draws there. Machine 1 is locked on trigless steps alone: on a trig its Lock is the Hit's (Engine::lock), which the
-	// engine's parameter does not report
-	void lanesAsPlayed()
+	// at 120 BPM, what its engine plays of Machine 1 (Engine::played, a Hit's lock too) read at each step's middle on the
+	// second lap and compared with what the lane draws there. A step of a condition that fails draws as one that may.
+	// Seq's Detail with that lane rendered to _folder
+	void lanesAsPlayed(const juce::File& _folder)
 	{
 		Processor processor;
 		Editor editor(processor);
@@ -217,6 +219,7 @@ namespace
 		const auto lockOf = [](juce::RangedAudioParameter* _p) { return static_cast<uint16_t>(_p->getParameterIndex()); };
 		m1->setValueNotifyingHost(m1->convertTo0to1(40));
 		const auto lap = [&](const std::function<void(Pattern&)>& _set, const juce::String& _what)
+			-> std::vector<Editor::LaneStep>
 		{
 			processor.editSequencer([&](Sequencer& _s)
 			{
@@ -239,7 +242,7 @@ namespace
 				transport.quarters = at / (Rate / 2);
 				processor.processBlock(buffer, midi);
 				while(next < 32 && (next + 0.5) * Step <= at + Block)
-					played[static_cast<size_t>(next++ - 16)] = processor.engine()->parameter(0, 0);
+					played[static_cast<size_t>(next++ - 16)] = processor.engine()->played(0, 0);
 			}
 			processor.setPlayHead(nullptr);
 			juce::StringArray wrong;
@@ -253,6 +256,7 @@ namespace
 			}
 			check(wrong.isEmpty(), "a lane drawn as played, " + _what + (wrong.isEmpty() ? juce::String()
 				: ": " + wrong.joinIntoString(" | ")));
+			return drawn;
 		};
 		// 1: a trig on 5, a trigless Lock on 9: from the second lap on, steps 1-5 play the Lock
 		lap([&](Pattern& _p)
@@ -276,6 +280,31 @@ namespace
 			_p.setLock(0, 4, lockOf(processor.parameter("t01_m2")), 90);
 			_p.setTrig(0, 8, true);
 		}, "a slide ended by the next event");
+		// 4: a trig on 1 locking Machine 1, the Hit's Lock; a trigless Lock of Machine 2 on 5 does not release it, the
+		// next trig on 9 does
+		lap([&](Pattern& _p)
+		{
+			_p.setTrig(0, 0, true);
+			_p.setLock(0, 0, lockOf(m1), 100);
+			_p.setLock(0, 4, lockOf(processor.parameter("t01_m2")), 90);
+			_p.setTrig(0, 8, true);
+		}, "a trig's Lock of Machine 1 held to the next trig");
+		// 5: a trigless Lock on 4, a Lock of 20 on 7 that plays in a fill alone, the next trig on 9: steps 4-8 play the
+		// first, the second drawn as one that may, of 20, holding nothing
+		const auto may = lap([&](Pattern& _p)
+		{
+			_p.setLock(0, 3, lockOf(m1), 100);
+			_p.setLock(0, 6, lockOf(m1), 20);
+			_p.step(0, 6).condition = {ConditionKind::Fill, 0, 0};
+			_p.setTrig(0, 8, true);
+		}, "a Lock of a condition that fails");
+		const auto& six = may[6];
+		check(six.may && !six.locked && juce::roundToInt(m1->convertFrom0to1(six.would)) == 20
+			&& std::count_if(may.begin(), may.end(), [](const Editor::LaneStep& _s) { return _s.may; }) == 1,
+			"a Lock that plays in a fill alone: drawn as one that may, of 20, the others not");
+		editor.showPage(Editor::Page::Seq);
+		snapshot(editor, _folder.getChildFile("seq-lane-may.png"));
+		editor.showPage(Editor::Page::Sound);
 
 		// A list holds its Lock the same way: the filter's TYPE locked on 4, the next trig on 9
 		auto* type = processor.parameter("t01_flt_type");
@@ -551,7 +580,7 @@ namespace
 		Editor editor(processor);
 		std::printf("face: %s\n", ui::Painter::faceName().toRawUTF8());
 		check(editor.getWidth() == Editor::Width && editor.getHeight() == Editor::Height, "the editor at 1600 x 1000");
-		lanesAsPlayed();
+		lanesAsPlayed(_folder);
 
 		using S = Processor::Section;
 		soundCoverage(editor, processor, 0, "Sound, Track 1");
