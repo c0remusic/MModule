@@ -190,9 +190,10 @@ namespace elektron::drums
 	{
 		// The way down. At 48 kHz what the Tracks send holds the Syntakt's band to 24 kHz, read as it is: a filter as sharp
 		// as a ring's, its taps as many at 48 kHz as RateFir::Taps at 44.1. Above, every ring is read through a RateFir,
-		// so that nothing is sent past 20.5 kHz but 84 dB down, and nothing can fold under it: the filter need only be flat
-		// to 20.5 kHz, a sinc at 0.45 of the host's rate under a Kaiser window of beta 6, 16 taps, within 0.008 dB to 18 kHz
-		// at every phase. A seventh of the taps at 96 kHz, which made the sends the dearest part of the engine there
+		// so that nothing is sent past 20.5 kHz but 84 dB down; at 96 and 192 kHz the Syntakt's 22.05-24 kHz, which its
+		// ring is read with, folds into 20.1-22.05 kHz of the send returns, above the band that matters. The filter need
+		// only be flat to 20.5 kHz, a sinc at 0.45 of the host's rate under a Kaiser window of beta 6, 16 taps, within
+		// 0.008 dB to 18 kHz at every phase. A seventh of the taps at 96 kHz, which made the sends the dearest part there
 		struct Shape
 		{
 			int taps;

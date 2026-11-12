@@ -2,7 +2,11 @@ cmake_minimum_required(VERSION 3.15)
 
 # The instrument's engine, without JUCE: 16 Tracks of either family, syntakt::fast or md::voice (ticket 11 of
 # .scratch/elektron-drums-v1). mdEngine serves its flash image reader alone.
-add_library(edDrums STATIC edDrumsChain.h edDrumsChain.cpp
+add_library(edDrums STATIC edDrumsAnalog.h edDrumsAnalogPort.h edDrumsAnalogShared.cpp edDrumsAnalogVoice.h edDrumsAnalogVoice.cpp
+	edDrumsAnalogKick.cpp edDrumsAnalogKickVoice.cpp edDrumsAnalogSnare.cpp edDrumsAnalogSnareVoice.cpp
+	edDrumsAnalogSynth.cpp edDrumsAnalogSynthVoice.cpp edDrumsAnalogUtility.cpp edDrumsAnalogUtilityVoice.cpp
+	edDrumsAnalogRates.h edDrumsAnalogRates.cpp edDrumsAnalogMetal.cpp edDrumsAnalogMetalVoice.cpp
+	edDrumsChain.h edDrumsChain.cpp
 	edDrumsEngine.h edDrumsEngine.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
 	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
 	edDrumsMaster.h edDrumsMaster.cpp edDrumsRate.h edDrumsRate.cpp edDrumsRateAvx2.cpp edDrumsSamples.h edDrumsSamples.cpp
@@ -70,6 +74,23 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsSophieTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsSophieTest COMMAND edDrumsSophieTest)
 	set_tests_properties(edDrumsSophieTest PROPERTIES TIMEOUT 300)
+
+	# The analog voices' control against the original routines' vectors, and its fitted tables against the original's
+	# words (ANALOG_VECTORS, SYNTAKT_SECTION3: exit 77 without them)
+	add_executable(edDrumsAnalogControlTest edDrumsAnalogControlTest.cpp)
+	target_link_libraries(edDrumsAnalogControlTest PRIVATE edDrums)
+	set_property(TARGET edDrumsAnalogControlTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsAnalogControlTest COMMAND edDrumsAnalogControlTest)
+	set_tests_properties(edDrumsAnalogControlTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# The analog family through the engine: Hits sample for sample against the voice alone, HitDelay, jitter 0, let go
+	# once quiet, no allocation, the dearest kit's cost
+	add_executable(edDrumsAnalogTest edDrumsAnalogTest.cpp)
+	target_link_libraries(edDrumsAnalogTest PRIVATE edDrums)
+	target_include_directories(edDrumsAnalogTest PRIVATE ../md/mdDrums)
+	set_property(TARGET edDrumsAnalogTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsAnalogTest COMMAND edDrumsAnalogTest)
+	set_tests_properties(edDrumsAnalogTest PROPERTIES TIMEOUT 600)
 
 	# The Syntakt family's fresh amp against its machines' own decay to -40 dB
 	add_executable(edDrumsAmpTest edDrumsAmpTest.cpp)

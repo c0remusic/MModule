@@ -7,6 +7,7 @@
 #include <memory>
 #include <vector>
 
+#include "edDrumsAnalogVoice.h"
 #include "edDrumsChain.h"
 #include "edDrumsLfo.h"
 #include "edDrumsLibrary.h"
@@ -79,7 +80,8 @@ namespace elektron::drums
 		Syntakt,
 		Machinedrum,
 		OpenDrum,
-		Sophie
+		Sophie,
+		SyntaktAnalog
 	};
 
 	// A Syntakt machine by its index in syntaktMachineNames, a Machinedrum one by its id
@@ -116,6 +118,11 @@ namespace elektron::drums
 	// sample. Every Track plays upstream's pad 1 (its base note 36), Machine 1-19 Sophie's parameters and Machine 20 the
 	// kick body (sophieMachine.h); velocity is the Track's, after the voice, the voice itself triggered at 127
 	constexpr int SophieMachines = 1;
+
+	// The Syntakt's analog machines (ticket 28): its main CPU's control of them ported (edDrumsAnalog.h), their circuits
+	// our own (edDrumsAnalogVoice.h), a voice per Track on the Machinedrum's blocks, rings and chain at 44.1 kHz, the
+	// control ticking every 32 samples of 48 kHz. Ids are analog::Machine's; velocity is the Track's, after the voice
+	constexpr int SyntaktAnalogMachines = analog::Machines;
 
 	// Whether a Track can play _machine: every Syntakt machine here, a Machinedrum one whose render is ported or a MID or
 	// CTR one, which stops the voice
@@ -380,6 +387,9 @@ namespace elektron::drums
 			// SOPHIE, on the Machinedrum's blocks: its voice is m_sophie's
 			bool spTrig = false;			// a Hit waits for the next block
 
+			// The analog family, on the Machinedrum's blocks: its voice is m_analog's
+			bool anTrig = false;			// a Hit waits for the next block
+
 			// The Sampler's VINTAGE grain, on the Machinedrum's blocks: its sample is m_vtSource's
 			vintage::Player vt;
 			bool vtTrig = false;			// a Hit waits for the next block
@@ -427,6 +437,8 @@ namespace elektron::drums
 		void renderOpenDrum(Track& _track, float* _x);
 		void playSophie(int _track, int _index);
 		void renderSophie(int _track, float* _x);
+		void playAnalog(int _track, int _index);
+		void renderAnalog(int _track, float* _x);
 		static bool vintageGrain(const Track& _track);
 		void renderVintage(int _track, float* _x);
 		void renderSyntakt();
@@ -524,6 +536,11 @@ namespace elektron::drums
 		struct SophieVoices;
 		std::unique_ptr<SophieVoices> m_sophie;
 		uint32_t m_spMask = 0;			// the Tracks on SOPHIE
+
+		// The analog family: a voice per Track, made at once
+		struct AnalogVoices;
+		std::unique_ptr<AnalogVoices> m_analog;
+		uint32_t m_anMask = 0;			// the Tracks on an analog machine
 
 		// The VINTAGE grain's samples: each Track's Sample::source, where it lies
 		std::array<const int16_t*, Tracks> m_vtSource{};

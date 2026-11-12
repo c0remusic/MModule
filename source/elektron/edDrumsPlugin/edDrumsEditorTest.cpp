@@ -393,6 +393,8 @@ namespace
 				bool origin = used;
 				if(m.family == Family::OpenDrum || m.family == Family::Sophie)
 					origin = machineParameterName(m, i) != nullptr;
+				else if(m.family == Family::SyntaktAnalog)
+					origin = used && analog::usesControl(static_cast<analog::Machine>(m.id), i);
 				else if(m.family == Family::Machinedrum && !(m == Sampler))
 					if(const auto* os = md::machines::parameterNames(md::MachineModel::Machinedrum, m.id))
 						origin = used && !(*os)[static_cast<size_t>(i)].empty();

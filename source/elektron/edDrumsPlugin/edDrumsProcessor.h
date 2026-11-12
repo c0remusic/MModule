@@ -116,14 +116,18 @@ namespace elektron::drums
 		const LockTarget& lockTarget(const int _index) const { return m_lockTargets[static_cast<size_t>(_index)]; }
 
 		// The Sampler's index in machines(), OPEN DRUM's four after it, then SOPHIE
-		int samplerChoice() const { return static_cast<int>(m_machines.size()) - 1 - OpenDrumMachines - SophieMachines; }
+		int samplerChoice() const
+		{
+			return static_cast<int>(m_machines.size()) - 1 - OpenDrumMachines - SophieMachines - SyntaktAnalogMachines;
+		}
 		// The rate _track's chain runs at: the Syntakt's for a Track that took its chain, the Machinedrum's 44.1 kHz
 		// otherwise, whatever the host's
 		double chainRate(const int _track) const
 		{
 			return m_chainFamily[static_cast<size_t>(_track)] == Family::Syntakt ? syntakt::fast::MachineRate : SampleRate;
 		}
-		int sophieChoice() const { return static_cast<int>(m_machines.size()) - SophieMachines; }
+		int sophieChoice() const { return static_cast<int>(m_machines.size()) - SophieMachines - SyntaktAnalogMachines; }
+		int analogChoice() const { return static_cast<int>(m_machines.size()) - SyntaktAnalogMachines; }
 
 		// Message thread. One of SOPHIE's 16 factory sounds (sophie::soundValues) on _track's Machine 1-20, each an edit
 		// the host is told of, as the editor's own. The sound the Track's Machine 1-20 hold, -1 for none

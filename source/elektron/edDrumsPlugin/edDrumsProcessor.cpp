@@ -58,6 +58,9 @@ namespace elektron::drums
 			// Last, so that no choice before it moves
 			for(int id = 0; id < SophieMachines; ++id)
 				list.push_back({Family::Sophie, static_cast<uint8_t>(id)});
+			// The analog machines after it, appended for the same reason
+			for(int id = 0; id < SyntaktAnalogMachines; ++id)
+				list.push_back({Family::SyntaktAnalog, static_cast<uint8_t>(id)});
 			return list;
 		}
 

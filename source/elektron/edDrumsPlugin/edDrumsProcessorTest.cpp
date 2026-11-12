@@ -1036,6 +1036,9 @@ namespace
 			if(!(m.family == Family::Machinedrum && m.id >= 128 && m.id < 160))
 				v5.push_back(m);
 		require(v4.size() - v5.size() == 32, "ROM-01 to -32 not in version 4's list");
+		// ... and the analog machines appended within version 5 (ticket 28): no choice before them moved
+		for(int id = 0; id < SyntaktAnalogMachines; ++id)
+			v5.push_back({Family::SyntaktAnalog, static_cast<uint8_t>(id)});
 		const auto& list = processor.machines();
 		require(list == v5, "the list");
 		require(list[static_cast<size_t>(processor.sophieChoice())] == Machine{Family::Sophie, 0}, "SOPHIE's choice");

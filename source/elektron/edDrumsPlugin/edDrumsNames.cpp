@@ -137,6 +137,46 @@ namespace elektron::drums::names
 			"FM FDBK", "SWEEP", "DECAY", "BIT CRUSH", "DRIVE", "CUTOFF", "RESO", "FILTER TYPE", "COMB TIME", "COMB FDBK",
 			"COMB MIX", "COMB TONE", "METAL DECAY", "FDBK MODE", "TAIL MODE", "KICK BODY"};
 
+		// The Syntakt's analog machines (ticket 28), by analog::Machine; an empty control is one the machine's routine reads
+		// nothing of (analog::usesControl)
+		constexpr std::array<const char*, SyntaktAnalogMachines> analogNames{"HARD THUMP", "NOISE KICK", "PHASE KICK",
+			"TOY KICK", "SOFT KICK", "SNAP KICK", "BODY KICK", "TWIN SNARE", "BEAT SNARE", "WARP SNARE", "SNAP SNARE",
+			"BODY SNARE", "CLICK RIM", "RING RIM", "TWIN OSC", "RAW OSC", "CHIP ARP", "SIX CLOSED", "SIX OPEN", "SIX CYMBAL",
+			"DUO BELL", "RING HAT", "RING OPEN", "RING CRASH", "RING BELL", "BAND RIDE", "BEAT HAT", "TUNED HAT", "NOISE GEN",
+			"CLICK HIT"};
+		const std::array<std::array<const char*, 8>, SyntaktAnalogMachines> analogControls{{
+			{"TUNE", "DECAY", "SWEEP", "SWEEP TIME", "HOLD", "CLICK", "TONE/CLICK", "DRIVE"},
+			{"TUNE", "DECAY", "SWEEP", "SWEEP TIME", "HOLD", "NOISE STYLE", "TONE/CLICK", "DRIVE"},
+			{"TUNE", "DECAY", "SWEEP TIME", "FM AMOUNT", "FM FREQ", "FM DECAY", "DRIVE", ""},
+			{"TUNE", "DECAY", "SWEEP", "SWEEP TIME", "TONE", "CLICK", "OVERDRIVE", "DRIVE"},
+			{"TUNE", "DECAY", "SWEEP", "SWEEP TIME", "HOLD", "NOISE", "TONE", "DRIVE"},
+			{"TUNE", "DECAY", "SWEEP", "SWEEP TIME", "HOLD", "CLICK", "CLICK DAMP", "DRIVE"},
+			{"TUNE", "DECAY", "SWEEP", "SWEEP TIME", "HOLD", "BODY", "OVERDRIVE", "DRIVE"},
+			{"TUNE", "DECAY", "NOISE", "NOISE TRIM", "CLICK", "TONE", "TONE DECAY", "COLOR"},
+			{"TUNE", "DECAY", "DETUNE", "SNAPPY", "TONE", "SNAP DECAY", "BALANCE", "COLOR"},
+			{"TUNE", "DECAY", "MOD TUNE", "MOD DEPTH", "NOISE", "NOISE TRIM", "MOD DECAY", "COLOR"},
+			{"TUNE", "DECAY", "SNAP", "BODY DECAY", "NOISE HPF", "NOISE TONE", "NOISE LEVEL", "COLOR"},
+			{"TUNE", "DECAY", "SNAP", "BODY DECAY", "TAIL", "RING", "HIT", "COLOR"},
+			{"TUNE", "DECAY", "CLICK", "RING", "TONE", "TONE DECAY", "COLOR", "NOISE"},
+			{"TUNE", "DECAY", "TUNE 2", "BALANCE", "RING", "CLICK", "COLOR", "NOISE"},
+			{"TUNE", "DECAY", "DETUNE", "DECAY 2", "BALANCE", "SWEEP", "WAVE MODE", "LEVEL"},
+			{"TUNE", "DECAY", "DETUNE", "NOISE", "WAVE", "SUB WAVE", "BALANCE", "LEVEL"},
+			{"TUNE", "DECAY", "STEP 1", "STEP 2", "STEP 3", "PATTERN", "SPEED", "LEVEL"},
+			{"TUNE", "DECAY", "TONE", "HIGHPASS", "RESONANCE", "NOISE", "CLICK", "LEVEL"},
+			{"TUNE", "DECAY", "TONE", "HIGHPASS", "RESONANCE", "NOISE", "DRIVE", "LEVEL"},
+			{"TUNE", "DECAY", "TONE", "BAND MIX", "RESONANCE", "NOISE", "DRIVE", "LEVEL"},
+			{"TUNE", "DECAY", "DETUNE", "BAND", "RESONANCE", "NOISE", "STRIKE", "LEVEL"},
+			{"TUNE", "DECAY", "BAND", "HIGHPASS", "RESONANCE", "NOISE", "DRIVE", "LEVEL"},
+			{"TUNE", "DECAY", "BAND", "HIGHPASS", "RESONANCE", "NOISE", "DRIVE", "LEVEL"},
+			{"TUNE", "DECAY", "COLOR", "FIRST DECAY", "RESONANCE", "NOISE", "CRASH", "LEVEL"},
+			{"TUNE", "DECAY", "INTERVAL", "BAND", "RESONANCE", "NOISE", "STRIKE", "LEVEL"},
+			{"TUNE", "DECAY", "PARTIALS", "TOP DECAY", "HIGH BAND", "MID BAND", "LOW BAND", "LEVEL"},
+			{"TUNE", "DECAY", "TONE", "FIRST DECAY", "SYNC", "NOISE", "BURST", "LEVEL"},
+			{"OSC 1", "DECAY", "OSC 2", "OSC 3", "OSC 4", "OSC 5", "OSC 6", "LEVEL"},
+			{"COLOR", "DECAY", "ATTACK", "LOW CUT", "RESO", "SWEEP TIME", "SWEEP DEPTH", "LEVEL"},
+			{"WIDTH", "DECAY", "POLARITY", "", "", "", "", "LEVEL"},
+		}};
+
 		const char* named(const char* _name)
 		{
 			return _name && *_name ? _name : nullptr;
@@ -153,6 +193,7 @@ namespace elektron::drums::names
 		case Family::Syntakt:		return syntaktNames[_machine.id];
 		case Family::OpenDrum:		return openDrumNames[_machine.id];
 		case Family::Sophie:		return "HYPER FM";
+		case Family::SyntaktAnalog:	return analogNames[_machine.id];
 		case Family::Machinedrum:
 			if(_machine == Sampler)
 				return "SAMPLER";
@@ -171,6 +212,7 @@ namespace elektron::drums::names
 		case Family::Syntakt:		return "MODERN DIGI";
 		case Family::OpenDrum:		return "VA DRUMS";
 		case Family::Sophie:		return "HYPER FM";
+		case Family::SyntaktAnalog:	return "ANALOG";
 		case Family::Machinedrum:
 			if(_machine == Sampler)
 				return "SAMPLER";
@@ -200,6 +242,7 @@ namespace elektron::drums::names
 		case Family::Syntakt:		return _index < 8 ? syntaktControls[_machine.id][i] : _index == SyntaktHold ? "HOLD" : nullptr;
 		case Family::OpenDrum:		return _index < machineParameters(_machine) ? named(openDrumControls[_machine.id][i]) : nullptr;
 		case Family::Sophie:		return _index < sophie::MachineSlots ? sophieControls[i] : nullptr;
+		case Family::SyntaktAnalog:	return _index < 8 ? named(analogControls[_machine.id][i]) : nullptr;
 		case Family::Machinedrum:
 			if(_machine == Sampler)
 				return _index < vintage::SamplerParameters ? samplerControls[i] : nullptr;
