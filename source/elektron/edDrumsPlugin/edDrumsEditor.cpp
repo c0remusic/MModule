@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "LockstepAssets.h"
+#include "edDrumsNames.h"
 
 // The frame: the plates, the hardware under the screen and beside it, the mouse, the timer, a dropped file. The
 // screen's pages are in edDrumsEditorScreen.cpp. Positions in mm come from t_assets/t.js and HANDOFF.md
@@ -205,6 +206,12 @@ namespace elektron::drums
 			<< choiceOf(trackParameter("lfo2_sync")->getParameterID()) << "/" << choiceOf("delay_source") << "/"
 			<< choiceOf("reverb_source") << "/" << choiceOf("delay_sync") << choiceOf("chorus_sync")
 			<< choiceOf("phaser_sync") << "/" << m_processor.sampleName(m_track) << "/";
+		// The LFOs' TARGET lists name Machine 1-24 by the machine of the Track each aims at
+		key << choiceOf(trackParameter("lfo1_track")->getParameterID()) << ","
+			<< choiceOf(trackParameter("lfo2_track")->getParameterID()) << ",";
+		for(int t = 0; t < 16; ++t)
+			key << choiceOf(trackParameter("machine", t)->getParameterID()) << ",";
+		key << "/";
 		if(m_page == Page::Seq)
 		{
 			for(const int l : lockLineList())
@@ -906,6 +913,23 @@ namespace elektron::drums
 	{
 		const auto* p = dynamic_cast<const juce::AudioParameterChoice*>(trackParameter("machine", _track));
 		return p ? p->getCurrentChoiceName().toUpperCase() : juce::String();
+	}
+
+	juce::String Editor::lockName(const juce::RangedAudioParameter& _parameter) const
+	{
+		const auto& id = _parameter.getParameterID();
+		const auto suffix = id.substring(4);
+		if(id.startsWithChar('t') && suffix.startsWithChar('m') && suffix.length() > 1
+			&& suffix.substring(1).containsOnly("0123456789"))
+		{
+			const int track = id.substring(1, 3).getIntValue() - 1;
+			const auto& machines = m_processor.machines();
+			const int choice = choiceOf(trackParameter("machine", track)->getParameterID());
+			if(choice >= 0 && choice < static_cast<int>(machines.size()))
+				if(const char* name = names::control(machines[static_cast<size_t>(choice)], suffix.substring(1).getIntValue() - 1))
+					return name;
+		}
+		return _parameter.getName(32).fromFirstOccurrenceOf(" ", false, false).toUpperCase();
 	}
 
 	bool Editor::sectionOff(const juce::String& _section) const

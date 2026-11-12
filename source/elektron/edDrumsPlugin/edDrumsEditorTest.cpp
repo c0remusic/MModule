@@ -2,8 +2,10 @@
 // exactly one control; a horizontal drag on a value cell changes its parameter inside one gesture; a click on a step
 // key toggles its trig through the sequencer; a strip's step takes a Lock from a drag instead of the parameter; Browse's
 // LOCKER takes a folder dropped, filters by SEARCH, loads a sample by a double-click, a drag onto a Track and LOAD ON
-// TRACK, renames and removes its sources, keeps a set's sample; nothing drawn on Browse and the Menu names a brand; each
-// page is rendered to a PNG (first argument: the folder, else the temporary folder's edDrumsEditor).
+// TRACK, renames and removes its sources, keeps a set's sample; nothing drawn on Browse and the Menu names a brand; the
+// names of ticket 27: every machine and control named, nothing the host sees or the pages draw names a brand or an old
+// machine, every cell's name fits; each page is rendered to a PNG (first argument: the folder, else the temporary
+// folder's edDrumsEditor).
 
 #include <algorithm>
 #include <cmath>
@@ -13,6 +15,8 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 
 #include "edDrumsEditor.h"
+#include "edDrumsNames.h"
+#include "mdProtocol/mdmachines.h"
 
 namespace
 {
@@ -154,27 +158,27 @@ namespace
 		};
 		put(choiceOf({Family::OpenDrum, 0}));
 		check(_editor.machinePages() == 3 && _editor.machinePage() == 0 && nameOf("t01_m1") == "TUNE",
-			"OD DRUM: three pages, page 1 shown, Machine 1 TUNE");
+			"VA DRUM: three pages, page 1 shown, Machine 1 TUNE");
 		click(_editor, _editor.machinePageArea(1).getCentre());
-		check(_editor.machinePage() == 1 && nameOf("t01_m9") == "FINE" && nameOf("t01_m1").isEmpty(),
-			"a click on 2: Machine 9-16, Machine 9 FINE, Machine 1 gone");
+		check(_editor.machinePage() == 1 && nameOf("t01_m9") == "FINE TUNE" && nameOf("t01_m1").isEmpty(),
+			"a click on 2: Machine 9-16, Machine 9 FINE TUNE, Machine 1 gone");
 		click(_editor, _editor.machinePageArea(2).getCentre());
-		check(_editor.machinePage() == 2 && nameOf("t01_m17") == "FILTER" && nameOf("t01_m23") == "off"
-			&& nameOf("t01_m24") == "off", "a click on 3: Machine 17 FILTER, 23 and 24 greyed");
+		check(_editor.machinePage() == 2 && nameOf("t01_m17") == "CUTOFF" && nameOf("t01_m23") == "off"
+			&& nameOf("t01_m24") == "off", "a click on 3: Machine 17 CUTOFF, 23 and 24 greyed");
 		put(choiceOf({Family::Machinedrum, 16}));
 		check(_editor.machinePages() == 1 && _editor.machinePage() == 0 && nameOf("t01_m1").isNotEmpty(),
-			"TRX-BD: one page, page 1 shown again");
+			"ROUND KICK: one page, page 1 shown again");
 		click(_editor, _editor.machinePageArea(1).getCentre());
-		check(_editor.machinePage() == 0 && nameOf("t01_m9").isEmpty(), "TRX-BD: a click on the greyed 2 opens nothing");
+		check(_editor.machinePage() == 0 && nameOf("t01_m9").isEmpty(), "ROUND KICK: a click on the greyed 2 opens nothing");
 		put(choiceOf({Family::Sophie, 0}));
-		check(_editor.machinePages() == 3 && nameOf("t01_m1") == "MODEL", "SOPHIE: three pages, Machine 1 MODEL");
+		check(_editor.machinePages() == 3 && nameOf("t01_m1") == "MODEL", "HYPER FM: three pages, Machine 1 MODEL");
 		click(_editor, _editor.machinePageArea(2).getCentre());
-		check(nameOf("t01_m20") == "BODY" && nameOf("t01_m21") == "off", "SOPHIE: Machine 20 BODY, 21 greyed");
+		check(nameOf("t01_m20") == "KICK BODY" && nameOf("t01_m21") == "off", "HYPER FM: Machine 20 KICK BODY, 21 greyed");
 		// The Sampler: two pages, its grain's on the second; GRAIN's segments in the head set Machine 9
 		put(_processor.samplerChoice());
 		click(_editor, _editor.machinePageArea(1).getCentre());
-		check(_editor.machinePages() == 2 && nameOf("t01_m9") == "GRAIN" && nameOf("t01_m12") == "OUTPUT FILTER"
-			&& nameOf("t01_m13") == "off", "the Sampler: Machine 9 GRAIN, 12 OUTPUT FILTER, 13 greyed");
+		check(_editor.machinePages() == 2 && nameOf("t01_m9") == "GRAIN" && nameOf("t01_m12") == "OUTPUT LPF"
+			&& nameOf("t01_m13") == "off", "the Sampler: Machine 9 GRAIN, 12 OUTPUT LPF, 13 greyed");
 		auto* grain = _processor.parameter("t01_m9");
 		click(_editor, _editor.grainArea(1).getCentre());
 		check(juce::roundToInt(grain->convertFrom0to1(grain->getValue())) == 127 && grain->getCurrentValueAsText() == "VINTAGE",
@@ -193,6 +197,230 @@ namespace
 		juce::FileOutputStream out(_file);
 		const bool ok = out.openedOk() && juce::PNGImageFormat().writeImageToStream(image, out);
 		check(ok, "rendered " + _file.getFullPathName());
+	}
+
+	// ---- ticket 27: the names ----
+
+	// What a text shown names of a brand, a machine of origin, or an old machine's code or name: empty for none
+	juce::String brandIn(const juce::String& _text)
+	{
+		static const char* const Words[]{"ELEKTRON", "MACHINEDRUM", "SYNTAKT", "RYTM", "DIGITAKT", "DIGITONE", "DP/4",
+			"DP4", "EVENTIDE", "VIRUS", "ACCESS", "OBERHEIM", "LINN", "ROLAND", "TR-", "ERICA", "LXR", "SOPHIE",
+			"OPEN DRUM", "DT2", "TRX-", "EFM-", "E12-", "P-I-", "GND-", "ROM-", "BD MODERN", "SD BASIC", "CY ALLOY",
+			"PC CARBON", "SD VINTAGE", "CP VINTAGE", "SY TOY", "SY BITS", "SP TWINSHOT", "OD DRUM", "OD SNARE",
+			"OD CYMBAL", "OD HIHAT", "GATE BOX", "MD EQ", "MD DIST", "MD SRR", "BASE-WIDTH"};
+		const auto upper = _text.toUpperCase();
+		for(const char* w : Words)
+			if(upper.contains(w))
+				return w;
+		const auto words = juce::StringArray::fromTokens(upper, " ,.:;()/", "");
+		for(const char* w : {"MD", "UW", "OD"})
+			if(words.contains(w))
+				return w;
+		return {};
+	}
+
+	// Every machine of the list named in 10 characters, none twice, with its family; each control it uses named in 12 at
+	// most where the machine of origin names one (its OS's table, OPEN DRUM's and SOPHIE's names), and none it does not use
+	void machineNames(const Processor& _processor)
+	{
+		const auto& list = _processor.machines();
+		juce::StringArray seen;
+		int wrong = 0, controls = 0;
+		const auto fail = [&](const juce::String& _what) { std::printf("  %s\n", _what.toRawUTF8()); ++wrong; };
+		for(const auto& m : list)
+		{
+			const char* name = names::machine(m);
+			const juce::String n = name ? juce::String(name) : juce::String("?");
+			if(!name || n.length() > 10 || seen.contains(n) || brandIn(n).isNotEmpty()
+				|| (m.family != Family::Off && !names::family(m)))
+				fail("machine " + n);
+			seen.add(n);
+			for(int i = 0; i < MachineParameters; ++i)
+			{
+				const char* c = names::control(m, i);
+				const bool used = i < machineParameters(m);
+				bool origin = used;
+				if(m.family == Family::OpenDrum || m.family == Family::Sophie)
+					origin = machineParameterName(m, i) != nullptr;
+				else if(m.family == Family::Machinedrum && !(m == Sampler))
+					if(const auto* os = md::machines::parameterNames(md::MachineModel::Machinedrum, m.id))
+						origin = used && !(*os)[static_cast<size_t>(i)].empty();
+				const bool hold = m.family == Family::Syntakt && i == 8;	// HOLD, on no page
+				if((used || !hold) && (c != nullptr) != origin)
+					fail(n + " Machine " + juce::String(i + 1) + (c ? juce::String(" ") + c : juce::String(" unnamed")));
+				if(c && (std::strlen(c) > 12 || brandIn(c).isNotEmpty()))
+					fail(n + " " + c);
+				controls += c && used;
+			}
+		}
+		check(wrong == 0, juce::String(static_cast<int>(list.size())) + " machines named in 10 characters at most, none "
+			"twice, each in its family; " + juce::String(controls) + " controls named in 12 at most where the machine uses them");
+	}
+
+	// Every name and choice the host sees and every value's text of a parameter of 256 values at most: no brand; a Track
+	// parameter's first 10 characters after "T01 " (a shared one's first 10) its own
+	void hostNames(Processor& _processor)
+	{
+		std::map<juce::String, juce::String> heads;
+		juce::StringArray branded, clashes;
+		int texts = 0;
+		for(auto* p : _processor.getParameters())
+		{
+			const auto name = p->getName(64);
+			juce::StringArray shown{name};
+			if(const auto* c = dynamic_cast<juce::AudioParameterChoice*>(p))
+				shown.addArray(c->choices);
+			else if(const auto* r = dynamic_cast<juce::RangedAudioParameter*>(p);
+				r && !dynamic_cast<juce::AudioParameterFloat*>(p) && r->getNormalisableRange().getRange().getLength() < 256)
+				for(int v = juce::roundToInt(r->getNormalisableRange().start); v <= juce::roundToInt(r->getNormalisableRange().end); ++v)
+					shown.add(r->getText(r->convertTo0to1(static_cast<float>(v)), 0));
+			for(const auto& s : shown)
+				if(brandIn(s).isNotEmpty())
+					branded.addIfNotAlreadyThere(name + ": " + s);
+			texts += shown.size();
+			const bool track = name.length() > 4 && name[0] == 'T' && name.substring(1, 3).containsOnly("0123456789")
+				&& name[3] == ' ';
+			const auto head = track ? name.substring(0, 4) + name.substring(4, 14) : name.substring(0, 10);
+			if(const auto found = heads.find(head); found != heads.end())
+				clashes.add(found->second + " / " + name);
+			heads[head] = name;
+		}
+		check(branded.isEmpty(), "the host: " + juce::String(_processor.getParameters().size()) + " parameters, "
+			+ juce::String(texts) + " names, choices and values, none names a brand or an old machine"
+			+ (branded.isEmpty() ? juce::String() : ": " + branded.joinIntoString(" | ")));
+		check(clashes.isEmpty(), "the host: each name's first 10 characters after \"T01 \" its own"
+			+ (clashes.isEmpty() ? juce::String() : ": " + clashes.joinIntoString(" | ")));
+	}
+
+	// On Track 1, every machine of the list: each page of its Machine block, its cells named as names::control says,
+	// every name fitting its cell; LFO 1's TARGET on Machine 1 by the machine's name; its Browse card with its family.
+	// Then Seq's lock lines on Machine 1-3, every FX source and mode, Master, Kits. Nothing drawn names a brand
+	void editorNames(Editor& _editor, Processor& _processor)
+	{
+		juce::Image image(juce::Image::ARGB, 4, 4, true);
+		juce::Graphics g(image);
+		const ui::Painter painter(g, 1.0f);
+		juce::StringArray drawn, unfit, misnamed;
+		ui::Painter::drawnTexts = &drawn;
+		const auto draw = [&]
+		{
+			_editor.tick();
+			_editor.createComponentSnapshot(_editor.getLocalBounds(), true, 1.0f);
+		};
+		// Every visible cell's name inside its cell, a gutter of 2 mm left
+		const auto fits = [&]
+		{
+			for(const auto& c : _editor.cells())
+				if(c.visible && (c.look == ui::Cell::Look::Cell || c.look == ui::Cell::Look::Plain) && c.name.isNotEmpty()
+					&& painter.textWidth(c.name, 3.2f) > c.w - 2)
+					unfit.addIfNotAlreadyThere(c.name + " (" + juce::String(painter.textWidth(c.name, 3.2f), 1) + " of "
+						+ juce::String(c.w - 2, 1) + " mm)");
+		};
+		auto* machine = _processor.parameter("t01_machine");
+		auto* target = _processor.parameter("t01_lfo1_target");
+		const float machineWas = machine->getValue(), targetWas = target->getValue();
+		target->setValueNotifyingHost(target->convertTo0to1(static_cast<float>(LfoTarget::Machine1)));
+		const auto& list = _processor.machines();
+		_editor.showPage(Editor::Page::Sound);
+		_editor.showLfo(0);
+		for(size_t k = 0; k < list.size(); ++k)
+		{
+			const auto& m = list[k];
+			machine->setValueNotifyingHost(machine->convertTo0to1(static_cast<float>(k)));
+			_editor.tick();
+			for(int page = 0; page < _editor.machinePages(); ++page)
+			{
+				_editor.showMachinePage(page);
+				for(const auto& c : _editor.cells())
+				{
+					const auto id = c.parameter ? c.parameter->getParameterID() : juce::String();
+					if(id == "t01_lfo1_target")
+					{
+						const char* first = names::control(m, 0);
+						if(c.valueText(c.normalised()) != (first ? juce::String(first) : juce::String("MACHINE 1")))
+							misnamed.add(juce::String(names::machine(m)) + " TARGET " + c.valueText(c.normalised()));
+					}
+					if(!id.startsWith("t01_m") || !id.substring(5).containsOnly("0123456789"))
+						continue;
+					const int i = id.substring(5).getIntValue() - 1;
+					const char* expected = names::control(m, i);
+					if(c.name != (expected ? juce::String(expected) : "M" + juce::String(i + 1)))
+						misnamed.add(juce::String(names::machine(m)) + " " + id + " " + c.name);
+				}
+				fits();
+				draw();
+			}
+			_editor.showMachinePage(0);
+			// The machine's name opens Browse on it: its card and its family
+			click(_editor, _editor.cellArea("t01_machine").getCentre());
+			draw();
+			if(const char* family = names::family(m); family && !drawn.contains(family))
+				misnamed.add(juce::String(names::machine(m)) + ": no FAMILY " + family);
+			_editor.showPage(Editor::Page::Sound);
+		}
+		check(misnamed.isEmpty(), "Sound: every machine's cells and LFO TARGET named as the machine names them"
+			+ (misnamed.isEmpty() ? juce::String() : ": " + misnamed.joinIntoString(" | ")));
+
+		// Seq: lock lines on Machine 1-3 of ROUND KICK, named as it names them
+		const Machine kick{Family::Machinedrum, 16};
+		machine->setValueNotifyingHost(machine->convertTo0to1(static_cast<float>(
+			std::find(list.begin(), list.end(), kick) - list.begin())));
+		_processor.editSequencer([&](Sequencer& _s)
+		{
+			for(int i = 0; i < 3; ++i)
+				_s.pattern(_s.currentPattern()).setLock(0, 4 + i, static_cast<uint16_t>(
+					_processor.parameter("t01_m" + juce::String(i + 1))->getParameterIndex()), 30.0f);
+		});
+		_editor.showPage(Editor::Page::Seq);
+		const int before = drawn.size();
+		draw();
+		juce::StringArray seq;
+		for(int i = before; i < drawn.size(); ++i)
+			seq.add(drawn[i]);
+		check(seq.contains("TUNE") && seq.contains("DECAY") && seq.contains("SWEEP"), "Seq: ROUND KICK's lock lines read "
+			"TUNE, DECAY, SWEEP");
+
+		// FX: each delay and reverb, each phaser type, each rate synced and free
+		_editor.showPage(Editor::Page::Fx);
+		for(const char* id : {"delay_source", "reverb_source", "phaser_mode", "delay_sync", "chorus_sync", "phaser_sync"})
+		{
+			auto* p = _processor.parameter(id);
+			const float was = p->getValue();
+			for(const float v : {0.0f, 0.5f, 1.0f})
+			{
+				p->setValueNotifyingHost(v);
+				_editor.tick();
+				fits();
+				draw();
+			}
+			p->setValueNotifyingHost(was);
+		}
+		for(const auto page : {Editor::Page::Master, Editor::Page::Kits, Editor::Page::Sound})
+		{
+			_editor.showPage(page);
+			_editor.tick();
+			fits();
+			draw();
+		}
+		_editor.showLfo(1);
+		fits();
+		draw();
+		_editor.showLfo(0);
+		ui::Painter::drawnTexts = nullptr;
+		machine->setValueNotifyingHost(machineWas);
+		target->setValueNotifyingHost(targetWas);
+		_editor.tick();
+
+		juce::StringArray branded;
+		for(const auto& t : drawn)
+			if(brandIn(t).isNotEmpty())
+				branded.addIfNotAlreadyThere(t);
+		check(branded.isEmpty(), "Sound, Browse's cards, Seq, FX, Master, Kits: " + juce::String(drawn.size())
+			+ " texts drawn, none names a brand or an old machine" + (branded.isEmpty() ? juce::String() : ": "
+			+ branded.joinIntoString(" | ")));
+		check(unfit.isEmpty(), "every cell's name fits its cell" + (unfit.isEmpty() ? juce::String() : ": "
+			+ unfit.joinIntoString(" | ")));
 	}
 
 	void run(const juce::File& _folder)
@@ -631,6 +859,39 @@ namespace
 				+ " texts drawn, none names a brand" + (branded.isEmpty() ? juce::String() : ": " + branded.joinIntoString(" | ")));
 			check(menu.contains("WINDOW") && menu.contains("AUDIO") && !menu.contains("ELEKTRON CONTENT")
 				&& !menu.contains("IMPORT MY CONTENT"), "the Menu: WINDOW and AUDIO, no ELEKTRON CONTENT block");
+		}
+		// Ticket 27: the names the list, the host and the editor show
+		machineNames(processor);
+		hostNames(processor);
+		editorNames(editor, processor);
+		editor.showPage(Editor::Page::Seq);
+		snapshot(editor, _folder.getChildFile("seq-lock-names.png"));
+		{
+			// The names to look at: a sample player's, a long-named Track's third page, LFO 1 on Machine 1; a machine's card
+			auto* machine = processor.parameter("t01_machine");
+			auto* target = processor.parameter("t01_lfo1_target");
+			const float was = machine->getValue(), targetWas = target->getValue();
+			const auto& list = processor.machines();
+			const auto put = [&](const Machine& _m)
+			{
+				const auto at = std::find(list.begin(), list.end(), _m) - list.begin();
+				machine->setValueNotifyingHost(machine->convertTo0to1(static_cast<float>(at)));
+				editor.tick();
+			};
+			target->setValueNotifyingHost(target->convertTo0to1(static_cast<float>(LfoTarget::Machine1)));
+			editor.showPage(Editor::Page::Sound);
+			put({Family::Machinedrum, 48});
+			snapshot(editor, _folder.getChildFile("sound-names-lofi-kick.png"));
+			put({Family::OpenDrum, 3});
+			editor.showMachinePage(2);
+			snapshot(editor, _folder.getChildFile("sound-names-va-hihat-p3.png"));
+			editor.showMachinePage(0);
+			put({Family::Syntakt, 6});
+			snapshot(editor, _folder.getChildFile("sound-names-toy-synth.png"));
+			click(editor, editor.cellArea("t01_machine").getCentre());
+			snapshot(editor, _folder.getChildFile("browse-machine.png"));
+			machine->setValueNotifyingHost(was);
+			target->setValueNotifyingHost(targetWas);
 		}
 		editor.showPage(Editor::Page::Sound);
 		editor.setSize(Editor::SmallWidth, Editor::SmallHeight);

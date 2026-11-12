@@ -42,6 +42,7 @@
 
 #include "../md/mdDrums/mdDrumsAllocationCounter.h"
 #include "edDrumsMaster.h"
+#include "edDrumsNames.h"
 #include "edDrumsProcessor.h"
 #include "mdProtocol/mdmachines.h"
 #include "sophieMachine.h"
@@ -1060,8 +1061,8 @@ namespace
 		const auto& machine = dynamic_cast<juce::AudioParameterChoice&>(find(processor, "t01_machine"));
 		require(machine.choices[processor.samplerChoice()] == "SAMPLER", "the Sampler's name");
 		for(int id = 0; id < OpenDrumMachines; ++id)
-			require(machine.choices[processor.samplerChoice() + 1 + id] == openDrumMachineNames[static_cast<size_t>(id)],
-				"OPEN DRUM's names");
+			require(machine.choices[processor.samplerChoice() + 1 + id]
+				== names::machine({Family::OpenDrum, static_cast<uint8_t>(id)}), "OPEN DRUM's names");
 
 		const auto at = [](const std::vector<Machine>& _list, const Machine& _m)
 		{
@@ -2638,6 +2639,36 @@ namespace
 			requireSame(take, playHit(to, 6, 64 * Block), "a Track sound on Track 7 does not play as on Track 3: ");
 			require(to.auditionTrackSound(file) && to.auditioned() && !to.auditioned()->pcm.empty(), "the audition");
 			std::printf("  a Track sound saved from Track 3 plays the same on Track 7 of another instance\n");
+		}
+
+		// Ticket 27: a machine's name is no key. A Track sound saved with the name its machine had before (BD MODERN, as
+		// the builds before the house names wrote it) loads and plays as the one saved now, and the Library shows the
+		// machine's name now
+		{
+			Processor from;
+			set(find(from, "t01_m2"), 90);
+			const auto file = from.saveTrackSound(0, "Named kick");
+			auto xml = from.trackSounds().read(file);
+			require(xml && xml->getStringAttribute("machineName") == "PUNCH KICK", "a Track sound saved with its machine's "
+				"name: " + (xml ? xml->getStringAttribute("machineName").toStdString() : std::string()));
+			xml->setAttribute("machineName", "BD MODERN");
+			const auto old = file.getSiblingFile("Old named kick" + juce::String(TrackSounds::Extension));
+			require(KitBank::writeFile(old, *xml), "the old Track sound not written");
+			from.trackSounds().follow();
+			const auto& entries = from.trackSounds().entries();
+			const auto entry = std::find_if(entries.begin(), entries.end(), [&](const auto& _e) { return _e.file == old; });
+			require(entry != entries.end() && entry->machine == "BD MODERN" && from.trackSoundMachine(*entry) == "PUNCH KICK",
+				"the old Track sound shown by its machine's name now");
+			Processor now, before;
+			allOutputs(now);
+			allOutputs(before);
+			require(now.loadTrackSound(5, file) && before.loadTrackSound(5, old), "the Track sounds not loaded");
+			for(const auto& id : now.trackIds(5))
+				require(plain(find(now, id)) == plain(find(before, id)), "the old Track sound's " + id.toStdString());
+			requireSame(playHit(now, 5, 64 * Block), playHit(before, 5, 64 * Block), "an old Track sound plays apart: ");
+			file.deleteFile();
+			old.deleteFile();
+			std::printf("  a Track sound saved under its machine's old name loads and plays as one saved now\n");
 		}
 
 		// A Track sound of version 3, before page order, whose LFO aims at T05's Machine 2: the sound holds Track 1 alone,

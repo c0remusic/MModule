@@ -1,7 +1,7 @@
 # Des noms de paramètres qui disent ce qu'ils font
 
 Type: HITL
-Status: needs-triage
+Status: resolved
 Assignee: 
 Blocked by: 
 
@@ -135,3 +135,46 @@ Browse et le Menu : aucun ne contient ELEKTRON, MACHINEDRUM ni le mot UW.
 Pas fait : la page Sound montre encore « MACHINEDRUM » et « SYNTAKT » dans des valeurs de paramètres
 (`edDrumsParameters.cpp`, « Off|Syntakt|Machinedrum » et voisines) ; elles attendent la table de noms de ce ticket, et le
 balayage ne couvre donc que Browse et le Menu.
+
+## État (2026-11-11), les noms appliqués
+
+La table approuvée (`../noms-proposition.md`) est appliquée, revue ligne à ligne contre le code d'aujourd'hui. Un seul
+endroit tient les noms montrés des machines, de leurs familles et de leurs contrôles : `edDrumsPlugin/edDrumsNames.*`.
+Les noms internes du moteur (`syntaktMachineNames`, les noms d'OPEN DRUM et de SOPHIE, la table de l'OS dans
+`mdmachines.cpp`) ne sont plus montrés et restent tels quels.
+
+Machines et familles : les 67 machines de la liste portent leur nom maison, 10 caractères au plus, aucun deux fois
+(ROUND KICK, LOFI HITOM, PUNCH KICK, VA HIHAT, HYPER FM…) ; leur famille (BASIC, CIRCUIT, FM PERC, CRUNCH 12, PHYSICAL,
+MODERN DIGI, VA DRUMS, HYPER FM, SAMPLER) s'affiche sur la carte de Browse, ligne FAMILY. Les lignes de la table ont été
+reprises dans l'ordre actuel : Machine 1-8 d'une machine Syntakt dans l'ordre de sa page SYN (OVERDRIVE devient DRIVE,
+l'étage après la voix), Machine 9 nommée HOLD (aucune page ne la montre, la liste TARGET des LFO si) ; plus de machines
+ROM ; le Sampler nomme Machine 1-12 TUNE, DECAY, HOLD, BIT CRUSH, START, END, REPEATS, REPEAT GAP, GRAIN, BITS,
+COMPANDING et OUTPUT LPF (et non OUTPUT FILTER, 13 caractères). Les lignes « subtil — à vérifier » gardent leur nom
+proposé.
+
+Contrôles par machine, dans l'éditeur seulement : cellules du bloc Machine, liste TARGET des deux LFO (Machine 1-24
+nommées par la machine de la piste visée), lignes de locks de Seq et liste de + LOCK. L'éditeur n'a pas d'infobulles :
+rien à y nommer. L'hôte garde « T01 Machine 1 » à « T01 Machine 24 ».
+
+Chaîne, effets, master : DRIVE OFF/SATURATE/DISTORT/DOWNSAMPLE/DAC, FILTER OFF/MULTIMODE/WINDOW, Band devient EQ
+(OFF/CUTS/PEAK/3 BAND, cellules HPF, LPF, PEAK FREQ, PEAK GAIN), CUTOFF, ENV AMT, KEY TRACK, ENV RETRIG, AMP ENV,
+VEL TARGET, LFO RATE/TRIG MODE/ON TRACK/TARGET, PHASER pour l'envoi, DUB ECHO/STEREO DLY, GATED VERB/LUSH VERB,
+PHASER/FLANGER/90S RACK et ses WET PHASE, DELAY L, DELAY R, DELAY FDBK, S&H RATE, SC FILTER ; le bloc Sample écrit
+GRAIN J2 au lieu de DT2 J2. Noms d'hôte changés, ID inchangés (`edDrumsParameterIds.txt` non touché). Écarts à la
+table, pour que les 10 premiers caractères après « T01 » restent distincts : « Reverb Freq » et « Reverb Gain » (et non
+Reverb Shelf Freq/Gain, déjà confondus avant), « Phaser Rate » garde son nom (« Phaser Free Rate » se confondrait avec
+« Phaser Freq »), « Rack Left Delay », « Rack Right Delay », « Rack Delay Fdbk ». Echo Mono garde son nom.
+
+Fichiers : un son de piste garde son attribut `machineName`, mais Browse montre et cherche le nom actuel de sa machine,
+lu de son index (`Processor::trackSoundMachine`). Ni les états ni les Kits ne contiennent de nom.
+
+Vérifié : `edDrumsEditorTest` parcourt les 1530 paramètres de l'hôte (144 223 noms, choix et textes de valeur) et
+20 598 textes dessinés sur Sound (chaque machine, chaque page), les cartes de Browse, Seq, FX (chaque source, type et
+synchro), Master, Kits : aucun nom de marque ni ancien nom ou code de machine ; les 10 premiers caractères après « T01 »
+sont uniques ; 544 contrôles nommés en 12 caractères au plus là où la machine d'origine en nomme un ; chaque nom tient
+dans sa cellule. `edDrumsProcessorTest` : un son de piste sauvé sous l'ancien nom (BD MODERN) se charge et joue
+échantillon pour échantillon comme celui sauvé maintenant ; les tests d'états et de Kits anciens
+(`edDrumsSyntaktSlotsTest`, `edDrumsProcessorTest`) passent. `edDrumsVst3HostTest` : 1530 paramètres, ID inchangés.
+Rendus regardés (Sound, Seq, Browse, FX) : aucun nom coupé.
+
+Pas fait : rien de la table. Les noms d'origine restent dans le code interne et les commentaires.

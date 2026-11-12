@@ -15,7 +15,7 @@
 param(
     [string]$Log = (Join-Path ([System.IO.Path]::GetTempPath()) "module-gate.log"),
     [string]$Build = "temp\cmake_vs22",
-    [string]$SyntaktData = "C:\dev\elektron-work",
+    [string]$SyntaktData = "C:\dev\elektron\elektron-work",
     [string]$SyntaktOs = "$env:USERPROFILE\Downloads\Syntakt OS 1.40A\Syntakt OS\Syntakt_OS1.41.syx"
 )
 $ErrorActionPreference = 'Continue'

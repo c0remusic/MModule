@@ -230,6 +230,8 @@ namespace elektron::drums
 		juce::File saveTrackSound(int _track, const juce::String& _name);
 		bool loadTrackSound(int _track, const juce::File& _file);
 		bool auditionTrackSound(const juce::File& _file);
+		// The name of the machine _sound plays, as the list names it now: not the name it was saved with (ticket 27)
+		juce::String trackSoundMachine(const TrackSounds::Entry& _sound) const;
 
 		// Any thread: what the audio thread last played. The step under the transport, -1 stopped; the pattern playing,
 		// 0-127; the Tracks whose voice sounds, a bit each; an output bus's peak, both channels, falling 20 dB/s

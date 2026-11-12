@@ -23,7 +23,8 @@ namespace elektron::drums
 
 		struct Entry
 		{
-			juce::String name, machine;
+			juce::String name, machine;		// machine: the name the file was saved with (Processor::trackSoundMachine)
+			int machineChoice = -1, version = 0;	// its Machine choice, -1 for none, read as its format version says
 			juce::File file;
 			juce::Time written;
 			int64_t size = 0;

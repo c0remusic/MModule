@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-#include "mdProtocol/mdmachines.h"
+#include "edDrumsNames.h"
 #include "sophieMachine.h"
 
 // The screen's pages: Sound, Seq (Detail), Master, FX, Kits, Browse, and the Menu panel and the selector over them.
@@ -21,22 +21,6 @@ namespace elektron::drums
 		const juce::Colour beatA{0xff191B1D}, beatB{0xff111315};
 		juce::Colour beat(const int _i) { return (_i / 4) % 2 == 0 ? beatA : beatB; }
 
-		// The Syntakt's SYN page as its manual names them, in syntaktMachineNames' order
-		const std::array<std::array<const char*, 8>, SyntaktMachines> syntaktLabels{{
-			{"TUNE", "SWEEP", "PUNCH", "DECAY", "SQR MOD", "TRI MOD", "MOD ENV", "OVERDRIVE"},
-			{"TUNE", "SWEEP", "PUNCH", "DECAY", "INHARM", "MOD FDBK", "MOD ENV", "OVERDRIVE"},
-			{"TUNE", "SHIMMER", "PUNCH", "DECAY", "RADIO", "MOD", "MOD ENV", "OVERDRIVE"},
-			{"TUNE", "SWEEP", "PUNCH", "DECAY", "INHARM", "MOD", "MOD ENV", "OVERDRIVE"},
-			{"TUNE", "SWEEP", "PUNCH", "DECAY", "INHARM", "COMPLEX", "MOD ENV", "OVERDRIVE"},
-			{"TUNE", "SPACING", "PUNCH", "DECAY", "BALANCE", "BODY", "BODY ENV", "OVERDRIVE"},
-			{"TUNE", "FORM", "PUNCH", "DECAY", "IMPACT", "BRIGHT", "PART DEC", "OVERDRIVE"},
-			{"TUNE", "DETUNE", "BALANCE", "DECAY", "WAVE", "SR REDUX", "BIT REDUX", "OVERDRIVE"},
-			{"TUNE 1", "SAMPLE 1", "FILTER 1", "DECAY 1", "TUNE 2", "SAMPLE 2", "MIX", "OVERDRIVE"},
-		}};
-		constexpr std::array<const char*, 8> samplerLabels{"TUNE", "DECAY", "HOLD", "BR", "START", "END", "RTRG", "RTIM"};
-		// Machine 9-12, the grain's (edDrumsVintage.h): GRAIN also in the block's head
-		constexpr std::array<const char*, 4> grainLabels{"GRAIN", "BITS", "COMPANDING", "OUTPUT FILTER"};
-
 		// The Machine block's page selector: three segments of 7 mm in its head (block at _x, _w wide), left of the
 		// machine's name
 		juce::Rectangle<float> machinePageBox(const float _x, const float _w, const int _page)
@@ -51,35 +35,33 @@ namespace elektron::drums
 			return {_x + 46 + 22 * static_cast<float>(_i), R1 + 1.8f, 22, 6};
 		}
 
-		// Machine 1-8 of _page 0, 9-16 of 1, 17-24 of 2, as _machine names them: empty for one it does not use
+		// Machine 1-8 of _page 0, 9-16 of 1, 17-24 of 2, as _machine names them (edDrumsNames.h): empty for one it does
+		// not use, and past Machine 8 for a machine of 8 (a Syntakt machine's Machine 9, HOLD, is on no page)
 		std::array<juce::String, 8> machineLabels(const Machine& _machine, const int _page)
 		{
 			std::array<juce::String, 8> labels;
-			if(_machine.family == Family::OpenDrum || _machine.family == Family::Sophie)
+			for(size_t i = 0; i < 8; ++i)
 			{
-				for(size_t i = 0; i < 8; ++i)
-					if(const char* name = machineParameterName(_machine, _page * 8 + static_cast<int>(i)))
-						labels[i] = name;
-				return labels;
+				const int index = _page * 8 + static_cast<int>(i);
+				if(index >= machineParameters(_machine))
+					break;
+				if(const char* name = names::control(_machine, index))
+					labels[i] = name;
 			}
-			if(_machine == Sampler && _page == 1)
+			return labels;
+		}
+
+		// What an LFO's TARGET lists: Machine 1-24 as _machine names them, "MACHINE n" where it uses none, the rest as the
+		// host names them
+		juce::StringArray targetLabels(const juce::AudioParameterChoice& _target, const Machine& _machine)
+		{
+			juce::StringArray labels;
+			for(int i = 0; i < _target.choices.size(); ++i)
 			{
-				for(size_t i = 0; i < grainLabels.size(); ++i)
-					labels[i] = grainLabels[i];
-				return labels;
+				const int slot = machineOf(static_cast<LfoTarget>(i));
+				const char* name = slot >= 0 ? names::control(_machine, slot) : nullptr;
+				labels.add(name ? juce::String(name) : _target.choices[i].toUpperCase());
 			}
-			if(_page > 0)
-				return labels;
-			if(_machine.family == Family::Syntakt && _machine.id < SyntaktMachines)
-				for(size_t i = 0; i < 8; ++i)
-					labels[i] = syntaktLabels[_machine.id][i];
-			else if(_machine == Sampler)
-				for(size_t i = 0; i < 8; ++i)
-					labels[i] = samplerLabels[i];
-			else if(_machine.family == Family::Machinedrum)
-				if(const auto* names = md::machines::parameterNames(md::MachineModel::Machinedrum, _machine.id))
-					for(size_t i = 0; i < 8; ++i)
-						labels[i] = juce::String(std::string((*names)[i])).toUpperCase();
 			return labels;
 		}
 
@@ -667,10 +649,10 @@ namespace elektron::drums
 			const float x = cx(0) - 2, w = 12 * Col + 2;
 			block(x, R2, w, "f", "FILTER", hue::s);
 			const bool md = choiceOf(t("flt_type")->getParameterID()) == 2;
-			put(x, R2, w, 6, 0, t("flt_freq"), "FREQ", hue::s, "f");
+			put(x, R2, w, 6, 0, t("flt_freq"), "CUTOFF", hue::s, "f");
 			put(x, R2, w, 6, 1, t("flt_res"), "RESO", hue::s, "f");
-			put(x, R2, w, 6, 2, t("fenv_depth"), "ENV", hue::s, "f");
-			put(x, R2, w, 6, 3, t("flt_key"), "KEY", hue::s, "f");
+			put(x, R2, w, 6, 2, t("fenv_depth"), "ENV AMT", hue::s, "f");
+			put(x, R2, w, 6, 3, t("flt_key"), "KEY TRACK", hue::s, "f");
 			const int width = put(x, R2, w, 6, 4, t("flt_width"), "WIDTH", hue::s, "f");
 			m_cells[static_cast<size_t>(width)].visible = md;
 			put(x, R2, w, 6, 5, t("flt_type"), "TYPE", hue::s, "f");
@@ -680,7 +662,7 @@ namespace elektron::drums
 			put(x, R2, w, 6, 9, t("fenv_sustain"), "SUSTAIN", hue::s, "f");
 			put(x, R2, w, 6, 10, t("fenv_release"), "RELEASE", hue::s, "f");
 			put(x, R2, w, 6, 11, t("flt_mode"), "MODE", hue::s, "f");
-			Cell reset = cellOf(t("fenv_reset"), "ENV RESET", x + w - 34, R2 + 1.8f, 30, hue::s, "f");
+			Cell reset = cellOf(t("fenv_reset"), "ENV RETRIG", x + w - 34, R2 + 1.8f, 30, hue::s, "f");
 			reset.look = Look::Button;
 			reset.h = 6;
 			addCell(reset);
@@ -700,7 +682,7 @@ namespace elektron::drums
 			const int pan = put(x, R2, w, 6, 1, t("pan"), "PAN", hue::p, "a");
 			m_cells[static_cast<size_t>(pan)].format = Format::Pan;
 			put(x, R2, w, 6, 2, t("accent"), "ACCENT", hue::p, "a");
-			const int vd = put(x, R2, w, 6, 3, t("vel_target"), "VEL DEST", hue::p, "a");
+			const int vd = put(x, R2, w, 6, 3, t("vel_target"), "VEL TARGET", hue::p, "a");
 			const int va = put(x, R2, w, 6, 4, t("vel_depth"), "VEL AMT", hue::p, "a");
 			m_cells[static_cast<size_t>(vd)].velocity = m_cells[static_cast<size_t>(va)].velocity = true;
 			// The envelope's cells, "ae", greyed while AMP is off: a Machinedrum voice keeps its own
@@ -710,7 +692,7 @@ namespace elektron::drums
 			put(x, R2, w, 6, 8, t("amp_decay"), "DECAY", hue::p, "ae");
 			put(x, R2, w, 6, 9, t("amp_sustain"), "SUSTAIN", hue::p, "ae");
 			put(x, R2, w, 6, 10, t("amp_release"), "RELEASE", hue::p, "ae");
-			put(x, R2, w, 6, 11, t("amp_on"), "AMP", hue::p, "a");
+			put(x, R2, w, 6, 11, t("amp_on"), "AMP ENV", hue::p, "a");
 			watch({cx(12), R2 + 46, 12 * Col - 4, PicH}, [this]
 			{
 				return hashOf({trackParameter("amp_mode"), trackParameter("amp_attack"), trackParameter("amp_hold"),
@@ -752,19 +734,25 @@ namespace elektron::drums
 				Cell speed = at(0, "speed", "RATE");
 				speed.visible = shown && sync;
 				addCell(speed);
-				Cell hz = at(0, "hz", "HZ");
+				Cell hz = at(0, "hz", "RATE");
 				hz.visible = shown && !sync;
 				addCell(hz);
 				addCell(at(1, "feel", "FEEL"));
 				Cell shape = at(2, "shape", "WAVE");
 				shape.labels = shapes;
 				addCell(shape);
-				addCell(at(3, "mode", "MODE"));
+				addCell(at(3, "mode", "TRIG MODE"));
 				addCell(at(4, "depth", "DEPTH"));
-				Cell track = at(5, "track", "TRACK");
+				Cell track = at(5, "track", "ON TRACK");
 				track.labels = tracks;
 				addCell(track);
-				addCell(at(6, "target", "DEST"));
+				// Machine 1-24 named by the machine of the Track the LFO aims at
+				Cell target = at(6, "target", "TARGET");
+				const int aimed = choiceOf(trackParameter(pre + "track")->getParameterID()) - 1;
+				target.labels = targetLabels(*dynamic_cast<const juce::AudioParameterChoice*>(target.parameter),
+					m_processor.machines()[static_cast<size_t>(choiceOf(trackParameter("machine", aimed < 0 ? m_track
+						: aimed)->getParameterID()))]);
+				addCell(target);
 				addCell(at(7, nullptr, "MULT"));
 				addCell(at(8, nullptr, "FADE"));
 				addCell(at(9, nullptr, "PHASE"));
@@ -787,19 +775,19 @@ namespace elektron::drums
 		// Band: TYPE, PLACE, and the values its type has, named by it
 		{
 			const float x = cx(10) - 2, w = 8 * Col + 2;
-			block(x, R3, w, "b", "BAND", hue::b);
+			block(x, R3, w, "b", "EQ", hue::b);
 			const int type = choiceOf(t("band_type")->getParameterID());
 			const int t2 = put(x, R3, w, 4, 0, t("band_type"), "TYPE", hue::b, "b");
-			m_cells[static_cast<size_t>(t2)].labels = {"OFF", "B/W", "MD EQ", "3 BAND"};
+			m_cells[static_cast<size_t>(t2)].labels = {"OFF", "CUTS", "PEAK", "3 BAND"};
 			const int place = put(x, R3, w, 4, 1, t("band_after"), "PLACE", hue::b, "b");
 			m_cells[static_cast<size_t>(place)].labels = {"PRE", "POST"};
-			const std::array<juce::StringArray, 4> names{{{}, {"BASE", "WIDTH"}, {"EQF", "EQG"},
+			const std::array<juce::StringArray, 4> names{{{}, {"HPF", "LPF"}, {"PEAK FREQ", "PEAK GAIN"},
 				{"LOW F", "LOW G", "MID F", "MID G", "HIGH F", "HIGH G"}}};
 			const auto& n = names[static_cast<size_t>(juce::jlimit(0, 3, type))];
 			for(int i = 0; i < 6; ++i)
 			{
 				const int c = put(x, R3, w, 4, 2 + i, t(("band_" + juce::String(i + 1)).toRawUTF8()),
-					i < n.size() ? n[i] : "BAND " + juce::String(i + 1), hue::b, "b");
+					i < n.size() ? n[i] : "EQ " + juce::String(i + 1), hue::b, "b");
 				m_cells[static_cast<size_t>(c)].visible = i < n.size();
 			}
 			watch({cx(10), R3 + 46, 8 * Col - 4, PicH}, [this]
@@ -820,7 +808,7 @@ namespace elektron::drums
 			const int out = put(x, R3, w, 3, 2, t("output"), "OUT", hue::w, "s");
 			m_cells[static_cast<size_t>(out)].labels = outputs();
 			put(x, R3, w, 3, 3, t("send_chorus"), "CHORUS", hue::w, "s");
-			put(x, R3, w, 3, 4, t("send_phaser"), "PH/FL", hue::w, "s");
+			put(x, R3, w, 3, 4, t("send_phaser"), "PHASER", hue::w, "s");
 			const float px = cx(18), pw = 6 * Col - 4, gap = 3, sw = (pw - gap * 5) / 4, bh = PicH - 8;
 			const char* ids[]{"send_delay", "send_reverb", "send_chorus", "send_phaser"};
 			for(int i = 0; i < 4; ++i)
@@ -892,7 +880,7 @@ namespace elektron::drums
 		// Sample
 		{
 			const float x = cx(8) - 2, w = 8 * Col + 2, cw = (w - 2) / 4;
-			_p.text(x + 23, R1 + 6.2f, "DT2 J2", 2.6f, colour::dim);
+			_p.text(x + 23, R1 + 6.2f, "GRAIN J2", 2.6f, colour::dim);
 			drawSegments(_p, x + w - 48, R1 + 1.8f, 22, {"LAYER", "OPTIONS"}, m_sampleTab, &hue::t);
 			const auto name = m_processor.sampleName(m_track);
 			if(m_sampleTab == 0)
@@ -1354,7 +1342,7 @@ namespace elektron::drums
 						continue;
 					auto* p = m_processor.parameter(id);
 					indices.push_back(p->getParameterIndex());
-					names.add(p->getName(32).fromFirstOccurrenceOf(" ", false, false).toUpperCase());
+					names.add(lockName(*p));
 				}
 				openSelector(SG + 4 * SC, 70, names, [](int) { return false; }, [this, indices](const int _i)
 				{
@@ -1608,13 +1596,13 @@ namespace elektron::drums
 			const float yy = 86 + static_cast<float>(r) * 25, hh = 23.4f;
 			auto* rp = dynamic_cast<juce::RangedAudioParameter*>(params[line]);
 			// The name and the block of the Sound page's cell
-			juce::String name = rp ? rp->getName(32).fromFirstOccurrenceOf(" ", false, false).toUpperCase() : "?";
+			juce::String name = rp ? lockName(*rp) : "?";
 			const Hue* h = &hue::t;
 			juce::String section;
 			const auto& id = rp ? rp->getParameterID() : juce::String();
 			const std::pair<const char*, std::pair<const Hue*, const char*>> sections[]{{"_m", {&hue::k, "MACH"}},
 				{"_note", {&hue::k, "MACH"}}, {"_drv1", {&hue::a, "D1"}}, {"_drv2", {&hue::a, "D2"}},
-				{"_band", {&hue::b, "BAND"}}, {"_flt", {&hue::s, "FILTER"}}, {"_fenv", {&hue::s, "FILTER"}},
+				{"_band", {&hue::b, "EQ"}}, {"_flt", {&hue::s, "FILTER"}}, {"_fenv", {&hue::s, "FILTER"}},
 				{"_amp", {&hue::p, "AMP"}}, {"_vel", {&hue::p, "AMP"}}, {"_level", {&hue::p, "AMP"}},
 				{"_pan", {&hue::p, "AMP"}}, {"_accent", {&hue::p, "AMP"}}, {"_lfo1", {&hue::y, "LFO 1"}},
 				{"_lfo2", {&hue::m, "LFO 2"}}, {"_send", {&hue::w, "SENDS"}}};
@@ -2370,7 +2358,7 @@ namespace elektron::drums
 				32 + static_cast<float>(i / 3) * 18, cw, hue::k, "k"));
 		block(x1, 72, w, "ms", "MASTER", hue::s);
 		const char* ids2[]{"master_on", "master_drive", "master_filter"};
-		const char* names2[]{"MASTER", "DRIVE", "FILTER"};
+		const char* names2[]{"MASTER", "DRIVE", "SC FILTER"};
 		for(int i = 0; i < 3; ++i)
 			addCell(cellOf(m_processor.parameter(ids2[i]), names2[i], x1 + 2 + static_cast<float>(i) * cw, 81, cw,
 				hue::s, "ms"));
@@ -2539,10 +2527,10 @@ namespace elektron::drums
 		const bool sync = choiceOf("delay_sync") != 0, chorusSync = choiceOf("chorus_sync") != 0,
 			phaserSync = choiceOf("phaser_sync") != 0;
 		blockOf(0, "fd", "DELAY", hue::k, {{"delay_source", "SOURCE"}, {"delay_output", "OUT"},
-			{"delay_note", "DURATION"}, {"delay_free", "HZ"},
-			{"echo_mod", "MOD"}, {"echo_mfrq", "MOD FREQ"}, {"echo_fb", "FEEDBACK"},
-			{"echo_fltf", "FLT FREQ"}, {"echo_fltw", "FLT WIDTH"}, {"echo_mono", "MONO"}, {"echo_lev", "LEVEL"},
-			{"delay_cross", "PING PONG"}, {"delay_width", "WIDTH"}, {"delay_fdbk", "FEEDBACK"},
+			{"delay_note", "TIME"}, {"delay_free", "TIME"},
+			{"echo_mod", "MOD DEPTH"}, {"echo_mfrq", "MOD RATE"}, {"echo_fb", "FEEDBACK"},
+			{"echo_fltf", "HPF"}, {"echo_fltw", "BANDWIDTH"}, {"echo_mono", "MONO"}, {"echo_lev", "LEVEL"},
+			{"delay_cross", "PING-PONG"}, {"delay_width", "WIDTH"}, {"delay_fdbk", "FEEDBACK"},
 			{"delay_hp", "HPF"}, {"delay_lp", "LPF"}, {"delay_rev", "TO REVERB"},
 			// The machines' TIME, in 128ths, which plays with Sync off at 0 Hz: a host's, not shown
 			{"echo_time", "TIME"}, {"delay_time", "TIME"}},
@@ -2550,20 +2538,20 @@ namespace elektron::drums
 				false, false});
 		syncOf(0, "delay_sync", hue::k);
 		blockOf(1, "fr", "REVERB", hue::a, {{"reverb_source", "SOURCE"}, {"reverb_output", "OUT"},
-			{"gate_dvol", "DRY VOL"}, {"gate_pred", "PRE DELAY"}, {"gate_dec", "DECAY"}, {"gate_damp", "DAMP"},
+			{"gate_dvol", "DRY LEVEL"}, {"gate_pred", "PRE-DELAY"}, {"gate_dec", "DECAY"}, {"gate_damp", "DAMPING"},
 			{"gate_hp", "HPF"}, {"gate_lp", "LPF"}, {"gate_gate", "GATE"}, {"gate_lev", "LEVEL"},
-			{"reverb_pre", "PRE"}, {"reverb_dec", "DECAY"}, {"reverb_freq", "SHELF F"}, {"reverb_gain", "SHELF G"},
+			{"reverb_pre", "PRE-DELAY"}, {"reverb_dec", "DECAY"}, {"reverb_freq", "SHELF FREQ"}, {"reverb_gain", "SHELF GAIN"},
 			{"reverb_hp", "HPF"}, {"reverb_lp", "LPF"}},
 			{true, true, gate, gate, gate, gate, gate, gate, gate, gate, !gate, !gate, !gate, !gate, !gate, !gate});
 		blockOf(2, "fc", "CHORUS", hue::g, {{"chorus_output", "OUT"}, {"chorus_depth", "DEPTH"},
-			{"chorus_rate", "SPEED"}, {"chorus_speed", "SPEED"}, {"chorus_delay", "DELAY"}, {"chorus_fdbk", "FEEDBACK"},
-			{"chorus_level", "MIX"}, {"chorus_shape", "SHAPE"}}, {true, true, !chorusSync, chorusSync, true, true, true, true});
+			{"chorus_rate", "RATE"}, {"chorus_speed", "RATE"}, {"chorus_delay", "DELAY"}, {"chorus_fdbk", "FEEDBACK"},
+			{"chorus_level", "LEVEL"}, {"chorus_shape", "WAVE"}}, {true, true, !chorusSync, chorusSync, true, true, true, true});
 		syncOf(2, "chorus_sync", hue::g);
-		blockOf(3, "fp", "PHASER / FLANGER", hue::p, {{"phaser_mode", "MODE"}, {"phaser_output", "OUT"},
-			{"phaser_stages", "STAGES"}, {"phaser_depth", "DEPTH"}, {"phaser_rate", "SPEED"}, {"phaser_speed", "SPEED"},
-			{"phaser_freq", "FREQ"}, {"phaser_spread", "SPREAD"}, {"phaser_fdbk", "FEEDBACK"}, {"phaser_level", "MIX"},
-			{"phaser_dp4_phase", "DP4 PHASE"}, {"phaser_dp4_left", "DP4 DLY L"}, {"phaser_dp4_right", "DP4 DLY R"},
-			{"phaser_dp4_fdbk", "DP4 DLY FB"}, {"phaser_dp4_sh", "DP4 S&H"}},
+		blockOf(3, "fp", "PHASER / FLANGER", hue::p, {{"phaser_mode", "TYPE"}, {"phaser_output", "OUT"},
+			{"phaser_stages", "STAGES"}, {"phaser_depth", "DEPTH"}, {"phaser_rate", "RATE"}, {"phaser_speed", "RATE"},
+			{"phaser_freq", "FREQ"}, {"phaser_spread", "SPREAD"}, {"phaser_fdbk", "FEEDBACK"}, {"phaser_level", "LEVEL"},
+			{"phaser_dp4_phase", "WET PHASE"}, {"phaser_dp4_left", "DELAY L"}, {"phaser_dp4_right", "DELAY R"},
+			{"phaser_dp4_fdbk", "DELAY FDBK"}, {"phaser_dp4_sh", "S&H RATE"}},
 			{true, true, true, true, !phaserSync, phaserSync, true, true, true, true, true, true, true, true, true});
 		syncOf(3, "phaser_sync", hue::p);
 		// The returns' meters, at the frame's rate
@@ -3053,7 +3041,7 @@ namespace elektron::drums
 			const auto& sounds = m_processor.trackSounds().entries();
 			for(size_t i = 0; i < sounds.size(); ++i)
 				if(m_browseSearch.isEmpty() || sounds[i].name.containsIgnoreCase(m_browseSearch)
-					|| sounds[i].machine.containsIgnoreCase(m_browseSearch))
+					|| m_processor.trackSoundMachine(sounds[i]).containsIgnoreCase(m_browseSearch))
 					list.push_back(static_cast<int>(i));
 			return list;
 		}
@@ -3503,7 +3491,7 @@ namespace elektron::drums
 					: sounds[static_cast<size_t>(entry)].name;
 				_p.text(x + 2.4f, r.getY() + 8, name, 3.2f, on ? colour::ink : colour::mid, on ? 600 : 500);
 				const auto tag = kits ? (entry == m_processor.currentKit() ? juce::String("PLAYING") : juce::String())
-					: sounds[static_cast<size_t>(entry)].machine.toUpperCase();
+					: m_processor.trackSoundMachine(sounds[static_cast<size_t>(entry)]).toUpperCase();
 				_p.text(x + BrowseListW - 3, r.getY() + 8, tag, 2.8f, kits ? c.c[4] : colour::dim, 500, Align::Right);
 			}
 			if(list.empty())
@@ -3550,6 +3538,12 @@ namespace elektron::drums
 			drawBlockTitle(_p, {x - 2, 23, 8 * Col + 2, name, "bi", &hue::k});
 			_p.frame(x, 32, BrowseInfoW, 185, hue::k.c[1], 1.2f, 0.4f);
 			_p.text(x + BrowseInfoW / 2, 126, "NO PREVIEW YET", 2.8f, colour::dim, 500, Align::Centre);
+			// Its family, what says how the machine makes its sound (ticket 27)
+			if(const char* family = m_browseItem < n ? names::family(machines[static_cast<size_t>(m_browseItem)]) : nullptr)
+			{
+				_p.text(x + 3, 208, "FAMILY", 2.8f, colour::mid);
+				_p.text(x + 30, 208, family, 3.2f, colour::ink, 600);
+			}
 			drawButton(_p, x, 222, BrowseInfoW, 12.5f, "PUT ON TRACK " + juce::String(m_track + 1), true);
 			return;
 		}
@@ -3746,7 +3740,7 @@ namespace elektron::drums
 			drawWave(_p, _x + 2, mid, w, h, heard->pcm, _hue.c[4]);
 		else
 			_p.text(_x + BrowseInfoW / 2, mid + 1, "CLICK TO LISTEN", 2.8f, colour::dim, 500, Align::Centre);
-		const juce::String rows[][2]{{"MACHINE", e.machine}, {"FILE", e.file.getFileName()},
+		const juce::String rows[][2]{{"MACHINE", m_processor.trackSoundMachine(e)}, {"FILE", e.file.getFileName()},
 			{"SAVED", e.written.toString(true, true, false)}};
 		float y = top + h + 12;
 		for(const auto& row : rows)

@@ -47,6 +47,8 @@ namespace elektron::drums
 			changed = true;
 			e.name = sound->getStringAttribute("name", f.getFileNameWithoutExtension());
 			e.machine = sound->getStringAttribute("machineName");
+			e.machineChoice = sound->getIntAttribute("machine", -1);
+			e.version = sound->getIntAttribute("version");
 			found.push_back(std::move(e));
 		}
 		m_rejected = std::move(rejected);

@@ -203,6 +203,8 @@ namespace elektron::drums
 		void removeLocks(const ui::Cell& _cell);
 		bool lockEdit() const { return !m_lockSteps.empty() && m_page == Page::Sound; }
 		juce::String machineName(int _track) const;
+		// What Seq names a Track's parameter: its name after "T01 ", Machine 1-24 as the Track's machine names them
+		juce::String lockName(const juce::RangedAudioParameter& _parameter) const;
 
 		// The sequencer, the pattern playing
 		const Pattern& pattern() const;

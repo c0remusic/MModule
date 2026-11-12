@@ -9,6 +9,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 
 #include "edDrumsEditor.h"
+#include "edDrumsNames.h"
 #include "edDrumsSampleFiles.h"
 #include "mdProtocol/mdmachines.h"
 #include "sophieMachine.h"
@@ -107,18 +108,11 @@ namespace elektron::drums
 			return FactoryRef + juce::String(_slot);
 		}
 
+		// Ticket 27's house name (edDrumsNames.h); a machine the list once held and no longer offers keeps its id's
 		juce::String machineName(const Machine& _machine)
 		{
-			if(_machine.family == Family::Off)
-				return "OFF";
-			if(_machine.family == Family::Syntakt)
-				return syntaktMachineNames[_machine.id];
-			if(_machine.family == Family::OpenDrum)
-				return openDrumMachineNames[_machine.id];
-			if(_machine.family == Family::Sophie)
-				return sophieMachineNames[_machine.id];
-			if(_machine == Sampler)
-				return "SAMPLER";
+			if(const char* name = names::machine(_machine))
+				return name;
 			return juce::String(std::string(md::machines::find(md::MachineModel::Machinedrum, _machine.id)->name));
 		}
 
@@ -441,7 +435,7 @@ namespace elektron::drums
 				unitsOf(this, id, "level", 0, 127)), Section::Amp, t);
 			add(p.pan = intParameter(id + "pan", name + "Pan", 127, Centre, true, unitsOf(this, id, "pan", 0, 127)),
 				Section::Amp, t);
-			add(p.output = intParameter(id + "output", name + "Output", Outputs - 1, 0), Section::Sends, t);
+			add(p.output = intParameter(id + "output", name + "Out", Outputs - 1, 0), Section::Sends, t);
 			add(p.chokes = intParameter(id + "chokes", name + "Chokes", 0xffff, 0, false), Section::Machine, t);
 		}
 		// The host's tempo where its playhead gives one, else this
@@ -513,7 +507,7 @@ namespace elektron::drums
 			// A delay time of 1 / Hz in place of TIME's, 0 TIME's (Sends::setDelayFree)
 			juce::NormalisableRange<float> range(0.0f, 1378.125f);
 			range.setSkewForCentre(4.0f);
-			m_delayFree.parameter = add(new juce::AudioParameterFloat({"delay_free", 1}, "Delay Free Hz", range, 0.0f),
+			m_delayFree.parameter = add(new juce::AudioParameterFloat({"delay_free", 1}, "Delay Free Time", range, 0.0f),
 				Section::Effects);
 			m_watched.push_back(&m_delayFree);
 		}
@@ -2408,6 +2402,14 @@ namespace elektron::drums
 		takeRoms(*kit, false);
 		takePageOrder(*kit, false, _track);
 		return kit;
+	}
+
+	juce::String Processor::trackSoundMachine(const TrackSounds::Entry& _sound) const
+	{
+		const int choice = _sound.machineChoice < 0 ? -1 : choiceOf(m_machines, _sound.machineChoice, _sound.version, false);
+		if(choice < 0 || choice >= static_cast<int>(m_machines.size()))
+			return _sound.machine;
+		return machineName(m_machines[static_cast<size_t>(choice)]);
 	}
 
 	juce::File Processor::saveTrackSound(const int _track, const juce::String& _name)

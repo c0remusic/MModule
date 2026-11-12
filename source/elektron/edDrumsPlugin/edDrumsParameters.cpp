@@ -13,10 +13,10 @@ namespace elektron::drums::parameters
 {
 	namespace
 	{
-		constexpr const char* DriveTypes = "Off|Syntakt|MD DIST|MD SRR|DAC";
+		constexpr const char* DriveTypes = "Off|Saturate|Distort|Downsample|DAC";
 		constexpr const char* OutputNames = "Main|Out 01|Out 02|Out 03|Out 04|Out 05|Out 06|Out 07|Out 08|Out 09"
 			"|Out 10|Out 11|Out 12|Out 13|Out 14|Out 15";
-		constexpr const char* Targets = "None|Drive A|Drive B|Band A|Band B|Frequency|Resonance|Width|Env Depth";
+		constexpr const char* Targets = "None|Drive A|Drive B|EQ A|EQ B|Cutoff|Resonance|Width|Env Depth";
 
 		// SY BITS starts in ADSR, its voice held: the engine's startsSustained, which it keeps to itself
 		constexpr uint8_t SyBits = 7;
@@ -378,122 +378,122 @@ namespace elektron::drums::parameters
 
 	const std::array<Spec, ChainValues> chainSpecs{{
 		{"drv1_type", "Drive 1 Type", 0, 4, DriveTypes},
-		{"drv1_post", "Drive 1 Post", 0, 1, nullptr, true},
+		{"drv1_post", "Drive 1 Place", 0, 1, nullptr, true},
 		{"drv1_amount", "Drive 1 Amount"},
 		{"drv1_mix", "Drive 1 Mix"},
 		{"drv2_type", "Drive 2 Type", 0, 4, DriveTypes},
-		{"drv2_post", "Drive 2 Post", 0, 1, nullptr, true},
+		{"drv2_post", "Drive 2 Place", 0, 1, nullptr, true},
 		{"drv2_amount", "Drive 2 Amount"},
 		{"drv2_mix", "Drive 2 Mix"},
-		{"band_type", "Band Type", 0, 3, "Off|Base-Width|MD EQ|3 Band"},
-		{"band_after", "Band After Filter", 0, 1, nullptr, true},
-		{"band_1", "Band 1"}, {"band_2", "Band 2"}, {"band_3", "Band 3"},
-		{"band_4", "Band 4"}, {"band_5", "Band 5"}, {"band_6", "Band 6"},
-		{"flt_type", "Filter Type", 0, 2, "Off|Syntakt|Machinedrum"},
+		{"band_type", "EQ Type", 0, 3, "Off|Cuts|Peak|3 Band"},
+		{"band_after", "EQ Place", 0, 1, nullptr, true},
+		{"band_1", "EQ 1"}, {"band_2", "EQ 2"}, {"band_3", "EQ 3"},
+		{"band_4", "EQ 4"}, {"band_5", "EQ 5"}, {"band_6", "EQ 6"},
+		{"flt_type", "Filter Type", 0, 2, "Off|Multimode|Window"},
 		{"flt_mode", "Filter Mode", 0, 7, "LP|HP|EQ1|EQ2|EQ3|EQ4|EQ5|OFF"},
-		{"flt_freq", "Filter Freq"},
-		{"flt_res", "Filter Res"},
+		{"flt_freq", "Filter Cutoff"},
+		{"flt_res", "Filter Reso"},
 		{"flt_width", "Filter Width"},
-		{"fenv_delay", "Filter Env Delay"},
-		{"fenv_attack", "Filter Env Attack"},
-		{"fenv_decay", "Filter Env Decay"},
-		{"fenv_sustain", "Filter Env Sustain"},
-		{"fenv_release", "Filter Env Release"},
-		{"fenv_reset", "Filter Env Reset", 0, 1, nullptr, true},
-		{"fenv_depth", "Filter Env Depth"},
-		{"flt_key", "Filter Key Track", -128, 127},
-		{"amp_on", "Amp On", 0, 1, nullptr, true},
+		{"fenv_delay", "Filter Delay"},
+		{"fenv_attack", "Filter Attack"},
+		{"fenv_decay", "Filter Decay"},
+		{"fenv_sustain", "Filter Sustain"},
+		{"fenv_release", "Filter Release"},
+		{"fenv_reset", "Filter Retrig", 0, 1, nullptr, true},
+		{"fenv_depth", "Filter Env Amt"},
+		{"flt_key", "Filter Key", -128, 127},
+		{"amp_on", "Amp Env", 0, 1, nullptr, true},
 		{"amp_attack", "Amp Attack"},
 		{"amp_hold", "Amp Hold"},
 		{"amp_decay", "Amp Decay"},
 		{"amp_sustain", "Amp Sustain"},
 		{"amp_release", "Amp Release"},
 		{"amp_mode", "Amp Mode", 0, 1, "AHD|ADSR"},
-		{"vel_target", "Vel Target", 0, 8, Targets},
-		{"vel_depth", "Vel Depth", -127, 127},
+		{"vel_target", "Velocity Target", 0, 8, Targets},
+		{"vel_depth", "Velocity Amt", -127, 127},
 	}};
 
 	const std::array<Spec, LfoValues> lfoSpecs{{
 		{"sync", "Sync", 0, 1, nullptr, true},
-		{"speed", "Speed", 0, LfoDivisions - 1, "1/64|1/32|1/16|1/8|1/4|1/2|1 Bar|2 Bars|4 Bars|8 Bars|16 Bars"},
+		{"speed", "Note Rate", 0, LfoDivisions - 1, "1/64|1/32|1/16|1/8|1/4|1/2|1 Bar|2 Bars|4 Bars|8 Bars|16 Bars"},
 		{"feel", "Feel", 0, 2, "Straight|Dotted|Triplet"},
-		{"hz", "Hz"},
-		{"shape", "Shape", 0, 6, "Triangle|Sine|Square|Saw|Exponential|Ramp|Random"},
-		{"mode", "Mode", 0, 4, "Free|Trig|Hold|One|Half"},
+		{"hz", "Free Rate"},
+		{"shape", "Wave", 0, 6, "Triangle|Sine|Square|Saw|Exponential|Ramp|Random"},
+		{"mode", "Trig Mode", 0, 4, "Free|Trig|Hold|One|Half"},
 		{"depth", "Depth", -127, 127},
-		{"track", "Track", 0, Tracks, "Own|T01|T02|T03|T04|T05|T06|T07|T08|T09|T10|T11|T12|T13|T14|T15|T16"},
+		{"track", "On Track", 0, Tracks, "Own|T01|T02|T03|T04|T05|T06|T07|T08|T09|T10|T11|T12|T13|T14|T15|T16"},
 		{"target", "Target", 0, static_cast<int>(LfoTarget::Count) - 1, "None|Machine 1|Machine 2|Machine 3|Machine 4"
-			"|Machine 5|Machine 6|Machine 7|Machine 8|Level|Pan|Drive A|Drive B|Band A|Band B|Frequency|Resonance|Width"
+			"|Machine 5|Machine 6|Machine 7|Machine 8|Level|Pan|Drive A|Drive B|EQ A|EQ B|Cutoff|Resonance|Width"
 			"|Env Depth|Machine 9|Machine 10|Machine 11|Machine 12|Machine 13|Machine 14|Machine 15|Machine 16|Machine 17"
 			"|Machine 18|Machine 19|Machine 20|Machine 21|Machine 22|Machine 23|Machine 24"},
 	}};
 
 	const std::array<Spec, SendCount> sendSpecs{{
-		{"send_delay", "Delay Send"}, {"send_reverb", "Reverb Send"}, {"send_chorus", "Chorus Send"},
-		{"send_phaser", "Phaser Send"},
+		{"send_delay", "Send Delay"}, {"send_reverb", "Send Reverb"}, {"send_chorus", "Send Chorus"},
+		{"send_phaser", "Send Phaser"},
 	}};
 	const Spec accentSpec{"accent", "Accent"};
 
 	const std::array<Spec, 2> sourceSpecs{{
-		{"delay_source", "Delay Source", 0, 1, "MD Echo|Syntakt"},
-		{"reverb_source", "Reverb Source", 0, 1, "MD Gate Box|Syntakt"},
+		{"delay_source", "Delay Source", 0, 1, "Dub Echo|Stereo Dly"},
+		{"reverb_source", "Reverb Source", 0, 1, "Gated Verb|Lush Verb"},
 	}};
 	const std::array<Spec, SendCount> sendOutputSpecs{{
-		{"delay_output", "Delay Output", 0, 15, OutputNames}, {"reverb_output", "Reverb Output", 0, 15, OutputNames},
-		{"chorus_output", "Chorus Output", 0, 15, OutputNames}, {"phaser_output", "Phaser Output", 0, 15, OutputNames},
+		{"delay_output", "Delay Out", 0, 15, OutputNames}, {"reverb_output", "Reverb Out", 0, 15, OutputNames},
+		{"chorus_output", "Chorus Out", 0, 15, OutputNames}, {"phaser_output", "Phaser Out", 0, 15, OutputNames},
 	}};
 	const std::array<Spec, 8> echoSpecs{{
-		{"echo_time", "Echo Time"}, {"echo_mod", "Echo Mod"}, {"echo_mfrq", "Echo Mod Freq"},
-		{"echo_fb", "Echo Feedback"}, {"echo_fltf", "Echo Filter Freq"}, {"echo_fltw", "Echo Filter Width"},
+		{"echo_time", "Echo Time"}, {"echo_mod", "Echo Mod Depth"}, {"echo_mfrq", "Echo Mod Rate"},
+		{"echo_fb", "Echo Feedback"}, {"echo_fltf", "Echo HPF"}, {"echo_fltw", "Echo Bandwidth"},
 		{"echo_mono", "Echo Mono"}, {"echo_lev", "Echo Level"},
 	}};
 	const std::array<Spec, 8> gateBoxSpecs{{
-		{"gate_dvol", "Gate Box Dry Vol"}, {"gate_pred", "Gate Box Pre-Delay"}, {"gate_dec", "Gate Box Decay"},
-		{"gate_damp", "Gate Box Damp"}, {"gate_hp", "Gate Box High Pass"}, {"gate_lp", "Gate Box Low Pass"},
-		{"gate_gate", "Gate Box Gate"}, {"gate_lev", "Gate Box Level"},
+		{"gate_dvol", "Gated Dry Level"}, {"gate_pred", "Gated Pre-Delay"}, {"gate_dec", "Gated Decay"},
+		{"gate_damp", "Gated Damping"}, {"gate_hp", "Gated HPF"}, {"gate_lp", "Gated LPF"},
+		{"gate_gate", "Gated Gate"}, {"gate_lev", "Gated Level"},
 	}};
 	const std::array<Spec, StDelayBytes> syntaktDelaySpecs{{
 		{"delay_time", "Delay Time"}, {"delay_cross", "Delay Ping Pong"}, {"delay_width", "Delay Width"},
-		{"delay_fdbk", "Delay Feedback"}, {"delay_hp", "Delay High Pass"}, {"delay_lp", "Delay Low Pass"},
+		{"delay_fdbk", "Delay Feedback"}, {"delay_hp", "Delay HPF"}, {"delay_lp", "Delay LPF"},
 	}};
 	const std::array<Spec, StReverbBytes> syntaktReverbSpecs{{
-		{"reverb_pre", "Reverb Pre-Delay"}, {"reverb_dec", "Reverb Decay"}, {"reverb_freq", "Reverb Shelf Freq"},
-		{"reverb_gain", "Reverb Shelf Gain"}, {"reverb_hp", "Reverb High Pass"}, {"reverb_lp", "Reverb Low Pass"},
+		{"reverb_pre", "Reverb Pre-Delay"}, {"reverb_dec", "Reverb Decay"}, {"reverb_freq", "Reverb Freq"},
+		{"reverb_gain", "Reverb Gain"}, {"reverb_hp", "Reverb HPF"}, {"reverb_lp", "Reverb LPF"},
 	}};
-	const Spec syntaktDelaySendSpec{"delay_rev", "Delay Reverb Send"};
+	const Spec syntaktDelaySendSpec{"delay_rev", "Delay To Reverb"};
 	const std::array<Spec, ChorusBytes> chorusSpecs{{
-		{"chorus_rate", "Chorus Rate"}, {"chorus_depth", "Chorus Depth"}, {"chorus_delay", "Chorus Delay"},
+		{"chorus_rate", "Chorus Free Rate"}, {"chorus_depth", "Chorus Depth"}, {"chorus_delay", "Chorus Delay"},
 		{"chorus_fdbk", "Chorus Feedback"}, {"chorus_level", "Chorus Level"},
-		{"chorus_shape", "Chorus Shape", 0, 5, "Sine|Triangle|Saw|Square|S&H|Glide"},
+		{"chorus_shape", "Chorus Wave", 0, 5, "Sine|Triangle|Saw|Square|S&H|Glide"},
 	}};
 	const std::array<Spec, PhaserBytes> phaserSpecs{{
-		{"phaser_mode", "Phaser Mode", 0, 2, "Phaser|Flanger|DP/4"},
+		{"phaser_mode", "Phaser Type", 0, 2, "Phaser|Flanger|90s Rack"},
 		{"phaser_stages", "Phaser Stages", 1, 6},
 		{"phaser_rate", "Phaser Rate"}, {"phaser_depth", "Phaser Depth"}, {"phaser_freq", "Phaser Freq"},
 		{"phaser_spread", "Phaser Spread"}, {"phaser_fdbk", "Phaser Feedback"}, {"phaser_level", "Phaser Level"},
-		{"phaser_dp4_phase", "Phaser DP4 Phase", 0, 1, "In|Out"},
-		{"phaser_dp4_left", "Phaser DP4 Delay L"}, {"phaser_dp4_right", "Phaser DP4 Delay R"},
-		{"phaser_dp4_fdbk", "Phaser DP4 Delay Fdbk"},
+		{"phaser_dp4_phase", "Rack Wet Phase", 0, 1, "In|Out"},
+		{"phaser_dp4_left", "Rack Left Delay"}, {"phaser_dp4_right", "Rack Right Delay"},
+		{"phaser_dp4_fdbk", "Rack Delay Fdbk"},
 	}};
 	const Spec masterOnSpec{"master_on", "Master On", 0, 1, nullptr, true};
 	const std::array<Spec, MasterBytes> masterSpecs{{
-		{"master_threshold", "Master Threshold"}, {"master_ratio", "Master Ratio"}, {"master_attack", "Master Attack"},
-		{"master_release", "Master Release"}, {"master_makeup", "Master Makeup"}, {"master_mix", "Master Mix"},
-		{"master_filter", "Master Filter"}, {"master_drive", "Master Drive"}, {"master_volume", "Master Volume"},
+		{"master_threshold", "Comp Threshold"}, {"master_ratio", "Comp Ratio"}, {"master_attack", "Comp Attack"},
+		{"master_release", "Comp Release"}, {"master_makeup", "Comp Makeup"}, {"master_mix", "Comp Mix"},
+		{"master_filter", "Comp SC Filter"}, {"master_drive", "Master Drive"}, {"master_volume", "Master Volume"},
 	}};
 	const Spec oversamplingSpec{"oversampling", "Oversampling", 0, 2, "1x|2x|4x"};
 
 	const Spec delaySyncSpec{"delay_sync", "Delay Sync", 0, 1, nullptr, true};
-	const Spec delayNoteSpec{"delay_note", "Delay Duration", 0, 14,
+	const Spec delayNoteSpec{"delay_note", "Delay Note Time", 0, 14,
 		"1/32|1/16T|1/32D|1/16|1/8T|1/16D|1/8|1/4T|1/8D|1/4|1/2T|1/4D|1/2|1/2D|1/1"};
 	const std::array<Spec, 2> lfoSyncSpecs{{
 		{"chorus_sync", "Chorus Sync", 0, 1, nullptr, true}, {"phaser_sync", "Phaser Sync", 0, 1, nullptr, true},
 	}};
 	const std::array<Spec, 2> lfoNoteSpecs{{
-		{"chorus_speed", "Chorus Speed", 0, 10, "1/64|1/32|1/16|1/8|1/4|1/2|1 Bar|2 Bars|4 Bars|8 Bars|16 Bars"},
-		{"phaser_speed", "Phaser Speed", 0, 10, "1/64|1/32|1/16|1/8|1/4|1/2|1 Bar|2 Bars|4 Bars|8 Bars|16 Bars"},
+		{"chorus_speed", "Chorus Note Rate", 0, 10, "1/64|1/32|1/16|1/8|1/4|1/2|1 Bar|2 Bars|4 Bars|8 Bars|16 Bars"},
+		{"phaser_speed", "Phaser Note Rate", 0, 10, "1/64|1/32|1/16|1/8|1/4|1/2|1 Bar|2 Bars|4 Bars|8 Bars|16 Bars"},
 	}};
-	const Spec dp4SampleHoldSpec{"phaser_dp4_sh", "Phaser DP4 S&H"};
+	const Spec dp4SampleHoldSpec{"phaser_dp4_sh", "Rack S&H Rate"};
 
 	double delayNoteQuarters(const int _choice)
 	{

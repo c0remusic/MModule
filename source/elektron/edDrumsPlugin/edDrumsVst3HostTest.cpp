@@ -360,7 +360,7 @@ namespace
 		require(parameters[g_pages - 2]->getName(64) == "Oversampling", "ticket 18's last place");
 		require(parameters[g_pages - 1]->getName(64) == "Pattern", "Pattern's place");
 		require(parameters[g_pages]->getName(64) == "T01 Machine 9" && parameters[g_machine24 - 1]->getName(64) == "T16 Machine 24"
-			&& parameters[g_parameters - 1]->getName(64) == "Phaser DP4 S&H",
+			&& parameters[g_parameters - 1]->getName(64) == "Rack S&H Rate",
 			"Machine 9-24's places");
 		std::printf("%d parameters of ours, %d automatable with Bypass; latency %d samples\n", g_parameters, automatable,
 			plugin.getLatencySamples());
