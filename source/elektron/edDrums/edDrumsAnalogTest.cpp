@@ -10,6 +10,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <complex>
 #include <cstdio>
 #include <stdexcept>
 #include <string>
@@ -295,6 +296,128 @@ namespace
 		return seconds / (Blocks * block / _rate);
 	}
 
+	// How a machine sounds at its defaults, the first 186 ms of the voice alone at note 60: its spectrum in 1/3-octave
+	// bands from 25 Hz to 16 kHz, in dB about its own mean (loudness does not count), and its envelope in 5 ms frames, in
+	// dB of its peak; both floored at -60 dB
+	struct Timbre
+	{
+		std::vector<double> bands, envelope;
+	};
+
+	Timbre timbreOf(const int _m)
+	{
+		constexpr size_t N = 8192;
+		const auto x = alone(_m, defaults(_m), N, 1.0f);
+		// the spectrum by a plain DFT of the bands' bins, once per machine
+		std::vector<double> power(N / 2);
+		{
+			std::vector<std::complex<double>> a(x.begin(), x.end());
+			for(size_t i = 1, j = 0; i < N; ++i)
+			{
+				size_t bit = N >> 1;
+				for(; j & bit; bit >>= 1)
+					j ^= bit;
+				j ^= bit;
+				if(i < j)
+					std::swap(a[i], a[j]);
+			}
+			for(size_t len = 2; len <= N; len <<= 1)
+			{
+				const std::complex<double> w = std::polar(1.0, -2 * 3.14159265358979323846 / static_cast<double>(len));
+				for(size_t i = 0; i < N; i += len)
+				{
+					std::complex<double> wn(1);
+					for(size_t k = 0; k < len / 2; ++k, wn *= w)
+					{
+						const auto u = a[i + k], v = a[i + k + len / 2] * wn;
+						a[i + k] = u + v;
+						a[i + k + len / 2] = u - v;
+					}
+				}
+			}
+			for(size_t k = 0; k < N / 2; ++k)
+				power[k] = std::norm(a[k]);
+		}
+		Timbre t;
+		for(double f0 = 25; f0 < 16000; f0 *= std::pow(2.0, 1.0 / 3))
+		{
+			double e = 1e-20;
+			const auto lo = static_cast<size_t>(f0 / std::pow(2.0, 1.0 / 6) * N / SampleRate) + 1;
+			const auto hi = static_cast<size_t>(f0 * std::pow(2.0, 1.0 / 6) * N / SampleRate);
+			for(size_t k = lo; k <= hi && k < N / 2; ++k)
+				e += power[k];
+			t.bands.push_back(10 * std::log10(e));
+		}
+		double mean = 0;
+		for(const double b : t.bands)
+			mean += b / static_cast<double>(t.bands.size());
+		for(double& b : t.bands)
+			b = std::max(b - mean, -60.0);
+		constexpr size_t Frame = 220;
+		double top = 1e-20;
+		for(size_t f = 0; f + Frame <= N; f += Frame)
+		{
+			double s = 0;
+			for(size_t i = f; i < f + Frame; ++i)
+				s += static_cast<double>(x[i]) * x[i];
+			t.envelope.push_back(s / Frame);
+			top = std::max(top, s / Frame);
+		}
+		for(double& e : t.envelope)
+			e = std::max(10 * std::log10(e / top + 1e-20), -60.0);
+		return t;
+	}
+
+	double rmsOf(const std::vector<double>& _a, const std::vector<double>& _b)
+	{
+		double s = 0;
+		for(size_t i = 0; i < _a.size(); ++i)
+			s += (_a[i] - _b[i]) * (_a[i] - _b[i]);
+		return std::sqrt(s / static_cast<double>(_a.size()));
+	}
+
+	// The user's listening, 2026-11-12: some machines of a family sounded alike. Within each family, every pair's distance
+	// at the defaults (spectrum and envelope, dB), and the pairs under half the family's median: CLOSE. The families made
+	// distinct so far must have none; the others are printed until their round
+	void distinct()
+	{
+		using analog::Machine;
+		struct Group
+		{
+			const char* name;
+			Machine first, last;
+			bool required;
+		};
+		const Group groups[] = {{"kicks", Machine::KickHard, Machine::KickAcoustic, true},
+			{"snares and rims", Machine::SnareHard, Machine::RimClassic, false},
+			{"synths", Machine::SynthDual, Machine::SynthChip, false},
+			{"metal", Machine::ClosedClassic, Machine::HatLab, false}};
+		for(const auto& g : groups)
+		{
+			std::vector<Timbre> t;
+			for(int m = static_cast<int>(g.first); m <= static_cast<int>(g.last); ++m)
+				t.push_back(timbreOf(m));
+			std::vector<double> all;
+			for(size_t i = 0; i < t.size(); ++i)
+				for(size_t j = i + 1; j < t.size(); ++j)
+					all.push_back(rmsOf(t[i].bands, t[j].bands) + rmsOf(t[i].envelope, t[j].envelope));
+			std::vector<double> sorted = all;
+			std::sort(sorted.begin(), sorted.end());
+			const double median = sorted[sorted.size() / 2];
+			std::string close;
+			size_t k = 0;
+			for(size_t i = 0; i < t.size(); ++i)
+				for(size_t j = i + 1; j < t.size(); ++j, ++k)
+					if(all[k] < median / 2)
+						close += " " + std::to_string(static_cast<int>(g.first) + static_cast<int>(i)) + "-"
+							+ std::to_string(static_cast<int>(g.first) + static_cast<int>(j));
+			std::printf("  %-16s median distance %.1f dB, closest %.1f dB; close pairs:%s\n", g.name, median, sorted.front(),
+				close.empty() ? " none" : close.c_str());
+			require(!g.required || close.empty(), std::string(g.name) + ": machines that sound alike:" + close);
+		}
+		std::printf("PASS: no two kicks alike at their defaults\n");
+	}
+
 	void cost(const Library& _library)
 	{
 		const double at44 = kitCost(_library, SampleRate), at48 = kitCost(_library, 48000),
@@ -318,6 +441,7 @@ int main()
 		pages(library);
 		quiet(library);
 		allocations(library);
+		distinct();
 		cost(library);
 		return 0;
 	}
