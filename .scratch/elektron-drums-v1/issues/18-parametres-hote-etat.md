@@ -1,7 +1,7 @@
 # Paramètres hôte, relais Push, état
 
 Type: AFK
-Status: ready-for-agent
+Status: resolved
 Assignee: 
 Blocked by: 12, 13, 14, 15, 17
 
@@ -47,3 +47,35 @@ Version réduite faite : 1 267 paramètres hôte (75 par piste, le reste partag�
 `edDrumsPlugin/edDrumsParameterIds.txt` et vérifiés par `edDrumsProcessorTest`, chaîne, LFO, envois, effets d'envoi et
 master compris. État version 3, valeurs par identifiant, défaut pour un identifiant absent ; il garde aussi les 128
 patterns et le sample de chaque piste. Pas faits : relais Push, compression de l'état.
+
+## État (2026-11-12)
+
+Relais Push faits. 64 paramètres hôte ajoutés en fin de `edDrumsParameterIds.txt` (`push_*`, 1 594 identifiants en tout), en
+8 pages de 8 dans l'ordre des banques de Push, chacun visant le paramètre du même nom sur la piste affichée par l'éditeur
+(`parameters::relaySpecs`, `Processor::takeRelays`, `syncRelays`). Le choix suit ce que la main cherche en jouant : page 1
+Machine 1-8 ; page 2 la piste elle-même (relais Track 1-16 qui choisit la piste affichée, comme le relais 0 de MoDule,
+puis Level, Pan, Note, les quatre envois) ; page 3 le filtre et son enveloppe (type, mode, coupure, résonance, largeur,
+attaque, déclin, profondeur) ; page 4 les deux drives (type, quantité, mélange, place) ; page 5 l'EQ (type, place, six
+bandes) ; page 6 l'ampli et l'accent ; pages 7 et 8 chaque LFO (cible, profondeur, onde, déclenchement, sync, note,
+fréquence libre, feel). Restent aux paramètres propres de chaque piste : Machine 9-24, la vélocité, retard, sustain,
+release et retrig de l'enveloppe de filtre, le suivi de clavier, la piste d'un LFO, la sortie, la machine et les Chokes.
+Les noms tiennent dans les dix caractères de Push.
+
+Comportement repris de MoDule (ticket 34) : un relais réglé par l'hôte va au paramètre de la piste affichée au bloc
+suivant, sans rien dire à l'hôte et sans Lock ; le minuteur donne aux relais les valeurs de la piste affichée, en
+éditions sans geste quand la piste affichée change, en silence sinon (et avant chaque relecture de l'hôte : état, Kit,
+son de piste, défauts d'une machine) ; rien au chargement ; un relais tourné que le fil audio n'a pas encore pris
+attend. Ni l'état ni un Kit ne gardent de relais. La piste affichée n'est pas gardée dans l'état.
+
+État compressé fait : le XML (toujours version 6) passe par le zlib de JUCE derrière un en-tête à lui (« LKSZ », format
+1, taille du XML) ; `Processor::readState` lit aussi le XML non compressé d'avant. Mesuré : set par défaut 28 752 octets
+avant, 4 672 après (16,2 %) ; set plein (128 patterns, 16 pistes de 64 trigs, 4 096 Locks par pattern) 26 499 954 octets
+avant, 999 694 après (3,8 %).
+
+Vérifié : `edDrumsVst3HostTest` (rien dit au chargement ; chaque relais règle sa cible sur la piste 1, relue par les
+relais en revenant sur la piste 1 et par l'état dans une autre instance ; piste 2 montrée, 63 éditions et 0 geste) ;
+`edDrumsProcessorTest` (liste figée, relais en process, état compressé et état version 6 non compressé rendant les mêmes
+échantillons que le set) ; `edDrumsEditorTest`. Reste du ticket : rien de ce qui précède ; le comportement dans Live et
+sur un Push réel n'est pas mesuré.
+
+Les cibles des relais vivent sur le tas : 9 Ko de plus par processeur faisaient déborder la pile de `kits()` dans `edDrumsProcessorTest`, qui en tient six sur la pile.

@@ -9,7 +9,11 @@
 //   - a machine set by the host gives Machine 1-8 the machine's defaults, which the host reads again;
 //   - the state through IComponent: another instance gets every parameter back, and plays the same;
 //   - at 48 kHz, which ticket 16 settles, silence and no latency;
-//   - the editor opens; no block of 128 over 10 ms on a busy pattern.
+//   - the editor opens; no block of 128 over 10 ms on a busy pattern;
+//   - the 64 relays for Push (ticket 18): nothing told as the instrument loads; each relay set by the host sets its
+//     parameter on the Track shown and nothing is told; the Track relay shows Track 2, the relays reaching the host
+//     as its values, edits without a gesture; Track 1 shown again, they read back what they set, which the state
+//     gives another instance.
 //
 // GEARMULATOR_MD_FIRMWARE_BIN names the flash image; exit 77 without it.
 
@@ -23,6 +27,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -32,6 +37,7 @@
 #include <vector>
 
 #include "edDrumsEngine.h"
+#include "edDrumsParameters.h"
 
 namespace
 {
@@ -89,14 +95,14 @@ namespace
 
 	struct Told final : juce::AudioProcessorListener
 	{
-		std::atomic<int> rereads{0};
-		void audioProcessorParameterChanged(juce::AudioProcessor*, int, float) override {}
+		std::atomic<int> rereads{0}, edits{0}, gestures{0};
+		void audioProcessorParameterChanged(juce::AudioProcessor*, int, float) override { ++edits; }
 		void audioProcessorChanged(juce::AudioProcessor*, const ChangeDetails& _details) override
 		{
 			if(_details.programChanged)
 				++rereads;
 		}
-		void audioProcessorParameterChangeGestureBegin(juce::AudioProcessor*, int) override {}
+		void audioProcessorParameterChangeGestureBegin(juce::AudioProcessor*, int) override { ++gestures; }
 		void audioProcessorParameterChangeGestureEnd(juce::AudioProcessor*, int) override {}
 	};
 
@@ -300,6 +306,102 @@ namespace
 		pump(100);
 	}
 
+	// The relays for Push as a host sees them, on a fresh instance. A Track parameter's VST3 value the host caches is
+	// stale once a relay sets it silently: the host reads it back through the relays, Track 1 shown again, and through
+	// the state, which another instance gets
+	void relays(juce::AudioPluginFormatManager& _formats, const juce::PluginDescription& _description)
+	{
+		std::ifstream file(ED_DRUMS_PARAMETER_IDS);
+		require(file.good(), std::string("no ") + ED_DRUMS_PARAMETER_IDS);
+		std::vector<std::string> ids;
+		for(std::string line; std::getline(file, line);)
+			if(!line.empty())
+				ids.push_back(juce::String(line).trim().toStdString());
+		const auto indexOf = [&ids](const std::string& _id)
+		{
+			const auto at = std::find(ids.begin(), ids.end(), _id);
+			require(at != ids.end(), "no parameter " + _id);
+			return static_cast<int>(at - ids.begin());
+		};
+
+		auto instance = load(_formats, _description, SampleRate);
+		auto& plugin = *instance->plugin;
+		const auto& hosted = plugin.getParameters();
+		render(plugin, {}, g_block, g_block);
+		pump(300);
+		require(instance->told.edits == 0 && instance->told.gestures == 0, "the host told of edits as the instrument loads");
+
+		struct Aim
+		{
+			juce::AudioProcessorParameter *relay, *own, *other;	// the relay, its target on Track 1 and on Track 2
+			int own_, other_;
+			float set;
+		};
+		std::vector<Aim> aims;
+		juce::AudioProcessorParameter* track = nullptr;
+		for(const auto& spec : elektron::drums::parameters::relaySpecs)
+		{
+			auto* relay = hosted[indexOf(std::string("push_") + (spec.target ? spec.target : "track"))];
+			require(relay->getName(64) == spec.name && relay->isAutomatable(), std::string(spec.name) + ": not the relay");
+			if(!spec.target)
+			{
+				track = relay;
+				continue;
+			}
+			const int own = indexOf(std::string("t01_") + spec.target), other = indexOf(std::string("t02_") + spec.target);
+			require(std::abs(relay->getValue() - hosted[own]->getValue()) <= 1e-6f,
+				std::string(spec.name) + " at load is not Track 1's");
+			// An end of its range away from Track 2's value
+			aims.push_back({relay, hosted[own], hosted[other], own, other,
+				hosted[other]->getValue() < 0.5f ? 1.0f : 0.0f});
+		}
+
+		// Each relay set as the host sets it: Track 1's parameter at the next block, nothing told
+		for(const auto& a : aims)
+			a.relay->setValueNotifyingHost(a.set);
+		instance->told.edits = 0;
+		render(plugin, {}, g_block, g_block);
+		pump(300);
+		require(instance->told.edits == 0, "a relay's parameter told to the host");
+
+		// The Track relay on Track 2: the relays reach the host with its values, edits without a gesture
+		const auto show = [&](const int _track)
+		{
+			track->setValueNotifyingHost(static_cast<float>(_track) / (Tracks - 1));
+			instance->told.edits = 0;
+			instance->told.gestures = 0;
+			render(plugin, {}, g_block, g_block);
+			pump(300);
+		};
+		show(1);
+		for(const auto& a : aims)
+			require(a.relay->getValue() == a.other->getValue(), a.relay->getName(64).toStdString() + " on Track 2");
+		std::printf("the relays: nothing told at load; Track 2 shown, %d edits and %d gestures told\n",
+			instance->told.edits.load(), instance->told.gestures.load());
+		require(instance->told.edits == static_cast<int>(aims.size()) && instance->told.gestures == 0,
+			"Track 2 shown: not the relays as edits without a gesture");
+
+		// Track 1 again: each relay reads back what it set
+		show(0);
+		for(const auto& a : aims)
+			require(a.relay->getValue() == a.set, a.relay->getName(64).toStdString() + ": Track 1's parameter not set");
+		require(instance->told.edits == static_cast<int>(aims.size()), "Track 1 shown: not the relays as edits");
+
+		// The state: another instance holds what the relays set on Track 1, Track 2 as it was
+		juce::MemoryBlock state;
+		plugin.getStateInformation(state);
+		auto other = load(_formats, _description, SampleRate);
+		other->plugin->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+		pump(100);
+		const auto& restored = other->plugin->getParameters();
+		for(const auto& a : aims)
+			require(std::abs(restored[a.own_]->getValue() - a.set) < 1e-6f
+				&& std::abs(restored[a.other_]->getValue() - a.other->getValue()) < 1e-6f,
+				a.relay->getName(64).toStdString() + ": its parameter not in the state");
+		std::printf("the %d relays set their Track 1 parameters, read back through the relays and the state\n",
+			static_cast<int>(aims.size()) + 1);
+	}
+
 	void run(const juce::File& _bundle, const Library& _library)
 	{
 		juce::AudioPluginFormatManager formats;
@@ -362,9 +464,10 @@ namespace
 		require(parameters[g_pages]->getName(64) == "T01 Machine 9" && parameters[g_machine24 - 1]->getName(64) == "T16 Machine 24"
 			&& parameters[g_parameters - 1]->getName(64) == "Rack S&H Rate",
 			"Machine 9-24's places");
-		std::printf("%d parameters of ours, %d automatable with Bypass; latency %d samples\n", g_parameters, automatable,
-			plugin.getLatencySamples());
-		require(automatable == g_parameters - 2 * Tracks + 1, "Machine and Chokes are not for the host to automate");
+		std::printf("%d parameters of ours and %d relays, %d automatable with Bypass; latency %d samples\n", g_parameters,
+			elektron::drums::parameters::RelayCount, automatable, plugin.getLatencySamples());
+		require(automatable == g_parameters + elektron::drums::parameters::RelayCount - 2 * Tracks + 1,
+			"Machine and Chokes are not for the host to automate");
 
 		// Each Track on an Out of its own
 		for(int t = 0; t < Tracks; ++t)
@@ -469,6 +572,7 @@ namespace
 		}
 
 		openEditor(plugin);
+		relays(formats, description);
 
 		// Ticket 16's rates: sound, the latency hitDelay's; a rate it does not play: silence, no latency
 		{

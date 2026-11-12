@@ -27,7 +27,8 @@
 // The parameters of a Track, the IDs t01_*, the names "T01 ...": Machine and Chokes, which a host does not automate,
 // Machine 1-8, Note, Level, Pan, Output; then Tempo; then, appended by ticket 18 (edDrumsParameters.h), each Track's
 // chain, LFOs, sends and accent, the shared effects, the master and the oversampling; then Pattern; then, appended by
-// ticket 26, each Track's Machine 9-24, which a machine of 8 does not use. Every ID is frozen in
+// ticket 26, each Track's Machine 9-24, which a machine of 8 does not use; then the effects' sync; then the 64 relays
+// for Push (parameters::relaySpecs), which neither a Kit nor the state holds. Every ID is frozen in
 // edDrumsParameterIds.txt. The audio thread gives the engine only what changed since it last did.
 //
 // The Sampler (ticket 20) is the Machine list's choice where ROM-33 stood: ROM-33 to -48 left the list, its last 16,
@@ -76,8 +77,19 @@ namespace elektron::drums
 		const juce::String getProgramName(int) override { return {}; }
 		void changeProgramName(int, const juce::String&) override {}
 
+		// The state: its XML (version StateVersion), compressed since 2026-11-13 behind a header of its own (magic,
+		// format, the XML's size); a state of before, the XML as copyXmlToBinary wrote it, still loads. readState gives
+		// the XML of either, nullptr for neither
 		void getStateInformation(juce::MemoryBlock& _data) override;
 		void setStateInformation(const void* _data, int _size) override;
+		static std::unique_ptr<juce::XmlElement> readState(const void* _data, int _size);
+
+		// The Track the editor shows, 0-15, which the relays for Push aim at (parameters::relaySpecs) and which their
+		// Track relay sets. Any thread. Not kept in the state
+		int shownTrack() const { return m_shownTrack.load(std::memory_order_acquire); }
+		void setShownTrack(const int _track) { m_shownTrack.store(juce::jlimit(0, Tracks - 1, _track), std::memory_order_release); }
+		// The timer's, which a test calls: the Track shown's values to the relays, silently with _reread
+		void syncRelays(bool _reread);
 
 		static juce::File dataFolder();
 		// The data folder before the name Lockstep (ticket 27), beside dataFolder()
@@ -97,7 +109,7 @@ namespace elektron::drums
 
 		// Where an editor finds the parameters: by ID, nullptr for none; a Track's by box, or all of them; the shared
 		// ones by section. Built by the constructor, read-only after
-		enum class Section { Machine, Drive, Band, Filter, Amp, Lfo1, Lfo2, Sends, Effects, Master, Global };
+		enum class Section { Machine, Drive, Band, Filter, Amp, Lfo1, Lfo2, Sends, Effects, Master, Global, Relays };
 		static constexpr int TrackSections = static_cast<int>(Section::Effects);
 		juce::RangedAudioParameter* parameter(const juce::String& _id) const;
 		// _track for a Track's section, ignored for a shared one
@@ -339,6 +351,12 @@ namespace elektron::drums
 		void publishSample(int _track);
 		void pruneSamples();
 		bool isKitParameter(const int _index) const { return m_kitParameter[static_cast<size_t>(_index)] != 0; }
+		bool isRelay(const int _index) const
+		{
+			return m_firstRelay >= 0 && _index >= m_firstRelay && _index < m_firstRelay + parameters::RelayCount;
+		}
+		void takeRelays();
+		void tellHostAll();
 		void writeSound(juce::XmlElement& _xml, bool _all) const;
 		juce::XmlElement* writeSample(juce::XmlElement& _xml, int _track) const;
 		std::unique_ptr<Sample> readSample(const juce::XmlElement& _element, juce::String& _ref) const;
@@ -387,7 +405,7 @@ namespace elektron::drums
 
 		std::map<juce::String, juce::RangedAudioParameter*> m_byId;
 		std::array<std::array<juce::StringArray, TrackSections>, Tracks> m_trackSections;
-		std::array<juce::StringArray, 3> m_sharedSections;
+		std::array<juce::StringArray, 4> m_sharedSections;
 		std::array<juce::StringArray, Tracks> m_trackIds;
 		std::array<Family, Tracks> m_chainFamily{};	// the family whose chain the parameters took last
 		// The audio thread's: the family whose chain the engine loaded last, as Engine's, and the chain it holds
@@ -516,6 +534,24 @@ namespace elektron::drums
 		std::array<uint64_t, Tracks> m_engineSampleHash{};	// the audio thread's: the samples it gave the engine
 
 		std::unique_ptr<TrackSounds> m_trackSounds;
+
+		// The relays for Push (relaySpecs' order) and the normalised value the audio thread last took from each: one
+		// that differs is the host's turn, which takeRelays gives the Track shown's parameter, silently; syncRelays (the
+		// timer's) gives each relay the Track shown's value and leaves one the audio thread has not taken yet. Its
+		// targets by Track, nullptr for the Track relay; the first relay's parameter index, -1 before they are made; the
+		// Track the relays last held
+		struct Relay
+		{
+			juce::RangedAudioParameter* parameter = nullptr;
+			std::atomic<float> taken{0};
+		};
+		std::array<Relay, parameters::RelayCount> m_relays;
+		// On the heap: the tests hold several processors on the stack
+		std::vector<std::array<juce::RangedAudioParameter*, parameters::RelayCount>> m_relayTargets =
+			std::vector<std::array<juce::RangedAudioParameter*, parameters::RelayCount>>(Tracks);
+		int m_firstRelay = -1;
+		std::atomic<int> m_shownTrack{0};
+		int m_relaysTrack = 0;
 
 		// The audio thread's Locks: by parameter index, held and the value; by Track, the ones it holds
 		std::vector<LockTarget> m_lockTargets;

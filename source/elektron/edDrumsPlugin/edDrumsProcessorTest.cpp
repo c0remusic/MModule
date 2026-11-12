@@ -20,7 +20,10 @@
 //   - the sequencer from a playhead at 120 BPM: Hits at their steps' samples, Locks for their step only, Pattern
 //     switching at the end of the pattern playing, patterns and samples in the state play the same (ticket 17);
 //   - a slide: Filter Freq and Machine 1 glide from the step's Locks to the next trig's, the engine's, in any host
-//     blocks, nothing allocated; no glide without SLIDE; a host note ends it.
+//     blocks, nothing allocated; no glide without SLIDE; a host note ends it;
+//   - the relays for Push follow the Track shown, set its parameter, choose it, and stay out of the state; the state
+//     compressed, its sizes on the default and a full set, restores the same set and samples, as a version 6 state
+//     uncompressed does.
 //
 // GEARMULATOR_MD_FIRMWARE_BIN names the flash image; exit 77 without it. With --print-ids, it prints the IDs, one a line.
 
@@ -247,9 +250,31 @@ namespace
 			require(sum == _processor.trackIds(t).size(), "a Track's sections hold its parameters");
 			inSections += sum;
 		}
-		for(const auto s : {Processor::Section::Effects, Processor::Section::Master, Processor::Section::Global})
+		for(const auto s : {Processor::Section::Effects, Processor::Section::Master, Processor::Section::Global,
+			Processor::Section::Relays})
 			inSections += _processor.ids(s).size();
 		require(inSections == ids.size(), "every parameter in one section");
+
+		// The relays for Push, last: 64, each named in Push's ten characters, as its target on Track 1 in range and kind
+		const auto& relays = _processor.ids(Processor::Section::Relays);
+		require(relays.size() == parameters::RelayCount && ids.indexOf(relays[0]) == ids.size() - parameters::RelayCount,
+			"the 64 relays last");
+		for(int r = 0; r < relays.size(); ++r)
+		{
+			const auto& spec = parameters::relaySpecs[static_cast<size_t>(r)];
+			auto& relay = find(_processor, relays[r]);
+			require(relay.getName(64).length() <= 10, relays[r].toStdString() + ": a name over ten characters");
+			if(!spec.target)
+			{
+				require(relays[r] == "push_track" && relay.getNumSteps() == Tracks, "the Track relay");
+				continue;
+			}
+			const auto& target = find(_processor, juce::String("t01_") + spec.target);
+			require(relays[r] == juce::String("push_") + spec.target && relay.getNumSteps() == target.getNumSteps()
+				&& relay.getNormalisableRange().start == target.getNormalisableRange().start
+				&& relay.getNormalisableRange().end == target.getNormalisableRange().end
+				&& std::abs(relay.getValue() - target.getValue()) <= 1e-6f, relays[r].toStdString() + ": not its target's kind");
+		}
 		std::printf("  %d parameters, %d per Track, %d shared; the IDs are the frozen list's\n", ids.size(),
 			_processor.trackIds(0).size(), ids.size() - Tracks * _processor.trackIds(0).size());
 		require(_processor.trackIds(0).size() == 75 + 16, "91 a Track: 75 and Machine 9-24");
@@ -628,11 +653,17 @@ namespace
 		require(equal, _what + where);
 	}
 
+	// The relays for Push, which follow the Track shown and are not of the sound
+	bool isRelay(const juce::String& _id)
+	{
+		return _id.startsWith("push_");
+	}
+
 	Values valuesOf(Processor& _processor)
 	{
 		Values v;
 		for(auto* parameter : _processor.getParameters())
-			if(auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter))
+			if(auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter); p && !isRelay(p->getParameterID()))
 				v[p->getParameterID()] = plain(*p);
 		return v;
 	}
@@ -784,7 +815,7 @@ namespace
 		// A Track's parameter on all 16 at once, a shared one alone
 		std::vector<juce::String> steps;
 		for(int i = first; i < ids.size(); ++i)
-			if(!ids[i].startsWith("t") || ids[i].startsWith("t01_"))
+			if(!isRelay(ids[i]) && (!ids[i].startsWith("t") || ids[i].startsWith("t01_")))
 				steps.push_back(ids[i].startsWith("t01_") ? ids[i].substring(4) : ids[i]);
 		const auto start = std::chrono::steady_clock::now();
 		std::vector<std::string> unheard;
@@ -964,7 +995,7 @@ namespace
 				"a fresh Syntakt Track's amp");
 			juce::MemoryBlock saved;
 			fresh.getStateInformation(saved);
-			const auto xml = juce::AudioProcessor::getXmlFromBinary(saved.getData(), static_cast<int>(saved.getSize()));
+			const auto xml = Processor::readState(saved.getData(), static_cast<int>(saved.getSize()));
 			require(xml != nullptr, "the state's XML");
 			xml->setAttribute("t01_amp_hold", 64);
 			xml->setAttribute("t01_amp_decay", 127);
@@ -1187,7 +1218,7 @@ namespace
 			played(p, "a state of version 4");
 			juce::MemoryBlock saved;
 			p.getStateInformation(saved);
-			const auto back = juce::AudioProcessor::getXmlFromBinary(saved.getData(), static_cast<int>(saved.getSize()));
+			const auto back = Processor::readState(saved.getData(), static_cast<int>(saved.getSize()));
 			int samples = 0;
 			for(const auto* element : back->getChildWithTagNameIterator("sample"))
 			{
@@ -1321,7 +1352,7 @@ namespace
 			onDrum(saver);
 			juce::MemoryBlock state;
 			saver.getStateInformation(state);
-			auto xml = juce::AudioProcessor::getXmlFromBinary(state.getData(), static_cast<int>(state.getSize()));
+			auto xml = Processor::readState(state.getData(), static_cast<int>(state.getSize()));
 			for(int i = 9; i <= MachineParameters; ++i)
 				xml->removeAttribute(juce::String::formatted("t01_m%d", i));
 			juce::AudioProcessor::copyXmlToBinary(*xml, state);
@@ -2485,12 +2516,13 @@ namespace
 		const auto db = [](const double _gain) { return _gain > 0 ? 20 * std::log10(_gain) : -std::numeric_limits<double>::infinity(); };
 		const auto choose = [&](const juce::String& _id, const int _value) { set(find(processor, _id), _value); };
 
-		// Every parameter of Track 1 and the shared ones at their defaults (the other Tracks' are Track 1's)
+		// Every parameter of Track 1 and the shared ones at their defaults (the other Tracks' are Track 1's; a relay shows
+		// the Track shown's, its text read back near that parameter's value, not its own)
 		int checked = 0;
 		for(auto* parameter : processor.getParameters())
 		{
 			auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter);
-			if(p && (!p->getParameterID().startsWith("t") || p->getParameterID().startsWith("t01_")
+			if(p && !isRelay(p->getParameterID()) && (!p->getParameterID().startsWith("t") || p->getParameterID().startsWith("t01_")
 				|| p->getParameterID() == "tempo"))
 			{
 				roundTrip(*p);
@@ -2877,6 +2909,165 @@ namespace
 	}
 }
 
+namespace
+{
+	// ---- the relays for Push, in process (edDrumsVst3HostTest hosts them) ----
+
+	void requireRelaysOn(Processor& _p, const int _track, const std::string& _what)
+	{
+		for(const auto& spec : parameters::relaySpecs)
+		{
+			const auto relay = juce::String("push_") + (spec.target ? spec.target : "track");
+			const double expected = spec.target
+				? plain(find(_p, juce::String::formatted("t%02d_", _track + 1) + spec.target)) : _track + 1;
+			require(std::abs(plain(find(_p, relay)) - expected) <= 1e-5 * std::max(1.0, std::abs(expected)), _what + ": " + relay.toStdString() + " is not Track "
+				+ std::to_string(_track + 1) + "'s");
+		}
+	}
+
+	void relays()
+	{
+		Processor p;
+		allOutputs(p);
+		p.prepareToPlay(SampleRate, Block);
+		Edits edits;
+		p.addListener(&edits);
+		block(p);
+		p.syncRelays(false);
+		requireRelaysOn(p, 0, "loaded");
+		require(edits.edits == 0, "the relays told to the host as the instrument loads");
+
+		// Another Track shown: the relays take its values, the host told of each that changed
+		p.setShownTrack(4);
+		p.syncRelays(false);
+		requireRelaysOn(p, 4, "Track 5 shown");
+		const int shownEdits = edits.edits;
+		require(shownEdits > 0, "Track 5 shown, the host is told nothing");
+
+		// A relay turned by the host: Track 5's parameter at the next block, Track 1's not, nothing more told
+		const double before = plain(find(p, "t01_flt_freq"));
+		set(find(p, "push_flt_freq"), 33);
+		edits.edits = 0;
+		block(p);
+		p.syncRelays(false);
+		require(plain(find(p, "t05_flt_freq")) == 33 && plain(find(p, "t01_flt_freq")) == before
+			&& plain(find(p, "push_flt_freq")) == 33, "a relay does not reach the Track shown's parameter");
+		require(edits.edits == 0, "a relay's target told to the host");
+
+		// The Track relay: the Track shown, the relays on it
+		set(find(p, "push_track"), 2);
+		block(p);
+		p.syncRelays(false);
+		require(p.shownTrack() == 1, "the Track relay does not show Track 2");
+		requireRelaysOn(p, 1, "the Track relay on Track 2");
+		p.removeListener(&edits);
+
+		// Neither the state nor a Kit holds a relay
+		juce::MemoryBlock saved;
+		p.getStateInformation(saved);
+		const auto xml = Processor::readState(saved.getData(), static_cast<int>(saved.getSize()));
+		require(xml && !xml->hasAttribute("push_level") && xml->hasAttribute("t05_flt_freq"), "a relay in the state");
+		std::printf("PASS: the relays follow the Track shown (%d edits told when Track 5 is shown), a relay turned sets the"
+			" Track shown's parameter silently, the Track relay shows a Track, the state holds none\n", shownEdits);
+	}
+
+	// ---- the state compressed ----
+
+	juce::MemoryBlock measuredState(Processor& _p, const char* _what)
+	{
+		juce::MemoryBlock saved;
+		_p.getStateInformation(saved);
+		const auto xml = Processor::readState(saved.getData(), static_cast<int>(saved.getSize()));
+		require(xml != nullptr && xml->getIntAttribute("version") == 6, std::string(_what) + ": the state's XML");
+		juce::MemoryBlock old;
+		juce::AudioProcessor::copyXmlToBinary(*xml, old);
+		std::printf("  %s: %zu bytes as version 6 wrote it, %zu compressed (%.1f %%)\n", _what, old.getSize(),
+			saved.getSize(), 100.0 * static_cast<double>(saved.getSize()) / static_cast<double>(old.getSize()));
+		return saved;
+	}
+
+	void compressedState()
+	{
+		{
+			Processor fresh;
+			measuredState(fresh, "the default set");
+		}
+
+		// A full set: 128 patterns, 16 Tracks of 64 steps, a trig on each, of its own velocity, two Locks on every fourth
+		Processor full;
+		allOutputs(full);
+		std::array<uint16_t, Tracks> cutoff{}, machine1{};
+		for(int t = 0; t < Tracks; ++t)
+		{
+			cutoff[static_cast<size_t>(t)] = indexOf(full, juce::String::formatted("t%02d_flt_freq", t + 1));
+			machine1[static_cast<size_t>(t)] = indexOf(full, juce::String::formatted("t%02d_m1", t + 1));
+		}
+		full.editSequencer([&](Sequencer& _s)
+		{
+			for(int i = 0; i < SeqPatterns; ++i)
+			{
+				auto& q = _s.pattern(i);
+				for(int t = 0; t < Tracks; ++t)
+				{
+					q.trackLength[static_cast<size_t>(t)] = SeqSteps;
+					for(int n = 0; n < SeqSteps; ++n)
+					{
+						q.setTrig(t, n, true, 1 + (7 * i + 5 * t + 3 * n) % 127);
+						if(n % 4)
+							continue;
+						q.setLock(t, n, cutoff[static_cast<size_t>(t)], static_cast<float>((i + n) % 128));
+						q.setLock(t, n, machine1[static_cast<size_t>(t)], static_cast<float>((t + n) % 128));
+					}
+				}
+			}
+		});
+		const auto saved = measuredState(full, "a full set (128 patterns of 16 Tracks x 64 trigs, 4096 Locks each)");
+		const auto xml = Processor::readState(saved.getData(), static_cast<int>(saved.getSize()));
+		juce::MemoryBlock old;
+		juce::AudioProcessor::copyXmlToBinary(*xml, old);
+
+		// The compressed state and the same uncompressed, as version 6 wrote it, each give the set back and play it
+		Processor restored, fromOld;
+		allOutputs(restored);
+		allOutputs(fromOld);
+		restored.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+		fromOld.setStateInformation(old.getData(), static_cast<int>(old.getSize()));
+		// The patterns, the sequencer and the samples to the character; the parameters to a float's rounding (an LFO's
+		// rate comes back within its normalised float, as it always has)
+		const auto requireSet = [&xml](Processor& _p, const std::string& _what)
+		{
+			juce::MemoryBlock back;
+			_p.getStateInformation(back);
+			const auto b = Processor::readState(back.getData(), static_cast<int>(back.getSize()));
+			require(b && b->getNumAttributes() == xml->getNumAttributes() && b->getNumChildElements() == xml->getNumChildElements(),
+				_what + ": not the set's elements");
+			for(int i = 0; i < xml->getNumAttributes(); ++i)
+			{
+				const auto name = xml->getAttributeName(i);
+				const double v = xml->getDoubleAttribute(name), w = b->getDoubleAttribute(name, -1e9);
+				require(std::abs(v - w) <= 1e-5 * std::max(1.0, std::abs(v)), _what + ": " + name.toStdString());
+			}
+			for(int i = 0; i < xml->getNumChildElements(); ++i)
+				require(b->getChildElement(i)->toString() == xml->getChildElement(i)->toString(),
+					_what + ": its element " + std::to_string(i));
+		};
+		requireSet(restored, "the compressed state restored");
+		requireSet(fromOld, "the version 6 state");
+		constexpr int Length = 846 * Block;
+		const auto take = playSequenced(full, Length);
+		require(peakOf(take, 0) > 0.05f, "the full set is silent");
+		requireSame(take, playSequenced(restored, Length), "the compressed state restored: ");
+		requireSame(take, playSequenced(fromOld, Length), "the version 6 state: ");
+
+		// A container of a format to come, or cut short, loads nothing
+		juce::MemoryBlock later(saved);
+		static_cast<int*>(later.getData())[1] = 2;
+		require(Processor::readState(later.getData(), static_cast<int>(later.getSize())) == nullptr, "a format to come");
+		require(Processor::readState(saved.getData(), static_cast<int>(saved.getSize()) / 2) == nullptr, "a state cut short");
+		std::printf("PASS: the state compressed restores the same set and samples; a version 6 state loads the same\n");
+	}
+}
+
 int main(const int _argc, char** _argv)
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
@@ -2912,6 +3103,8 @@ int main(const int _argc, char** _argv)
 		sequencerFunctions(library);
 		familyChange();
 		state();
+		relays();
+		compressedState();
 		samplerChoice();
 		machinePages();
 		const auto wav = writeWav(juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsSample.wav"));

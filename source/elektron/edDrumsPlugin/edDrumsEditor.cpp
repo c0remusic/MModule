@@ -34,6 +34,8 @@ namespace elektron::drums
 	Editor::Editor(Processor& _processor) : AudioProcessorEditor(_processor), m_processor(_processor)
 	{
 		m_importsSeen = m_processor.imports();
+		// The Track the relays for Push aim at, which a closed editor leaves as it was
+		m_track = m_processor.shownTrack();
 		for(int t = 0; t < 16; ++t)
 			m_keyChoices[static_cast<size_t>(t)] = {trackParameter("machine", t), trackParameter("lfo1_track", t),
 				trackParameter("lfo2_track", t), trackParameter("flt_type", t), trackParameter("band_type", t),
@@ -102,6 +104,7 @@ namespace elektron::drums
 		if(_track == m_track)
 			return;
 		m_track = juce::jlimit(0, 15, _track);
+		m_processor.setShownTrack(m_track);
 		m_lockSteps.clear();
 		m_selector.open = false;
 		m_armedLine = -1;
@@ -304,6 +307,8 @@ namespace elektron::drums
 
 	void Editor::tick()
 	{
+		// A Track shown by Push's Track relay
+		showTrack(m_processor.shownTrack());
 		const uint32_t live = m_processor.liveTracks();
 		for(size_t t = 0; t < m_activity.size(); ++t)
 			m_activity[t] = (live >> t) & 1 ? 1.0f : m_activity[t] * 0.8f;

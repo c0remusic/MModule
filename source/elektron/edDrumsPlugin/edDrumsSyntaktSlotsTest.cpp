@@ -405,7 +405,7 @@ namespace
 	{
 		juce::MemoryBlock data;
 		_processor.getStateInformation(data);
-		auto xml = juce::AudioProcessor::getXmlFromBinary(data.getData(), static_cast<int>(data.getSize()));
+		auto xml = Processor::readState(data.getData(), static_cast<int>(data.getSize()));
 		require(xml != nullptr, "the state's XML");
 		return xml;
 	}

@@ -84,7 +84,8 @@ if(BUILD_TESTING AND TARGET edDrumsPlugin_VST3)
 	target_link_libraries(edDrumsVst3HostTest PRIVATE edDrums juce::juce_audio_processors juce::juce_gui_basics)
 	target_compile_definitions(edDrumsVst3HostTest PRIVATE ED_DRUMS_NAME="${ED_DRUMS_NAME}"
 		JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 JUCE_STANDALONE_APPLICATION=1 JUCE_PLUGINHOST_VST3=1 JUCE_PLUGINHOST_VST=0
-		JUCE_PLUGINHOST_AU=0 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+		JUCE_PLUGINHOST_AU=0 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1
+		ED_DRUMS_PARAMETER_IDS="${CMAKE_CURRENT_SOURCE_DIR}/edDrumsParameterIds.txt")
 	add_dependencies(edDrumsVst3HostTest edDrumsPlugin_VST3)
 	add_test(NAME edDrumsVst3HostTest COMMAND edDrumsVst3HostTest "$<TARGET_FILE:edDrumsPlugin_VST3>")
 	set_tests_properties(edDrumsVst3HostTest PROPERTIES LABELS "FirmwareTest;AudioIo" SKIP_RETURN_CODE 77 TIMEOUT 300)

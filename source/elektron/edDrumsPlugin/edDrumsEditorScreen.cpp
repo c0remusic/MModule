@@ -2312,6 +2312,7 @@ namespace elektron::drums
 					});
 				m_undoTrack = -1;
 				m_track = i;
+				m_processor.setShownTrack(i);
 				m_seqStep = n;
 				m_stepPage = n / 16;
 				m_seqTab = 0;

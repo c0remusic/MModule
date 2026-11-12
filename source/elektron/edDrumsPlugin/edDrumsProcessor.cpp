@@ -23,6 +23,9 @@ namespace elektron::drums
 		constexpr int DefaultLevel = 100, DefaultNote = 60, Centre = 64;
 
 		constexpr int StateVersion = 6;
+		// The compressed state's header (getStateInformation): "LKSZ", the container's format, the XML's size in bytes
+		constexpr int StateMagic = 0x5a534b4c;
+		constexpr int StateFormat = 1;
 
 		// The Machinedrum's input, control, MIDI and RAM machines are not the instrument's, and since state version 5 nor
 		// are its ROM machines: the factory bank's samples play on the Sampler (ticket 27)
@@ -559,6 +562,53 @@ namespace elektron::drums
 		}
 		shared(m_dp4SampleHold, dp4SampleHoldSpec, 0, Section::Effects);
 
+		// The relays for Push, last: each made as Track 1's parameter it aims at, the same range and choices, its text the
+		// Track shown's; the Track relay 1-16
+		m_firstRelay = getParameters().size();
+		for(size_t r = 0; r < relaySpecs.size(); ++r)
+		{
+			const auto& spec = relaySpecs[r];
+			const juce::ParameterID id{juce::String("push_") + (spec.target ? spec.target : "track"), 1};
+			juce::RangedAudioParameter* relay = nullptr;
+			if(!spec.target)
+				relay = new juce::AudioParameterInt(id, spec.name, 1, Tracks, 1);
+			else
+			{
+				for(int t = 0; t < Tracks; ++t)
+					m_relayTargets[static_cast<size_t>(t)][r] = parameter(juce::String::formatted("t%02d_", t + 1) + spec.target);
+				const auto* target = m_relayTargets[0][r];
+				jassert(target);
+				const float plainDefault = target->convertFrom0to1(target->getDefaultValue());
+				if(dynamic_cast<const juce::AudioParameterBool*>(target))
+					relay = new juce::AudioParameterBool(id, spec.name, plainDefault >= 0.5f);
+				else if(const auto* c = dynamic_cast<const juce::AudioParameterChoice*>(target))
+					relay = new juce::AudioParameterChoice(id, spec.name, c->choices, juce::roundToInt(plainDefault));
+				else if(const auto* f = dynamic_cast<const juce::AudioParameterFloat*>(target))
+					relay = new juce::AudioParameterFloat(id, spec.name, f->range, plainDefault);
+				else
+				{
+					const auto& range = target->getNormalisableRange();
+					const auto text = juce::AudioParameterIntAttributes().withStringFromValueFunction([this, r](const int _v, int)
+					{
+						const auto* shown = m_relayTargets[static_cast<size_t>(shownTrack())][r];
+						return shown->getText(shown->convertTo0to1(static_cast<float>(_v)), 0);
+					}).withValueFromStringFunction([this, r](const juce::String& _text)
+					{
+						const auto* shown = m_relayTargets[static_cast<size_t>(shownTrack())][r];
+						return juce::roundToInt(shown->convertFrom0to1(shown->getValueForText(_text)));
+					});
+					relay = new juce::AudioParameterInt(id, spec.name, juce::roundToInt(range.start),
+						juce::roundToInt(range.end), juce::roundToInt(plainDefault), text);
+				}
+			}
+			add(relay, Section::Relays);
+			// Track 1's value to the bit: a skewed range's default does not come back exactly through its plain value
+			if(spec.target)
+				static_cast<juce::AudioProcessorParameter&>(*relay).setValue(m_relayTargets[0][r]->getValue());
+			m_relays[r].parameter = relay;
+			m_relays[r].taken.store(relay->getValue());
+		}
+
 		m_edited = std::make_unique<Sequencer>();
 		for(auto& s : m_sequencers)
 			s = std::make_unique<Sequencer>();
@@ -572,12 +622,12 @@ namespace elektron::drums
 		m_liveLocks.reserve(LiveNotes);
 		addListener(&m_liveListener);
 
-		// A Kit holds every parameter but the Global ones
+		// A Kit holds every parameter but the Global ones and the relays
 		const auto& global = ids(Section::Global);
 		for(auto* parameter : getParameters())
 		{
 			const auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter);
-			m_kitParameter.push_back(p && !global.contains(p->getParameterID()) ? 1 : 0);
+			m_kitParameter.push_back(p && !global.contains(p->getParameterID()) && !isRelay(p->getParameterIndex()) ? 1 : 0);
 		}
 		m_kits = std::make_unique<KitBank>(dataFolder().getChildFile("Kits"));
 		m_trackSounds = std::make_unique<TrackSounds>(dataFolder().getChildFile("TrackSounds"));
@@ -1344,7 +1394,8 @@ namespace elektron::drums
 	void Processor::timerCallback()
 	{
 		if(m_reread.exchange(false))
-			updateHostDisplay(ChangeDetails().withProgramChanged(true));
+			tellHostAll();
+		syncRelays(false);
 		pruneSamples();
 		takeLive();
 		takeKitSwitch();
@@ -1355,6 +1406,67 @@ namespace elektron::drums
 			followKits();
 			m_sampleLibrary->follow();
 			m_trackSounds->follow();
+		}
+	}
+
+	// Values changed in bulk (a state, a Kit, a machine's defaults): the relays follow them silently, then the host reads
+	// every value again
+	void Processor::tellHostAll()
+	{
+		syncRelays(true);
+		updateHostDisplay(ChangeDetails().withProgramChanged(true));
+	}
+
+	// The host's turns of the relays, to the Track shown's parameters, silently: as MoDule's, the host learns nothing of
+	// what follows a parameter, and nothing locks. The Track relay first, which says where the others go. Audio thread
+	void Processor::takeRelays()
+	{
+		auto& track = m_relays[parameters::TrackRelay];
+		if(const float v = track.parameter->getValue(); v != track.taken.load(std::memory_order_relaxed))
+		{
+			track.taken.store(v, std::memory_order_relaxed);
+			setShownTrack(juce::roundToInt(track.parameter->convertFrom0to1(v)) - 1);
+		}
+		const auto& targets = m_relayTargets[static_cast<size_t>(shownTrack())];
+		for(size_t r = 0; r < m_relays.size(); ++r)
+		{
+			auto& relay = m_relays[r];
+			const float v = relay.parameter->getValue();
+			if(r == parameters::TrackRelay || v == relay.taken.load(std::memory_order_relaxed))
+				continue;
+			relay.taken.store(v, std::memory_order_relaxed);
+			static_cast<juce::AudioProcessorParameter&>(*targets[r]).setValue(v);
+		}
+	}
+
+	// The Track shown's values to the relays: the timer's, and before the host reads every value again (_reread). As
+	// MoDule's (Controller::syncRelays, measured in Live 12.2.1 by its ticket 34): when the Track shown changes, the
+	// relays reach the host as edits without a gesture, so that Push shows the new Track's values; otherwise silently,
+	// since as an edit Live would take a relay for the parameter last touched in the editor, and as a re-read write
+	// every parameter of its panel while it records; nothing as the instrument loads. A relay the host turned that the
+	// audio thread has not taken yet waits, so that a turn is never undone
+	void Processor::syncRelays(const bool _reread)
+	{
+		const int shown = shownTrack();
+		const bool edits = shown != m_relaysTrack && !_reread;
+		m_relaysTrack = shown;
+		for(size_t r = 0; r < m_relays.size(); ++r)
+		{
+			auto& relay = m_relays[r];
+			auto& p = static_cast<juce::AudioProcessorParameter&>(*relay.parameter);
+			const float taken = relay.taken.load(std::memory_order_relaxed);
+			if(p.getValue() != taken)
+				continue;
+			const float v = r == parameters::TrackRelay ? relay.parameter->convertTo0to1(static_cast<float>(shown + 1))
+				: m_relayTargets[static_cast<size_t>(shown)][r]->getValue();
+			// A skewed range (an LFO's rate) may not give back the bit it was set to
+			if(std::abs(v - taken) <= 1e-6f)
+				continue;
+			if(edits)
+				p.setValueNotifyingHost(v);
+			else
+				p.setValue(v);
+			relay.taken.store(p.getValue(), std::memory_order_relaxed);
 		}
 	}
 
@@ -1566,6 +1678,7 @@ namespace elektron::drums
 	void Processor::processBlock(juce::AudioBuffer<float>& _buffer, juce::MidiBuffer& _midi)
 	{
 		juce::ScopedNoDenormals noDenormals;
+		takeRelays();
 		if(!m_engine)
 		{
 			_buffer.clear();
@@ -1784,12 +1897,12 @@ namespace elektron::drums
 		m_blocksDone.fetch_add(1, std::memory_order_acq_rel);
 	}
 
-	// The parameters by ID, all or a Kit's, and the Tracks' samples, in elements of their own
+	// The parameters by ID, all but the relays or a Kit's, and the Tracks' samples, in elements of their own
 	void Processor::writeSound(juce::XmlElement& _xml, const bool _all) const
 	{
 		for(auto* parameter : getParameters())
 			if(auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter))
-				if(_all || isKitParameter(p->getParameterIndex()))
+				if((_all && !isRelay(p->getParameterIndex())) || isKitParameter(p->getParameterIndex()))
 					_xml.setAttribute(p->getParameterID(), p->convertFrom0to1(p->getValue()));
 		for(int t = 0; t < Tracks; ++t)
 			if(auto* element = writeSample(_xml, t))
@@ -2011,7 +2124,39 @@ namespace elektron::drums
 			if(auto pattern = patternXml(m_edited->pattern(i), i))
 				xml.addChildElement(pattern.release());
 		xml.addChildElement(sequencerXml(*m_edited, chainSlot() >= 0 || m_chainAsked.load()).release());
-		copyXmlToBinary(xml, _data);
+
+		// The XML compressed with JUCE's zlib, behind its header: the 128 patterns' steps repeat, a few hundred kB of
+		// text in a full set (readState reads it, and the uncompressed XML of before)
+		const auto text = xml.toString(juce::XmlElement::TextFormat().singleLine().withoutHeader());
+		const auto bytes = text.getNumBytesAsUTF8();
+		juce::MemoryOutputStream out(_data, false);
+		out.writeInt(StateMagic);
+		out.writeInt(StateFormat);
+		out.writeInt(static_cast<int>(bytes));
+		{
+			juce::GZIPCompressorOutputStream zip(out);
+			zip.write(text.toRawUTF8(), bytes);
+		}
+	}
+
+	std::unique_ptr<juce::XmlElement> Processor::readState(const void* _data, const int _size)
+	{
+		if(_size < 12)
+			return getXmlFromBinary(_data, _size);
+		juce::MemoryInputStream in(_data, static_cast<size_t>(_size), false);
+		if(in.readInt() != StateMagic)
+			return getXmlFromBinary(_data, _size);
+		// A format to come is not this build's to read
+		if(in.readInt() != StateFormat)
+			return nullptr;
+		const int bytes = in.readInt();
+		if(bytes <= 0)
+			return nullptr;
+		juce::GZIPDecompressorInputStream unzip(&in, false);
+		juce::MemoryBlock text;
+		if(unzip.readIntoMemoryBlock(text, bytes) != static_cast<size_t>(bytes))
+			return nullptr;
+		return juce::parseXML(text.toString());
 	}
 
 	// What a state or a Kit gives: the parameters, all or a Kit's, and the Tracks' samples. Processing suspended
@@ -2032,11 +2177,12 @@ namespace elektron::drums
 				send.due = true;
 			p.accent.due = true;
 		}
-		// A parameter the state lacks takes its default; one it holds that is not ours is not read
+		// A parameter the state lacks takes its default; one it holds that is not ours is not read; the relays follow
+		// the Track shown (syncRelays)
 		for(auto* parameter : getParameters())
 		{
 			auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter);
-			if(!p || !(_all || isKitParameter(p->getParameterIndex())))
+			if(!p || isRelay(p->getParameterIndex()) || !(_all || isKitParameter(p->getParameterIndex())))
 				continue;
 			if(_xml.hasAttribute(p->getParameterID()))
 				setQuietly(*p, static_cast<float>(_xml.getDoubleAttribute(p->getParameterID())));
@@ -2092,7 +2238,7 @@ namespace elektron::drums
 	void Processor::setStateInformation(const void* _data, const int _size)
 	{
 		jassert(juce::MessageManager::existsAndIsCurrentThread());
-		const auto xml = getXmlFromBinary(_data, _size);
+		const auto xml = readState(_data, _size);
 		if(!xml || !xml->hasTagName("ElektronDrums"))
 			return;
 		takeRoms(*xml, true);
@@ -2111,7 +2257,7 @@ namespace elektron::drums
 
 		m_stateSerial.fetch_add(1, std::memory_order_acq_rel);
 		suspendProcessing(false);
-		updateHostDisplay(ChangeDetails().withProgramChanged(true));
+		tellHostAll();
 
 		// The Kit played, compared from now on with what its Slot holds now
 		const int slot = xml->getIntAttribute("kit", -1);
@@ -2463,7 +2609,7 @@ namespace elektron::drums
 		publishSample(_track);
 		m_stateSerial.fetch_add(1, std::memory_order_acq_rel);
 		suspendProcessing(false);
-		updateHostDisplay(ChangeDetails().withProgramChanged(true));
+		tellHostAll();
 		return true;
 	}
 
@@ -2553,7 +2699,7 @@ namespace elektron::drums
 		readSound(*kit, false);
 		m_stateSerial.fetch_add(1, std::memory_order_acq_rel);
 		suspendProcessing(false);
-		updateHostDisplay(ChangeDetails().withProgramChanged(true));
+		tellHostAll();
 		m_kitSlot = _slot;
 		rememberKit(kit.get());
 		return true;

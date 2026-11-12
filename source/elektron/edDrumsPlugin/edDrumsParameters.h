@@ -74,6 +74,41 @@ namespace elektron::drums::parameters
 	double delayNoteQuarters(int _choice);
 	double lfoNoteQuarters(int _choice);
 
+	// The relays for Push (ticket 18, as MoDule's: docs/md-drums-push2.md): 64 host parameters in Push's banks of 8, each
+	// the parameter of the Track the editor shows whose ID ends in its target ("t05_" + target for Track 5), the first
+	// the Track shown itself (target nullptr). Their IDs are "push_" + target ("push_track" for the first), appended to
+	// edDrumsParameterIds.txt; their names fit Push's ten characters. What a player reaches for: Machine 1-8; the
+	// Track's level, pan, note and sends; the filter and its envelope; the two drives; the EQ; the amp and the accent;
+	// each LFO. Left to the Track's own parameters: Machine 9-24, the velocity, the filter envelope's delay, sustain,
+	// release and retrig, key tracking, an LFO's Track, the Out, the machine and the Chokes
+	struct Relay
+	{
+		const char* target;
+		const char* name;
+	};
+	constexpr int RelayCount = 64;
+	inline constexpr std::array<Relay, RelayCount> relaySpecs{{
+		{"m1", "Machine 1"}, {"m2", "Machine 2"}, {"m3", "Machine 3"}, {"m4", "Machine 4"},
+		{"m5", "Machine 5"}, {"m6", "Machine 6"}, {"m7", "Machine 7"}, {"m8", "Machine 8"},
+		{nullptr, "Track"}, {"level", "Level"}, {"pan", "Pan"}, {"note", "Note"},
+		{"send_delay", "Snd Delay"}, {"send_reverb", "Snd Reverb"}, {"send_chorus", "Snd Chorus"},
+		{"send_phaser", "Snd Phaser"},
+		{"flt_type", "Flt Type"}, {"flt_mode", "Flt Mode"}, {"flt_freq", "Cutoff"}, {"flt_res", "Resonance"},
+		{"flt_width", "Flt Width"}, {"fenv_attack", "Env Attack"}, {"fenv_decay", "Env Decay"},
+		{"fenv_depth", "Env Depth"},
+		{"drv1_type", "Drv1 Type"}, {"drv1_amount", "Drv1 Amt"}, {"drv1_mix", "Drv1 Mix"}, {"drv1_post", "Drv1 Place"},
+		{"drv2_type", "Drv2 Type"}, {"drv2_amount", "Drv2 Amt"}, {"drv2_mix", "Drv2 Mix"}, {"drv2_post", "Drv2 Place"},
+		{"band_type", "EQ Type"}, {"band_after", "EQ Place"}, {"band_1", "EQ 1"}, {"band_2", "EQ 2"},
+		{"band_3", "EQ 3"}, {"band_4", "EQ 4"}, {"band_5", "EQ 5"}, {"band_6", "EQ 6"},
+		{"amp_attack", "Attack"}, {"amp_hold", "Hold"}, {"amp_decay", "Decay"}, {"amp_sustain", "Sustain"},
+		{"amp_release", "Release"}, {"amp_mode", "Amp Mode"}, {"amp_on", "Amp Env"}, {"accent", "Accent"},
+		{"lfo1_target", "L1 Target"}, {"lfo1_depth", "L1 Depth"}, {"lfo1_shape", "L1 Wave"}, {"lfo1_mode", "L1 Trig"},
+		{"lfo1_sync", "L1 Sync"}, {"lfo1_speed", "L1 Note"}, {"lfo1_hz", "L1 Rate"}, {"lfo1_feel", "L1 Feel"},
+		{"lfo2_target", "L2 Target"}, {"lfo2_depth", "L2 Depth"}, {"lfo2_shape", "L2 Wave"}, {"lfo2_mode", "L2 Trig"},
+		{"lfo2_sync", "L2 Sync"}, {"lfo2_speed", "L2 Note"}, {"lfo2_hz", "L2 Rate"}, {"lfo2_feel", "L2 Feel"},
+	}};
+	constexpr int TrackRelay = 8;	// relaySpecs' index of the Track shown
+
 	// The defaults of the shared effects' bytes: an effect that a Track's send reaches sounds, with no feedback
 	extern const std::array<int, 8> echoDefaults, gateBoxDefaults;
 	extern const std::array<int, StDelayBytes> syntaktDelayDefaults;
