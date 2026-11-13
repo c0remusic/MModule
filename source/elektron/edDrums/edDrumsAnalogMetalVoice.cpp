@@ -55,6 +55,7 @@ namespace elektron::drums::analog::circuit
 		constexpr int LastA = 34;
 		constexpr int Tilt = 35;		// the 606 tone filter's low-pass state
 		constexpr int LastNoise = 45;	// the fourth lane's last noise sample
+		constexpr int Swell = 46;		// the ring cymbal's body: its VCA's slow attack
 		constexpr int BandHp = 64;		// the 808 cymbal's high-passes after its VCAs, four lanes as Bands
 		constexpr int Bands = 48;		// the 808 cymbal's band filters as four lanes: two states of four floats
 		constexpr int Increment = 36;	// the eight oscillators' phase steps a host sample, as the last tick ran them
@@ -247,8 +248,13 @@ namespace elektron::drums::analog::circuit
 			Bell808,	// the 808's bell: two squares, their VCA's strike and tail, a 2.64 kHz band-pass after
 			BellRing,	// two squares ring-modulated (their XOR), a narrower and higher band
 			Hat606,		// the 606's hats: the bank summed, a tilt tone filter, a plain VCA, a high-pass; noise
-			RingHat,	// ring-modulated pairs: three narrow high clusters, a broad band, a high-pass, a plain VCA
-			RingCrash,	// ring-modulated pairs in two bands, a noise transient
+			RingHat,	// the ring hats: the ring-modulated pairs' three narrow high clusters, one of them picked by a
+						// band-pass, a high-pass, a plain VCA. The closed hat's band the top cluster (13 kHz, the
+						// 1458 x 13500 pair), short and bright; the open hat rings the two lower pairs alone through a
+						// narrow band on the lowest (8.5 kHz, the 272 x 8529 pair): a darker ring under a longer tail
+			RingCrash,	// a cymbal, a path of its own: the three low tones also ring each other (a dense spread of
+						// partials from 300 Hz up) through a broad 3.4 kHz band whose VCA swells in over about 12 ms,
+						// the high pairs high-passed above 8 kHz as its shimmer, and the noise transient
 			HatLab		// six free squares, no band-pass (research 28, 7.4: HH LAB has none), a high-pass, a plain
 						// VCA
 		};
@@ -268,8 +274,8 @@ namespace elektron::drums::analog::circuit
 				{Kind::Cymbal808, 4.5f, 0.4f, 0, true},		// SIX CYMBAL
 				{Kind::Bell808, 2.2f, 0.35f, 0, false},		// DUO BELL
 				{Kind::RingHat, 1.0f, 0.4f, 0, true},		// RING HAT
-				{Kind::RingHat, 3.0f, 0.4f, 0, true},		// RING OPEN
-				{Kind::RingCrash, 0.4f, 0.4f, 300, false},	// RING CRASH
+				{Kind::RingHat, 1.1f, 0.4f, 0, true},		// RING OPEN
+				{Kind::RingCrash, 0.32f, 0.4f, 300, false},	// RING CRASH
 				{Kind::BellRing, 1.0f, 0.6f, 0, false},		// RING BELL
 				{Kind::Ride808, 4.0f, 0.0f, 70, false},		// BAND RIDE
 				{Kind::Hat606, 2.8f, 0.6f, 200, false},		// BEAT HAT
@@ -406,13 +412,16 @@ namespace elektron::drums::analog::circuit
 			hp.set(6500.0 * std::exp2(0.5 * tone), 0.9 * reso, _rate);
 			break;
 		case Kind::RingHat:
-			f[0].set(8500 * std::exp2(tone), 0.7 * reso, _rate);
-			hp.set((_m == Machine::ClosedMetallic ? 7500.0 : 5500.0) * hpShift, 0.7, _rate);
+		{
+			const bool closed = _m == Machine::ClosedMetallic;
+			f[0].set((closed ? 13000 : 8500) * std::exp2(tone), (closed ? 1.5 : 4.0) * reso, _rate);
+			hp.set((closed ? 9000.0 : 6500.0) * hpShift, 0.7, _rate);
 			break;
+		}
 		case Kind::RingCrash:
-			f[0].set(4500, 1.0 * reso, _rate);
-			f[1].set(9500, 0.7, _rate);
-			hp.set(2000, 0.7, _rate);
+			f[0].set(3400, 0.8 * reso, _rate);
+			f[1].set(8000, 0.7, _rate);
+			hp.set(1500, 0.7, _rate);
 			break;
 		}
 		// the 606's tilt: its tone lifts the top against the low-passed rest (+ shrill, - dull)
@@ -434,6 +443,8 @@ namespace elektron::drums::analog::circuit
 		// the ride combines its oscillators by logic, as its type says ("inter-oscillator logical interaction"): each
 		// pair XORed (ring-modulated), whichever set its type picks
 		const bool ring = kind == Kind::RingHat || kind == Kind::RingCrash || kind == Kind::Ride808;
+		// the cymbal also rings the three low tones with each other (the lane-0 oscillators by pairs)
+		const bool cross = kind == Kind::RingCrash;
 		// lane 0 the even oscillators, lane 1 the odd: a ring pair is a lane-0 and a lane-1 oscillator
 		alignas(16) float dt[8] = {}, inv[8] = {}, weight[8] = {};
 		for(int i = 0; i < count; ++i)
@@ -460,7 +471,9 @@ namespace elektron::drums::analog::circuit
 		}
 		const __m128 w0 = _mm_load_ps(weight), w1 = _mm_load_ps(weight + 4);
 		// a lane without an oscillator holds still and counts for nothing
-		const __m128 pairs = _mm_set_ps(0.0f, 1.0f / 3, 1.0f / 3, 1.0f / 3);
+		// (the open ring hat rings its two lower pairs alone: the top pair is the closed one's)
+		const __m128 pairs = _m == Machine::OpenMetallic ? _mm_set_ps(0.0f, 0.0f, 0.5f, 0.5f)
+			: _mm_set_ps(0.0f, 1.0f / 3, 1.0f / 3, 1.0f / 3);
 		float gain[4];
 		for(int s = 0; s < 4; ++s)
 			gain[s] = stageGain(_io, s);
@@ -492,6 +505,7 @@ namespace elektron::drums::analog::circuit
 			std::fill_n(_c.f.begin() + BandHp, 8, 0.0f);
 			_c.f[LastNoise] = 0.0f;
 			_c.f[Tilt] = 0.0f;
+			_c.f[Swell] = 0.0f;
 			for(int i = 0; i < 8; ++i)
 			{
 				const double ph = _c.f[static_cast<size_t>(Phase + i)] + static_cast<double>(dt[i]) * _n;
@@ -510,6 +524,7 @@ namespace elektron::drums::analog::circuit
 		// the burst at its snap byte (the ride's at a fixed half)
 		const float burstLevel = v.burst * (v.noise > 0 ? snap : 0.5f);
 		const float cut = static_cast<float>(std::exp(-1.0 / (0.005 * _rate)));
+		const auto swellA = static_cast<float>(1.0 - std::exp(-1.0 / (0.012 * _rate)));
 		const float step = 32.0f / static_cast<float>(_n);
 		const __m128 bandScale = _mm_set_ps(0.0f, topGain, 1.0f, 1.0f);
 		alignas(16) float m[4];
@@ -522,13 +537,15 @@ namespace elektron::drums::analog::circuit
 		for(int i = 0; i < _n; ++i)
 		{
 			const __m128 even = sq.run(&_c.f[Phase], 0), odd = sq.run(&_c.f[Phase + 4], 1);
-			float src;
+			float src, dense = 0;
 			if(ring)
 				src = sum(_mm_mul_ps(_mm_mul_ps(even, odd), pairs));
 			else if(kind == Kind::BellRing)
 				src = _mm_cvtss_f32(_mm_mul_ss(even, odd));
 			else
 				src = sum(_mm_add_ps(_mm_mul_ps(even, w0), _mm_mul_ps(odd, w1)));
+			if(cross)
+				dense = sum(_mm_mul_ps(_mm_mul_ps(even, _mm_shuffle_ps(even, even, _MM_SHUFFLE(3, 0, 2, 1))), pairs));
 			float noise = 0, level = 0;
 			if(noisy)
 			{
@@ -591,17 +608,16 @@ namespace elektron::drums::analog::circuit
 				break;
 			}
 			case Kind::RingHat:
-			{
-				const float body = 0.5f * (x + f[0].run(&_c.f[Filter], x, false));
-				y = hp.run(&_c.f[OutHp], body, true) * ec * ed;
+				y = hp.run(&_c.f[OutHp], f[0].run(&_c.f[Filter], x, false), true) * ec * ed;
 				break;
-			}
 			case Kind::HatLab:
 				y = hp.run(&_c.f[OutHp], x, true) * ec;
 				break;
 			case Kind::RingCrash:
 			{
-				const float body = f[0].run(&_c.f[Filter], x, false) * eb;
+				float& swell = _c.f[Swell];
+				swell += swellA * (eb - swell);
+				const float body = f[0].run(&_c.f[Filter], dense + noise * noiseLevel, false) * swell;
 				const float shimmer = f[1].run(&_c.f[Filter + 2], x, true) * ec;
 				y = hp.run(&_c.f[OutHp], body + shimmer, true) * ed;
 				break;

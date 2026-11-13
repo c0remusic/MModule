@@ -60,6 +60,8 @@ namespace elektron::drums::analog::circuit
 			constexpr int Tone = 19;		// the output's lowpass
 			constexpr int Fb = 20;			// FM: the modulator's last output (feedback)
 			constexpr int LastHz = 21;		// the body's last pitch the control gave
+			constexpr int Leak = 22;		// NOISE KICK: the trig pulse's leak to the output, its high-pass (output, input)
+			constexpr int LeakIn = 23;
 			constexpr int Res = 24;			// 2 x 6: the resonators' two last outputs
 			constexpr int Resonators = 6;
 
@@ -121,6 +123,12 @@ namespace elektron::drums::analog::circuit
 		}
 
 		float flush(const float _v) { return std::fabs(_v) < 1e-9f ? 0.0f : _v; }
+
+		// NOISE KICK: the trig pulse's level at the output, past the tone filter, and what of the noise burst rings the
+		// bridge (a unit sample rings it at unit amplitude: a burst of hundreds of samples needs a small share)
+		constexpr float PulseLeak = 0.5f;
+		constexpr float NoiseIntoBridge = 0.01f;
+
 		float wrap(const float _turns) { return _turns >= 1.0f ? _turns - std::floor(_turns) : _turns; }
 
 		// sin(2 pi _x) for _x in turns (0-1): a parabola, refined once (within 0.1 %)
@@ -412,7 +420,9 @@ namespace elektron::drums::analog::circuit
 
 		// NOISE KICK: the trig pulse's two edges (a full step up, back down a diode's drop 1 ms later) ring the
 		// resonator; its pitch rises 1.2 octaves x SWEEP for about 6 ms, then sighs down half a semitone at the rate
-		// SWEEP TIME gives; its noise styles add a noise transient, gated by nothing but their own burst
+		// SWEEP TIME gives. The attack is the 808's: the pulse also leaks to the output past the tone filter, a click of
+		// its two edges. Its noise styles' burst rings the bridge too, as any input of the 808's bridged-T does, at the
+		// control's level: no path of its own to the output
 		void classic(const VoiceIo& _io, Circuit& _c, const Tick& _t, float* _out, const int _n, const double _rate)
 		{
 			auto& f = _c.f;
@@ -432,8 +442,18 @@ namespace elektron::drums::analog::circuit
 			uint32_t& since = _c.u[slot::Since];
 			const auto edge = static_cast<uint32_t>(0.001 * _rate);
 			float tone = f[slot::Tone];
+			// the noise styles' burst, at the control's level, into the bridge
+			float burst[64] = {};
+			noiseBurst(_io, _c, _t, burst, nullptr, _n, _rate, 1.0f);
+			// the pulse's leak: through the output's coupling, a high-pass at 1.5 kHz
+			const auto leakA = static_cast<float>(std::exp(-2 * Pi * 1500 / _rate));
+			float leak[64];
 			for(int i = 0; i < _n; ++i)
 			{
+				const float pulse = _c.u[slot::Struck] != 0 && since <= edge ? 1.0f : 0.0f;
+				f[slot::Leak] = leakA * (f[slot::Leak] + pulse - f[slot::LeakIn]);
+				f[slot::LeakIn] = pulse;
+				leak[i] = f[slot::Leak];
 				f[slot::Rise] *= riseKeep;
 				f[slot::Sigh] *= sighKeep;
 				octaves[i] = f[slot::Rise] + f[slot::Sigh];
@@ -447,8 +467,9 @@ namespace elektron::drums::analog::circuit
 					if(since <= edge)
 						++since;
 				}
-				excite[i] = e;
+				excite[i] = e + NoiseIntoBridge * burst[i];
 			}
+			f[slot::Leak] = flush(f[slot::Leak]);
 			f[slot::Rise] = flush(f[slot::Rise]);
 			f[slot::Sigh] = flush(f[slot::Sigh]);
 			float body[64] = {};
@@ -459,11 +480,10 @@ namespace elektron::drums::analog::circuit
 			for(int i = 0; i < _n; ++i)
 			{
 				tone += lp * (body[i] - tone);
-				_out[i] += tone + 0.15f * (body[i] - tone) * (_t.sw(7) ? 1.0f : 0.3f);
+				_out[i] += tone + 0.15f * (body[i] - tone) * (_t.sw(7) ? 1.0f : 0.3f) + PulseLeak * leak[i];
 			}
 			f[slot::Tone] = flush(tone);
 			storeResonators(_c);
-			noiseBurst(_io, _c, _t, _out, nullptr, _n, _rate, 1.0f);
 		}
 
 		// SOFT KICK: the resonator rung by a smooth half-sine of 3 ms, an oscillator's soft click with no edge; a slow

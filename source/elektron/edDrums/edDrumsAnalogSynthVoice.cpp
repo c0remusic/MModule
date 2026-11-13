@@ -79,6 +79,14 @@ namespace elektron::drums::analog::circuit
 		}
 		// Our waveforms by code: 0 saw, 1 square, 2 triangle, 3 a quarter pulse, 4 off, 5 saw and square, 6 sine. The
 		// control already sets their levels apart (the louder waves 1 or 2.5 dB down)
+		// TWIN OSC's first oscillator, the dual VCO's sine or sinesaw (the manual's two waves for it), by its code (0 and 3,
+		// the two the control gives it), its phase pushed by _pm turns (the second oscillator's linear FM)
+		float dualWave(const int _code, const float _p, const float _pm)
+		{
+			const float s = std::sin(6.2831853f * (_p + _pm));
+			// the sinesaw: the sine with a saw's ramp under it, a falling edge only once a cycle
+			return _code == 3 ? 0.6f * s + 0.4f * (2 * _p - 1) : s;
+		}
 		float wave(const int _code, const float _p, const float _dt)
 		{
 			switch(_code)
@@ -127,6 +135,8 @@ namespace elektron::drums::analog::circuit
 		// outA's scale at the output: the dual's click (its peak 0.02 or less as the control leaves it), the chip's
 		// digital waves (about 0.1, the level byte not applied)
 		constexpr float ClickScale = 3.0f;
+		// RAW OSC's drive into its knee
+		constexpr float RawDrive = 4.0f;
 		constexpr float DigitalScale = 4.5f;
 	}
 
@@ -171,6 +181,7 @@ namespace elektron::drums::analog::circuit
 		const float noiseAmp = noisy ? static_cast<float>(static_cast<int32_t>(be32(_io.heads.data()))) * 4.656613e-10f : 0;
 		const float cutoff = 40.0f * std::exp2(_io.noise[2] * (9.0f / 127));
 		const float g = std::min(1.0f, 2 * std::sin(3.14159265f * std::min(cutoff, rate * 0.24f) / rate));
+		const float dualG = std::min(1.0f, 2 * std::sin(3.14159265f * std::min(8 * dtA * rate, rate * 0.24f) / rate));
 
 		// outA: the dual's click and the chip's digital waves, 32 samples across the tick
 		const bool stream = _m != Machine::SynthRaw;
@@ -186,10 +197,28 @@ namespace elektron::drums::analog::circuit
 			const float lA = f[LevelA] + (levelA - f[LevelA]) * t, lB = f[LevelB] + (levelB - f[LevelB]) * t;
 			eA *= mulA;
 			eB *= dual ? mulB : mulA;
-			float y = wave(codeA, pA, dtA) * lA * eA;
-			if(hasB)
-				y += wave(codeB, pB, dtB) * lB * (dual ? eB : eA);
-			y *= oscScale;
+			const float b = hasB ? wave(codeB, pB, dtB) : 0.0f;
+			float y;
+			if(dual)
+			{
+				// TWIN OSC: a sine VCO whose phase the second VCO pushes (linear FM, its depth the second's level), the
+				// two summed clean
+				y = dualWave(codeA, pA, 0.15f * lB * eB * b) * lA * eA + b * lB * eB;
+				y *= oscScale;
+				// through its VCF, a low-pass at eight times the first VCO's pitch (the noise filter's state: the dual
+				// has no noise)
+				f[NoiseLow] += dualG * f[NoiseBand];
+				f[NoiseBand] += dualG * (y - f[NoiseLow] - 0.7f * f[NoiseBand]);
+				y = f[NoiseLow];
+			}
+			else
+			{
+				y = wave(codeA, pA, dtA) * lA * eA + b * lB * eA;
+				y *= oscScale;
+				// RAW OSC: the raw path, the sum overdriven into a hard knee, its level kept
+				if(_m == Machine::SynthRaw)
+					y = RawDrive * y / (1 + std::fabs(RawDrive * y)) * (1 + RawDrive * 0.4f) / RawDrive;
+			}
 			pA += dtA;
 			pA -= pA >= 1 ? 1.0f : 0.0f;
 			pB += dtB;

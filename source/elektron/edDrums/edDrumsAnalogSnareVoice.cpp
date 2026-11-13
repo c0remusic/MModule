@@ -13,10 +13,12 @@
 //   sweeps down, the small electronic snare's voice.
 // - body snare: the body sample (outA) with two membrane modes; its wires are a band of noise the body's own movement
 //   gates (an envelope follower of the body), not a separate envelope.
-// - click rim: three high, very damped resonators at fixed ratios (two from the control's pitches, a third above),
-//   struck by the control's pulse and swept down at the strike, then a symmetric hard clip.
-// - ring rim: two independent resonators struck by the pulse, crossfaded by BALANCE, through an asymmetric diode stage,
-//   a very short VCA and a low-pass.
+// - click rim (the 909's): three high, very damped resonators at fixed ratios (two from the control's pitches, a third
+//   above), struck by the control's pulse and swept down at the strike, driven into a symmetric hard clip that squares
+//   them, then a high-pass at 1.2 kHz: a thin, bright click.
+// - ring rim (the 808's): two independent bridged-T resonators struck by the pulse, crossfaded by BALANCE, through a
+//   diode that passes one half-wave (the octave and a knock where the click rim has odd harmonics), a very short VCA
+//   and a low-pass at 2.5 kHz: a darker, hollow knock.
 //
 // The laws, from the control's words to the circuit (chosen here; the measures behind them are in the notes):
 // - Pitch: a pitch CV is linear in frequency (the control has taken the exponential), f = cv * HzPerCv of the
@@ -295,6 +297,7 @@ namespace elektron::drums::analog::circuit
 			for(int k = 0; k < 3; ++k)
 				ring[k].set(hz[k] * (1 + 0.25f * f[Strike]), std::max(1.0f, Pi * hz[k] * tau), inv);
 			filter[0].set(centre * 2, 0.8f, inv);
+			filter[1].set(1200, 0.7f, inv);		// the output's high-pass
 			break;
 		}
 		default:	// RimClassic
@@ -321,7 +324,7 @@ namespace elektron::drums::analog::circuit
 		const float dcA = 1 - 2 * Pi * 20 * inv;
 		const auto step = static_cast<float>(48000.0 / _rate);
 		const uint8_t* clickWords = _io.outA.data();
-		const float lpA = std::exp(-2 * Pi * std::min(6000.0f * colour, 18000.0f) * inv);
+		const float lpA = std::exp(-2 * Pi * std::min(2500.0f * colour, 18000.0f) * inv);
 		const float followA = std::exp(-inv / 0.003f);
 		uint32_t seed = _c.u[Seed];
 		for(int i = 0; i < _n; ++i)
@@ -426,8 +429,10 @@ namespace elektron::drums::analog::circuit
 				float l, bd, h;
 				filter[0].run(svf, white, l, bd, h);
 				const float noise = word(_io, 6) * bd * e[3];
-				const float y = 3.5f * r + noise;
-				x = 0.7f * std::max(-1.0f, std::min(1.0f, y));
+				const float y = 10.0f * r + noise;
+				float lo, bd2, hi;
+				filter[1].run(svf + 2, 0.6f * std::max(-1.0f, std::min(1.0f, y)), lo, bd2, hi);
+				x = hi;
 				break;
 			}
 			default:	// RimClassic
@@ -440,7 +445,7 @@ namespace elektron::drums::analog::circuit
 				float l, bd, h;
 				filter[0].run(svf, white, l, bd, h);
 				const float y = 2 * r + word(_io, 5) * bd * e[2];
-				const float diode = y > 0 ? y : 0.25f * y;
+				const float diode = y > 0 ? y : 0.0f;
 				const float vca = softClip(1.5f * diode) * (0.3f + 0.7f * e[2]);
 				f[Lp] = lpA * f[Lp] + (1 - lpA) * vca;
 				x = f[Lp];

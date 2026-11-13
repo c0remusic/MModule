@@ -106,3 +106,48 @@ seuil de 14,2 à l'outil de mesure, 14,5 dans edDrumsAnalogTest) : leurs structu
 réglage n'a été rapproché du seuil : le DECAY par défaut de WARP SNARE est à l'oreille de l'utilisateur, comme le
 décalage d'enveloppe du VCA à balancement du métal et la montée d'environ 140 ms du ride. RING HAT a pris un DECAY
 de 10, une longueur de charleston fermée.
+
+## État (2026-11-13)
+
+**Timbre sans longueur (écoute de l'utilisateur, 2026-11-13).** RING HAT, RING OPEN et RING CRASH sonnaient comme un
+seul son à trois longueurs, que la mesure complète plaçait à 15,4-16,5 dB : elle ajoute l'enveloppe au spectre, donc
+une décroissance seule y compte comme timbre. edDrumsAnalogTest mesure désormais aussi le spectre seul : une tête (les
+60 premières ms, ses 10 dernières fondues) et une queue (trames de Hann de 2048 échantillons, chacune rapportée à sa
+bande la plus forte, moyennées sur les trames à moins de 30 dB de la trame la plus forte du son), en tiers d'octave
+pondérés A, ce qui tombe à plus de 30 dB sous la bande la plus forte compté comme silence. Une décroissance seule ne
+la bouge pas : RING HAT à DECAY 10 et 60, 0,14 dB (11,5 dB à la mesure complète). Sur les fichiers de 346c29eb, elle
+trouve les trois proches (0,5, 3,6 et 3,6 dB pour une médiane de 8,9 au métal). Elle ne trouve pas CLICK RIM et RING
+RIM sous la ligne (7,2 dB, médiane 11,1), ni TWIN OSC et RAW OSC (7,7 dB, médiane 7,7) : leurs différences sont de
+hauteur et de détail harmonique, que des bandes d'un tiers d'octave comptent comme timbre.
+
+Les lignes du spectre seul sont fixes, la moitié de la médiane de chaque famille sur 346c29eb : kicks 5,43, caisses
+claires et rims 5,55, synthés 3,84, métal 4,47.
+
+Circuits repris (contrôle et cartes des commandes inchangés) :
+- RING HAT ne garde que la grappe haute des paires (passe-bande à 13 kHz, passe-haut à 9 kHz) ; RING OPEN sonne les
+  deux paires basses seules par un passe-bande étroit à 8,5 kHz ; RING CRASH fait sonner les trois tons graves entre eux
+  (un nuage dense dès 300 Hz) par une bande large à 3,4 kHz dont le VCA monte en 12 ms, la paire haute au-dessus de
+  8 kHz en scintillement. Spectre seul : 5,9, 7,8 et 9,0 dB ; complet : 19,4, 18,4 et 19,7 dB.
+- CLICK RIM (909) : écrêtage dur poussé et passe-haut à 1,2 kHz ; RING RIM (808) : diode demi-onde et passe-bas à
+  2,5 kHz. Spectre seul 7,5 dB, complet 24,4 dB (16,8 avant).
+- TWIN OSC : un VCO sinus (ou sinus-scie) que le second module en FM linéaire, puis un passe-bas à huit fois sa
+  hauteur ; RAW OSC : la somme brute surmenée dans un coude. Spectre seul 9,5 dB, complet 14,3 dB (18,0 avant : le
+  coude rapproche les enveloppes).
+- NOISE KICK : l'impulsion de déclenchement fuit vers la sortie au-delà du filtre de tonalité (un clic de ses deux
+  flancs) ; le bruit vient du contrôle (NOISE STYLE 66 par défaut : style 4 à 3/5, réglages 124/124/127/0, sans
+  filtre, rafale de 245 ms, niveau qui tombe de 60 dB en 33 ms), gardé à son niveau mais envoyé dans le pont en T au
+  lieu de la sortie : il était à -16 dB du corps dans les 5 premières ms, il est à -42 dB.
+
+**Décision de l'utilisateur (2026-11-13).** Un charleston fermé et un ouvert sur le même circuit partagent leur métal,
+comme sur un 808 : ils peuvent ne différer que par la longueur. distinct() exempte donc de la ligne du spectre seul la
+seule paire de ce cas, 17-18 (SIX CLOSED et SIX OPEN, 0,2 dB), dans une liste nommée avec cette raison. Les trois
+autres paires sous la ligne, que ce tour ne touche pas, kicks 0-4 (HARD THUMP et SOFT KICK, 3,8 dB), 17-26 et 18-26
+(les hats 808 contre BEAT HAT, 2,8 et 2,9 dB), ne sont pas ce cas : elles sont imprimées « en attente de l'oreille de
+l'utilisateur » dans une seconde liste, sans faire échouer le test.
+
+Reste, à l'oreille :
+- la bande et les poids des paires de RING OPEN ont été choisis en essayant quelques dispositions contre la mesure
+  (21-22 à 5,9 dB pour une ligne de 4,47) : c'est l'oreille de l'utilisateur qui les tranche ;
+- CLICK RIM et RING RIM (7,2 puis 7,5 dB) et TWIN OSC et RAW OSC (7,7 puis 9,5 dB) bougent peu à la mesure du spectre
+  seul : leur nouveau circuit attend l'écoute ;
+- les fichiers analog-1, -12 à -15 et -21 à -23 sont rendus à nouveau (les anciens dans `before-2026-11-13`).
