@@ -185,6 +185,10 @@ namespace md::voice::rom
 		auto& iy = _c.shared.scratch.y;
 		const auto yRead = [&](const uint32_t _addr) -> uint32_t
 		{
+			// The decoding table first, where nearly every pointer points: external() answers the same for it (no
+			// address mask moves it) after going through its other areas' tests
+			if(_addr - 0x146000 < 0x1000)
+				return t.decode[_addr - 0x146000] & 0xffffff;
 			if(_addr < 0x100)
 				return iy[_addr];
 			if(_addr - 0x163 < t.interpolator.size())
@@ -459,6 +463,16 @@ namespace md::voice::rom
 			return true;
 		};
 
+		// A sample word, which the fills read: the bank's first, where external() answers the same (it lies above the
+		// decoding table and the directory, under 2M words, which no address mask moves)
+		const auto* bank = _c.shared.bank;
+		const auto sampleWord = [&](const uint32_t _addr) -> uint32_t
+		{
+			if(bank && _addr - RomBank::DataAddr < bank->dataWords && _addr < 0x200000)
+				return bank->data[_addr - RomBank::DataAddr] & 0xffffff;
+			return external(_c, _addr);
+		};
+
 		// $3BC and $3CF: n5 pairs of pointers from the sample word at r4, forward or backward, the first sample alone
 		// when y0's parity says the position falls in a word's second
 		const auto fillForward = [&](uint32_t& _r0, uint32_t _r4, const uint32_t _n5)
@@ -475,13 +489,20 @@ namespace md::voice::rom
 				xAt(_r0++) = lim(b);
 			}
 			y0 = external(_c, _r4++);
+			// Each INSERT writes the same field over the last, under $146000's word: the pointers are the word's two
+			// codes over $146000, and A and B what the last INSERT leaves
+			uint32_t last = 0;
 			for(uint32_t k = 0; k < _n5; ++k)
 			{
-				a = insert(a, x0, y0);
-				b = insert(b, x1, y0);
-				xAt(_r0++) = hi(a);
-				xAt(_r0++) = lim(b);
-				y0 = external(_c, _r4++);
+				xAt(_r0++) = 0x146000 | (y0 >> 12 & 0xfff);
+				xAt(_r0++) = 0x146000 | (y0 & 0xfff);
+				last = y0;
+				y0 = sampleWord(_r4++);
+			}
+			if(_n5)
+			{
+				a = insert(a, x0, last);
+				b = insert(b, x1, last);
 			}
 		};
 		const auto fillReverse = [&](uint32_t& _r0, uint32_t _r4, const uint32_t _n5)
@@ -498,13 +519,18 @@ namespace md::voice::rom
 				xAt(_r0++) = lim(b);
 			}
 			y0 = external(_c, _r4--);
+			uint32_t last = 0;
 			for(uint32_t k = 0; k < _n5; ++k)
 			{
-				a = insert(a, x1, y0);
-				b = insert(b, x0, y0);
-				xAt(_r0++) = lim(a);
-				y0 = external(_c, _r4--);
-				xAt(_r0++) = hi(b);
+				xAt(_r0++) = 0x146000 | (y0 & 0xfff);
+				xAt(_r0++) = 0x146000 | (y0 >> 12 & 0xfff);
+				last = y0;
+				y0 = sampleWord(_r4--);
+			}
+			if(_n5)
+			{
+				a = insert(a, x1, last);
+				b = insert(b, x0, last);
 			}
 		};
 
@@ -654,7 +680,6 @@ namespace md::voice::rom
 		{
 			// A phase's row is $1D3 plus $70 times a signed fraction, $163-$242, and six rows of $E0 follow: always
 			// in the table
-			const auto coef = [&](const uint32_t _addr) { return t.interpolator[_addr - 0x163]; };
 			a = iy[0xff];
 			const uint32_t r2 = 0xa0;
 			const uint32_t r1 = 0xfd;
@@ -663,67 +688,46 @@ namespace md::voice::rom
 			y0 = lo(a);
 			xAt(r2) = x0;
 			b = mul(x1, y0);
+			// The loop writes Y:$00-$7F alone: the step at X:$FD:Y:$FD and X0 back from X:$A0 ($1D3) stay what they are
+			const int64_t step = acc(xAt(r1), iy[r1]);
+			// The window's words sign-extended once, each read by up to 14 taps, and the taps' products summed before
+			// MPY's doubling: the same sums, the accumulator never wrapping in 7 products of 24 bits. The first 6 words
+			// again after the last, where a window's taps wrap. The taps start at hi() of the 128 positions, which run
+			// straight from A to A + 127 steps: only the words from the lowest to the highest's last tap, where no
+			// position wraps, and all of them where one could
+			int32_t window[0x200 + 6];
+			const int64_t lowest = std::min(a, a + 127 * step), highest = std::max(a, a + 127 * step);
+			uint32_t from = 0, to = 0x200 + 6;
+			if(lowest >= 0 && highest < (static_cast<int64_t>(0x200 - 6) << 24))
+			{
+				from = hi(lowest);
+				to = hi(highest) + 7;
+			}
+			for(uint32_t i = from; i < to; ++i)
+				window[i] = sx(ix[i & 0x1ff]);
+			const auto taps = [&](const uint32_t _r, const uint32_t _row)
+			{
+				const int32_t* w = &window[_r & 0x1ff];
+				const uint32_t* c = &t.interpolator[_row - 0x163];
+				int64_t sum = 0;
+				for(int j = 0; j < 7; ++j)
+					sum += static_cast<int64_t>(w[j]) * sx64(c[j * 0xe0]);
+				return sum * 2;
+			};
 			uint32_t r5 = 0;
 			for(int k = 0; k < 64; ++k)
 			{
-				y1 = xAt(r1);
-				y0 = iy[r1];
 				b += acc(x0);
-				uint32_t r3 = hi(a);
-				const int64_t step = acc(y1, y0);
+				const uint32_t r3 = hi(a);
 				a += step;
-				uint32_t r4 = hi(b);
-				b = acc(x0);
-				x0 = lo(a);
-				uint32_t r0 = hi(a);
-				b += mul(x1, x0);
+				const uint32_t r4 = hi(b);
+				const uint32_t r0 = hi(a);
+				const uint32_t r7 = hi(acc(x0) + mul(x1, lo(a)));
 				a += step;
-				x0 = xAt(r3++);
-				y1 = coef(r4);
-				r4 += 0xe0;
-				uint32_t r7 = hi(b);
-				b = mul(x0, y1);
-				x0 = xAt(r3++);
-				y1 = coef(r4);
-				r4 += 0xe0;
-				for(int j = 0; j < 4; ++j)
-				{
-					b += mul(x0, y1);
-					x0 = xAt(r3++);
-					y1 = coef(r4);
-					r4 += 0xe0;
-				}
-				b += mul(x0, y1);
-				x0 = xAt(r3++);
-				y1 = coef(r4);
-				b += mul(x0, y1);
-				x0 = xAt(r0++);
-				y1 = coef(r7);
-				r7 += 0xe0;
-				y0 = coef(r7);
-				r7 += 0xe0;
+				iy[r5++ & 0xff] = lim(taps(r3, r4));
+				b = taps(r0, r7);
 				iy[r5++ & 0xff] = lim(b);
-				b = mul(x0, y1);
-				x0 = xAt(r0++);
-				b += mul(y0, x0);
-				x0 = xAt(r0++);
-				y1 = coef(r7);
-				r7 += 0xe0;
-				for(int j = 0; j < 3; ++j)
-				{
-					b += mul(x0, y1);
-					x0 = xAt(r0++);
-					y1 = coef(r7);
-					r7 += 0xe0;
-				}
-				b += mul(x0, y1);
-				x0 = xAt(r0++);
-				y1 = coef(r7);
-				b += mul(x0, y1);
-				x0 = lo(a);
-				iy[r5++ & 0xff] = lim(b);
-				b = mul(x1, x0);
-				x0 = xAt(r2);
+				b = mul(x1, lo(a));
 			}
 		}
 
@@ -825,48 +829,59 @@ namespace md::voice::rom
 		// $33A: by 2 again, 14 symmetric taps and the centre one, into X:$01-$20 (X:$00 takes B, unused)
 		uint32_t r1 = 0;
 		{
-			const auto& c = t.decimator;
+			// The taps and the words it reads (Y:$00-$53, which it does not write) sign-extended once, each word read by
+			// up to 14 products; P(y, c) is MPY's product of the two
+			int64_t c[7];
+			for(size_t i = 0; i < 7; ++i)
+				c[i] = sx64(t.decimator[i]);
+			int64_t ys[0x60];
+			for(size_t i = 0; i < 0x60; ++i)
+				ys[i] = sx64(iy[i]);
+			const auto P = [](const int64_t _y, const int64_t _c) { return _y * _c * 2; };
 			uint32_t r0 = 0, r4 = 0, r5 = 0x34;
-			x1 = 0x27eccb;
-			x0 = c[r0++];
-			y0 = iy[r4++];
+			const int64_t x1s = sx64(0x27eccb);
+			int64_t xc = c[r0++];
+			int64_t yv = ys[r4++];
 			for(int k = 0; k < 16; ++k)
 			{
 				for(int half = 0; half < 2; ++half)
 				{
 					int64_t& d = half ? b : a;
-					d = mul(y0, x0);
-					x0 = c[r0++];
-					y0 = iy[r4++];
+					d = P(yv, xc);
+					xc = c[r0++];
+					yv = ys[r4++];
 					for(int j = 0; j < 4; ++j)
 					{
-						d += mul(y0, x0);
-						x0 = c[r0++];
-						y0 = iy[r4++];
+						d += P(yv, xc);
+						xc = c[r0++];
+						yv = ys[r4++];
 					}
-					d += mul(y0, x0);
-					x0 = c[r0--];
-					y0 = iy[r4++];
+					d += P(yv, xc);
+					xc = c[r0--];
+					yv = ys[r4++];
 					xAt(r1++) = lim(half ? a : b);
-					d += mul(y0, x0);
-					y0 = iy[r4++];
+					d += P(yv, xc);
+					yv = ys[r4++];
 					for(int j = 0; j < 5; ++j)
 					{
-						d += mul(y0, x0);
-						x0 = c[r0--];
-						y0 = iy[r4++];
+						d += P(yv, xc);
+						xc = c[r0--];
+						yv = ys[r4++];
 					}
-					d += mul(y0, x0);
-					x0 = c[r0];
-					y0 = iy[r4];
+					d += P(yv, xc);
+					xc = c[r0];
+					yv = ys[r4];
 					r4 -= 12;
-					d += mul(y0, x0);
-					x0 = c[r0++];
-					y0 = iy[r5++];
-					d += mul(x1, y0);
-					y0 = iy[r4++];
+					d += P(yv, xc);
+					xc = c[r0++];
+					yv = ys[r5++];
+					d += P(x1s, yv);
+					yv = ys[r4++];
 				}
 			}
+			// X0 and Y0 as the loop leaves them, which the BRR below reads first
+			x0 = static_cast<uint32_t>(xc) & 0xffffff;
+			y0 = static_cast<uint32_t>(yv) & 0xffffff;
 		}
 
 		// $364: BRR, two stages behind its reads, over X:$01-$22
