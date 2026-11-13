@@ -1384,13 +1384,15 @@ namespace elektron::drums
 			}, {});
 			field(SG + 5 * SC, [this](const int _n)
 			{
-				editPattern([&](Pattern& _p) { _p.masterLength = juce::jlimit(1, SeqMaxLength, _p.masterLength + _n); });
+				editPattern([&](Pattern& _p) { _p.masterLength = juce::jlimit(1, SeqMaxLength, _p.length() + _n); });
 			}, [this]
 			{
 				openSelector(SG + 5 * SC - 1, 19, lengthChoices,
-					[this](const int _i) { return pattern().masterLength == lengthChoices[_i].getIntValue(); },
+					[this](const int _i) { return pattern().length() == lengthChoices[_i].getIntValue(); },
 					[this](const int _i) { editPattern([&](Pattern& _p) { _p.masterLength = lengthChoices[_i].getIntValue(); }); });
 			});
+			// Back to zero: the automatic length (t-ui-spec)
+			m_hits.back().doubleClick = [this] { editPattern([](Pattern& _p) { _p.masterLength = Pattern::AutoLength; }); };
 		}
 		// COPY, PASTE, CLEAR, SHIFT: the Track shown in the pattern playing
 		{
@@ -1712,7 +1714,7 @@ namespace elektron::drums
 		watch({ScreenX, 22, ScreenW, ScreenH - 10}, [this]
 		{
 			const auto& p = pattern();
-			uint64_t h = mix(static_cast<uint64_t>(p.masterLength), static_cast<uint64_t>(p.swing));
+			uint64_t h = mix(static_cast<uint64_t>(p.length()), static_cast<uint64_t>(p.swing));
 			h = mix(h, static_cast<uint64_t>(p.trackLength[static_cast<size_t>(m_track)]));
 			h = mix(h, static_cast<uint64_t>(p.trackScale[static_cast<size_t>(m_track)]));
 			for(int s = 0; s < SeqSteps; ++s)
@@ -1796,6 +1798,7 @@ namespace elektron::drums
 		case SeqButton::AddLock: return toPx(addLockBox);
 		case SeqButton::Lanes: return toPx(lanesBox);
 		case SeqButton::Live: return toPx({SG + 11 * SC, 24, SC - 1, 9.6f});
+		case SeqButton::PatLength: return toPx({SG + 5 * SC - 1, 23, SC - 1, 12});
 		default: return toPx({SG + static_cast<float>(13 + static_cast<int>(_button) - static_cast<int>(SeqButton::Vel)) * SC,
 			39, SC - 1, 7});
 		}
@@ -1862,7 +1865,7 @@ namespace elektron::drums
 		field(SG, "TRACK LEN", juce::String(length));
 		field(SG + SC, "SCALE", scaleNames[static_cast<int>(p.trackScale[static_cast<size_t>(m_track)])]);
 		field(SG + 2 * SC, "SWING", juce::String(p.swing) + " %");
-		field(SG + 5 * SC, "PAT LEN", juce::String(p.masterLength));
+		field(SG + 5 * SC, "PAT LEN", juce::String(p.length()));
 		const char* actions[]{"COPY", "PASTE", "CLEAR", "SHIFT"};
 		for(int i = 0; i < 4; ++i)
 			drawButton(_p, SG + static_cast<float>(12 + i) * SC, 24, SC - 1, 9.6f, actions[i], false,
@@ -2139,7 +2142,7 @@ namespace elektron::drums
 		// Steps of _track in the pattern's length, counted at its own scale
 		int rowSteps(const Pattern& _p, const int _track)
 		{
-			return static_cast<int>(std::ceil(_p.masterLength * 0.25 / stepQuarters(_p.trackScale[static_cast<size_t>(_track)])
+			return static_cast<int>(std::ceil(_p.length() * 0.25 / stepQuarters(_p.trackScale[static_cast<size_t>(_track)])
 				- 1e-9));
 		}
 
@@ -2175,19 +2178,20 @@ namespace elektron::drums
 		const int pages = overviewPages(p);
 		m_overviewPage = juce::jlimit(0, pages - 1, m_overviewPage);
 		const int w0 = m_overviewPage * 32;
-		// LENGTH: a drag by the step, a click opens the lengths
+		// LENGTH: a drag by the step, a click opens the lengths, a double click goes back to the automatic length
 		{
 			Hit len;
 			len.r = {SG + 13 * SC - 1, 23.4f, 2 * SC - 2, 8.4f};
 			len.stepMm = 1.2f;
 			len.steps = [this](const int _n)
 			{
-				editPattern([&](Pattern& _q) { _q.masterLength = juce::jlimit(1, SeqMaxLength, _q.masterLength + _n); });
+				editPattern([&](Pattern& _q) { _q.masterLength = juce::jlimit(1, SeqMaxLength, _q.length() + _n); });
 			};
+			len.doubleClick = [this] { editPattern([](Pattern& _q) { _q.masterLength = Pattern::AutoLength; }); };
 			len.click = [this]
 			{
 				openSelector(SG + 13 * SC - 1, 15, lengthChoices,
-					[this](const int _i) { return pattern().masterLength == lengthChoices[_i].getIntValue(); },
+					[this](const int _i) { return pattern().length() == lengthChoices[_i].getIntValue(); },
 					[this](const int _i) { editPattern([&](Pattern& _q) { _q.masterLength = lengthChoices[_i].getIntValue(); }); });
 			};
 			len.cursor = juce::MouseCursor::LeftRightResizeCursor;
@@ -2350,7 +2354,7 @@ namespace elektron::drums
 		watch({ScreenX, 22, ScreenW, ScreenH - 10}, [this]
 		{
 			const auto& q = pattern();
-			uint64_t h = mix(static_cast<uint64_t>(q.masterLength), m_processor.fillPlaying() ? 1 : 0);
+			uint64_t h = mix(static_cast<uint64_t>(q.length()), m_processor.fillPlaying() ? 1 : 0);
 			for(int t = 0; t < SeqTracks; ++t)
 			{
 				h = mix(mix(h, static_cast<uint64_t>(q.trackLength[static_cast<size_t>(t)])),
@@ -2382,7 +2386,7 @@ namespace elektron::drums
 		_p.text(16, 29.2f, "PATTERN " + patternName(m_processor.currentPattern()), 3.2f, hue::t.c[4], 600);
 		const float lx = SG + 13 * SC;
 		_p.text(lx, 28.8f, "LENGTH", 3.2f, colour::mid);
-		_p.text(lx + 16, 28.8f, juce::String(p.masterLength), 4, colour::ink, 600);
+		_p.text(lx + 16, 28.8f, juce::String(p.length()), 4, colour::ink, 600);
 		drawButton(_p, SG + 15 * SC, 24, SC - 1, 7, "FILL", m_processor.fillPlaying());
 		if(pages > 1)
 		{
@@ -2519,6 +2523,27 @@ namespace elektron::drums
 			Hit b;
 			b.r = {SG + static_cast<float>(11 + i) * SC, 24, SC - 1, 7};
 			b.click = actions[static_cast<size_t>(i)];
+			// MIDI EXPORT dragged: the pattern's MIDI file, written first into the instrument's temporary folder, dragged
+			// to the host (spec 7); the drag starts once per press
+			if(i == 4)
+			{
+				auto started = std::make_shared<bool>(false);
+				b.press = [started] { *started = false; };
+				b.drag = [this, started](float, float)
+				{
+					if(*started)
+						return;
+					*started = true;
+					const auto file = m_processor.patternMidiForDrag(m_patternSel, "Pattern " + patternName(m_patternSel));
+					if(file == juce::File())
+					{
+						toast("Could not write the pattern's MIDI file");
+						return;
+					}
+					juce::DragAndDropContainer::performExternalDragDropOfFiles({file.getFullPathName()}, false, this);
+				};
+				b.cursor = juce::MouseCursor::DraggingHandCursor;
+			}
 			addHit(std::move(b));
 		}
 

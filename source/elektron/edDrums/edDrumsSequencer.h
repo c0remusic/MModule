@@ -85,7 +85,7 @@ namespace elektron::drums
 	public:
 		Pattern();
 
-		int masterLength = 16;		// steps of 1/16, 1 to SeqMaxLength: the pattern's length
+		int masterLength = 16;		// steps of 1/16, 1 to SeqMaxLength: the pattern's length; AutoLength: length()'s
 		int swing = 50;				// percent, 50 to 80
 		int kit = -1;				// the Kits' Slot loaded where it starts (ticket 19), -1 keeps the Kit playing
 		std::array<int, SeqTracks> trackLength;		// 1 to 64
@@ -94,6 +94,11 @@ namespace elektron::drums
 		Step& step(int _track, int _index) { return m_steps[_track][_index]; }
 		const Step& step(int _track, int _index) const { return m_steps[_track][_index]; }
 		const Lock* locks(int _track, int _index) const;
+
+		// The common length's automatic mode (t-ui-spec, "retour à zéro"): the fewest bars of 16 steps of 1/16 that hold
+		// the longest Track, its length at its own scale. length() is the length played, in steps of 1/16
+		static constexpr int AutoLength = 0;
+		int length() const;
 
 		// Sets a lock, adding it to the step (a step with no trig becomes a lock without note)
 		void setLock(int _track, int _index, uint16_t _parameter, float _value);

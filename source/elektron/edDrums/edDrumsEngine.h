@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "edDrumsAnalogVoice.h"
+#include "edDrumsRytmVoice.h"
 #include "edDrumsChain.h"
 #include "edDrumsLfo.h"
 #include "edDrumsLibrary.h"
@@ -81,7 +82,8 @@ namespace elektron::drums
 		Machinedrum,
 		OpenDrum,
 		Sophie,
-		SyntaktAnalog
+		SyntaktAnalog,
+		RytmAnalog
 	};
 
 	// A Syntakt machine by its index in syntaktMachineNames, a Machinedrum one by its id
@@ -123,6 +125,13 @@ namespace elektron::drums
 	// our own (edDrumsAnalogVoice.h), a voice per Track on the Machinedrum's blocks, rings and chain at 44.1 kHz, the
 	// control ticking every 32 samples of 48 kHz. Ids are analog::Machine's; velocity is the Track's, after the voice
 	constexpr int SyntaktAnalogMachines = analog::Machines;
+
+	// The Rytm's own analog machines (ticket 28, stage 2), the ones the Syntakt has none of: the clap, the big tom, the tom,
+	// their control ported from the Rytm's CPU (edDrumsRytm.h), their circuits our own (edDrumsRytmVoice.h), played as the
+	// analog family's. Ids are rytm::Machine's. The machines the two instruments share (the same names, the same
+	// routines' structure) are the Syntakt's family's
+	constexpr int RytmAnalogMachines = rytm::Machines;
+	inline bool isAnalog(const Family _f) { return _f == Family::SyntaktAnalog || _f == Family::RytmAnalog; }
 
 	// Whether a Track can play _machine: every Syntakt machine here, a Machinedrum one whose render is ported or a MID or
 	// CTR one, which stops the voice

@@ -41,6 +41,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "../md/mdDrums/mdDrumsAllocationCounter.h"
@@ -1074,8 +1075,12 @@ namespace
 		// ... and the analog machines appended within version 5 (ticket 28): no choice before them moved
 		for(int id = 0; id < SyntaktAnalogMachines; ++id)
 			v5.push_back({Family::SyntaktAnalog, static_cast<uint8_t>(id)});
+		// ... then the Rytm's own (ticket 28, stage 2)
+		for(int id = 0; id < RytmAnalogMachines; ++id)
+			v5.push_back({Family::RytmAnalog, static_cast<uint8_t>(id)});
 		const auto& list = processor.machines();
 		require(list == v5, "the list");
+		require(list[static_cast<size_t>(processor.rytmChoice())] == Machine{Family::RytmAnalog, 0}, "the Rytm family's choice");
 		require(list[static_cast<size_t>(processor.sophieChoice())] == Machine{Family::Sophie, 0}, "SOPHIE's choice");
 		{
 			// A Track put on SOPHIE starts on its Kick; a factory sound sets Machine 1-20, which the engine plays
@@ -1798,7 +1803,7 @@ namespace
 		p.setTrig(1, 6, true, 60);
 	}
 
-	// Tracks 1-3 on analog machines (ticket 28), a parameter set and a Lock of Machine 2 on step 4: the state saved and
+	// Tracks 1-3 on analog machines (ticket 28), Track 4 on the Rytm's tom, a parameter set and a Lock of Machine 2 on step 4: the state saved and
 	// restored in another instance plays the same samples, the Lock's Hit apart from what it plays without the Lock
 	void analogState()
 	{
@@ -1810,6 +1815,7 @@ namespace
 			set(find(_p, "t01_machine"), first + static_cast<int>(analog::Machine::KickHard));
 			set(find(_p, "t02_machine"), first + static_cast<int>(analog::Machine::SnareClassic));
 			set(find(_p, "t03_machine"), first + static_cast<int>(analog::Machine::ClosedClassic));
+			set(find(_p, "t04_machine"), _p.rytmChoice() + static_cast<int>(rytm::Machine::Tom));
 			_p.prepareToPlay(SampleRate, Block);
 			block(_p);	// a block takes the machines, whose defaults Machine 1-8 take before what follows
 			set(find(_p, "t02_m2"), 30);
@@ -1817,6 +1823,7 @@ namespace
 			{
 				basicPattern(_s);
 				_s.pattern(0).setTrig(2, 2, true);
+				_s.pattern(0).setTrig(3, 6, true);
 				if(_lock)
 					_s.pattern(0).setLock(0, 4, indexOf(_p, "t01_m2"), 110);
 			});
@@ -2149,6 +2156,10 @@ namespace
 			set(level, 33);
 			level.endChangeGesture();
 			set(find(live, "t03_level"), 44);
+			// A host's controller: VST3 sets the parameter on the audio thread, here a thread of the test's, no gesture
+			const int hostStep = live.playingStep(3);
+			auto& pan = find(live, "t04_pan");
+			std::thread([&] { set(pan, 20); }).join();
 			live.takeLive();
 			const auto& p = live.sequencer().pattern(0);
 			require(p.step(2, 4).trig && p.step(2, 4).velocity == 77 && p.step(2, 4).timing == 1,
@@ -2159,7 +2170,12 @@ namespace
 			int locks = 0;
 			for(int s = 0; s < SeqSteps; ++s)
 				locks += p.step(2, s).lockCount;
-			require(locks == 0, "LIVE: the host's automation recorded a Lock");
+			require(locks == 0, "LIVE: a change on the message thread without a gesture recorded a Lock");
+			const auto* hl = hostStep >= 0 ? p.locks(3, hostStep) : nullptr;
+			require(hl && p.step(3, hostStep).lockCount == 1 && hl[0].parameter == indexOf(live, "t04_pan")
+				&& std::abs(hl[0].value - plain(pan)) < 1e-4, "LIVE: the host's Pan of Track 4 a Lock of step "
+				+ std::to_string(hostStep));
+			std::printf("  LIVE: a host's move without a gesture, on the audio thread, a Lock of step %d\n", hostStep);
 			live.setLive(false);
 			std::printf("  LIVE: a note is step 4 with micro +1 and velocity 77, a gesture a Lock of step %d\n", step);
 		}
@@ -2228,8 +2244,17 @@ namespace
 			const std::vector<std::array<int, 3>> wantOff{{240, 36, 0}, {780, 51, 0}, {2400, 36, 0}};
 			require(ons == wantOn && offs == wantOff, "the MIDI file's notes: " + std::to_string(ons.size()) + " on, "
 				+ std::to_string(offs.size()) + " off");
+			// The drag to the host: the same file, in the instrument's own temporary folder
+			const auto dragged = exported.patternMidiForDrag(3, "Pattern A04");
+			juce::MemoryBlock want, got;
+			require(dragged.existsAsFile() && dragged.getFileName() == "Pattern A04.mid"
+				&& dragged.getParentDirectory().getFileName() == Processor::MidiDragFolder
+				&& file.loadFileAsData(want) && dragged.loadFileAsData(got) && want == got,
+				"the MIDI file for a drag: " + dragged.getFullPathName().toStdString());
+			dragged.deleteFile();
 			file.deleteFile();
-			std::printf("  a pattern's MIDI file read back by JUCE: notes 36 and 51 at their ticks, a gate of 2 steps\n");
+			std::printf("  a pattern's MIDI file read back by JUCE: notes 36 and 51 at their ticks, a gate of 2 steps; the"
+				" drag's file the same\n");
 		}
 		std::printf("PASS: notes, gates, criterion 6, LIVE, the sequencer's state, MIDI export\n");
 	}

@@ -737,6 +737,37 @@ namespace
 		check(ok, "Track 1 of 16 steps loops 8 times in 128, the pattern asked for starts at step 128");
 	}
 
+	// The common length at zero: the fewest bars of 16 that hold the longest Track at its scale
+	void testAutoLength()
+	{
+		std::printf("the common length's automatic mode\n");
+		const double bpm = 120, sr = 44100;
+		Sequencer s;
+		Pattern& p = s.pattern(0);
+		p.masterLength = Pattern::AutoLength;
+		check(p.length() == 16, "16 Tracks of 16 at 1x: 16, got " + std::to_string(p.length()));
+		p.trackLength[0] = 12;		// Hits at 0, 3 quarters, then the pattern's restart
+		p.setTrig(0, 0, true);
+		p.trackLength[5] = 20;		// 20 steps of 1/16: two bars
+		const int two = p.length();
+		p.trackLength[6] = 64;
+		p.trackScale[6] = StepScale::Eighth;	// 64 steps of 1/2 quarter: 512
+		const int most = p.length();
+		p.trackLength[6] = 16;
+		p.trackScale[6] = StepScale::Two;		// 16 steps of 1/32: under a bar
+		check(two == 32 && most == 512 && p.length() == 32, "a Track of 20: 32; of 64 at 1/8x: 512, got "
+			+ std::to_string(two) + ", " + std::to_string(most));
+		// What it plays: Track 1's 12 steps loop at 0 and 3 quarters, and the pattern restarts at 8, not 9
+		const Recs r = ofTrack(render(s, bpm, sr, 512, samplesOf(16, bpm, sr)), 0);
+		const std::vector<long double> want{0, 3, 6, 8, 11, 14};
+		bool ok = r.size() == want.size();
+		for(size_t k = 0; ok && k < r.size(); ++k)
+			ok = r[k].sample == expected(want[k], bpm, sr);
+		check(ok, "Track 1 of 12 plays at 0, 3, 6 quarters, again from 8: " + std::to_string(r.size()) + " Hits");
+		p.masterLength = 16;
+		check(p.length() == 16, "a set length is the length played");
+	}
+
 	void testNearestStep()
 	{
 		std::printf("LIVE: the step nearest a note\n");
@@ -950,6 +981,7 @@ int main()
 	testSolo();
 	testChain();
 	testLongPattern();
+	testAutoLength();
 	testNearestStep();
 	testCriterionSix();
 	testMidiExport();

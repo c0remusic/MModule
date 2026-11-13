@@ -167,6 +167,7 @@ namespace elektron::drums
 		case Family::OpenDrum:		return _machine.id < OpenDrumMachines;
 		case Family::Sophie:		return _machine.id < SophieMachines;
 		case Family::SyntaktAnalog:	return _machine.id < SyntaktAnalogMachines;
+		case Family::RytmAnalog:	return _machine.id < RytmAnalogMachines;
 		case Family::Machinedrum:
 			// ROM-33 to -48's entries are the Sampler's
 			return _machine == Sampler || (md::voice::playable(_machine.id) && (_machine.id < Rom33 || _machine.id >= Rom33 + 16));
@@ -192,7 +193,7 @@ namespace elektron::drums
 			return 0;
 		if(_machine.family == Family::Sophie)
 			return sophie::MachineSlots;
-		if(_machine.family == Family::SyntaktAnalog)
+		if(isAnalog(_machine.family))
 			return 8;
 		if(_machine == Sampler)
 			return vintage::SamplerParameters;
@@ -218,10 +219,11 @@ namespace elektron::drums
 	std::array<uint8_t, MachineParameters> allDefaults(const Machine& _machine)
 	{
 		std::array<uint8_t, MachineParameters> d{};
-		if(_machine.family == Family::SyntaktAnalog)
+		if(isAnalog(_machine.family))
 		{
 			// our own, by ear (edDrumsAnalogVoice.h)
-			const auto a = analog::defaultsOf(static_cast<analog::Machine>(_machine.id));
+			const auto a = _machine.family == Family::RytmAnalog ? rytm::Voice::defaultsOf(static_cast<rytm::Machine>(_machine.id))
+				: analog::defaultsOf(static_cast<analog::Machine>(_machine.id));
 			std::copy(a.begin(), a.end(), d.begin());
 			return d;
 		}
@@ -419,6 +421,7 @@ namespace elektron::drums
 	struct Engine::AnalogVoices
 	{
 		std::array<analog::Voice, Tracks> v;
+		std::array<rytm::Voice, Tracks> r;
 	};
 
 	namespace
@@ -528,6 +531,7 @@ namespace elektron::drums
 		m_sophie = std::make_unique<SophieVoices>();
 		m_analog = std::make_unique<AnalogVoices>();
 		analog::warmUp();	// every table the analog port builds, here rather than on the audio thread at a first Hit
+		rytm::warmUp();
 
 		using namespace syntakt::fast;
 		makeSources<Source, BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage, CpVintage, SyToy, SyBits, SpTwinshot>(m_sources,
@@ -607,9 +611,12 @@ namespace elektron::drums
 			m_spMask |= bit;
 		}
 		m_anMask &= ~bit;
-		if(_machine.family == Family::SyntaktAnalog)
+		if(isAnalog(_machine.family))
 		{
-			m_analog->v[static_cast<size_t>(_track)].setMachine(static_cast<analog::Machine>(_machine.id));
+			if(_machine.family == Family::RytmAnalog)
+				m_analog->r[static_cast<size_t>(_track)].setMachine(static_cast<rytm::Machine>(_machine.id));
+			else
+				m_analog->v[static_cast<size_t>(_track)].setMachine(static_cast<analog::Machine>(_machine.id));
 			t.anTrig = false;
 			for(int i = 0; i < 8; ++i)
 				playAnalog(_track, i);
@@ -668,7 +675,7 @@ namespace elektron::drums
 			playOpenDrum(_track, _index);
 		else if(t.machine.family == Family::Sophie)
 			playSophie(_track, _index);
-		else if(t.machine.family == Family::SyntaktAnalog)
+		else if(isAnalog(t.machine.family))
 			playAnalog(_track, _index);
 		else
 			playSyntakt(_track, _index);
@@ -802,7 +809,7 @@ namespace elektron::drums
 					playOpenDrum(_track, index);
 				else if(t.machine.family == Family::Sophie)
 					playSophie(_track, index);
-				else if(t.machine.family == Family::SyntaktAnalog)
+				else if(isAnalog(t.machine.family))
 					playAnalog(_track, index);
 				else if(t.machine.family == Family::Syntakt)
 					playSyntakt(_track, index);
@@ -890,7 +897,7 @@ namespace elektron::drums
 			takeMoves(_track, true);
 		const float gain = static_cast<float>(_accent ? 128 + 2 * t.accent : _velocity) / 127.0f;
 		if(t.machine.family == Family::Machinedrum || t.machine.family == Family::OpenDrum
-			|| t.machine.family == Family::Sophie || t.machine.family == Family::SyntaktAnalog)
+			|| t.machine.family == Family::Sophie || isAnalog(t.machine.family))
 			hitMachinedrum(_track, _velocity, gain);
 		else if(t.machine.family == Family::Syntakt)
 			hitSyntakt(_track, _velocity, gain);
@@ -914,11 +921,11 @@ namespace elektron::drums
 	void Engine::hitMachinedrum(const int _track, const int _velocity, const float _gain)
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
-		if(t.machine.family == Family::OpenDrum || t.machine.family == Family::Sophie || t.machine.family == Family::SyntaktAnalog)
+		if(t.machine.family == Family::OpenDrum || t.machine.family == Family::Sophie || isAnalog(t.machine.family))
 		{
 			// The Hit's locks, and the Kit's value back on what the last Hit locked; the voice starts at the next block
 			const bool sophie = t.machine.family == Family::Sophie;
-			const bool analogFamily = t.machine.family == Family::SyntaktAnalog;
+			const bool analogFamily = isAnalog(t.machine.family);
 			const uint32_t changed = t.lockedNow | t.pendingLocks;
 			t.lockedNow = t.pendingLocks;
 			t.pendingLocks = 0;
@@ -1210,13 +1217,28 @@ namespace elektron::drums
 			return;
 		auto& t = m_tracks[static_cast<size_t>(_track)];
 		const int offset = t.taken[static_cast<size_t>(machineTarget(_index))];
-		m_analog->v[static_cast<size_t>(_track)].setControl(_index,
-			static_cast<uint8_t>(wordOf(playedValue(t, _index), offset) >> 7));
+		const auto value = static_cast<uint8_t>(wordOf(playedValue(t, _index), offset) >> 7);
+		if(t.machine.family == Family::RytmAnalog)
+			m_analog->r[static_cast<size_t>(_track)].setControl(_index, value);
+		else
+			m_analog->v[static_cast<size_t>(_track)].setControl(_index, value);
 	}
 
 	void Engine::renderAnalog(const int _track, float* _x)
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
+		if(t.machine.family == Family::RytmAnalog)
+		{
+			auto& r = m_analog->r[static_cast<size_t>(_track)];
+			if(t.anTrig)
+			{
+				r.setNote(t.note);
+				r.trig();
+				t.anTrig = false;
+			}
+			r.render(_x, BlockSize, SampleRate);
+			return;
+		}
 		auto& v = m_analog->v[static_cast<size_t>(_track)];
 		if(t.anTrig)
 		{
@@ -1286,7 +1308,7 @@ namespace elektron::drums
 			renderSophie(_track, _x);
 			return;
 		}
-		if(m_tracks[static_cast<size_t>(_track)].machine.family == Family::SyntaktAnalog)
+		if(isAnalog(m_tracks[static_cast<size_t>(_track)].machine.family))
 		{
 			renderAnalog(_track, _x);
 			return;
@@ -1346,6 +1368,8 @@ namespace elektron::drums
 					&& !sophie_active(&m_sophie->v[track])
 				: t.machine.family == Family::SyntaktAnalog ? t.md.quiet >= OpenDrumQuietBlocks && !t.anTrig
 					&& !m_analog->v[track].active()
+				: t.machine.family == Family::RytmAnalog ? t.md.quiet >= OpenDrumQuietBlocks && !t.anTrig
+					&& !m_analog->r[track].active()
 				: vintageGrain(t) ? t.md.quiet >= OpenDrumQuietBlocks && !t.vtTrig && !t.vt.playing()
 				: t.md.quiet >= MachinedrumQuietBlocks)
 				m_mdLive &= ~bit;

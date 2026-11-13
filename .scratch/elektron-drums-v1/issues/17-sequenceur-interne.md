@@ -83,3 +83,34 @@ Fait depuis le 2026-11-08 :
 Pas fait : le glisser-déposer du MIDI vers l'hôte (la spec le demande, le fichier choisi le remplace pour l'instant) ; le
 mode automatique de la longueur commune (retour à zéro) ; la couleur des pistes dans Overview ; les mouvements de knobs
 venus d'un contrôleur de l'hôte sans geste ne s'enregistrent pas en LIVE.
+
+## État (2026-11-13)
+
+Trois des quatre restes sont faits ; la couleur des pistes est laissée.
+
+- Glisser-déposer du MIDI vers l'hôte. Glisser le bouton MIDI EXPORT de Patterns écrit le MIDI du pattern choisi dans
+  un dossier temporaire à lui (`Lockstep MIDI` sous le dossier temporaire du système, `Processor::patternMidiForDrag`),
+  puis le donne à l'hôte par `DragAndDropContainer::performExternalDragDropOfFiles`, une fois par appui. C'est le même
+  export que le fichier choisi, et un clic garde ce choix de fichier. `edDrumsProcessorTest` vérifie que le fichier est
+  écrit à cet endroit, sous le nom `Pattern A04.mid`, et qu'il est identique octet pour octet à l'export. Le dépôt dans
+  Live reste à vérifier à la main.
+- Mode automatique de la longueur commune. Un double clic sur LENGTH (Overview) ou sur PAT LEN (Detail) ramène la
+  longueur à zéro, c'est-à-dire automatique (`Pattern::AutoLength`). Elle vaut alors le plus petit nombre de mesures de
+  16 pas qui contient la piste la plus longue, prise à son échelle (`Pattern::length()`, la formule `plen()` de t.js).
+  Le séquenceur, l'export MIDI et l'affichage lisent `length()`. Un glisser part de la longueur jouée, et l'état garde
+  le zéro. `edDrumsSequencerTest` donne 16 par défaut, 32 pour une piste de 20, 512 pour 64 pas en 1/8x. Il vérifie aussi
+  ce qui joue : une piste de 12 pas sonne à 0, 3 et 6 noires, puis repart à 8 et non à 9. `edDrumsEditorTest` vérifie le
+  double clic et le glisser qui suit. Le second appui d'un double clic tombe sur le sélecteur que le premier clic a
+  ouvert : il est passé au champ dessous. Le défaut reste 16 fixe, pour ne rien changer à ce qui sonnait. Le mockup part
+  en automatique, c'est à trancher.
+- Couleur des pistes dans Overview : pas faite. Overview prend la couleur portée par le numéro de chaque rangée, et
+  celle-ci vient du choix COLOR (t-ui-spec), que le ticket 22 a laissé de côté. Aucune couleur de piste n'existe ni dans
+  l'état ni dans le Processor : la dessiner demande d'abord COLOR.
+- LIVE depuis un contrôleur de l'hôte. Un paramètre de piste que l'hôte change sur le fil audio pendant que LIVE est
+  actif et que le transport joue devient un lock du pas joué. C'est le chemin de VST3 pendant la lecture. L'écouteur
+  pousse le changement dans une file sans verrou (`liveHostChange`) et le minuteur l'écrit. Un tour d'un relais Push est
+  pris de même, sur le paramètre qu'il bouge. Sur le fil des messages, un changement sans geste n'enregistre toujours
+  rien. `edDrumsProcessorTest` règle le Pan de la piste 4 depuis un autre fil, comme un hôte, et relit le lock au pas 4.
+  Limite : VST3 ne distingue pas un contrôleur de l'automation, donc l'automation de l'hôte lue pendant LIVE
+  s'enregistre aussi. Rien n'est alloué ni verrouillé sur le fil audio : la file de 256 est réservée à la construction, et
+  une file pleine perd le mouvement.

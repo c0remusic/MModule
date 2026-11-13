@@ -647,6 +647,22 @@ namespace elektron::drums
 			m_press.hit = -1;
 			return;
 		}
+		// A field whose click opens the selector (LENGTH): the double click's second press falls on the selector, and
+		// goes to the field beneath it
+		if(_e.getNumberOfClicks() >= 2 && m_selector.open)
+			for(int i = found - 1; i >= 0; --i)
+			{
+				const auto& under = m_hits[static_cast<size_t>(i)];
+				if(!under.r.contains(mm) || !under.doubleClick)
+					continue;
+				m_selector.open = false;
+				const auto doubleClick = under.doubleClick;
+				doubleClick();
+				m_press.hit = -1;
+				layout();
+				repaint();
+				return;
+			}
 		if(hit.cell >= 0)
 			cellDown(m_cells[static_cast<size_t>(hit.cell)]);
 		if(hit.press)

@@ -1,4 +1,5 @@
-// The analog family (ticket 28: the Syntakt's analog machines, their control ported, their circuits our own):
+// The analog families (ticket 28: the Syntakt's analog machines, then the Rytm's own, their control ported, their circuits
+// our own), each in turn:
 //
 //   - every machine at its defaults and at both ends of each Machine 1-8 sounds, finite, under 0 dBFS;
 //   - each machine as a Track plays it in the engine's 32-sample blocks: the voice alone's samples (analog::Voice at the
@@ -19,6 +20,7 @@
 #include "edDrumsAnalogPort.h"
 #include "edDrumsAnalogVoice.h"
 #include "edDrumsEngine.h"
+#include "edDrumsRytmVoice.h"
 #include "edDrumsTestSupport.h"
 #include "mdDrumsAllocationCounter.h"
 #include "stFastStages.h"
@@ -37,17 +39,27 @@ namespace
 			throw std::runtime_error(_message);
 	}
 
-	Machine machineOf(const int _i) { return {Family::SyntaktAnalog, static_cast<uint8_t>(_i)}; }
-	std::string nameOf(const int _i) { return "analog machine " + std::to_string(_i); }
+	// The family the checks run on: the Syntakt's analog machines, then the Rytm's own
+	Family g_family = Family::SyntaktAnalog;
+	bool rytmFamily() { return g_family == Family::RytmAnalog; }
+	int machines() { return rytmFamily() ? RytmAnalogMachines : SyntaktAnalogMachines; }
+	Machine machineOf(const int _i) { return {g_family, static_cast<uint8_t>(_i)}; }
+	std::string nameOf(const int _i) { return std::string(rytmFamily() ? "Rytm" : "analog") + " machine " + std::to_string(_i); }
+	bool usesControl(const int _m, const int _i)
+	{
+		return rytmFamily() ? rytm::Voice::usesControl(static_cast<rytm::Machine>(_m), _i)
+			: analog::usesControl(static_cast<analog::Machine>(_m), _i);
+	}
 
 	const ChainSettings Bare{};
 
 	// The voice alone at _values and note 60, _samples of a Hit, times _gain, as the engine renders it
-	std::vector<float> alone(const int _machine, const Values& _values, const size_t _samples, const float _gain)
+	template<typename V, typename M>
+	std::vector<float> aloneOf(const int _machine, const Values& _values, const size_t _samples, const float _gain)
 	{
 		const syntakt::fast::FlushDenormals ftz;
-		analog::Voice v;
-		v.setMachine(static_cast<analog::Machine>(_machine));
+		V v;
+		v.setMachine(static_cast<M>(_machine));
 		v.setControls(_values.data());
 		v.setNote(60);
 		v.trig();
@@ -58,6 +70,11 @@ namespace
 		for(auto& x : out)
 			x *= _gain;
 		return out;
+	}
+	std::vector<float> alone(const int _machine, const Values& _values, const size_t _samples, const float _gain)
+	{
+		return rytmFamily() ? aloneOf<rytm::Voice, rytm::Machine>(_machine, _values, _samples, _gain)
+			: aloneOf<analog::Voice, analog::Machine>(_machine, _values, _samples, _gain);
 	}
 
 	std::vector<float> throughEngine(const Library& _library, const int _machine, const Values& _values, const int _note,
@@ -98,13 +115,13 @@ namespace
 	void tablesBeforeAudio(const Library& _library)
 	{
 		Engine e(_library);
-		const int built = analog::port::tablesBuilt();
+		const int built = analog::port::tablesBuilt() + rytm::tablesBuilt();
 		require(built > 0, "the engine built no table");
 		std::vector<float> l(BlockSize), r(BlockSize);
 		std::array<float*, Channels> outs{};
 		outs[0] = l.data();
 		outs[1] = r.data();
-		for(int m = 0; m < SyntaktAnalogMachines; ++m)
+		for(int m = 0; m < machines(); ++m)
 		{
 			const int t = m % Tracks;
 			e.setMachine(t, machineOf(m));
@@ -114,14 +131,14 @@ namespace
 			for(int b = 0; b < 64; ++b)
 				e.render(outs.data(), BlockSize);
 		}
-		require(analog::port::tablesBuilt() == built, "a table built during a render");
+		require(analog::port::tablesBuilt() + rytm::tablesBuilt() == built, "a table built during a render");
 		std::printf("PASS: the port's %d tables built with the engine, none during the Hits of the %d machines\n", built,
-			SyntaktAnalogMachines);
+			machines());
 	}
 
 	void sounds()
 	{
-		for(int m = 0; m < SyntaktAnalogMachines; ++m)
+		for(int m = 0; m < machines(); ++m)
 		{
 			require(playable(machineOf(m)) && machineParameters(machineOf(m)) == 8, nameOf(m) + ": not 8 parameters");
 			const auto d = defaults(m);
@@ -139,14 +156,14 @@ namespace
 				}
 			std::printf("  %-18s defaults peak %.3f\n", nameOf(m).c_str(), static_cast<double>(peak));
 		}
-		std::printf("PASS: %d machines sound, finite and bounded at both ends of every control\n", SyntaktAnalogMachines);
+		std::printf("PASS: %d machines sound, finite and bounded at both ends of every control\n", machines());
 	}
 
 	void againstAlone(const Library& _library)
 	{
 		constexpr int Length = 22050;
 		int compared = 0, start = -1;
-		for(int m = 0; m < SyntaktAnalogMachines; ++m)
+		for(int m = 0; m < machines(); ++m)
 		{
 			const auto values = defaults(m);
 			for(const int note : {0, 1, 31, 32, 45, 1000})
@@ -196,12 +213,12 @@ namespace
 	{
 		int heard = 0, total = 0;
 		std::string quiet;
-		for(int m = 0; m < SyntaktAnalogMachines; ++m)
+		for(int m = 0; m < machines(); ++m)
 		{
 			const auto plain = hitWith(_library, m, 0, defaults(m)[0], false);
 			for(int i = 0; i < 8; ++i)
 			{
-				if(!analog::usesControl(static_cast<analog::Machine>(m), i))
+				if(!usesControl(m, i))
 					continue;
 				bool changed = false;
 				for(const int value : {0, 127})
@@ -223,7 +240,7 @@ namespace
 
 	void quiet(const Library& _library)
 	{
-		for(int m = 0; m < SyntaktAnalogMachines; ++m)
+		for(int m = 0; m < machines(); ++m)
 		{
 			Engine e(_library);
 			e.setMachine(0, machineOf(m));
@@ -251,7 +268,7 @@ namespace
 		{
 			for(int t = 0; t < Tracks; ++t)
 			{
-				e.setMachine(t, machineOf(t % SyntaktAnalogMachines));
+				e.setMachine(t, machineOf(t % machines()));
 				e.setParameter(t, 1, 100);
 				e.lock(t, 0, 40);
 				e.noteOn(t, 100);
@@ -273,9 +290,9 @@ namespace
 		Engine e(_library, _rate);
 		for(int t = 0; t < Tracks; ++t)
 		{
-			const int m = dearest[t % 4];
+			const int m = rytmFamily() ? t % RytmAnalogMachines : dearest[t % 4];
 			e.setMachine(t, machineOf(m));
-			for(int i = 0; m == static_cast<int>(Machine::SnareFm) && i < 8; ++i)
+			for(int i = 0; (rytmFamily() || m == static_cast<int>(Machine::SnareFm)) && i < 8; ++i)
 				e.setParameter(t, i, 127);
 		}
 		const int block = Engine::hostBlockOf(_rate);
@@ -547,6 +564,35 @@ namespace
 		std::printf("PASS: no two machines of a family alike at their defaults\n");
 	}
 
+	// The Rytm's own three at their defaults, by the same two measures: every pair over the family's fixed lines, half its
+	// medians as first committed (2026-11-13: full 33.9 dB, spectrum alone 15.5 dB)
+	void distinctRytm()
+	{
+		constexpr double FullLine = 33.9 / 2, SpectrumLine = 15.5 / 2;
+		std::vector<Timbre> t;
+		for(int m = 0; m < RytmAnalogMachines; ++m)
+			t.push_back(timbreOf(m));
+		std::vector<double> full, spectrum;
+		std::string close;
+		for(size_t i = 0; i < t.size(); ++i)
+			for(size_t j = i + 1; j < t.size(); ++j)
+			{
+				const double f = rmsOf(t[i].bands, t[j].bands) + rmsOf(t[i].envelope, t[j].envelope);
+				const double s = 0.5 * (rmsOf(t[i].head, t[j].head) + rmsOf(t[i].tail, t[j].tail));
+				std::printf("  Rytm %zu-%zu: full %.1f dB, spectrum alone %.1f dB\n", i, j, f, s);
+				full.push_back(f);
+				spectrum.push_back(s);
+				if(f < FullLine || s < SpectrumLine)
+					close += " " + std::to_string(i) + "-" + std::to_string(j);
+			}
+		std::sort(full.begin(), full.end());
+		std::sort(spectrum.begin(), spectrum.end());
+		std::printf("  Rytm medians: full %.1f dB (line %.2f), spectrum alone %.1f dB (line %.2f)\n", full[full.size() / 2],
+			FullLine, spectrum[spectrum.size() / 2], SpectrumLine);
+		require(close.empty(), "Rytm machines that sound alike:" + close);
+		std::printf("PASS: no two of the Rytm's machines alike at their defaults\n");
+	}
+
 	void cost(const Library& _library)
 	{
 		const double at44 = kitCost(_library, SampleRate), at48 = kitCost(_library, 48000),
@@ -571,6 +617,17 @@ int main()
 		quiet(library);
 		allocations(library);
 		distinct();
+		cost(library);
+
+		std::printf("the Rytm's own analog machines:\n");
+		g_family = Family::RytmAnalog;
+		tablesBeforeAudio(library);
+		sounds();
+		againstAlone(library);
+		pages(library);
+		quiet(library);
+		allocations(library);
+		distinctRytm();
 		cost(library);
 		return 0;
 	}

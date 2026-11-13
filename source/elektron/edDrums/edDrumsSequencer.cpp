@@ -43,6 +43,17 @@ namespace elektron::drums
 		trackScale.fill(StepScale::One);
 	}
 
+	int Pattern::length() const
+	{
+		if(masterLength != AutoLength)
+			return std::clamp(masterLength, 1, SeqMaxLength);
+		double longest = 0;
+		for(int t = 0; t < SeqTracks; ++t)
+			longest = std::max(longest, std::clamp(trackLength[t], 1, SeqSteps) * stepQuarters(trackScale[t]) * 4);
+		const int bars = static_cast<int>(std::ceil(longest / 16 - Epsilon));
+		return std::clamp(16 * bars, 16, SeqMaxLength);
+	}
+
 	const Lock* Pattern::locks(const int _track, const int _index) const
 	{
 		const Step& s = step(_track, _index);
@@ -167,7 +178,7 @@ namespace elektron::drums
 
 	double Sequencer::patternLength(const int _pattern) const
 	{
-		return std::clamp(m_patterns[_pattern].masterLength, 1, SeqMaxLength) * 0.25;
+		return m_patterns[_pattern].length() * 0.25;
 	}
 
 	void Sequencer::setSolo(const int _track, const bool _on)
@@ -501,7 +512,7 @@ namespace elektron::drums
 			return true;
 
 		const int steps = static_cast<int>(std::ceil(
-			std::clamp(_p.masterLength, 1, SeqMaxLength) * 0.25 / stepQuarters(_p.trackScale[_c.track]) - Epsilon));
+			_p.length() * 0.25 / stepQuarters(_p.trackScale[_c.track]) - Epsilon));
 		const int64_t loops = (steps + trackLength - 1) / trackLength;
 		const int64_t cycle = m_pass * loops + _c.n / trackLength;
 

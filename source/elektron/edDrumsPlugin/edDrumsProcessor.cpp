@@ -64,6 +64,9 @@ namespace elektron::drums
 			// The analog machines after it, appended for the same reason
 			for(int id = 0; id < SyntaktAnalogMachines; ++id)
 				list.push_back({Family::SyntaktAnalog, static_cast<uint8_t>(id)});
+			// The Rytm's own analog machines after them, appended for the same reason
+			for(int id = 0; id < RytmAnalogMachines; ++id)
+				list.push_back({Family::RytmAnalog, static_cast<uint8_t>(id)});
 			return list;
 		}
 
@@ -232,7 +235,7 @@ namespace elektron::drums
 
 		void readPattern(Pattern& _p, const juce::XmlElement& _xml)
 		{
-			_p.masterLength = std::clamp(_xml.getIntAttribute("length", 16), 1, SeqMaxLength);
+			_p.masterLength = std::clamp(_xml.getIntAttribute("length", 16), Pattern::AutoLength, SeqMaxLength);
 			_p.swing = std::clamp(_xml.getIntAttribute("swing", 50), 50, 80);
 			_p.kit = KitBank::valid(_xml.getIntAttribute("kit", -1)) ? _xml.getIntAttribute("kit", -1) : -1;
 			const auto lengths = juce::StringArray::fromTokens(_xml.getStringAttribute("trackLengths"), false);
@@ -979,6 +982,15 @@ namespace elektron::drums
 		return _file.replaceWithData(bytes.data(), bytes.size());
 	}
 
+	juce::File Processor::patternMidiForDrag(const int _pattern, const juce::String& _name) const
+	{
+		const auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile(MidiDragFolder);
+		if(!folder.createDirectory())
+			return {};
+		const auto file = folder.getChildFile(juce::File::createLegalFileName(_name + ".mid"));
+		return exportPatternMidi(_pattern, file) ? file : juce::File();
+	}
+
 	// LIVE's Locks: the gestures counted on the message thread, the host's own automation having none
 	void Processor::liveGesture(const int _index, const bool _begin)
 	{
@@ -990,28 +1002,62 @@ namespace elektron::drums
 
 	void Processor::liveParameter(const int _index, const float _value)
 	{
-		if(!m_live.load() || !juce::MessageManager::existsAndIsCurrentThread() || _index < 0
-			|| _index >= static_cast<int>(m_gestures.size()) || !m_gestures[static_cast<size_t>(_index)])
+		if(!m_live.load() || _index < 0 || _index >= static_cast<int>(m_gestures.size()))
+			return;
+		// Off the message thread it is the host's: VST3 sets parameters on the audio thread while it plays
+		if(!juce::MessageManager::existsAndIsCurrentThread())
+		{
+			liveHostChange(_index, _value);
+			return;
+		}
+		if(!m_gestures[static_cast<size_t>(_index)])
 			return;
 		const auto& target = m_lockTargets[static_cast<size_t>(_index)];
 		const int step = target.track < 0 ? -1 : playingStep(target.track);
 		if(target.kind == LockKind::None || step < 0)
 			return;
 		const auto* p = static_cast<const juce::RangedAudioParameter*>(getParameters()[_index]);
-		const LiveLock lock{currentPattern(), target.track, step, _index, p->convertFrom0to1(_value)};
+		addLiveLock({currentPattern(), target.track, step, _index, p->convertFrom0to1(_value)});
+	}
+
+	// Message thread: a Lock recorded, replacing the value of one already at its step
+	void Processor::addLiveLock(const LiveLock& _lock)
+	{
 		for(auto& l : m_liveLocks)
-			if(l.pattern == lock.pattern && l.track == lock.track && l.step == lock.step && l.parameter == lock.parameter)
+			if(l.pattern == _lock.pattern && l.track == _lock.track && l.step == _lock.step && l.parameter == _lock.parameter)
 			{
-				l.value = lock.value;
+				l.value = _lock.value;
 				return;
 			}
 		if(m_liveLocks.size() < LiveNotes)
-			m_liveLocks.push_back(lock);
+			m_liveLocks.push_back(_lock);
+	}
+
+	// Audio thread: a host's move of parameter _index (normalised _value) while LIVE is on, a Lock of the step its Track
+	// plays, for the timer. Nothing allocated or locked; a full queue drops the move
+	void Processor::liveHostChange(const int _index, const float _value)
+	{
+		const auto& target = m_lockTargets[static_cast<size_t>(_index)];
+		const int step = target.track < 0 ? -1 : playingStep(target.track);
+		if(!m_live.load(std::memory_order_relaxed) || target.kind == LockKind::None || step < 0)
+			return;
+		const auto* p = static_cast<const juce::RangedAudioParameter*>(getParameters()[_index]);
+		const juce::AbstractFifo::ScopedWrite write(m_hostLockFifo, 1);
+		if(write.blockSize1 > 0)
+			m_hostLocks[static_cast<size_t>(write.startIndex1)] = {currentPattern(), target.track, step, _index,
+				p->convertFrom0to1(_value)};
 	}
 
 	// What LIVE recorded since the timer last ran, into the patterns
 	void Processor::takeLive()
 	{
+		{
+			const juce::AbstractFifo::ScopedRead read(m_hostLockFifo, LiveNotes);
+			for(int i = 0; i < read.blockSize1; ++i)
+				addLiveLock(m_hostLocks[static_cast<size_t>(read.startIndex1 + i)]);
+			for(int i = 0; i < read.blockSize2; ++i)
+				addLiveLock(m_hostLocks[static_cast<size_t>(read.startIndex2 + i)]);
+		}
 		std::array<LiveNote, LiveNotes> notes;
 		int count = 0;
 		{
@@ -1492,6 +1538,8 @@ namespace elektron::drums
 				continue;
 			relay.taken.store(v, std::memory_order_relaxed);
 			static_cast<juce::AudioProcessorParameter&>(*targets[r]).setValue(v);
+			// A turn on Push is a controller's move: LIVE records it on the parameter it moved
+			liveHostChange(targets[r]->getParameterIndex(), v);
 		}
 	}
 

@@ -397,6 +397,8 @@ namespace
 					origin = machineParameterName(m, i) != nullptr;
 				else if(m.family == Family::SyntaktAnalog)
 					origin = used && analog::usesControl(static_cast<analog::Machine>(m.id), i);
+				else if(m.family == Family::RytmAnalog)
+					origin = used && rytm::Voice::usesControl(static_cast<rytm::Machine>(m.id), i);
 				else if(m.family == Family::Machinedrum && !(m == Sampler))
 					if(const auto* os = md::machines::parameterNames(md::MachineModel::Machinedrum, m.id))
 						origin = used && !(*os)[static_cast<size_t>(i)].empty();
@@ -776,6 +778,30 @@ namespace
 		check(!processor.live(), "LIVE: a second click turns it off");
 	}
 
+	// PAT LEN back to zero: the automatic length, whose value a drag starts from
+	void patternLengthAuto()
+	{
+		Processor processor;
+		Editor editor(processor);
+		const int pattern = processor.currentPattern();
+		processor.editSequencer([&](Sequencer& _s)
+		{
+			_s.pattern(pattern).masterLength = 48;
+			_s.pattern(pattern).trackLength[3] = 20;
+		});
+		editor.showPage(Editor::Page::Seq);
+		editor.tick();
+		const auto at = editor.seqButtonArea(Editor::SeqButton::PatLength).getCentre();
+		doubleClick(editor, at);
+		editor.tick();
+		const auto& p = processor.sequencer().pattern(pattern);
+		check(p.masterLength == Pattern::AutoLength && p.length() == 32, "PAT LEN double-clicked: automatic, 32 for a Track"
+			" of 20, got " + juce::String(p.masterLength) + " / " + juce::String(p.length()));
+		drag(editor, at, {40, 0});
+		editor.tick();
+		check(p.masterLength > 32, "PAT LEN dragged from automatic starts at 32: " + juce::String(p.masterLength));
+	}
+
 	// Ticket 24, each read back from the Processor: Browse's MACHINES (a double-click, PUT ON TRACK, a drag onto Track 7
 	// put the machine on), Master's M and S (the sequencer's mute and solo) and THR on the curve (the threshold, in one
 	// gesture), FX's cells (a drag in one gesture, SYNC showing TIME or RATE), the Menu's TEMPO
@@ -1020,6 +1046,7 @@ namespace
 		check(editor.getWidth() == Editor::Width && editor.getHeight() == Editor::Height, "the editor at 1600 x 1000");
 		lanesAsPlayed(_folder);
 		liveGestures();
+		patternLengthAuto();
 
 		using S = Processor::Section;
 		soundCoverage(editor, processor, 0, "Sound, Track 1");

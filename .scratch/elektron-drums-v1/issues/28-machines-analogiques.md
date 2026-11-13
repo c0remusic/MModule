@@ -157,3 +157,51 @@ valide tout : les retouches (kick 808, rims, synthés, les trois métaux RING, l
 paires que la mesure du spectre seul trouve encore proches (HARD THUMP et SOFT KICK ; SIX CLOSED et SIX OPEN contre
 BEAT HAT), que `edDrumsAnalogTest` range désormais parmi les paires entendues et gardées. L'étape 1 (pistes 9 à 12 du
 Syntakt) est faite, écoute comprise. Reste l'étape 2, le Rytm : le ticket reste ouvert.
+
+## État (2026-11-13, étape 2)
+
+Étape 2 (le Rytm) faite hors écoute de l'utilisateur.
+
+**Ce qui est pris, et pourquoi.** Les 34 machines visibles de l'OS 1.74 (table des machines, masques de voix) comptent
+30 machines que le Syntakt a aussi, sous le même nom, avec les mêmes constantes et la même structure de routine
+(sections 3 comparées instruction par instruction : 0,48 à 1,0 de ressemblance des séquences, UT NOISE identique), et
+trois qui n'existent que sur le Rytm : CP CLASSIC (voix 7), BT CLASSIC (voix 1) et XT CLASSIC (les toms LT, MT, HT, voix
+3 et 5). Seules ces trois entrent ici, comme famille `Family::RytmAnalog` : les trente autres sont déjà dans Lockstep par
+le port du Syntakt, et les y ajouter une seconde fois doublerait des machines que `distinct()` refuserait. Les écarts de
+ces trente entre les deux OS (un cache de hauteur, des bornes, huit voix au lieu de quatre) ne sont pas mesurés par
+vecteurs : c'est une étape à part si on la veut. Les machines cachées (BD HARD 2, tests, FUNC. GEN.) sont laissées.
+
+**Contrôle.** Les trois routines sont portées dans `source/elektron/edDrums/edDrumsRytmControl.cpp` (sans adresse, mot,
+table ni nom de machine du firmware), sur leur propre mémoire de voix (`edDrumsRytm.h`). Elles sont comparées aux
+routines originales exécutées dans l'émulateur (le banc d'oracle3 avec la section 3 du Rytm), par 2 753 vecteurs gardés
+hors du dépôt (`C:\dev\elektron\elektron-work\vectors-rytm\rytm.rav`, enregistreur
+`elektron-work\tools\analog\record_rytm.py`) : clap 697 cas, gros tom 1 029, tom 1 027. Chaque cas dont les valeurs de
+paramètre restent dans 0-127 est identique (595, 982, 846 cas, 0 écart). Les valeurs de 128 ou plus sont comptées à part
+(102, 47, 181 cas) : 46 cas du tom diffèrent, l'original y lisant avant ses tables là où le port borne l'index. Les trois
+tables de décroissance sont exactes par formule, chaque mot égal à l'original :
+plancher(2^31 · 100^(-1/n)), avec n = 1000 (33^(k/127) − 1), 312,5 (33^(k/127) − 1) et 250 (5^(k/127) − 1). La
+calibration de l'unité (deux paires échelle et décalage par tom) est une entrée de la mémoire de voix, aléatoire dans
+les vecteurs ; la voix lui donne une calibration nominale à nous. Le générateur de bruit n'est pas porté : seuls ses
+réglages sont comparés, ses échantillons sont ceux du modèle.
+
+**Timbre.** `edDrumsRytmVoice.*`, nos modèles, d'après la note 28 : BURST CLAP (deux bruits, l'un par le VCA relancé à
+chaque clap que le contrôle compte, l'autre la queue que le contrôle met à l'échelle, puis le passe-bande du clap 808),
+DEEP TOM et SWEEP TOM (le résonateur en pont en T du 808, sonné par le clic du contrôle, accordé par sa tension de
+hauteur, amorti par sa seconde tension dont on retire la part de hauteur ; le gros tom monte d'une octave pendant son
+SNAP, comme l'attaque du 808 ; une salve de bruit à côté). Famille « ANALOG PERC », huit commandes chacune, TUNE en tête
+et LEVEL en dernier comme la famille ANALOG ; le gros tom n'a pas de troisième ni de septième (la routine ne les lit
+pas).
+
+**Mesuré** (edDrumsAnalogTest, étendu à la famille) : 36 frappes passées par le moteur donnent les échantillons de la
+voix seule à partir de HitDelay (81), gigue nulle ; les 22 commandes utilisées changent chacune leur frappe, réglées et
+verrouillées pareil ; chaque voix est relâchée au silence (477, 1 514 et 1 142 ms) ; rien n'est alloué ; aucune table
+construite pendant les frappes. Le kit le plus cher (les trois machines sur seize pistes, toutes commandes à 127) coûte
+2,6 à 3,0 % d'un cœur à 44,1 kHz, 3,0 à 3,1 % à 48, 3,1 à 3,2 % à 88,2, 2,9 à 3,3 % à 96 (deux mesures). `distinct()` : médianes premières 33,9 dB (mesure
+complète) et 15,5 dB (spectre seul), lignes fixes 16,95 et 7,75 ; la paire la plus proche, DEEP TOM et SWEEP TOM (23,0 et
+11,4 dB), passe, mais attend l'oreille de l'utilisateur. edDrumsRytmControlTest est ajouté au gate (RYTM_VECTORS,
+RYTM_SECTION3, sortie 77 sans eux).
+
+**À écouter** : `C:\dev\elektron\elektron-work\control-listen\rytm\rytm-<m>-<k>.wav` (m 0 clap, 1 gros tom, 2 tom ; k 0
+réglages par défaut, puis TUNE ou TONE bas et haut, DECAY court et long ; pour le clap 3 et 4 : un seul clap, six claps
+lents). Les niveaux, les constantes de hauteur (le gros tom vers 47 Hz à ses défauts, avant l'octave de son SNAP) et les
+décroissances sont à régler à l'oreille. Le ticket reste ouvert.

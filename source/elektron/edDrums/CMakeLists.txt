@@ -6,6 +6,7 @@ add_library(edDrums STATIC edDrumsAnalog.h edDrumsAnalogPort.h edDrumsAnalogShar
 	edDrumsAnalogKick.cpp edDrumsAnalogKickVoice.cpp edDrumsAnalogSnare.cpp edDrumsAnalogSnareVoice.cpp
 	edDrumsAnalogSynth.cpp edDrumsAnalogSynthVoice.cpp edDrumsAnalogUtility.cpp edDrumsAnalogUtilityVoice.cpp
 	edDrumsAnalogRates.h edDrumsAnalogRates.cpp edDrumsAnalogMetal.cpp edDrumsAnalogMetalVoice.cpp
+	edDrumsRytm.h edDrumsRytmControl.cpp edDrumsRytmVoice.h edDrumsRytmVoice.cpp
 	edDrumsChain.h edDrumsChain.cpp
 	edDrumsEngine.h edDrumsEngine.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
 	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
@@ -82,6 +83,14 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsAnalogControlTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsAnalogControlTest COMMAND edDrumsAnalogControlTest)
 	set_tests_properties(edDrumsAnalogControlTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# The Rytm's own analog voices' control against the original routines' vectors, and its tables against the original's
+	# words (RYTM_VECTORS, RYTM_SECTION3: exit 77 without them)
+	add_executable(edDrumsRytmControlTest edDrumsRytmControlTest.cpp)
+	target_link_libraries(edDrumsRytmControlTest PRIVATE edDrums)
+	set_property(TARGET edDrumsRytmControlTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsRytmControlTest COMMAND edDrumsRytmControlTest)
+	set_tests_properties(edDrumsRytmControlTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 	# The analog family through the engine: Hits sample for sample against the voice alone, HitDelay, jitter 0, let go
 	# once quiet, no allocation, the dearest kit's cost

@@ -28,7 +28,7 @@ $targets = @(
     "mdDrumsBankTest", "mdDrumsHitPreviewTest", "mdDrumsFirstHitTest", "mdDrumsVst3HostTest", "mdDrumsUpdateTest",
     "mdX20OsTest", "mdX20BuiltinsTest", "mdX20PortTest", "synthLibResamplerTimingTest", "synthLibOutputChannelsTest",
     "mdProtocolKitTest", "stEngineOracleTest", "stVoiceCpuTest", "stMainOracleTest", "stSyntaktTest", "stSyntakt16Test",
-    "stSimdTest", "stDrumsFirmwareTest", "stDrumsVst3HostTest", "mdVoicePortTest", "mdVoiceCoefficientsTest", "mdVoiceRomFiltersTest", "stFastBdModernTest", "stFastTablesTest", "stFastSdBasicTest", "stFastResampleTest", "stFastCyAlloyTest", "stFastPcCarbonTest", "stFastSdVintageTest", "stFastCpVintageTest", "stFastSyToyTest", "stFastSyBitsTest", "stFastSpTwinshotTest", "stFastSendFxTest", "stFastLanesTest", "mdFastSendsTest", "mdFastTrackFxTest", "stFastTrackTest", "edDrumsChainTest", "edDrumsEngineTest", "edDrumsLfoTest", "edDrumsSequencerTest", "edDrumsEditorTest", "edDrumsProcessorTest", "edDrumsNoFlashTest", "edDrumsVst3HostTest", "edDrumsOpenDrumTest", "sophieTest", "edDrumsSampleLibraryTest", "edDrumsSophieTest", "edDrumsAmpTest", "edDrumsVintageTest", "edDrumsSyntaktSlotsTest", "edDrumsRateTest", "edDrumsAnalogControlTest", "edDrumsAnalogTest")
+    "stSimdTest", "stDrumsFirmwareTest", "stDrumsVst3HostTest", "mdVoicePortTest", "mdVoiceCoefficientsTest", "mdVoiceRomFiltersTest", "stFastBdModernTest", "stFastTablesTest", "stFastSdBasicTest", "stFastResampleTest", "stFastCyAlloyTest", "stFastPcCarbonTest", "stFastSdVintageTest", "stFastCpVintageTest", "stFastSyToyTest", "stFastSyBitsTest", "stFastSpTwinshotTest", "stFastSendFxTest", "stFastLanesTest", "mdFastSendsTest", "mdFastTrackFxTest", "stFastTrackTest", "edDrumsChainTest", "edDrumsEngineTest", "edDrumsLfoTest", "edDrumsSequencerTest", "edDrumsEditorTest", "edDrumsProcessorTest", "edDrumsNoFlashTest", "edDrumsVst3HostTest", "edDrumsOpenDrumTest", "sophieTest", "edDrumsSampleLibraryTest", "edDrumsSophieTest", "edDrumsAmpTest", "edDrumsVintageTest", "edDrumsSyntaktSlotsTest", "edDrumsRateTest", "edDrumsAnalogControlTest", "edDrumsAnalogTest", "edDrumsRytmControlTest")
 # The Syntakt's two oracle tests run a second time with the AVX2 kernels off (SYNTAKT_NO_AVX2, set by ctest)
 $tests = $targets + @("mdSlideFirmwareTest", "stEngineOracleTestScalar", "stMainOracleTestScalar") |
     Where-Object { $_ -ne "mdTrigLatencyFirmwareTest" }
@@ -60,6 +60,9 @@ $syntakt = [ordered]@{
     OPENDRUM_REFERENCES  = "$SyntaktData\oracle\lxr-eval\references\opendrum.bin"
     # The Syntakt's analog control routines as the original runs them (tools\analog\record.py, out of the repository)
     ANALOG_VECTORS       = "$SyntaktData\vectors-analog"
+    # The Rytm's own analog control routines as the original runs them (tools\analog\record_rytm.py, out of the repository)
+    RYTM_VECTORS         = "$SyntaktData\vectors-rytm"
+    RYTM_SECTION3        = "$SyntaktData\scratch-arch\research\rytm\rytm_174_sec3.bin"
 }
 $syntaktMissing = @()
 foreach($name in $syntakt.Keys)

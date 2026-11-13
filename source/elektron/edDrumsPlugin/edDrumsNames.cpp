@@ -177,6 +177,15 @@ namespace elektron::drums::names
 			{"WIDTH", "DECAY", "POLARITY", "", "", "", "", "LEVEL"},
 		}};
 
+		// The Rytm's own analog machines (ticket 28, stage 2), by rytm::Machine, Machine 1-8 as rytm::Voice::paramsOf orders
+		// them; an empty control is one the routine reads nothing of (rytm::Voice::usesControl)
+		constexpr std::array<const char*, RytmAnalogMachines> rytmNames{"BURST CLAP", "DEEP TOM", "SWEEP TOM"};
+		const std::array<std::array<const char*, 8>, RytmAnalogMachines> rytmControls{{
+			{"TONE", "TAIL DECAY", "CLAPS", "RATE", "TAIL", "SPREAD", "CLAP DECAY", "LEVEL"},
+			{"TUNE", "DECAY", "", "NOISE", "SNAP", "SWEEP", "", "LEVEL"},
+			{"TUNE", "DECAY", "SWEEP", "SWEEP TIME", "NOISE DECAY", "NOISE", "NOISE TONE", "LEVEL"},
+		}};
+
 		const char* named(const char* _name)
 		{
 			return _name && *_name ? _name : nullptr;
@@ -194,6 +203,7 @@ namespace elektron::drums::names
 		case Family::OpenDrum:		return openDrumNames[_machine.id];
 		case Family::Sophie:		return "HYPER FM";
 		case Family::SyntaktAnalog:	return analogNames[_machine.id];
+		case Family::RytmAnalog:	return rytmNames[_machine.id];
 		case Family::Machinedrum:
 			if(_machine == Sampler)
 				return "SAMPLER";
@@ -213,6 +223,7 @@ namespace elektron::drums::names
 		case Family::OpenDrum:		return "VA DRUMS";
 		case Family::Sophie:		return "HYPER FM";
 		case Family::SyntaktAnalog:	return "ANALOG";
+		case Family::RytmAnalog:	return "ANALOG PERC";
 		case Family::Machinedrum:
 			if(_machine == Sampler)
 				return "SAMPLER";
@@ -243,6 +254,7 @@ namespace elektron::drums::names
 		case Family::OpenDrum:		return _index < machineParameters(_machine) ? named(openDrumControls[_machine.id][i]) : nullptr;
 		case Family::Sophie:		return _index < sophie::MachineSlots ? sophieControls[i] : nullptr;
 		case Family::SyntaktAnalog:	return _index < 8 ? named(analogControls[_machine.id][i]) : nullptr;
+		case Family::RytmAnalog:	return _index < 8 ? named(rytmControls[_machine.id][i]) : nullptr;
 		case Family::Machinedrum:
 			if(_machine == Sampler)
 				return _index < vintage::SamplerParameters ? samplerControls[i] : nullptr;

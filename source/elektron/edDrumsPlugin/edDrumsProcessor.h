@@ -130,7 +130,8 @@ namespace elektron::drums
 		// The Sampler's index in machines(), OPEN DRUM's four after it, then SOPHIE
 		int samplerChoice() const
 		{
-			return static_cast<int>(m_machines.size()) - 1 - OpenDrumMachines - SophieMachines - SyntaktAnalogMachines;
+			return static_cast<int>(m_machines.size()) - 1 - OpenDrumMachines - SophieMachines - SyntaktAnalogMachines
+				- RytmAnalogMachines;
 		}
 		// The rate _track's chain runs at: the Syntakt's for a Track that took its chain, the Machinedrum's 44.1 kHz
 		// otherwise, whatever the host's
@@ -138,8 +139,12 @@ namespace elektron::drums
 		{
 			return m_chainFamily[static_cast<size_t>(_track)] == Family::Syntakt ? syntakt::fast::MachineRate : SampleRate;
 		}
-		int sophieChoice() const { return static_cast<int>(m_machines.size()) - SophieMachines - SyntaktAnalogMachines; }
-		int analogChoice() const { return static_cast<int>(m_machines.size()) - SyntaktAnalogMachines; }
+		int sophieChoice() const
+		{
+			return static_cast<int>(m_machines.size()) - SophieMachines - SyntaktAnalogMachines - RytmAnalogMachines;
+		}
+		int analogChoice() const { return static_cast<int>(m_machines.size()) - SyntaktAnalogMachines - RytmAnalogMachines; }
+		int rytmChoice() const { return static_cast<int>(m_machines.size()) - RytmAnalogMachines; }
 
 		// Message thread. One of SOPHIE's 16 factory sounds (sophie::soundValues) on _track's Machine 1-20, each an edit
 		// the host is told of, as the editor's own. The sound the Track's Machine 1-20 hold, -1 for none
@@ -205,8 +210,10 @@ namespace elektron::drums
 
 		// LIVE (spec 7), not kept in the state. While it is on and the transport plays, a host's note of a Track becomes a
 		// trig of the pattern playing, at the step nearest with the micro-timing that puts it where it was played
-		// (Sequencer::nearestStep), and a Track's parameter moved in a gesture becomes a Lock of the step playing. The
-		// timer writes them into the patterns (takeLive, which a test calls)
+		// (Sequencer::nearestStep), and a Track's parameter moved becomes a Lock of the step playing: in a gesture on the
+		// message thread (the editor), or by the host on the audio thread (a controller, a relay for Push, and the host's
+		// automation too, which VST3 does not tell apart). A change on the message thread without a gesture records
+		// nothing. The timer writes them into the patterns (takeLive, which a test calls)
 		void setLive(const bool _on) { m_live.store(_on); }
 		bool live() const { return m_live.load(); }
 		void takeLive();
@@ -220,6 +227,10 @@ namespace elektron::drums
 		bool fillPlaying() const { return m_fillPlaying.load(std::memory_order_relaxed); }
 		// One pass of a pattern as a Standard MIDI File (Sequencer::patternMidi), with the sequencer's seed
 		bool exportPatternMidi(int _pattern, const juce::File& _file) const;
+		// The same written for a drag to the host, as _name.mid in the instrument's own temporary folder (MidiDragFolder
+		// under the system's), which a drag hands over and the next one may replace: the file, File() when not written
+		juce::File patternMidiForDrag(int _pattern, const juce::String& _name) const;
+		static constexpr const char* MidiDragFolder = "Lockstep MIDI";
 
 		// Message thread. The Kits' Bank (edDrumsKits.h): a Kit is every parameter but the Global ones (Tempo,
 		// Oversampling, Pattern) and the Tracks' samples, nothing of the sequencer. Loaded, its values change as a
@@ -487,6 +498,11 @@ namespace elektron::drums
 		};
 		std::vector<LiveLock> m_liveLocks;
 		std::vector<int> m_gestures;
+		// The host's moves the audio thread recorded, for the timer. On the heap, as m_relayTargets
+		juce::AbstractFifo m_hostLockFifo{LiveNotes};
+		std::vector<LiveLock> m_hostLocks = std::vector<LiveLock>(LiveNotes);
+		void liveHostChange(int _index, float _value);
+		void addLiveLock(const LiveLock& _lock);
 		struct LiveListener final : juce::AudioProcessorListener
 		{
 			Processor& processor;
