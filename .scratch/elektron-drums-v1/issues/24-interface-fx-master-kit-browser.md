@@ -1,7 +1,7 @@
 # Interface : pages FX, Master, Kit et Sound browser
 
 Type: AFK
-Status: ready-for-agent
+Status: resolved
 Assignee: 
 Blocked by: 14, 15, 19, 20, 22
 
@@ -55,3 +55,8 @@ de la courbe, pas sur la seule ligne (la disposition n'a pas à suivre la valeur
 `kits*.png`, `browse*.png`, `menu.png` regardés. Une trame sans rien de neuf ne repeint rien sur les six pages ; rien de
 neuf ne tourne sur le fil audio (M et S passent par `editSequencer`, comme Overview). `edDrumsEditorTest`,
 `edDrumsProcessorTest` et `edDrumsVst3HostTest` passent. Statut laissé ouvert à cause des deux TIME.
+
+Décision de l'utilisateur, même jour : `echo_time` et `delay_time` ont leur cellule TIME dans le bloc DELAY, à côté de
+RATE quand SYNC est sur HZ, chacune dans l'état de sa source (Echo ou Syntakt), en longueur de note comme le moteur les
+joue (128es de ronde, la loi que `edDrumsProcessorTest` vérifie) ; elles se tirent comme leurs voisines, testé.
+Couverture : 1530 des 1594 paramètres, seuls les 64 relais restent sans contrôle. Ticket résolu.

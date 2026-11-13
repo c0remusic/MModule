@@ -859,10 +859,35 @@ namespace
 			click(_editor, _editor.cellArea("delay_sync").getCentre());
 			_editor.tick();
 			const bool synced = plain("delay_sync") != 0;
+			const bool echo = plain("delay_source") == 0;
 			check(plain("delay_sync") != sync && _editor.cellArea("delay_note").isEmpty() != synced
-				&& _editor.cellArea("delay_free").isEmpty() == synced, "FX: SYNC toggles, TIME or RATE shown as it says");
-			click(_editor, _editor.cellArea("delay_sync").getCentre());
-			_editor.tick();
+				&& _editor.cellArea("delay_free").isEmpty() == synced
+				&& _editor.cellArea(echo ? "echo_time" : "delay_time").isEmpty() == synced
+				&& _editor.cellArea(echo ? "delay_time" : "echo_time").isEmpty(),
+				"FX: SYNC toggles, DURATION or RATE and the source's own TIME shown as it says");
+			// With SYNC off, the source's TIME dragged in one gesture, in note lengths as the engine plays it
+			const auto timeId = echo ? "echo_time" : "delay_time";
+			if(synced)
+			{
+				click(_editor, _editor.cellArea("delay_sync").getCentre());
+				_editor.tick();
+			}
+			auto* time = _processor.parameter(timeId);
+			const float timeWas = time->getValue();
+			Gestures timeGestures;
+			_processor.addListener(&timeGestures);
+			const int timeSign = timeWas < 0.5f ? 1 : -1;
+			drag(_editor, _editor.cellArea(timeId).getCentre(), {timeSign * 60, 0});
+			check(plain("delay_sync") == 0 && (time->getValue() - timeWas) * static_cast<float>(timeSign) > 0.2f
+				&& timeGestures.begun == 1 && timeGestures.ended == 1, juce::String("FX: ") + timeId
+				+ " dragged in one gesture, reads " + time->getCurrentValueAsText());
+			_processor.removeListener(&timeGestures);
+			time->setValueNotifyingHost(timeWas);
+			if(plain("delay_sync") != sync)
+			{
+				click(_editor, _editor.cellArea("delay_sync").getCentre());
+				_editor.tick();
+			}
 		}
 		{
 			_editor.showMenu(true);
@@ -882,7 +907,7 @@ namespace
 	// Track's, the Track put on the machine that uses the most of Machine 1-24, its pages turned (a cell an LFO card, a
 	// SYNC or a MODE hides counts: those choose it); FX's in each of the 32 states of its SOURCE and SYNC choices, a
 	// cell counting where it shows; Master's, the Menu's, Seq Detail's PATTERN. None for the relays for Push, which aim
-	// at the Track shown, nor for the delays' TIME in 128ths, which ticket 14 leaves to the host (it plays at RATE OFF)
+	// at the Track shown
 	void reachable()
 	{
 		Processor processor;
@@ -940,8 +965,7 @@ namespace
 		for(auto* parameter : processor.getParameters())
 		{
 			const auto* p = dynamic_cast<const juce::RangedAudioParameter*>(parameter);
-			if(!p || relays.contains(p->getParameterID()) || p->getParameterID() == "echo_time"
-				|| p->getParameterID() == "delay_time")
+			if(!p || relays.contains(p->getParameterID()))
 				continue;
 			++counted;
 			if(bound.count(p->getParameterID()) == 0)
@@ -949,7 +973,7 @@ namespace
 		}
 		check(missing.isEmpty() && counted > 0, "every host parameter has a control: " + juce::String(counted) + " of "
 			+ juce::String(processor.getParameters().size()) + " (less " + juce::String(relays.size())
-			+ " relays and the two TIMEs)" + (missing.isEmpty() ? juce::String() : ", none for " + missing.joinIntoString(" ")));
+			+ " relays)" + (missing.isEmpty() ? juce::String() : ", none for " + missing.joinIntoString(" ")));
 	}
 
 	// Ticket 24: Master's GR, on an editor of its own: loud Hits through the master on, its reduction below 0 dB and

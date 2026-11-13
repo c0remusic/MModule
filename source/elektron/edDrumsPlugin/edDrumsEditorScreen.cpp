@@ -3021,15 +3021,14 @@ namespace elektron::drums
 		const bool sync = choiceOf("delay_sync") != 0, chorusSync = choiceOf("chorus_sync") != 0,
 			phaserSync = choiceOf("phaser_sync") != 0;
 		blockOf(0, "fd", "DELAY", hue::k, {{"delay_source", "SOURCE"}, {"delay_output", "OUT"},
-			{"delay_note", "TIME"}, {"delay_free", "RATE"},
+			// With SYNC off, the source's own TIME in 128ths of a whole beside RATE: it plays while RATE is OFF
+			{"delay_note", "TIME"}, {"delay_free", "RATE"}, {"echo_time", "TIME"}, {"delay_time", "TIME"},
 			{"echo_mod", "MOD DEPTH"}, {"echo_mfrq", "MOD RATE"}, {"echo_fb", "FEEDBACK"},
 			{"echo_fltf", "HPF"}, {"echo_fltw", "BANDWIDTH"}, {"echo_mono", "MONO"}, {"echo_lev", "LEVEL"},
 			{"delay_cross", "PING-PONG"}, {"delay_width", "WIDTH"}, {"delay_fdbk", "FEEDBACK"},
-			{"delay_hp", "HPF"}, {"delay_lp", "LPF"}, {"delay_rev", "TO REVERB"},
-			// The machines' TIME, in 128ths, which plays with Sync off at 0 Hz: a host's, not shown
-			{"echo_time", "TIME"}, {"delay_time", "TIME"}},
-			{true, true, sync, !sync, echo, echo, echo, echo, echo, echo, echo, !echo, !echo, !echo, !echo, !echo, !echo,
-				false, false});
+			{"delay_hp", "HPF"}, {"delay_lp", "LPF"}, {"delay_rev", "TO REVERB"}},
+			{true, true, sync, !sync, echo && !sync, !echo && !sync, echo, echo, echo, echo, echo, echo, echo, !echo, !echo,
+				!echo, !echo, !echo, !echo});
 		syncOf(0, "delay_sync", hue::k);
 		blockOf(1, "fr", "REVERB", hue::a, {{"reverb_source", "SOURCE"}, {"reverb_output", "OUT"},
 			{"gate_dvol", "DRY LEVEL"}, {"gate_pred", "PRE-DELAY"}, {"gate_dec", "DECAY"}, {"gate_damp", "DAMPING"},
@@ -3145,7 +3144,8 @@ namespace elektron::drums
 	// ---- Kits and Browse ----
 
 	// The Bank's 64 Slots in four columns of 16 rows, a click selects one; the Slot selected's panel: LOAD, SAVE HERE,
-	// RENAME, DELETE, a second click on DELETE empties it. IMPORT and EXPORT read and write an .edkit file through a file chooser
+	// RENAME, DELETE, a second click on DELETE empties it. IMPORT and EXPORT read and write an .edkit file through a
+	// file chooser
 	namespace
 	{
 		constexpr float KitRowH = 12.9f, KitPanelX = cx(16), KitButtonW = (8 * Col - 4 - 2) / 2;
