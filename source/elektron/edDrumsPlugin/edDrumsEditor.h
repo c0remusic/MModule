@@ -78,10 +78,12 @@ namespace elektron::drums
 		juce::Rectangle<int> browseSegmentArea(int _segment) const;
 		int browseSegments() const { return browseFilters().size(); }
 		juce::Rectangle<int> selectorItemArea(int _item) const;
-		// Seq's Detail: + LOCK, LANES (the lanes' page, past five), a lane's row shown and its X, the + LOCK menu's entry
-		// of a parameter (by its index; empty when the menu is shut or the parameter has a lane already)
-		enum class SeqButton { AddLock, Lanes };
+		// Seq's Detail: + LOCK, LANES (the lanes' page, past five), LIVE and the trig row's modes, the trig row of the
+		// 16 steps shown, a lane's row shown and its X, the + LOCK menu's entry of a parameter (by its index; empty when
+		// the menu is shut or the parameter has a lane already)
+		enum class SeqButton { AddLock, Lanes, Live, Vel, Accent, Slide };
 		juce::Rectangle<int> seqButtonArea(SeqButton _button) const;
+		juce::Rectangle<int> trigRowArea() const;
 		juce::Rectangle<int> laneArea(int _row) const;
 		juce::Rectangle<int> laneDeleteArea(int _row) const;
 		juce::Rectangle<int> lockMenuArea(int _parameter) const;

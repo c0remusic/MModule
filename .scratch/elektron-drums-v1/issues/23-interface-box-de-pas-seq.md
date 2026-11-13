@@ -1,7 +1,7 @@
 # Interface : box de pas et page SEQ
 
 Type: AFK
-Status: ready-for-agent
+Status: resolved
 Assignee: 
 Blocked by: 17, 22
 
@@ -44,3 +44,36 @@ un lock (Machine 1-24 que la machine utilise) ; ceux qui ont déjà une lane son
 Tests de `edDrumsEditorTest` : lanes vides, menu (76 paramètres sur 76), ajout, pagination, croix avec confirmation et
 désarmement ; tout passe. Rendus `seq*.png` et `seq-1280.png`. Coût d'un rafraîchissement complet de Seq : 6,0 ms
 avant, 6,4 à 6,6 ms après ; une seule mesure avant, et l'écart entre deux mesures du même code atteint 0,4 ms.
+
+## État (2026-11-13)
+
+Audit des gestes de la liste du ticket « Interface façon Overbridge » (`issues/09-interface.md`, points tranchés du
+2026-10-25), lus dans la forme que leur donnent la spec §10 et `concepts/t-ui-spec.md` (souris seule, sans modificateur
+ni clic droit ; mode TRIG fondu dans VEL ; Ctrl et Maj remplacés par les bandes sous les pas ; Alt remplacé par le lock
+sans note : un lock posé sur un pas sans trig). L'état « avant » vient du code (`edDrumsEditor.cpp`,
+`edDrumsEditorScreen.cpp`) et de `edDrumsEditorTest.cpp`, pas du texte du ticket. Aucun geste ne manquait : tous étaient
+faits, la plupart sans test. Chaque test joue le geste à la souris et lit l'état du pas dans le pattern du séquenceur,
+celui que `Processor::applyEvent` joue (`stepGestures`, `liveGestures`).
+
+| Geste (ticket 09) | Forme Lockstep | Avant | Maintenant |
+|---|---|---|---|
+| Modes Trig, Vel, Accent, Slide | VEL, ACCENT, SLIDE dans la tête TRIGS | fait, non testé | testé |
+| Clic pose ou retire un trig | touche de pas ; rangée TRIGS en VEL, à 127 ; Overview | fait ; touche et Overview testés | rangée TRIGS testée |
+| Clic bascule accent, slide | rangée TRIGS en ACCENT, SLIDE, le trig gardé | fait, non testé | testé |
+| Retirer un trig retire ses locks | spec 7 | fait, non testé | testé |
+| Ctrl et Maj sélectionnent | appui sur une bande, glisser sur les bandes en prend plusieurs, nouvel appui retire le pas | fait ; une bande testée | glisser et retrait testés |
+| Glisser horizontal peint | trigs, accents, slides ; efface s'il part d'un pas allumé | fait, non testé | testé dans les trois modes |
+| Glisser vertical règle la valeur | vélocité d'un trig, 1/32 par mm ; rien sur un pas vide | fait, non testé | testé |
+| Knob tourné sur un pas vide sélectionné : trig avec lock | cellule glissée en édition de lock : un lock sur chaque pas choisi, sans créer de trig | fait ; un pas à trig testé | plusieurs pas et pas sans trig testés |
+| Alt : lock sans note | même geste, sur un pas sans trig | fait, non testé | testé |
+| Liste des locks de la sélection, éditable, croix | lanes de Detail : clic pose à la base, clic sur un lock ne fait rien, glisser vertical règle, horizontal peint ou efface, double clic retire ; double clic sur une cellule de Sound retire le lock des pas choisis ; X de lane | fait ; X testé | tout testé |
+| Mode LIVE | bouton LIVE de Detail ; transport joué, une cellule glissée devient le lock du pas joué | fait ; enregistrement testé dans `edDrumsProcessorTest` | bouton et geste testés dans l'éditeur |
+| Lignes de locks de la page SEQ | lanes, + LOCK, LANES, X | fait, testé (État du 2026-11-12, `lanesAsPlayed`) | inchangé |
+
+Seul ajout au code de l'éditeur : des accesseurs pour les tests, `SeqButton::Live`, `Vel`, `Accent`, `Slide` et
+`trigRowArea`, sans changer aucun geste. Forme choisie là où la maquette n'en donne pas : aucune ; le mode ACCENT ou
+SLIDE pose son drapeau sur un pas sans trig, comme le code le faisait déjà, et le trig posé ensuite le garde. Un glissé ne
+compte qu'à partir de 0,8 mm (`Editor::mouseDrag`) : 8 mm vers le haut sur un lock le montent de 0,225, pas 0,25.
+
+Critère de fin atteint : chaque geste a son test d'éditeur, qui passe. Une image sans changement ne repeint rien sur
+aucune page.

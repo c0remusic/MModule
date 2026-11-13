@@ -1791,7 +1791,19 @@ namespace elektron::drums
 
 	juce::Rectangle<int> Editor::seqButtonArea(const SeqButton _button) const
 	{
-		return toPx(_button == SeqButton::AddLock ? addLockBox : lanesBox);
+		switch(_button)
+		{
+		case SeqButton::AddLock: return toPx(addLockBox);
+		case SeqButton::Lanes: return toPx(lanesBox);
+		case SeqButton::Live: return toPx({SG + 11 * SC, 24, SC - 1, 9.6f});
+		default: return toPx({SG + static_cast<float>(13 + static_cast<int>(_button) - static_cast<int>(SeqButton::Vel)) * SC,
+			39, SC - 1, 7});
+		}
+	}
+
+	juce::Rectangle<int> Editor::trigRowArea() const
+	{
+		return toPx({SG, 47, 16 * SC, 22});
 	}
 
 	juce::Rectangle<int> Editor::laneArea(const int _row) const

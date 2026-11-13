@@ -6,7 +6,8 @@
 // names of ticket 27: every machine and control named, nothing the host sees or the pages draw names a brand or an old
 // machine, every cell's name fits; Sound's LFO cards choose the LFO shown and a drive's TYPE stays live while it is off;
 // Seq's lanes: empty ones open + LOCK's menu, the menu lists every parameter that takes a Lock and adds a lane, LANES
-// turns their page, a lane's X asks again where it holds Locks; what a full repaint of Sound and Seq costs is printed;
+// turns their page, a lane's X asks again where it holds Locks; every gesture of the step box (ticket 23: VEL, ACCENT,
+// SLIDE, a lane's cells, the strips' lock edit, LIVE) read back from the pattern; what a full repaint of Sound and Seq costs is printed;
 // each page is rendered to a PNG (first argument: the folder, else the temporary folder's edDrumsEditor).
 
 #include <algorithm>
@@ -575,6 +576,205 @@ namespace
 			+ unfit.joinIntoString(" | ")));
 	}
 
+	// Ticket 23: every gesture of the step box (ticket 09's list as spec 10 and t-ui-spec's direct trig editing and lock
+	// model have it: no modifier, the strips in place of Ctrl and Shift, a Lock on a step without a trig the Lock without
+	// a note in place of Alt), played on Track 1 in Seq's Detail and on its strips, each read back from the pattern the
+	// sequencer plays
+	void stepGestures(Editor& _editor, Processor& _processor)
+	{
+		using SB = Editor::SeqButton;
+		const auto pattern = [&]() -> const Pattern& { return _processor.sequencer().pattern(_processor.currentPattern()); };
+		const auto st = [&](const int _s) -> const Step& { return pattern().step(0, _s); };
+		const auto index = [&](const juce::String& _id) { return _processor.parameter(_id)->getParameterIndex(); };
+		const auto lockOn = [&](const int _s, const juce::String& _id) -> const Lock*
+		{
+			const auto* locks = pattern().locks(0, _s);
+			for(int i = 0; locks && i < st(_s).lockCount; ++i)
+				if(locks[i].parameter == index(_id))
+					return &locks[i];
+			return nullptr;
+		};
+		const auto all = [](const int _from, const int _to, const std::function<bool(int)>& _ok)
+		{
+			for(int s = _from; s <= _to; ++s)
+				if(!_ok(s))
+					return false;
+			return true;
+		};
+		_processor.editSequencer([](Sequencer& _s) { _s.pattern(_s.currentPattern()).clearTrack(0); });
+		_editor.showTrack(0);
+		_editor.showPage(Editor::Page::Seq);
+		_editor.showSeqTab(0);
+		_editor.tick();
+		const float mm = static_cast<float>(_editor.getWidth()) / ui::UnitWidth;
+		const auto row = _editor.trigRowArea();
+		const float pitch = static_cast<float>(row.getWidth()) / 16;
+		const auto at = [&](const juce::Rectangle<int> _r, const int _s)
+		{
+			return juce::Point<int>(_r.getX() + juce::roundToInt((static_cast<float>(_s) + 0.5f) * pitch), _r.getCentreY());
+		};
+		const auto steps = [&](const int _n) { return juce::Point<int>(juce::roundToInt(static_cast<float>(_n) * pitch), 0); };
+		const auto down = [&](const float _mm) { return juce::Point<int>(0, juce::roundToInt(_mm * mm)); };
+
+		// VEL: a click sets a trig at the highest velocity, a second takes it off
+		click(_editor, _editor.seqButtonArea(SB::Vel).getCentre());
+		click(_editor, at(row, 2));
+		check(st(2).trig && st(2).velocity == 127, "VEL: a click on step 3 sets a trig at 127");
+		click(_editor, at(row, 2));
+		check(!st(2).trig, "VEL: a second click takes it off");
+		// A horizontal drag from an empty step paints trigs, one from a trig erases
+		drag(_editor, at(row, 1), steps(4));
+		check(all(1, 5, [&](int s) { return st(s).trig && st(s).velocity == 127; }) && !st(0).trig && !st(6).trig,
+			"VEL: a drag from step 2 to 6 paints five trigs at 127");
+		drag(_editor, at(row, 4), steps(-2));
+		check(st(1).trig && all(2, 4, [&](int s) { return !st(s).trig; }) && st(5).trig,
+			"VEL: a drag from the trig on 5 back to 3 erases 3-5");
+		// A vertical drag on a trig sets its velocity, 1/32 of the range per mm, the trig kept; on an empty step nothing
+		drag(_editor, at(row, 1), down(16));
+		check(st(1).trig && std::abs(st(1).velocity - 64) <= 1, "VEL: 16 mm down on step 2's trig: velocity "
+			+ juce::String(st(1).velocity));
+		drag(_editor, at(row, 7), down(-10));
+		check(!st(7).trig, "VEL: a vertical drag on an empty step sets no trig");
+
+		// ACCENT and SLIDE: a click toggles the step's, a drag paints or erases, the trigs left as they are
+		click(_editor, _editor.seqButtonArea(SB::Accent).getCentre());
+		click(_editor, at(row, 1));
+		check(st(1).accent && st(1).trig, "ACCENT: a click accents step 2, its trig kept");
+		click(_editor, at(row, 1));
+		check(!st(1).accent && st(1).trig, "ACCENT: a second click takes the accent off");
+		drag(_editor, at(row, 0), steps(5));
+		check(all(0, 5, [&](int s) { return st(s).accent; }) && !st(0).trig && !st(6).accent,
+			"ACCENT: a drag from step 1 to 6 paints accents, no trig set");
+		drag(_editor, at(row, 3), steps(2));
+		check(all(0, 2, [&](int s) { return st(s).accent; }) && all(3, 5, [&](int s) { return !st(s).accent; }),
+			"ACCENT: a drag from the accent on 4 erases 4-6");
+		click(_editor, _editor.seqButtonArea(SB::Slide).getCentre());
+		click(_editor, at(row, 5));
+		check(st(5).slide && st(5).trig && !st(5).accent, "SLIDE: a click slides step 6");
+		drag(_editor, at(row, 8), steps(2));
+		check(all(8, 10, [&](int s) { return st(s).slide; }) && !st(11).slide, "SLIDE: a drag paints slides on 9-11");
+		click(_editor, _editor.seqButtonArea(SB::Vel).getCentre());
+		click(_editor, at(row, 9));
+		check(st(9).trig && st(9).slide, "VEL again: a click sets a trig, the step's slide kept");
+
+		// A lane (RESO): a click on an empty step locks it at the base, trig or not; a click on a Lock changes nothing; a
+		// vertical drag sets the Lock's value; a double-click takes it off; a horizontal drag paints at the base or erases
+		click(_editor, _editor.seqButtonArea(SB::AddLock).getCentre());
+		click(_editor, _editor.lockMenuArea(index("t01_flt_res")).getCentre());
+		check(_editor.lockLanes() == 1, "+ LOCK: RESO's lane");
+		const auto lane = _editor.laneArea(0);
+		auto* reso = _processor.parameter("t01_flt_res");
+		const float base = reso->convertFrom0to1(reso->getValue());
+		click(_editor, at(lane, 1));
+		click(_editor, at(lane, 7));
+		check(lockOn(1, "t01_flt_res") && lockOn(1, "t01_flt_res")->value == base && lockOn(7, "t01_flt_res")
+			&& !st(7).trig, "a lane: a click on step 2 (a trig) and on step 8 (none, a Lock without a note) lock at the base");
+		drag(_editor, at(lane, 1), down(-8));
+		// The first 0.8 mm only make the press a drag (Editor::mouseDrag): 7.2 mm count, 0.225 of the range
+		const float raised = std::min(1.0f, reso->getValue() + 0.225f);
+		const float got = reso->convertTo0to1(lockOn(1, "t01_flt_res")->value);
+		check(std::abs(got - raised) < 0.01f && reso->convertFrom0to1(reso->getValue()) == base,
+			"a lane: 8 mm up on step 2's Lock raises it a quarter, to " + juce::String(got, 3) + ", RESO left as it was");
+		click(_editor, at(lane, 1));
+		check(std::abs(reso->convertTo0to1(lockOn(1, "t01_flt_res")->value) - got) < 1e-6f,
+			"a lane: a click on a Lock changes nothing");
+		doubleClick(_editor, at(lane, 10));
+		check(!lockOn(10, "t01_flt_res"), "a lane: a double-click on an empty step sets and takes off, one toggle");
+		doubleClick(_editor, at(lane, 7));
+		check(!lockOn(7, "t01_flt_res"), "a lane: a double-click on a Lock takes it off");
+		drag(_editor, at(lane, 11), steps(3));
+		check(all(11, 14, [&](int s) { return lockOn(s, "t01_flt_res") && lockOn(s, "t01_flt_res")->value == base; }),
+			"a lane: a drag from an empty step paints Locks at the base on 12-15");
+		drag(_editor, at(lane, 12), steps(2));
+		check(lockOn(11, "t01_flt_res") && all(12, 14, [&](int s) { return !lockOn(s, "t01_flt_res"); }),
+			"a lane: a drag from a Lock erases 13-15");
+		// A trig taken off takes its Locks with it (spec 7)
+		click(_editor, at(row, 1));
+		check(!st(1).trig && st(1).lockCount == 0, "VEL: the trig on step 2 taken off, its Lock goes too");
+
+		// The strips: a press on step 3's and a drag to step 6's put 3-6 in edit and open Sound; a drag on FREQ locks
+		// each of them, a Lock without a note where there is no trig, FREQ itself unchanged
+		_processor.editSequencer([](Sequencer& _s)
+		{
+			auto& p = _s.pattern(_s.currentPattern());
+			p.clearTrack(0);
+			p.setTrig(0, 2, true);
+		});
+		_editor.tick();
+		const auto strip = [&](const int _k)
+		{
+			return _editor.stepKeyArea(_k).getCentre() + juce::Point<int>(0, juce::roundToInt(21 * mm));
+		};
+		drag(_editor, strip(2), strip(5) - strip(2));
+		check(_editor.page() == Editor::Page::Sound, "a strip's press opens Sound");
+		auto* freq = _processor.parameter("t01_flt_freq");
+		const float freqWas = freq->getValue();
+		drag(_editor, _editor.cellArea("t01_flt_freq").getCentre(), {freqWas < 0.5f ? 50 : -50, 0});
+		const auto* f2 = lockOn(2, "t01_flt_freq");
+		check(f2 && all(3, 5, [&](int s) { return lockOn(s, "t01_flt_freq") && lockOn(s, "t01_flt_freq")->value == f2->value
+			&& !st(s).trig; }) && st(2).trig && !lockOn(6, "t01_flt_freq") && freq->getValue() == freqWas,
+			"strips 3-6 dragged, then FREQ: a Lock on each, without a note on 4-6, FREQ left as it was");
+		// A press on a strip in edit takes its step out; a double-click on a cell takes the Locks of the steps in edit off
+		click(_editor, strip(3));
+		drag(_editor, _editor.cellArea("t01_flt_res").getCentre(), {40, 0});
+		check(lockOn(2, "t01_flt_res") && !lockOn(3, "t01_flt_res") && lockOn(4, "t01_flt_res") && lockOn(5, "t01_flt_res"),
+			"a press on strip 4 takes step 4 out of the edit: RESO locks 3, 5 and 6");
+		doubleClick(_editor, _editor.cellArea("t01_flt_res").getCentre());
+		check(all(2, 5, [&](int s) { return !lockOn(s, "t01_flt_res"); }) && lockOn(3, "t01_flt_freq"),
+			"a double-click on RESO takes its Locks off the steps in edit, FREQ's kept");
+		// A click outside leaves the edit: a drag then moves the parameter
+		click(_editor, {10, 10});
+		const int locksBefore = st(2).lockCount;
+		drag(_editor, _editor.cellArea("t01_flt_freq").getCentre(), {freqWas < 0.5f ? 50 : -50, 0});
+		check(freq->getValue() != freqWas && st(2).lockCount == locksBefore, "out of the edit, a drag on FREQ moves FREQ");
+		freq->setValueNotifyingHost(freqWas);
+		_processor.editSequencer([](Sequencer& _s) { _s.pattern(_s.currentPattern()).clearTrack(0); });
+		_editor.tick();
+	}
+
+	// Ticket 23, LIVE: a click on Seq's LIVE turns it on; with the host's transport playing, a cell dragged on Sound is a
+	// Lock of the step playing, the parameter moving too; a second click turns it off
+	void liveGestures()
+	{
+		Processor processor;
+		Editor editor(processor);
+		editor.showPage(Editor::Page::Seq);
+		editor.tick();
+		click(editor, editor.seqButtonArea(Editor::SeqButton::Live).getCentre());
+		check(processor.live(), "LIVE: a click turns it on");
+		Transport transport;
+		processor.setPlayHead(&transport);
+		constexpr int Block = 256;
+		constexpr double Rate = 44100;
+		processor.prepareToPlay(Rate, Block);
+		juce::AudioBuffer<float> buffer(processor.getTotalNumOutputChannels(), Block);
+		juce::MidiBuffer midi;
+		for(int at = 0; at < 40 * Block; at += Block)
+		{
+			transport.quarters = at / (Rate / 2);
+			processor.processBlock(buffer, midi);
+		}
+		const int step = processor.playingStep(0);
+		editor.showPage(Editor::Page::Sound);
+		editor.tick();
+		auto* freq = processor.parameter("t01_flt_freq");
+		const float was = freq->getValue();
+		drag(editor, editor.cellArea("t01_flt_freq").getCentre(), {was < 0.5f ? 50 : -50, 0});
+		processor.takeLive();
+		processor.setPlayHead(nullptr);
+		const auto& p = processor.sequencer().pattern(processor.currentPattern());
+		const auto* locks = step >= 0 ? p.locks(0, step) : nullptr;
+		const bool locked = locks && p.step(0, step).lockCount == 1
+			&& locks[0].parameter == freq->getParameterIndex()
+			&& std::abs(locks[0].value - freq->convertFrom0to1(freq->getValue())) < 1e-3f;
+		check(locked && freq->getValue() != was && !p.step(0, step).trig, "LIVE: FREQ dragged while step "
+			+ juce::String(step + 1) + " plays is its Lock, FREQ moved too");
+		editor.showPage(Editor::Page::Seq);
+		editor.tick();
+		click(editor, editor.seqButtonArea(Editor::SeqButton::Live).getCentre());
+		check(!processor.live(), "LIVE: a second click turns it off");
+	}
+
 	void run(const juce::File& _folder)
 	{
 		_folder.createDirectory();
@@ -583,6 +783,7 @@ namespace
 		std::printf("face: %s\n", ui::Painter::faceName().toRawUTF8());
 		check(editor.getWidth() == Editor::Width && editor.getHeight() == Editor::Height, "the editor at 1600 x 1000");
 		lanesAsPlayed(_folder);
+		liveGestures();
 
 		using S = Processor::Section;
 		soundCoverage(editor, processor, 0, "Sound, Track 1");
@@ -1080,6 +1281,7 @@ namespace
 			snapshot(editor, _folder.getChildFile("seq-patterns.png"));
 			editor.showSeqTab(0);
 		}
+		stepGestures(editor, processor);
 		editor.showPage(Editor::Page::Master);
 		snapshot(editor, _folder.getChildFile("master.png"));
 		editor.showPage(Editor::Page::Fx);
