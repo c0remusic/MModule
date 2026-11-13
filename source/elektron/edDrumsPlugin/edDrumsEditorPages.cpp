@@ -233,12 +233,9 @@ namespace elektron::drums::ui
 				return c->choices[i].toUpperCase();
 			return i ? "ON" : "OFF";
 		}
+		// The free rates, as the host shows them (parameters::rateText)
 		if(dynamic_cast<const juce::AudioParameterFloat*>(parameter))
-		{
-			if(r.start == 0 && plain <= 0)
-				return "OFF";
-			return juce::String(plain, plain >= 100 ? 0 : plain >= 10 ? 1 : 2) + " Hz";
-		}
+			return parameter->getText(_normalised, 0);
 		// In its unit where the parameter has one (parameters::valueText), else the number, signed where it can be
 		const auto unit = parameter->getText(_normalised, 0);
 		if(unit != juce::String(n))

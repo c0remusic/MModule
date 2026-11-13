@@ -102,6 +102,8 @@ namespace elektron::drums
 		std::vector<LaneStep> laneSteps(int _line, int* _locks = nullptr) const;
 		// The timer's work, once
 		void tick();
+		// The areas the last tick repainted, the whole window counting one
+		int repainted() const { return m_repainted; }
 
 		void paint(juce::Graphics& _g) override;
 		void resized() override;
@@ -201,6 +203,10 @@ namespace elektron::drums
 		// _right in place of the pattern's name at the right (Seq: CHAIN n/m while a chain plays)
 		void drawHeader(ui::Painter& _p, const juce::String& _title, const juce::String& _sub,
 			const juce::String& _right = {});
+		// The header's CPU, its last 44 mm: the processor's load in whole percent of the block's time, 0-100
+		static constexpr float CpuWidth = 44;
+		int cpuPercent() const;
+		int m_repainted = 0;
 		void drawCell(ui::Painter& _p, const ui::Cell& _cell);
 		void drawBlockTitle(ui::Painter& _p, const Block& _block);
 		void drawSoundPictures(ui::Painter& _p);

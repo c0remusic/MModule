@@ -137,7 +137,22 @@ namespace elektron::drums::parameters
 	// (edDrumsVintage.h), the number for the others
 	std::string samplerText(int _index, int _value);
 
+	// What _machine's Machine _index + 1 (_index 0-23) shows of _value, in the unit its engine's law gives: TUNE in
+	// semitones from 64 on the Syntakt's machines and the ANALOG kicks, the note and cents of VA DRUMS' TUNE and FINE,
+	// every HYPER FM control in sophie::machineValue's units, the Sampler's as samplerText; else the number, as the
+	// machines' own pages show it (the Machinedrum's are 0-127, their laws per machine in the voice DSP's code)
+	std::string machineText(const Machine& _machine, int _index, int _value);
+
+	// A MIDI note's name, C4 for 60 as the editor's NOTE lists name it
+	std::string noteName(int _note);
+
+	// A free rate's text (an LFO's, the delay's): Hz to three figures, OFF at 0; and back, kHz read as 1000
+	std::string rateText(double _hz);
+	double rateOf(const std::string& _text);
+
 	// The value from _min to _max whose text is _text, the nearest to the parameter's own value among those that show it;
 	// else the one whose text's number is nearest to the number _text starts with
 	int valueOf(const std::string& _id, const std::string& _text, int _min, int _max, const Other& _other);
+	// The same for _machine's Machine _index + 1, its own value _own
+	int machineValueOf(const Machine& _machine, int _index, const std::string& _text, int _own);
 }

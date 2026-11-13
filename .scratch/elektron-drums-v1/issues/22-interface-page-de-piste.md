@@ -58,3 +58,25 @@ l'aperçu) ; pas d'ASSIGN ni de COLOR ; chaque send montre sa valeur sous sa bar
 TARGET d'un LFO restent actifs quand le bloc est éteint, puisque ce sont eux qui l'allument : avant, on ne pouvait plus
 les changer une fois sur OFF. Rendus `sound*.png` et `sound-1280.png` de `edDrumsEditorTest`. Le coût d'un
 rafraîchissement complet de Sound passe de 10,2 ms à 8,4 ms.
+
+## État (2026-11-13)
+
+Valeurs en unités. Le texte d'un paramètre vient d'un seul endroit, le texte d'hôte de chaque paramètre JUCE
+(`parameters::valueText`, `machineText`, `rateText` dans `edDrumsParameters.cpp`), que l'éditeur, les relais pour Push
+et l'hôte partagent. Note en nom de note (C4 = 60), accent en dB, profondeurs de vélocité et de LFO en % signés,
+fréquences libres des LFO et du delay en Hz (OFF à 0). Machine 1-24 suivent la machine de la piste : TUNE du Syntakt et
+des kicks ANALOG en demi-tons depuis 64, TUNE de VA DRUMS en nom de note et FINE en cents, HYPER FM par ses propres lois
+(coupure en Hz), le Sampler comme avant. Les machines du Machinedrum restent en 0-127, comme sur la machine : chaque loi
+est dans le code de sa voix. `edDrumsProcessorTest` (units) compare un échantillon de ces textes au code qui joue la
+valeur : la note, l'accent, les profondeurs, les fréquences libres, et au moins une commande par famille.
+
+Limites : le TUNE du Syntakt est relatif à la note, et à la note 60 BD MODERN joue tout TUNE sous 28 comme 28 (la hauteur
+est bornée à la note 0) : le texte n'est exact qu'au-dessus. VA DRUMS montre la note sans ses Hz, que la spécification
+demande aussi. HYPER FM garde les noms de modèles de l'original (FUSE…), que le test des marques laisse passer.
+
+CPU dans la barre du haut, en dernier comme dans la maquette : la part du temps d'un bloc que prend `processBlock`,
+mesurée au compteur du processeur sur le fil audio, sans verrou ni allocation, lissée sur 0,3 s ; repère à 15 %, ambre
+au-dessus, rouge au-dessus de 25 ; repeinte seulement quand le pourcentage entier change. `edDrumsEditorTest` vérifie
+qu'une trame sans rien de neuf ne repeint rien sur les six pages, et une lecture du CPU entre 0 et 1 après 400 blocs.
+
+Restent : ASSIGN, COLOR, la police Barlow (téléchargement non donné).

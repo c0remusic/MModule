@@ -4,10 +4,12 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <numeric>
 
 #include "edDrumsMaster.h"
+#include "sophieMachine.h"
 
 namespace elektron::drums::parameters
 {
@@ -167,6 +169,91 @@ namespace elektron::drums::parameters
 				x /= 1000;
 			return x;
 		}
+
+		// A signed share of a range: an LFO's or the velocity's depth in values of its target's 0-127
+		std::string share(const int _v)
+		{
+			return (_v > 0 ? "+" : "") + withUnit(100.0 * _v / 127, "%");
+		}
+
+		std::string semitones(const double _st)
+		{
+			char text[40];
+			if(_st == std::floor(_st))
+				std::snprintf(text, sizeof(text), "%s%d st", _st > 0 ? "+" : "", static_cast<int>(_st));
+			else
+				std::snprintf(text, sizeof(text), "%+.1f st", _st);
+			return text;
+		}
+
+		std::string cents(const double _cents)
+		{
+			char text[40];
+			const double r = std::round(_cents * 10) / 10;
+			std::snprintf(text, sizeof(text), "%+.1f ct", r == 0 ? 0.0 : r);
+			return text;
+		}
+
+		// HYPER FM's Machine _index + 1 in Sophie's units (sophie::machineValue, README.md's table), BODY off or on
+		std::string sophieText(const int _index, const int _v)
+		{
+			if(_index == sophie::Body)
+				return _v >= 64 ? "ON" : "OFF";
+			if(_index >= sophie::MachineParamCount)
+				return std::to_string(_v);
+			static constexpr const char* Models[]{"FUSE", "STACK", "SPLIT", "SHARD", "PIPE", "BOOM"};
+			static constexpr const char* Filters[]{"LPF", "HPF", "NOTCH", "DJ", "BPF"};
+			const float x = sophie::machineValue(_index, static_cast<uint8_t>(_v));
+			const int choice = static_cast<int>(x);
+			switch(_index)
+			{
+			case SOPHIE_MODEL:			return Models[std::clamp(choice, 0, 5)];
+			case SOPHIE_FILTER_TYPE:	return Filters[std::clamp(choice, 0, 4)];
+			case SOPHIE_TUNE:			return semitones(x);
+			case SOPHIE_SWEEP:			return (x > 0 ? "+" : "") + withUnit(x, "%");
+			case SOPHIE_DECAY:			return seconds(x);
+			case SOPHIE_RING_TIME:		return seconds(x / 1000);
+			case SOPHIE_METAL_DECAY:	return x == 0 ? "OFF" : seconds(x / 1000);
+			case SOPHIE_FEEDBACK_MODE:	return x != 0 ? "SMOOTH" : "RAW";
+			case SOPHIE_TAIL_MODE:		return x != 0 ? "LIVE" : "HIT";
+			// The voice's cutoff, 40 Hz x 400^(% / 100) (sophieVoice.c)
+			case SOPHIE_CUTOFF:			return hertz(40 * std::pow(400.0, x / 100));
+			default:					return withUnit(x, "%");
+			}
+		}
+
+		// The value from _min to _max whose text (_textOf) is _text, the nearest to _own among those that show it; else
+		// the one whose text's number is nearest to the number _text starts with
+		int nearestValue(const std::string& _text, const int _min, const int _max, const int _own,
+			const std::function<std::string(int)>& _textOf)
+		{
+			const auto first = _text.find_first_not_of(' '), last = _text.find_last_not_of(' ');
+			const std::string text = first == std::string::npos ? std::string() : _text.substr(first, last - first + 1);
+			int found = _min - 1;
+			for(int v = _min; v <= _max; ++v)
+				if(_textOf(v) == text && (found < _min || std::abs(v - _own) < std::abs(found - _own)))
+					found = v;
+			if(found >= _min)
+				return found;
+
+			bool number = false;
+			const double wanted = numberIn(text, number);
+			if(!number)
+				return std::clamp(_own, _min, _max);
+			double best = std::numeric_limits<double>::infinity();
+			found = _own;
+			for(int v = _min; v <= _max; ++v)
+			{
+				bool has = false;
+				const double x = numberIn(_textOf(v), has);
+				if(has && std::abs(x - wanted) < best)
+				{
+					best = std::abs(x - wanted);
+					found = v;
+				}
+			}
+			return std::clamp(found, _min, _max);
+		}
 	}
 
 	std::string valueText(const std::string& _id, const int _v, const Other& _other)
@@ -185,6 +272,15 @@ namespace elektron::drums::parameters
 			return squared(_v);
 		if(is("pan"))
 			return _v == 64 ? "C" : _v < 64 ? "L" + std::to_string(64 - _v) : "R" + std::to_string(_v - 64);
+		if(is("note"))
+			return noteName(_v);
+		// An accented Hit plays at velocity 128 + 2 x ACCENT (Engine::noteOn): its gain over a Hit at 127
+		if(is("accent"))
+			return gain((128 + 2.0 * _v) / 127, true);
+		// The LFOs add depth x their wave in values of the target (Lfos' offset, 128 a value's word), the velocity
+		// depth x velocity / 127 (Chain): a share of the target's 0-127
+		if(is("vel_depth") || is("lfo1_depth") || is("lfo2_depth"))
+			return share(_v);
 
 		// The chain (Chain::setDrive, setBand, setFilter, its TrackAmp and FilterEnvelope)
 		if(starts("drv") && ends("_amount"))
@@ -347,33 +443,66 @@ namespace elektron::drums::parameters
 
 	int valueOf(const std::string& _id, const std::string& _text, const int _min, const int _max, const Other& _other)
 	{
-		const int own = _other(_id.c_str());
-		const auto first = _text.find_first_not_of(' '), last = _text.find_last_not_of(' ');
-		const std::string text = first == std::string::npos ? std::string() : _text.substr(first, last - first + 1);
-		int found = _min - 1;
-		for(int v = _min; v <= _max; ++v)
-			if(valueText(_id, v, _other) == text && (found < _min || std::abs(v - own) < std::abs(found - own)))
-				found = v;
-		if(found >= _min)
-			return found;
+		return nearestValue(_text, _min, _max, _other(_id.c_str()),
+			[&](const int _v) { return valueText(_id, _v, _other); });
+	}
 
-		bool number = false;
-		const double wanted = numberIn(text, number);
-		if(!number)
-			return std::clamp(own, _min, _max);
-		double best = std::numeric_limits<double>::infinity();
-		found = own;
-		for(int v = _min; v <= _max; ++v)
+	std::string noteName(const int _note)
+	{
+		static constexpr const char* Names[]{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+		const int n = std::clamp(_note, 0, 127);
+		return Names[n % 12] + std::to_string(n / 12 - 1);
+	}
+
+	std::string rateText(const double _hz)
+	{
+		return _hz <= 0 ? "OFF" : hertz(_hz);
+	}
+
+	double rateOf(const std::string& _text)
+	{
+		bool found = false;
+		const double x = numberIn(_text, found);
+		return found ? x : 0;
+	}
+
+	std::string machineText(const Machine& _machine, const int _index, const int _value)
+	{
+		const int v = std::clamp(_value, 0, 127);
+		switch(_machine.family)
 		{
-			bool has = false;
-			const double x = numberIn(valueText(_id, v, _other), has);
-			if(has && std::abs(x - wanted) < best)
-			{
-				best = std::abs(x - wanted);
-				found = v;
-			}
+		case Family::Syntakt:
+			// TUNE: each machine plays the note less its offset plus TUNE's word / 256 semitones (syntakt::fast::pitchQ16),
+			// 64 the note's own; the fine part is the LFOs'
+			return _index == 0 ? semitones(v - 64) : std::to_string(v);
+		case Family::SyntaktAnalog:
+			// The kicks' TUNE: word 1 at v << 8 (analog::paramsOf), which pitchWord weighs as the note's semitones
+			return _index == 0 && _machine.id <= static_cast<uint8_t>(analog::Machine::KickAcoustic) ? semitones(v - 64)
+				: std::to_string(v);
+		case Family::OpenDrum:
+		{
+			// TUNE: the note the oscillator plays at the firmware's default note, which the engine triggers
+			// (osc_recalcFreq); FINE: midiParser_calcDetune's factor, +-50 cents
+			const char* name = machineParameterName(_machine, _index);
+			if(name && std::strcmp(name, "TUNE") == 0)
+				return noteName(v);
+			if(name && std::strcmp(name, "FINE") == 0)
+				return cents(1200 * std::log2(1 + (v / 127.0 - 0.5) * (std::pow(2.0, 1.0 / 12) - 1)));
+			return std::to_string(v);
 		}
-		return std::clamp(found, _min, _max);
+		case Family::Sophie:
+			return sophieText(_index, v);
+		case Family::Machinedrum:
+			return _machine == Sampler ? samplerText(_index, v) : std::to_string(v);
+		case Family::Off:
+			break;
+		}
+		return std::to_string(v);
+	}
+
+	int machineValueOf(const Machine& _machine, const int _index, const std::string& _text, const int _own)
+	{
+		return nearestValue(_text, 0, 127, _own, [&](const int _v) { return machineText(_machine, _index, _v); });
 	}
 
 	const std::array<Spec, ChainValues> chainSpecs{{

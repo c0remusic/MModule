@@ -1162,6 +1162,31 @@ namespace
 			machine->setValueNotifyingHost(was);
 			target->setValueNotifyingHost(targetWas);
 		}
+		// A frame with nothing new repaints nothing, on every page; the CPU's readout is what processBlock measured
+		for(const auto page : {Editor::Page::Sound, Editor::Page::Seq, Editor::Page::Master, Editor::Page::Fx,
+			Editor::Page::Kits, Editor::Page::Browse})
+		{
+			editor.showPage(page);
+			editor.tick();
+			editor.tick();
+			check(editor.repainted() == 0, "page " + juce::String(static_cast<int>(page)) + ": a frame with nothing new "
+				"repaints nothing (" + juce::String(editor.repainted()) + " areas)");
+		}
+		{
+			editor.showPage(Editor::Page::Sound);
+			// As a host does: the rate first, which getSampleRate gives the measure
+			processor.setRateAndBufferSizeDetails(44100, 256);
+			processor.prepareToPlay(44100, 256);
+			juce::AudioBuffer<float> buffer(processor.getTotalNumOutputChannels(), 256);
+			juce::MidiBuffer midi;
+			for(int i = 0; i < 400; ++i)
+				processor.processBlock(buffer, midi);
+			const float load = processor.cpuLoad();
+			check(load > 0 && load < 1, "the CPU readout: " + juce::String(100 * load, 2) + " % of the block's time");
+			editor.tick();
+			editor.tick();
+			check(editor.repainted() == 0, "a frame with the load unchanged in whole percent repaints nothing");
+		}
 		// What a full repaint of Sound and of Seq costs at 1600: printed, to compare before and after a layout's change
 		for(const auto page : {Editor::Page::Sound, Editor::Page::Seq})
 		{

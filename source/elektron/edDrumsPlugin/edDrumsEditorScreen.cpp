@@ -453,14 +453,29 @@ namespace elektron::drums
 		_p.text(x, y, _title, 4, colour::ink, 600);
 		if(_sub.isNotEmpty())
 			_p.text(x + static_cast<float>(_title.length()) * 2.6f + 6, y, _sub, 2.8f, colour::mid);
-		_p.text(ScreenX + ScreenW - 36, y, _right.isNotEmpty() ? _right : patternName(m_processor.currentPattern()), 2.8f,
-			colour::mid, 500, Align::Right);
+		_p.text(ScreenX + ScreenW - CpuWidth - 36, y, _right.isNotEmpty() ? _right : patternName(m_processor.currentPattern()),
+			2.8f, colour::mid, 500, Align::Right);
 		bool playing = false;
 		for(int t = 0; t < 16; ++t)
 			playing = playing || m_processor.playingStep(t) >= 0;
-		_p.text(ScreenX + ScreenW - 31, y, "HOST", 2.8f, playing ? hue::t.c[4] : colour::mid);
-		_p.text(ScreenX + ScreenW - 4, y, playing ? "PLAYING" : "STOPPED", 2.8f, playing ? hue::t.c[4] : colour::mid,
-			500, Align::Right);
+		// The host's state, then the CPU last, as t.js header() lays them out from bx
+		const float bx = ScreenX + ScreenW - CpuWidth, bw = 30;
+		_p.text(bx - 31, y, "HOST", 2.8f, playing ? hue::t.c[4] : colour::mid);
+		_p.text(bx - 4, y, playing ? "PLAYING" : "STOPPED", 2.8f, playing ? hue::t.c[4] : colour::mid, 500, Align::Right);
+		// A share of one core, its mark at 15 %, amber above it, red above 25 % (spec section 10)
+		const int cpu = cpuPercent();
+		const auto colour = cpu > 25 ? colour::meterRed : cpu > 15 ? colour::meterAmber : colour::meterGreen;
+		_p.text(bx, y, "CPU", 2.8f, colour::mid);
+		_p.rect(bx + 8, y - 2.6f, bw - 4, 2.4f, colour::button, 0.4f);
+		if(cpu > 0)
+			_p.rect(bx + 8, y - 2.6f, (bw - 4) * static_cast<float>(cpu) / 100, 2.4f, colour, 0.4f);
+		_p.rect(bx + 8 + (bw - 4) * 0.15f - 0.15f, y - 3.4f, 0.3f, 4, colour::ink);
+		_p.text(ScreenX + ScreenW - 4, y, juce::String(cpu) + " %", 2.8f, colour::ink, 600, Align::Right);
+	}
+
+	int Editor::cpuPercent() const
+	{
+		return juce::jlimit(0, 100, juce::roundToInt(100 * m_processor.cpuLoad()));
 	}
 
 	void Editor::drawButton(Painter& _p, const float _x, const float _y, const float _w, const float _h,

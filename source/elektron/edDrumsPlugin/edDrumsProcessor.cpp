@@ -358,6 +358,66 @@ namespace elektron::drums
 					return parameters::valueOf(_id, _text.toStdString(), _min, _max, other);
 				});
 		}
+
+		// The top bar's CPU: the time a processBlock takes over the block's own length, from the CPU's counter (no lock, no
+		// allocation), smoothed by a one-pole of 0.3 s so that the reading does not jump block by block
+		class CpuTimer
+		{
+		public:
+			CpuTimer(std::atomic<float>& _load, const int _samples, const double _rate)
+				: m_load(_load), m_samples(_samples), m_rate(_rate), m_start(juce::Time::getHighResolutionTicks())
+			{
+			}
+			~CpuTimer()
+			{
+				if(m_samples <= 0 || m_rate <= 0)
+					return;
+				const double seconds = juce::Time::highResolutionTicksToSeconds(juce::Time::getHighResolutionTicks() - m_start);
+				const double block = m_samples / m_rate;
+				const double k = 1 - std::exp(-block / 0.3);
+				const float last = m_load.load(std::memory_order_relaxed);
+				m_load.store(last + static_cast<float>(k * (seconds / block - last)), std::memory_order_relaxed);
+			}
+			CpuTimer(const CpuTimer&) = delete;
+			CpuTimer& operator=(const CpuTimer&) = delete;
+		private:
+			std::atomic<float>& m_load;
+			const int m_samples;
+			const double m_rate;
+			const juce::int64 m_start;
+		};
+
+		// A free rate in Hz, the engine's own (an LFO's Hz, the delay's 1 / Hz), OFF at 0
+		juce::AudioParameterFloatAttributes rateUnits()
+		{
+			return juce::AudioParameterFloatAttributes()
+				.withStringFromValueFunction([](const float _hz, int) { return juce::String(parameters::rateText(_hz)); })
+				.withValueFromStringFunction([](const juce::String& _text)
+				{
+					return static_cast<float>(parameters::rateOf(_text.toStdString()));
+				});
+		}
+	}
+
+	juce::AudioParameterIntAttributes Processor::machineUnits(const int _track, const int _index) const
+	{
+		// In the unit the Track's machine gives Machine _index + 1 (parameters::machineText), read when the host asks
+		const auto machine = [this, _track]
+		{
+			const auto* choice = m_tracks[static_cast<size_t>(_track)].machine;
+			return choice ? m_machines[static_cast<size_t>(choice->getIndex())] : Machine{};
+		};
+		return juce::AudioParameterIntAttributes()
+			.withStringFromValueFunction([machine, _index](const int _v, int)
+			{
+				return juce::String(parameters::machineText(machine(), _index, _v));
+			})
+			.withValueFromStringFunction([this, machine, _track, _index](const juce::String& _text)
+			{
+				const auto* own = m_tracks[static_cast<size_t>(_track)].values[static_cast<size_t>(_index)];
+				const int value = own ? own->get() : 0;
+				return parameters::machineValueOf(machine(), _index, _text.toStdString(), value);
+			});
 	}
 
 	juce::AudioProcessor::BusesProperties Processor::buses()
@@ -434,10 +494,12 @@ namespace elektron::drums
 			for(int i = 0; i < 8; ++i)
 			{
 				p.values[static_cast<size_t>(i)] = intParameter(id + "m" + juce::String(i + 1),
-					name + "Machine " + juce::String(i + 1), 127, machineDefaults[static_cast<size_t>(i)]);
+					name + "Machine " + juce::String(i + 1), 127, machineDefaults[static_cast<size_t>(i)], true,
+					machineUnits(t, i));
 				add(p.values[static_cast<size_t>(i)], Section::Machine, t);
 			}
-			add(p.note = intParameter(id + "note", name + "Note", 127, DefaultNote), Section::Machine, t);
+			add(p.note = intParameter(id + "note", name + "Note", 127, DefaultNote, true, unitsOf(this, id, "note", 0, 127)),
+				Section::Machine, t);
 			add(p.level = intParameter(id + "level", name + "Level", 127, DefaultLevel, true,
 				unitsOf(this, id, "level", 0, 127)), Section::Amp, t);
 			add(p.pan = intParameter(id + "pan", name + "Pan", 127, Centre, true, unitsOf(this, id, "pan", 0, 127)),
@@ -485,7 +547,7 @@ namespace elektron::drums
 					juce::NormalisableRange<float> range(0.01f, 500.0f);
 					range.setSkewForCentre(2.0f);
 					p.lfo[l][i].parameter = add(new juce::AudioParameterFloat({lfoId + lfoSpecs[i].id, 1},
-						lfoName + lfoSpecs[i].name, range, static_cast<float>(lfo[i])), section, t);
+						lfoName + lfoSpecs[i].name, range, static_cast<float>(lfo[i]), rateUnits()), section, t);
 					m_watched.push_back(&p.lfo[l][i]);
 				}
 			}
@@ -514,8 +576,8 @@ namespace elektron::drums
 			// A delay time of 1 / Hz in place of TIME's, 0 TIME's (Sends::setDelayFree)
 			juce::NormalisableRange<float> range(0.0f, 1378.125f);
 			range.setSkewForCentre(4.0f);
-			m_delayFree.parameter = add(new juce::AudioParameterFloat({"delay_free", 1}, "Delay Free Rate", range, 0.0f),
-				Section::Effects);
+			m_delayFree.parameter = add(new juce::AudioParameterFloat({"delay_free", 1}, "Delay Free Rate", range, 0.0f,
+				rateUnits()), Section::Effects);
 			m_watched.push_back(&m_delayFree);
 		}
 		for(size_t i = 0; i < m_chorus.size(); ++i)
@@ -539,15 +601,9 @@ namespace elektron::drums
 			const auto machineDefaults = allDefaults(m_machines[static_cast<size_t>(defaultMachine(m_machines, t))]);
 			for(int i = 8; i < MachineParameters; ++i)
 			{
-				// On the Sampler, its grain's values in their units
-				const auto text = juce::AudioParameterIntAttributes().withStringFromValueFunction([this, t, i](const int _v, int)
-				{
-					const auto* machine = m_tracks[static_cast<size_t>(t)].machine;
-					const bool sampler = machine && m_machines[static_cast<size_t>(machine->getIndex())] == Sampler;
-					return sampler ? juce::String(parameters::samplerText(i, _v)) : juce::String(_v);
-				});
 				p.values[static_cast<size_t>(i)] = intParameter(id + "m" + juce::String(i + 1),
-					name + "Machine " + juce::String(i + 1), 127, machineDefaults[static_cast<size_t>(i)], true, text);
+					name + "Machine " + juce::String(i + 1), 127, machineDefaults[static_cast<size_t>(i)], true,
+					machineUnits(t, i));
 				add(p.values[static_cast<size_t>(i)], Section::Machine, t);
 			}
 		}
@@ -584,7 +640,7 @@ namespace elektron::drums
 				else if(const auto* c = dynamic_cast<const juce::AudioParameterChoice*>(target))
 					relay = new juce::AudioParameterChoice(id, spec.name, c->choices, juce::roundToInt(plainDefault));
 				else if(const auto* f = dynamic_cast<const juce::AudioParameterFloat*>(target))
-					relay = new juce::AudioParameterFloat(id, spec.name, f->range, plainDefault);
+					relay = new juce::AudioParameterFloat(id, spec.name, f->range, plainDefault, rateUnits());
 				else
 				{
 					const auto& range = target->getNormalisableRange();
@@ -1677,6 +1733,7 @@ namespace elektron::drums
 
 	void Processor::processBlock(juce::AudioBuffer<float>& _buffer, juce::MidiBuffer& _midi)
 	{
+		const CpuTimer cpu(m_cpu, _buffer.getNumSamples(), getSampleRate());
 		juce::ScopedNoDenormals noDenormals;
 		takeRelays();
 		if(!m_engine)
@@ -2149,8 +2206,10 @@ namespace elektron::drums
 		// A format to come is not this build's to read
 		if(in.readInt() != StateFormat)
 			return nullptr;
+		// A full set's XML is about 26.5 MB: a header that claims ten times that is not a state of ours
+		constexpr int MaxXmlBytes = 256 * 1024 * 1024;
 		const int bytes = in.readInt();
-		if(bytes <= 0)
+		if(bytes <= 0 || bytes > MaxXmlBytes)
 			return nullptr;
 		juce::GZIPDecompressorInputStream unzip(&in, false);
 		juce::MemoryBlock text;

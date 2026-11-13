@@ -77,7 +77,7 @@ namespace elektron::drums
 		const juce::String getProgramName(int) override { return {}; }
 		void changeProgramName(int, const juce::String&) override {}
 
-		// The state: its XML (version StateVersion), compressed since 2026-11-13 behind a header of its own (magic,
+		// The state: its XML (version StateVersion), compressed since 2026-11-12 behind a header of its own (magic,
 		// format, the XML's size); a state of before, the XML as copyXmlToBinary wrote it, still loads. readState gives
 		// the XML of either, nullptr for neither
 		void getStateInformation(juce::MemoryBlock& _data) override;
@@ -266,6 +266,8 @@ namespace elektron::drums
 		int playingStep(const int _track) const { return m_playingStep[static_cast<size_t>(_track)].load(std::memory_order_relaxed); }
 		int currentPattern() const { return m_currentPattern.load(std::memory_order_relaxed); }
 		uint32_t liveTracks() const { return m_liveTracks.load(std::memory_order_relaxed); }
+		// The share of the audio callback's time that processBlock takes, 1 a whole block, smoothed over about 0.3 s
+		float cpuLoad() const { return m_cpu.load(std::memory_order_relaxed); }
 		float outputPeak(const int _bus) const { return m_outputPeak[static_cast<size_t>(_bus)].load(std::memory_order_relaxed); }
 		// A send's return's peak, as outputPeak; the master's gain reduction in dB, 0 or under, 0 while it is off
 		float returnPeak(const int _send) const { return m_returnPeak[static_cast<size_t>(_send)].load(std::memory_order_relaxed); }
@@ -381,6 +383,7 @@ namespace elektron::drums
 		template<typename P> P* add(P* _parameter, Section _section, int _track = -1);
 		void watch(Watched& _watched, const parameters::Spec& _spec, const juce::String& _id, const juce::String& _name,
 			int _default, Section _section, int _track = -1);
+		juce::AudioParameterIntAttributes machineUnits(int _track, int _index) const;
 
 		std::unique_ptr<Library> m_library;
 		std::vector<Machine> m_machines;	// Machine's choices
@@ -590,5 +593,6 @@ namespace elektron::drums
 		std::array<std::atomic<float>, Outputs> m_outputPeak{};
 		std::array<std::atomic<float>, SendCount> m_returnPeak{};
 		std::atomic<float> m_reduction{0};
+		std::atomic<float> m_cpu{0};
 	};
 }

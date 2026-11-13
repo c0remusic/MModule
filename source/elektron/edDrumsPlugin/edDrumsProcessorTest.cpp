@@ -46,7 +46,11 @@
 #include "../md/mdDrums/mdDrumsAllocationCounter.h"
 #include "edDrumsMaster.h"
 #include "edDrumsNames.h"
+#include "edDrumsAnalogPort.h"
+#include "edDrumsAnalogVoice.h"
 #include "edDrumsProcessor.h"
+#include "edDrumsVintage.h"
+#include "MidiNoteNumbers.h"
 #include "mdProtocol/mdmachines.h"
 #include "sophieMachine.h"
 
@@ -2683,10 +2687,102 @@ namespace
 		require(textAt(processor, "master_filter", 0) == "LP 20.0 Hz" && textAt(processor, "master_filter", 127) == "HP 20.0 kHz",
 			"filter " + textAt(processor, "master_filter", 0).toStdString());
 
+		// The note, the accent, the depths, the free rates
+		require(textAt(processor, "t01_note", 60) == "C4" && textAt(processor, "t01_note", 69) == "A4"
+			&& textAt(processor, "t01_note", 61) == "C#4", "note " + textAt(processor, "t01_note", 60).toStdString());
+		requireValues(processor, "t01_accent", [&](const int _v) { return db((128 + 2.0 * _v) / 127); });
+		requireValue(processor, "t01_lfo1_depth", -127, -100);
+		requireValue(processor, "t01_vel_depth", 64, 100.0 * 64 / 127);
+		{
+			auto& hz = find(processor, "t01_lfo1_hz");
+			set(hz, 2);
+			require(hz.getCurrentValueAsText() == "2.00 Hz", "LFO 1 Hz " + hz.getCurrentValueAsText().toStdString());
+			auto& free = find(processor, "delay_free");
+			set(free, 0);
+			require(free.getCurrentValueAsText() == "OFF", "delay free at 0");
+			set(free, 1200);
+			require(std::abs(free.convertFrom0to1(free.getValueForText(free.getCurrentValueAsText())) - 1200) < 6,
+				"delay free 1.20 kHz read back");
+		}
+
+		// Machine 1-24 in their machine's units (parameters::machineText), each against the code that plays it
+		const auto playOn = [&](const Machine& _m)
+		{
+			const auto& list = processor.machines();
+			const auto at = std::find(list.begin(), list.end(), _m);
+			require(at != list.end(), "a machine of the list");
+			choose("t01_machine", static_cast<int>(at - list.begin()));
+		};
+		const auto number = [](const juce::String& _text) { return std::strtod(_text.toRawUTF8(), nullptr); };
+		const auto machineValues = [&](const juce::String& _id, const std::function<double(int)>& _engine)
+		{
+			for(const int v : {16, 40, 64, 100, 112})
+			{
+				const auto text = textAt(processor, _id, v);
+				require(std::abs(number(text) - _engine(v)) <= std::max(0.0051 * std::abs(_engine(v)), 0.051),
+					(_id + " at " + juce::String(v) + " shows " + text + ", the engine's " + juce::String(_engine(v))).toStdString());
+			}
+			roundTrip(find(processor, _id));
+		};
+		// MODERN DIGI's TUNE: BD MODERN's pitch (its offset 88) over its pitch at TUNE 64, in semitones, on a note high
+		// enough that pitchQ16 does not clamp it at note 0 (at note 60 TUNE under 28 plays as 28)
+		playOn({Family::Syntakt, 0});
+		machineValues("t01_m1", [](const int _v)
+		{
+			return (st::pitchQ16(96, _v << 8, 88) - st::pitchQ16(96, 64 << 8, 88)) / 65536.0;
+		});
+		// ANALOG's kicks: the pitch word the circuit plays from TUNE, as the note's semitones
+		playOn({Family::SyntaktAnalog, static_cast<uint8_t>(analog::Machine::KickHard)});
+		machineValues("t01_m1", [](const int _v)
+		{
+			std::array<uint8_t, 8> controls{static_cast<uint8_t>(_v), 64, 64, 64, 64, 64, 64, 64};
+			std::array<uint8_t, 20> words{};
+			analog::paramsOf(analog::Machine::KickHard, controls.data(), words);
+			const auto tune = static_cast<int16_t>(words[2] << 8 | words[3]);
+			analog::port::Emac e(false);
+			const double at = analog::port::pitchWord(e, tune, 60 << 16), base = analog::port::pitchWord(e, 64 << 8, 60 << 16);
+			return (at - base) / (analog::port::pitchWord(e, 64 << 8, 61 << 16) - base);
+		});
+		// VA DRUMS: TUNE the note whose frequency the oscillator plays, FINE the detune's cents
+		playOn({Family::OpenDrum, 0});
+		for(const int v : {24, 60, 69, 100})
+		{
+			const auto name = textAt(processor, "t01_m1", v);
+			const auto names = juce::StringArray{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+			const int named = names.indexOf(name.dropLastCharacters(1)) + 12 * (name.getTrailingIntValue() + 1);
+			require(std::abs(440 * std::pow(2.0, (named - 69) / 12.0) / MidiNoteFrequencies[v] - 1) < 1e-6,
+				("VA DRUM TUNE " + juce::String(v) + " shows " + name).toStdString());
+		}
+		roundTrip(find(processor, "t01_m1"));
+		machineValues("t01_m9", [](const int _v)
+		{
+			return 1200 * std::log2(1 + (_v / 127.0 - 0.5) * (1.0594630943592952645618252949463 - 1));
+		});
+		// HYPER FM: sophie::machineValue's units, the cutoff the voice computes from its percent
+		playOn({Family::Sophie, 0});
+		machineValues("t01_m2", [](const int _v) { return sophie::machineValue(SOPHIE_TUNE, static_cast<uint8_t>(_v)); });
+		machineValues("t01_m3", [](const int _v) { return sophie::machineValue(SOPHIE_COLOR, static_cast<uint8_t>(_v)); });
+		machineValues("t01_m10", [](const int _v)
+		{
+			const double hz = 40 * std::pow(400.0, sophie::machineValue(SOPHIE_CUTOFF, static_cast<uint8_t>(_v)) / 100);
+			return hz >= 1000 ? hz / 1000 : hz;
+		});
+		require(textAt(processor, "t01_m1", 0) == "FUSE" && textAt(processor, "t01_m12", 127) == "BPF", "HYPER FM's lists");
+		std::printf("  e.g. HYPER FM TUNE 54 %s, DECAY 58 %s, CUTOFF 64 %s\n", textAt(processor, "t01_m2", 54).toRawUTF8(),
+			textAt(processor, "t01_m7", 58).toRawUTF8(), textAt(processor, "t01_m10", 64).toRawUTF8());
+		for(int i = 1; i <= sophie::MachineSlots; ++i)
+			roundTrip(find(processor, "t01_m" + juce::String(i)));
+		// The Sampler, of the Machinedrum's family: BITS as vintage::bitsOf gives them
+		playOn(Sampler);
+		for(const int v : {0, 64, 127})
+			require(textAt(processor, "t01_m10", v) == juce::String(vintage::bitsOf(v)) + " BIT", "Sampler BITS");
+
 		std::printf("  e.g. FLTF 64 %s, Hold 64 %s, Echo TIME 32 %s, threshold 64 %s\n",
 			textAt(processor, "t01_flt_freq", 64).toRawUTF8(), textAt(processor, "t01_amp_hold", 64).toRawUTF8(),
 			textAt(processor, "echo_time", 32).toRawUTF8(), textAt(processor, "master_threshold", 64).toRawUTF8());
-		std::printf("PASS: the values' units: %d parameters read back, every family at 0, 64 and 127 as the engine has it\n",
+		std::printf("PASS: the values' units: %d parameters read back, every family at 0, 64 and 127 as the engine has it; "
+			"the note, the accent, the depths, the free rates; Machine 1-24 of MODERN DIGI, ANALOG, VA DRUMS, HYPER FM and "
+			"the Sampler as their code plays them\n",
 			checked);
 	}
 

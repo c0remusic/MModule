@@ -322,10 +322,12 @@ namespace elektron::drums
 			if(const int row = m_processor.playingRowStep(m_track); row >= 0 && m_page == Page::Seq && m_seqTab == 1)
 				m_overviewPage = row / 32;
 		}
+		m_repainted = 0;
 		if(m_press.hit < 0 && layoutKey() != m_key)
 		{
 			layout();
 			repaint();
+			m_repainted = 1;
 			return;
 		}
 		for(auto& r : m_regions)
@@ -335,12 +337,14 @@ namespace elektron::drums
 			{
 				r.last = s;
 				repaint(toPx(r.r.expanded(0.5f)));
+				++m_repainted;
 			}
 		}
 		if(m_toastUntil > 0 && juce::Time::getMillisecondCounterHiRes() > m_toastUntil)
 		{
 			m_toastUntil = 0;
 			repaint(toPx({ScreenX, 195, ScreenW, 20}));
+			++m_repainted;
 		}
 		// A walk of the Locker's ended: what it found and what it missed
 		if(m_importsSeen != m_processor.imports())
@@ -357,6 +361,8 @@ namespace elektron::drums
 
 	void Editor::buildHardware()
 	{
+		// The header's CPU, on every page: repainted when its whole percent changes
+		watch({ScreenX + ScreenW - CpuWidth, ScreenY + 2, CpuWidth, 8}, [this] { return static_cast<uint64_t>(cpuPercent()); });
 		for(int i = 0; i < 7; ++i)
 		{
 			Hit hit;

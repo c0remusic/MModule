@@ -59,7 +59,7 @@ if(BUILD_TESTING)
 	# The host's transport, the frozen IDs, every parameter against the engine, the state (GEARMULATOR_MD_FIRMWARE_BIN:
 	# exit 77 without it)
 	add_executable(edDrumsProcessorTest edDrumsProcessorTest.cpp)
-	target_link_libraries(edDrumsProcessorTest PRIVATE edDrumsPlugin edDrums mdProtocol juce_plugin_modules)
+	target_link_libraries(edDrumsProcessorTest PRIVATE edDrumsPlugin edDrums opendrum mdProtocol juce_plugin_modules)
 	target_compile_definitions(edDrumsProcessorTest PRIVATE JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 ED_DRUMS_NAME="${ED_DRUMS_NAME}"
 		ED_DRUMS_PARAMETER_IDS="${CMAKE_CURRENT_SOURCE_DIR}/edDrumsParameterIds.txt")
 	add_test(NAME edDrumsProcessorTest COMMAND edDrumsProcessorTest)
