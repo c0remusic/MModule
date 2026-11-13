@@ -537,9 +537,10 @@ namespace
 		check(seq.contains("TUNE") && seq.contains("DECAY") && seq.contains("SWEEP"), "Seq: ROUND KICK's lock lines read "
 			"TUNE, DECAY, SWEEP");
 
-		// FX: each delay and reverb, each phaser type, each rate synced and free
+		// FX: each delay and reverb, each chorus and phaser type, each rate synced and free
 		_editor.showPage(Editor::Page::Fx);
-		for(const char* id : {"delay_source", "reverb_source", "phaser_mode", "delay_sync", "chorus_sync", "phaser_sync"})
+		for(const char* id : {"delay_source", "reverb_source", "chorus_type", "phaser_mode", "delay_sync", "chorus_sync",
+			"phaser_sync"})
 		{
 			auto* p = _processor.parameter(id);
 			const float was = p->getValue();

@@ -12,7 +12,7 @@ namespace elektron::drums
 		  m_stReverb(std::make_unique<syntakt::fast::Reverb>(Rate)),
 		  m_chorus(std::make_unique<ModulatedDelay>(ModulatedDelay::ChorusStep)),
 		  m_flanger(std::make_unique<ModulatedDelay>(ModulatedDelay::FlangerStep)),
-		  m_phaser(std::make_unique<Phaser>()), m_dp4(std::make_unique<Dp4Phaser>())
+		  m_vibrato(std::make_unique<Vibrato>()), m_air(std::make_unique<Air>()), m_phaser(std::make_unique<Phaser>()), m_dp4(std::make_unique<Dp4Phaser>())
 	{
 		// Nothing fed back until said otherwise
 		m_chorusBytes[ChorusFeedback] = m_phaserBytes[PhaserFeedback] = 64;
@@ -83,8 +83,12 @@ namespace elektron::drums
 
 	void Sends::giveLfoRates()
 	{
+		// Air's sweep follows its depth alone, as the Virus's: no rate to sync
 		if(m_lfoSync[0] && m_lfoNote[0] > 0)
+		{
 			m_chorus->setHz(m_bpm / 60 / m_lfoNote[0]);
+			m_vibrato->setHz(m_bpm / 60 / m_lfoNote[0]);
+		}
 		if(m_lfoSync[1] && m_lfoNote[1] > 0)
 		{
 			const double hz = m_bpm / 60 / m_lfoNote[1];
@@ -129,7 +133,13 @@ namespace elektron::drums
 		if(m_wanted[s] == m_source[s])
 			return;
 		const bool fromSyntakt = m_source[s] == SendSource::Syntakt;
-		if(_send == Send::Phaser && m_source[s] == SendSource::Flanger)
+		if(_send == Send::Chorus && m_source[s] == SendSource::Vibrato)
+			m_vibrato->clear();
+		else if(_send == Send::Chorus && m_source[s] == SendSource::Air)
+			m_air->clear();
+		else if(_send == Send::Chorus)
+			m_chorus->clear();
+		else if(_send == Send::Phaser && m_source[s] == SendSource::Flanger)
 			m_flanger->clear();
 		else if(_send == Send::Phaser && m_source[s] == SendSource::Dp4)
 			m_dp4->clear();
@@ -157,6 +167,12 @@ namespace elektron::drums
 			m_flanger->settle();
 			m_dp4->settle();
 		}
+		else if(_send == Send::Chorus)
+		{
+			m_chorus->settle();
+			m_vibrato->settle();
+			m_air->settle();
+		}
 	}
 
 	void Sends::setChorus(const int _byte, const uint8_t _value)
@@ -165,7 +181,11 @@ namespace elektron::drums
 		const auto& b = m_chorusBytes;
 		m_chorus->set(b[ChorusDelay], b[ChorusDepth], b[ChorusRate], b[ChorusFeedback],
 			static_cast<ModulatedDelay::Shape>(std::min<int>(b[ChorusShape], 5)));
+		m_vibrato->set(b[ChorusDepth], b[ChorusRate]);
+		m_air->set(b[ChorusDepth]);
 		giveLfoRates();
+		static constexpr SendSource Types[] = {SendSource::Classic, SendSource::Vibrato, SendSource::Air};
+		setSource(Send::Chorus, Types[std::min<int>(b[ChorusType], 2)]);
 	}
 
 	void Sends::setPhaser(const int _byte, const uint8_t _value)
@@ -229,6 +249,8 @@ namespace elektron::drums
 			m_stDelay->settle();
 			m_echo->settle();
 			m_chorus->settle();
+			m_vibrato->settle();
+			m_air->settle();
 			m_flanger->settle();
 			m_dp4->settle();
 			m_phaser->settle();
@@ -253,7 +275,15 @@ namespace elektron::drums
 			m_stReverb->process(reverbIn[0].data(), reverbIn[1].data(), delay[0].data(), delay[1].data(),
 				reverb[0].data(), reverb[1].data());
 		fade(Send::Reverb);
-		runOurs(Send::Chorus, *m_chorus, sendFxLevel(m_chorusBytes[ChorusLevel]), m_chorusPlayed);
+		const float chorusLevel = sendFxLevel(m_chorusBytes[ChorusLevel]);
+		const auto type = m_source[static_cast<size_t>(Send::Chorus)];
+		if(type == SendSource::Vibrato)
+			runOurs(Send::Chorus, *m_vibrato, chorusLevel, m_chorusPlayed);
+		else if(type == SendSource::Air)
+			runOurs(Send::Chorus, *m_air, chorusLevel, m_chorusPlayed);
+		else
+			runOurs(Send::Chorus, *m_chorus, chorusLevel, m_chorusPlayed);
+		fade(Send::Chorus);
 		const float phaserLevel = sendFxLevel(m_phaserBytes[PhaserLevel]);
 		const auto mode = m_source[static_cast<size_t>(Send::Phaser)];
 		if(mode == SendSource::Flanger)
@@ -265,6 +295,7 @@ namespace elektron::drums
 		fade(Send::Phaser);
 		changeSource(Send::Delay);
 		changeSource(Send::Reverb);
+		changeSource(Send::Chorus);
 		changeSource(Send::Phaser);
 		for(auto& send : m_in)
 			for(auto& channel : send)

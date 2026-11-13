@@ -197,3 +197,38 @@ writer échoue, efface le fichier raté et signale à l'hôte que le set a chang
 piste ancien dont un LFO vise une autre piste suit la machine que le set y joue. Tests : `edDrumsSampleLibraryTest`
 (bornes, reprise, copie interrompue), `edDrumsNoFlashTest` (migration avec un échec), `edDrumsProcessorTest` (LFO vers
 T05, KEEP bloqué puis réussi), `edDrumsEditorTest` : verts. Le garde-fou du dépôt n'a pas tourné.
+
+## État (2026-11-13)
+
+Formats propres aux machines d'origine que le parcours rencontre (`isMachineFile`) : `.syx`, `.dtprj`, `.dtsnd`,
+`.stprj`, `.stsnd`. Lecteurs présents dans le dépôt : mdProtocol lit les Kits du MD (`$52`, `parseMdKit`) et ses
+patterns (`$67`, `parseMdPatternDump`) ; mdLib valide les dumps de samples SDS sans les décoder (et Lockstep ne lie pas
+mdLib) ; stDrums lit l'OS du Syntakt (ELE3, LZ), dont Lockstep ne prend rien, ses machines n'en lisant rien. Les
+projets et sons (`.dtprj`, `.dtsnd`, `.stprj`, `.stsnd`) n'ont de description dans aucune note du dépôt (seulement le
+renvoi à un lecteur externe, Synfact, dans `.scratch/elektron-engines/README.md`) : ils restent non lus, faute de format
+connu, et le rapport le dit.
+
+Fait (`edDrumsPlugin/edDrumsMachineFiles.*`) : le parcours lit chaque `.syx` (8 Mo au plus), message par message. Un Kit
+du MD devient un Kit de la banque, dans le premier emplacement vide, sous son nom : par piste la machine si Lockstep l'a
+(ROM-01 à 32 : le Sampler sur l'emplacement d'usine n, mêmes SYN1-8), SYN1-8, DEL et REV sur les envois délai et
+réverbération (sources Dub Echo et Gated Verb), la chaîne de la famille avec EQF, EQG, FLTF, FLTW, FLTQ, SRR et DIST, le
+Choke ; les octets de l'Echo et de la Gate Box tels quels. Lois vérifiées : la chaîne MD de Lockstep donne aux étages
+`md::fast` les mots valeur << 7 que l'OS leur donne (`Chain::setBand`, `setFilter`, `setDrive`), dans l'ordre de
+`TrackFx` (EQ, filtre, SRR, DIST) : copie valeur pour valeur. Les envois sont dans les deux au carré de leur valeur, après
+le niveau et le pan (`HostModel::mixer`, `Mixer::gains` ; `Engine::setSend`) : copie aussi. Le mix diffère : la machine
+donne (LEV/127)² (VOL/127)² x (cos, sin) d'un angle PAN x 64 sur le premier quart du sinus, Lockstep (niveau/127)² et un pan
+linéaire plafonné à 1. `mixOf` convertit : le pan qui garde la balance, le niveau dont le côté fort est celui de la
+machine (VOL y entre, il n'est donc plus « non pris »). Le test compare les deux lois sur cinq pistes : côté fort à moins
+de 0,2 dB, l'autre à moins de 1 % de la pleine échelle. Le rapport (`Report::notTaken`, une ligne par chose, écrite aussi dans le
+journal ; le toast en montre la première et compte les autres) dit ce qui n'est pas pris : machine absente (INP, MID,
+CTR, RAM, ROM-33 à 48, la piste reste Off), AM, LFO, lien de déclenchement, master EQ et DYNAMIX,
+patterns, chansons, réglages globaux, dumps de samples, messages d'autres machines ou fabricants, projets et sons non lus,
+Kit illisible ou banque pleine.
+
+Pas fait : les patterns du MD (lecteur présent, mais aucun encodeur dans le dépôt pour en faire un fixture à nous, et les
+patterns de Lockstep sont les siens) ; les dumps SDS (aucun décodeur) ; projets et sons (format inconnu).
+
+Test : `edDrumsProcessorTest` (`machineKits`) écrit un `.syx` par `mdKitDump`, plus un en-tête SDS et un `.stprj`,
+l'importe par `addToLocker`, charge le Kit (emplacement 1) et vérifie 23 valeurs des pistes et partagées, le mix de cinq
+pistes contre la loi de la machine, T02 sur « factory:5 », T03 et T04 Off, et les 8 lignes du rapport. `edDrumsProcessorTest`, `edDrumsSampleLibraryTest`,
+`edDrumsEditorTest` : verts. Le garde-fou du dépôt n'a pas tourné.

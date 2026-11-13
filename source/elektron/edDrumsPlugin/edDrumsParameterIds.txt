@@ -1592,3 +1592,4 @@ push_lfo2_sync
 push_lfo2_speed
 push_lfo2_hz
 push_lfo2_feel
+chorus_type

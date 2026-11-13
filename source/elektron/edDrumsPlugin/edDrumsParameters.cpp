@@ -623,6 +623,8 @@ namespace elektron::drums::parameters
 		{"phaser_speed", "Phaser Note Rate", 0, 10, "1/64|1/32|1/16|1/8|1/4|1/2|1 Bar|2 Bars|4 Bars|8 Bars|16 Bars"},
 	}};
 	const Spec dp4SampleHoldSpec{"phaser_dp4_sh", "Rack S&H Rate"};
+	// A new type is appended, so that a set keeps the one it chose
+	const Spec chorusTypeSpec{"chorus_type", "Chorus Type", 0, 2, "Classic|Vibrato|Slow Sweep"};
 
 	double delayNoteQuarters(const int _choice)
 	{

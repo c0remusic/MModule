@@ -186,7 +186,9 @@ namespace elektron::drums
 		// Message thread. ADD FOLDER (_copy false: linked) or IMPORT PACK (copied into the Locker's Imported) of _folder,
 		// walked by LockerImport: false while a walk runs. The timer takes its report, gives the Locker the folder, or
 		// its copy, when it holds samples the Locker lacks, and counts the reports taken, for the editor's toast. A flash
-		// image found plays from the instrument's next load. libraryFromWords: the engine plays the words the Locker keeps
+		// image found plays from the instrument's next load. A Kit found in a SysEx file goes into the first empty Slot of
+		// the Bank (machineFiles::kitOf), the report saying which (kitSlots) and, a line each, what it did not take
+		// (notTaken), which the log also writes. libraryFromWords: the engine plays the words the Locker keeps
 		bool addToLocker(const juce::File& _folder, bool _copy);
 		// The timer's, which a test calls: a walk ended, its report taken
 		bool takeLockerImport();
@@ -413,7 +415,7 @@ namespace elektron::drums
 		std::array<Watched, PhaserBytes> m_phaser{};
 		std::array<Watched, MasterBytes> m_master{};
 		Watched m_masterOn, m_oversampling;
-		Watched m_delaySync, m_delayNote, m_dp4SampleHold;
+		Watched m_delaySync, m_delayNote, m_dp4SampleHold, m_chorusType;
 		std::array<Watched, 2> m_lfoSync{}, m_lfoNote{};	// the chorus's, the phaser's
 		std::vector<Watched*> m_watched;	// all of them, made due for a new engine
 

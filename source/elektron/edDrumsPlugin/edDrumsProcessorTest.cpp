@@ -17,6 +17,8 @@
 //     state and a Kit keep the fingerprint, the audition plays once on Main;
 //   - a Kit saved, then loaded by another instance, plays the same, its sample included, no edit told; two instances
 //     on one Bank each write a Slot and keep the other's; a Kit without an ID loads that parameter's default (ticket 19);
+//   - a SysEx file's Kit dump, made by mdProtocol's encoder, imported into an empty Slot, its values on the Tracks once
+//     loaded, and what Lockstep lacks of the file said a line each (ticket 20);
 //   - the sequencer from a playhead at 120 BPM: Hits at their steps' samples, Locks for their step only, Pattern
 //     switching at the end of the pattern playing, patterns and samples in the state play the same (ticket 17);
 //   - a slide: Filter Freq and Machine 1 glide from the step's Locks to the next trig's, the engine's, in any host
@@ -52,6 +54,7 @@
 #include "edDrumsProcessor.h"
 #include "edDrumsVintage.h"
 #include "MidiNoteNumbers.h"
+#include "mdProtocol/mdkit.h"
 #include "mdProtocol/mdmachines.h"
 #include "sophieMachine.h"
 
@@ -260,10 +263,15 @@ namespace
 			inSections += _processor.ids(s).size();
 		require(inSections == ids.size(), "every parameter in one section");
 
-		// The relays for Push, last: 64, each named in Push's ten characters, as its target on Track 1 in range and kind
+		// The relays for Push: 64, last but the parameters appended after them, each named in Push's ten characters, as
+		// its target on Track 1 in range and kind
+		const juce::StringArray afterRelays{"chorus_type"};
 		const auto& relays = _processor.ids(Processor::Section::Relays);
-		require(relays.size() == parameters::RelayCount && ids.indexOf(relays[0]) == ids.size() - parameters::RelayCount,
-			"the 64 relays last");
+		require(relays.size() == parameters::RelayCount
+			&& ids.indexOf(relays[0]) == ids.size() - parameters::RelayCount - afterRelays.size(),
+			"the 64 relays last but the parameters appended after them");
+		for(int i = 0; i < afterRelays.size(); ++i)
+			require(ids[ids.size() - afterRelays.size() + i] == afterRelays[i], "not appended after the relays");
 		for(int r = 0; r < relays.size(); ++r)
 		{
 			const auto& spec = parameters::relaySpecs[static_cast<size_t>(r)];
@@ -433,6 +441,7 @@ namespace
 			};
 			chorus("chorus_rate", ChorusRate); chorus("chorus_depth", ChorusDepth); chorus("chorus_delay", ChorusDelay);
 			chorus("chorus_fdbk", ChorusFeedback); chorus("chorus_level", ChorusLevel); chorus("chorus_shape", ChorusShape);
+			chorus("chorus_type", ChorusType);
 			const auto phaser = [&m](const char* _id, const int _byte)
 			{
 				m[_id] = [_byte](Engine& _e, const double _v) { _e.sends().setPhaser(_byte, byteOf(_v)); };
@@ -2833,6 +2842,125 @@ namespace
 		return take;
 	}
 
+	// A SysEx file of our own, made by mdProtocol's encoder, imported as a folder is: its Kit in an empty Slot of the
+	// Bank, loaded, every value Lockstep has on its Tracks; and what Lockstep lacks of it, a line each (ticket 20)
+	void machineKits()
+	{
+		using md::automation::sysex::MdKit;
+		MdKit kit;
+		kit.setName("IMPORTED");
+		for(auto& v : kit.parameters)
+			v[17] = 127;		// VOL at ASSIGN MACHINE's, which Lockstep's level alone stands for
+		for(int t = 0; t < Tracks; ++t)
+			kit.machines[static_cast<size_t>(t)] = 17;	// TRX-SD
+		auto& one = kit.parameters[0];
+		kit.machines[0] = 16;	// TRX-BD
+		for(int i = 0; i < 8; ++i)
+			one[static_cast<size_t>(i)] = static_cast<uint8_t>(10 + i);
+		one[10] = 70; one[11] = 50; one[12] = 20; one[13] = 100; one[14] = 30; one[15] = 5; one[16] = 40;
+		one[18] = 30; one[19] = 60; one[20] = 70;
+		kit.levels[0] = 90;
+		kit.chokes[0] = 2;		// T01's Hit silences T03
+		kit.machines[1] = 128 + 4;	// ROM-05: the Sampler on factory slot 5
+		kit.parameters[1][0] = 33;
+		kit.parameters[1][8] = 50;	// AMD
+		kit.parameters[1][22] = 20;	// LFOD
+		kit.machines[2] = 80;	// INP-GA
+		kit.machines[3] = 178;	// ROM-35, a sample of the user's own
+		kit.parameters[4][17] = 100;
+		kit.links[4] = 5;
+		// Pans across the range, for the mix's gains below
+		kit.levels[4] = 100;
+		kit.levels[5] = 110;
+		kit.parameters[5][18] = 127;
+		kit.parameters[6][18] = 64;
+		kit.levels[6] = 127;
+		kit.parameters[7][18] = 100;
+		kit.levels[7] = 60;
+		kit.parameters[7][17] = 80;
+		const uint8_t echo = md::automation::sysex::mdKitMasterIndex(0, 0), gate = md::automation::sysex::mdKitMasterIndex(1, 0);
+		for(uint8_t i = 0; i < 8; ++i)
+		{
+			kit.masterEffects[static_cast<size_t>(echo + i)] = static_cast<uint8_t>(40 + i);
+			kit.masterEffects[static_cast<size_t>(gate + i)] = static_cast<uint8_t>(80 + i);
+		}
+
+		const auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsMachineKits");
+		folder.deleteRecursively();
+		require(folder.createDirectory().wasOk(), "the folder");
+		auto bytes = md::automation::sysex::mdKitDump(kit, 3);
+		// A sample dump's header after it, which Lockstep does not read
+		for(const uint8_t b : {0xf0, 0x7e, 0x00, 0x01, 0x00, 0x00, 0xf7})
+			bytes.push_back(b);
+		require(folder.getChildFile("backup.syx").replaceWithData(bytes.data(), bytes.size()), "the SysEx file");
+		require(folder.getChildFile("song.stprj").replaceWithText("a project"), "the project file");
+
+		Processor p;
+		require(p.addToLocker(folder, false), "the import started");
+		const auto until = juce::Time::getMillisecondCounter() + 20000;
+		while(!p.takeLockerImport() && juce::Time::getMillisecondCounter() < until)
+			juce::Thread::sleep(5);
+		const auto& r = p.lastImport();
+		require(r.kitSlots.size() == 1 && r.unread == 1, "the import: " + std::to_string(r.kitSlots.size()) + " kits, "
+			+ std::to_string(r.unread) + " files not read");
+		const int slot = r.kitSlots[0];
+		require(p.kitSlot(slot).name == "IMPORTED", "the Slot's name: " + p.kitSlot(slot).name.toStdString());
+		const auto notTaken = r.notTaken;
+		for(const char* expected : {"IMPORTED: T03 plays INP-GA, which Lockstep does not have",
+			"IMPORTED: T04 plays ROM-35, which Lockstep does not have", "IMPORTED: AM on T02 not taken",
+			"IMPORTED: the LFO of T02 not taken", "IMPORTED: T05's Hit also hits T06",
+			"IMPORTED: the master EQ and DYNAMIX not taken", "backup.syx: 1 x sample dumps", "song.stprj: not read"})
+		{
+			bool found = false;
+			for(const auto& line : notTaken)
+				found = found || line.startsWith(expected);
+			require(found, std::string("the report lacks \"") + expected + "\": " + notTaken.joinIntoString(" | ").toStdString());
+		}
+		require(notTaken.size() == 8, "the report says more: " + notTaken.joinIntoString(" | ").toStdString());
+
+		require(p.loadKit(slot), "the imported Kit loaded");
+		const auto value = [&](const char* _id) { return whole(plain(find(p, _id))); };
+		require(value("t01_machine") == choiceOf(p, Machine{Family::Machinedrum, 16}), "T01's machine");
+		for(int i = 0; i < 8; ++i)
+			require(value(("t01_m" + std::to_string(i + 1)).c_str()) == 10 + i, "T01's SYN" + std::to_string(i + 1));
+		const std::map<std::string, int> one1{{"t01_send_delay", 60},
+			{"t01_send_reverb", 70}, {"t01_band_1", 70}, {"t01_band_2", 50}, {"t01_flt_freq", 20}, {"t01_flt_width", 100},
+			{"t01_flt_res", 30}, {"t01_drv1_amount", 5}, {"t01_drv2_amount", 40}, {"t01_chokes", 4},
+			{"t01_flt_type", static_cast<int>(FilterType::Machinedrum)}, {"t01_band_type", static_cast<int>(BandType::MdEq)},
+			{"t01_drv1_type", static_cast<int>(DriveType::MdSrr)}, {"t01_drv2_type", static_cast<int>(DriveType::MdDist)},
+			{"echo_time", 40}, {"echo_lev", 47}, {"gate_dvol", 80}, {"gate_lev", 87}, {"delay_source", 0},
+			{"reverb_source", 0}, {"t02_m1", 33}, {"t03_machine", 0}, {"t04_machine", 0}};
+		for(const auto& [id, expected] : one1)
+			require(value(id.c_str()) == expected, id + ": " + std::to_string(value(id.c_str())) + " for "
+				+ std::to_string(expected));
+		require(value("t02_machine") == p.samplerChoice() && p.sampleFingerprint(1) == "factory:5", "T02 on factory slot 5");
+		require(value("t05_machine") == choiceOf(p, Machine{Family::Machinedrum, 17}), "T05's machine");
+
+		// Each side's gain as the machine's mix gives it (HostModel::mixer: LEV^2 x VOL^2; Mixer::gains: the sine's first
+		// quarter at PAN x 64, its last word at 127) and as Lockstep's gives it from the values imported (Engine's gainOf
+		// and panOf): the louder side within 0.2 dB, the other within 1 % of full scale. The sends come after these gains
+		// in both, as the squares of their own values, which the import copies
+		for(const int t : {0, 4, 5, 6, 7})
+		{
+			const auto& v = kit.parameters[static_cast<size_t>(t)];
+			const double lev = kit.levels[static_cast<size_t>(t)] / 127.0, vol = v[17] / 127.0;
+			const double angle = juce::MathConstants<double>::halfPi * (v[18] >= 127 ? 8191 : v[18] * 64) / 8192;
+			const double g = lev * lev * vol * vol;
+			const double md[2]{g * std::cos(angle), g * std::sin(angle)};
+			const auto prefix = "t" + juce::String(t + 1).paddedLeft('0', 2).toStdString() + "_";
+			const double level = value((prefix + "level").c_str()) / 127.0, pan = value((prefix + "pan").c_str());
+			const double ours[2]{level * level * std::min(1.0, (127 - pan) / 63), level * level * std::min(1.0, pan / 64)};
+			const int loud = md[1] > md[0] ? 1 : 0;
+			const double db = 20 * std::log10(ours[loud] / md[loud]);
+			require(std::abs(db) < 0.2 && std::abs(ours[1 - loud] - md[1 - loud]) < 0.01, "T" + std::to_string(t + 1)
+				+ "'s mix: left " + std::to_string(ours[0]) + " for " + std::to_string(md[0]) + ", right "
+				+ std::to_string(ours[1]) + " for " + std::to_string(md[1]));
+		}
+		folder.deleteRecursively();
+		std::printf("PASS: a Kit dump in a SysEx file into Slot %d, its values on the Tracks; %d things not taken said\n",
+			slot + 1, notTaken.size());
+	}
+
 	void kitFiles(const Library& _library, const juce::File& _wav)
 	{
 		// A Track sound: Track 3 on the Sampler with a sample and its chain, LFO and Machine 9-24 changed, saved; loaded on
@@ -3232,6 +3360,7 @@ int main(const int _argc, char** _argv)
 		samples(wav);
 		kits(wav);
 		kitFiles(library, wav);
+		machineKits();
 		sampleLibrary();
 		wav.deleteFile();
 		slides(library);

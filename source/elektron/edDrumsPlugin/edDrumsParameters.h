@@ -69,6 +69,8 @@ namespace elektron::drums::parameters
 	extern const Spec delaySyncSpec, delayNoteSpec;
 	extern const std::array<Spec, 2> lfoSyncSpecs, lfoNoteSpecs;	// the chorus's, the phaser's
 	extern const Spec dp4SampleHoldSpec;
+	// The chorus's type (Sends' ChorusType), appended after the relays
+	extern const Spec chorusTypeSpec;
 	constexpr int DefaultDelayNote = 9, DefaultLfoNote = 6;		// 1/4, 1 Bar
 	// Beats of delayNoteSpec's and lfoNoteSpecs' choices
 	double delayNoteQuarters(int _choice);

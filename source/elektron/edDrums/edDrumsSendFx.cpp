@@ -215,6 +215,144 @@ namespace elektron::drums
 		m_swing = swingEnd;
 	}
 
+	SweptLine::SweptLine() : m_line(Size, 0.0f)
+	{
+	}
+
+	float SweptLine::read(const float _delay, float& _state) const
+	{
+		const auto whole = static_cast<uint32_t>(_delay);
+		const float eta = 1 - (_delay - static_cast<float>(whole));
+		const float a = m_line[(m_write - whole) & Mask], b = m_line[(m_write - whole - 1) & Mask];
+		_state = eta * a + b - eta * _state;
+		return _state;
+	}
+
+	void SweptLine::clear()
+	{
+		std::fill(m_line.begin(), m_line.end(), 0.0f);
+	}
+
+	double Vibrato::top(const uint8_t _depth, const double _hz)
+	{
+		// The top at 4 Hz, measured every 16 of depth; it scales as 1 / Hz, a bend of pitch the rate keeps
+		static constexpr Knot At4Hz[] = {{16, 2.72}, {32, 5.11}, {48, 9.14}, {64, 16.42}, {80, 29.08}, {96, 51.9},
+			{112, 92.1}, {127, 158.44}};
+		const double at4 = _depth < 16 ? At4Hz[0].value * _depth / 16 : knots(At4Hz, _depth);
+		constexpr double Longest = 512;
+		return _hz > 0 ? std::min(Longest, at4 * 4 / _hz) : Longest;
+	}
+
+	void Vibrato::set(const uint8_t _depth, const uint8_t _rate)
+	{
+		m_depth = _depth;
+		setHz(std::exp2(_rate / 32.0));
+	}
+
+	void Vibrato::setHz(const double _hz)
+	{
+		m_step = stepOf(_hz);
+		m_topTo = static_cast<float>(top(m_depth, _hz));
+	}
+
+	void Vibrato::settle()
+	{
+		m_top = m_topTo;
+	}
+
+	void Vibrato::clear()
+	{
+		for(auto& line : m_line)
+			line.clear();
+		m_state[0] = m_state[1] = 0;
+	}
+
+	void Vibrato::process(const float* const _inL, const float* const _inR, float* const _outL, float* const _outR)
+	{
+		// The sine at the block's end, straight between
+		m_phase += m_step;
+		m_top = m_topTo + Glide * (m_top - m_topTo);
+		const float turn = static_cast<float>(m_phase >> 8) / 16777216.0f;
+		const float to = m_top * (0.5f - 0.5f * std::cos(turn * 6.2831853f));
+		const float step = (to - m_delay) / BlockSize;
+		const float* const in[2] = {_inL, _inR};
+		float* const out[2] = {_outL, _outR};
+		float delay = m_delay;
+		for(int k = 0; k < BlockSize; ++k)
+		{
+			delay += step;
+			// Written first: no delay reads the sample in
+			for(size_t c = 0; c < 2; ++c)
+			{
+				m_line[c].write(in[c][k]);
+				out[c][k] = m_line[c].read(delay, m_state[c]);
+			}
+		}
+		m_delay = to;
+	}
+
+	double Air::top(const uint8_t _depth)
+	{
+		// Fitted on noise: straight to 32, 4/3 every 8 past it, 512 from 77
+		static constexpr Knot Top[] = {{8, 25.75}, {16, 51.41}, {24, 77.09}, {32, 103.84}, {40, 138.44}, {48, 184.6},
+			{56, 246.15}, {64, 328.22}, {72, 437.65}, {76, 505.38}};
+		return _depth < 8 ? Top[0].value * _depth / 8 : _depth > 76 ? 512 : knots(Top, _depth);
+	}
+
+	double Air::hz(const uint8_t _depth)
+	{
+		// Past 76 the sweep speeds up in eighths of its slowest, fitted on noise one depth at a time: a speed between
+		// two of them missed the Virus by 10 dB more on noise
+		static constexpr uint8_t Eighths[] = {8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16,
+			17, 18, 18, 19, 20, 20, 21, 22, 23, 24, 24, 25, 26, 27, 28, 29, 31, 32, 33, 34, 35, 37, 38, 39, 41, 42, 44, 46,
+			47, 49};
+		static_assert(std::size(Eighths) == 128 - 77);
+		constexpr double Slowest = 0.09989;
+		return _depth <= 76 ? Slowest : Slowest * Eighths[_depth - 77] / 8;
+	}
+
+	void Air::set(const uint8_t _depth)
+	{
+		m_topTo = static_cast<float>(top(_depth));
+		m_step = stepOf(hz(_depth));
+	}
+
+	void Air::settle()
+	{
+		m_top = m_topTo;
+	}
+
+	void Air::clear()
+	{
+		for(auto& line : m_line)
+			line.clear();
+		m_state[0] = m_state[1] = 0;
+	}
+
+	void Air::process(const float* const _inL, const float* const _inR, float* const _outL, float* const _outR)
+	{
+		m_phase += m_step;
+		m_top = m_topTo + Glide * (m_top - m_topTo);
+		const float turn = static_cast<float>(m_phase >> 8) / 16777216.0f;
+		const float sweep = 0.5f * triangle(m_phase) + 0.25f - 0.25f * std::cos(turn * 6.2831853f);
+		// The right where the left is not, each straight from where the last block left it
+		const float to[2] = {m_top * sweep, m_top * (1 - sweep)};
+		const float step[2] = {(to[0] - m_delay[0]) / BlockSize, (to[1] - m_delay[1]) / BlockSize};
+		const float* const in[2] = {_inL, _inR};
+		float* const out[2] = {_outL, _outR};
+		for(size_t c = 0; c < 2; ++c)
+		{
+			float delay = m_delay[c];
+			for(int k = 0; k < BlockSize; ++k)
+			{
+				delay += step[c];
+				m_line[c].write(in[c][k]);
+				out[c][k] = m_line[c].read(delay, m_state[c]);
+			}
+			m_delay[c] = to[c];
+		}
+	}
+
 	void Phaser::set(const int _stages, const uint8_t _frequency, const uint8_t _spread, const uint8_t _depth,
 		const uint8_t _rate, const uint8_t _feedback)
 	{

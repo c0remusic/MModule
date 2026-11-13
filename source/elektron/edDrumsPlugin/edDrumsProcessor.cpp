@@ -668,6 +668,9 @@ namespace elektron::drums
 			m_relays[r].taken.store(relay->getValue());
 		}
 
+		// Appended after the relays, in the frozen order: ticket 14's chorus types
+		shared(m_chorusType, chorusTypeSpec, 0, Section::Effects);
+
 		m_edited = std::make_unique<Sequencer>();
 		for(auto& s : m_sequencers)
 			s = std::make_unique<Sequencer>();
@@ -1489,6 +1492,34 @@ namespace elektron::drums
 			r.copy.deleteRecursively();	// the folder addToLocker made, which nothing was copied into
 		else if(r.copy == juce::File() && r.audio > r.known)
 			m_sampleLibrary->addSource(SampleLibrary::Kind::Linked, r.folder);
+		// The Kits found, each into the first empty Slot of the Bank, under its own name; what Lockstep lacks of them said
+		followKits();
+		auto& taken = m_lastImport;
+		int slot = 0;
+		uint64_t written = 0;
+		for(const auto& found : taken.kits)
+		{
+			while(slot < KitSlots && !m_kits->slot(slot).empty())
+				++slot;
+			if(slot == KitSlots)
+			{
+				taken.notTaken.add(found.name + ": not taken, no empty Slot left among the Kits");
+				continue;
+			}
+			const auto kit = machineFiles::kitOf(found, m_machines, taken.notTaken);
+			if(!m_kits->write(slot, *kit))
+			{
+				taken.notTaken.add(found.name + ": not taken, Slot " + juce::String(slot + 1) + " could not be written");
+				continue;
+			}
+			m_kits->follow();
+			taken.kitSlots.push_back(slot);
+			written |= uint64_t{1} << slot;
+		}
+		if(written)
+			prepareKits(written);
+		for(const auto& line : taken.notTaken)
+			juce::Logger::writeToLog("Import: " + line);
 		++m_imports;
 		return true;
 	}
@@ -1757,6 +1788,8 @@ namespace elektron::drums
 				fx.setPhaser(static_cast<int>(i), byte(m_phaser[i]));
 		if(m_dp4SampleHold.changed())
 			fx.setPhaser(PhaserDp4SampleHold, byte(m_dp4SampleHold));
+		if(m_chorusType.changed())
+			fx.setChorus(ChorusType, byte(m_chorusType));
 		if(m_delayNote.changed())
 			fx.setDelayNote(parameters::delayNoteQuarters(m_delayNote.integer()));
 		if(m_delaySync.changed())

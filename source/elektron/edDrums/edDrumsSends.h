@@ -20,15 +20,25 @@ namespace elektron::drums
 {
 	enum class Send : uint8_t { Delay, Reverb, Chorus, Phaser };
 	constexpr int SendCount = 4;
-	// The delay's and the reverb's two, the Phaser send's three
-	enum class SendSource : uint8_t { Machinedrum, Syntakt, Dp4, Phaser = Machinedrum, Flanger = Syntakt };
+	// The delay's and the reverb's two, the Phaser send's three, the Chorus send's three
+	enum class SendSource : uint8_t
+	{
+		Machinedrum, Syntakt, Dp4, Phaser = Machinedrum, Flanger = Syntakt, Classic = Machinedrum, Vibrato = Syntakt,
+		Air = Dp4
+	};
 
 	// Our chorus's and phaser's settings, 0-127, but Stages 1-6. Mode 0 phaser, 1 flanger, whose delay Frequency sets
 	// and which has no Stages or Spread, 2 the DP/4's phaser: Frequency its centre, Depth its width, Spread its notch
 	// depth, no Stages, and the bytes of its own: Dp4Phase 0 in phase, else out; its delay line's times and feedback.
 	// A change of Mode goes as a change of source does
-	// Shape: 0 sine, 1 triangle, 2 saw, 3 square, 4 sample and hold, 5 sample and glide
-	enum ChorusByte { ChorusRate, ChorusDepth, ChorusDelay, ChorusFeedback, ChorusLevel, ChorusShape, ChorusBytes };
+	// Shape: 0 sine, 1 triangle, 2 saw, 3 square, 4 sample and hold, 5 sample and glide. Type, appended after the host
+	// parameters ChorusBytes counts: 0 the chorus above, 1 Vibrato (Depth and Rate alone), 2 Air (Depth alone); a change
+	// of Type goes as a change of source does
+	enum ChorusByte
+	{
+		ChorusRate, ChorusDepth, ChorusDelay, ChorusFeedback, ChorusLevel, ChorusShape, ChorusBytes,
+		ChorusType = ChorusBytes, ChorusAllBytes
+	};
 	enum PhaserByte
 	{
 		PhaserMode, PhaserStages, PhaserRate, PhaserDepth, PhaserFrequency, PhaserSpread, PhaserFeedback, PhaserLevel,
@@ -85,7 +95,7 @@ namespace elektron::drums
 		void setBpm(double _bpm);
 
 		// The return fades out over the next block, the effect left is emptied, so that no tail of it can come back,
-		// and the other fades in over the block after. The chorus has one, so never it
+		// and the other fades in over the block after. The chorus's and the phaser's follow their Type and Mode bytes
 		void setSource(const Send _send, const SendSource _source) { m_wanted[static_cast<size_t>(_send)] = _source; }
 
 		// 0 Main, 1-15 Out 01-15
@@ -146,9 +156,11 @@ namespace elektron::drums
 		double m_lfoNote[2] = {1, 1};						// the chorus's, the phaser's
 		bool m_delaySync = false, m_lfoSync[2] = {};
 		std::unique_ptr<ModulatedDelay> m_chorus, m_flanger;
+		std::unique_ptr<Vibrato> m_vibrato;
+		std::unique_ptr<Air> m_air;
 		std::unique_ptr<Phaser> m_phaser;
 		std::unique_ptr<Dp4Phaser> m_dp4;
-		std::array<uint8_t, ChorusBytes> m_chorusBytes{};
+		std::array<uint8_t, ChorusAllBytes> m_chorusBytes{};
 		std::array<uint8_t, PhaserAllBytes> m_phaserBytes{};
 		float m_chorusPlayed = 0, m_phaserPlayed = 0;		// the gain the last block ended on
 		std::array<SendSource, SendCount> m_source{};		// what plays

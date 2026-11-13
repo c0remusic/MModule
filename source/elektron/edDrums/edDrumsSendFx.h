@@ -63,6 +63,84 @@ namespace elektron::drums
 		float m_delay = 1, m_swing = 0, m_delayTo = 1, m_swingTo = 0, m_feedback = 0, m_feedbackTo = 0, m_top = 0;
 	};
 
+	// A line read from no delay up, through an allpass between two samples, flat to the top: OsTIrus's chorus types past
+	// Classic read so (a straight line would dull the highs), its coefficient 1 - t of the fraction t, not the exact
+	// (1 - t) / (1 + t): 22 to 30 dB closer to the Virus on noise
+	class SweptLine
+	{
+	public:
+		SweptLine();
+
+		void write(float _in)
+		{
+			m_write = (m_write + 1) & Mask;
+			m_line[m_write] = _in;
+		}
+		// _delay samples, 0 to 1,023, before the sample written last; _state is the allpass's, one for each read
+		float read(float _delay, float& _state) const;
+		void clear();
+
+	private:
+		static constexpr uint32_t Size = 1024, Mask = Size - 1;
+
+		std::vector<float> m_line;
+		uint32_t m_write = 0;
+	};
+
+	// A vibrato: a line per channel, both read at the same delay, a sine moving it between none and the depth's top;
+	// nothing of the dry signal, no feedback. Measured on OsTIrus's Vibrato chorus: the LFO at 2^(rate / 32) Hz, the
+	// depth as a bend of pitch, the same at any rate (the delay's top shrinks as the LFO speeds up), at most 512 samples
+	class Vibrato
+	{
+	public:
+		static constexpr int BlockSize = 32;
+
+		// 0-127. A change glides over blocks
+		void set(uint8_t _depth, uint8_t _rate);
+		// The LFO at _hz in place of the rate byte's, until the next set; the depth's bend stays
+		void setHz(double _hz);
+		// The delay's top, in samples, at a depth byte and an LFO in Hz
+		static double top(uint8_t _depth, double _hz);
+
+		// At the settings at once
+		void settle();
+
+		void process(const float* _inL, const float* _inR, float* _outL, float* _outR);
+		void clear();
+
+	private:
+		SweptLine m_line[2];
+		uint8_t m_depth = 0;
+		uint32_t m_phase = 0, m_step = 0;
+		float m_top = 0, m_topTo = 0, m_delay = 0, m_state[2] = {};
+	};
+
+	// Air: a line per channel, the right read where the left is not, between none and the depth's top; nothing of the
+	// dry signal, no feedback. Measured on OsTIrus's Air chorus: the sweep half a triangle and half a raised cosine;
+	// Depth alone sets it, its top growing to 512 samples at 77, past which the sweep speeds up instead, from 0.0999 Hz
+	// to 0.61 Hz at 127
+	class Air
+	{
+	public:
+		static constexpr int BlockSize = 32;
+
+		// 0-127. A change glides over blocks
+		void set(uint8_t _depth);
+		// The depth's top in samples and its sweep in Hz
+		static double top(uint8_t _depth);
+		static double hz(uint8_t _depth);
+
+		void settle();
+
+		void process(const float* _inL, const float* _inR, float* _outL, float* _outR);
+		void clear();
+
+	private:
+		SweptLine m_line[2];
+		uint32_t m_phase = 0, m_step = 0;
+		float m_top = 0, m_topTo = 0, m_delay[2] = {}, m_state[2] = {};
+	};
+
 	// One to six second-order allpasses in a row, the same on a channel, the right ones a little higher, a triangle
 	// sweeping them up together; the last fed back to the first
 	class Phaser

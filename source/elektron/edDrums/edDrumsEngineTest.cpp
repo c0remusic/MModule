@@ -1695,6 +1695,7 @@ namespace
 				fx.setChorus(byte, 64);
 			fx.setChorus(ChorusLevel, 127);
 			fx.setChorus(ChorusShape, 1);
+			fx.setChorus(ChorusType, static_cast<uint8_t>(_send == Send::Chorus ? _mode : 0));
 			for(int byte = 0; byte < PhaserBytes; ++byte)
 				fx.setPhaser(byte, 64);
 			fx.setPhaser(PhaserMode, static_cast<uint8_t>(_mode));
@@ -1711,8 +1712,9 @@ namespace
 				take.render(*e, std::min(_block, Samples - take.at()));
 			return take;
 		};
-		for(const auto& [send, mode] :
-			{std::pair<Send, int>{Send::Chorus, 0}, {Send::Phaser, 0}, {Send::Phaser, 1}, {Send::Phaser, 2}})
+		// The chorus's types and the phaser's modes
+		for(const auto& [send, mode] : {std::pair<Send, int>{Send::Chorus, 0}, {Send::Chorus, 1}, {Send::Chorus, 2},
+			{Send::Phaser, 0}, {Send::Phaser, 1}, {Send::Phaser, 2}})
 		{
 			const auto take = ours(send, mode, 32);
 			require(energy(take.channel(2 * Out)) > 1e-3, "no chorus, phaser or flanger");
@@ -1726,6 +1728,7 @@ namespace
 				e->setChain(0, ChainSettings{});
 				auto& fx = e->sends();
 				fx.setChorus(ChorusLevel, 127);
+				fx.setChorus(ChorusType, static_cast<uint8_t>(send == Send::Chorus ? mode : 0));
 				fx.setPhaser(PhaserMode, static_cast<uint8_t>(mode));
 				fx.setPhaser(PhaserLevel, 127);
 				fx.setPhaser(PhaserDepth, 127);
@@ -1744,8 +1747,10 @@ namespace
 				e->noteOn(0, 127);
 				t.render(*e, 0, Samples - Warm);
 				require(fx.peak(send) > 0.01f && fx.peak(Send::Delay) == 0, "a return's peak is not its own");
+				// Air has no rate: its depth alone sets its sweep, as on the Virus
+				const bool air = send == Send::Chorus && mode == 2;
 				if(synced)
-					require(t.channel(2 * Out) != free, "the LFO's note changes nothing");
+					require((t.channel(2 * Out) != free) != air, "the LFO's note changes nothing, or Air's something");
 				free = t.channel(2 * Out);
 			}
 			require(take.channel(2 * Out) == ours(send, mode, 57).channel(2 * Out), "ours move with the host's blocks");
@@ -1766,6 +1771,106 @@ namespace
 		require(syntakt.channel(2 * Out) == play(127, 127, Out, 57, SendSource::Syntakt).channel(2 * Out),
 			"the Syntakt's return moves with the host's blocks");
 		std::printf("PASS: the sends, none at 0, the returns where they are sent, the same whatever the blocks\n");
+	}
+
+	// ---- the chorus's Vibrato and Air against what OsTIrus's do ----
+
+	// A click every _every samples through _fx for _seconds; at each click, per channel, the delay of the strongest
+	// answer before the next click, in whole samples
+	template<typename Fx> std::array<std::vector<int>, 2> clickDelays(Fx& _fx, const int _every, const double _seconds)
+	{
+		const int blocks = static_cast<int>(_seconds * 44100) / 32;
+		std::vector<float> in(static_cast<size_t>(blocks) * 32), out[2];
+		for(size_t i = 0; i < in.size(); i += static_cast<size_t>(_every))
+			in[i] = 0.25f;
+		for(auto& o : out)
+			o.resize(in.size());
+		_fx.settle();
+		for(size_t b = 0; b < in.size(); b += 32)
+			_fx.process(&in[b], &in[b], &out[0][b], &out[1][b]);
+		std::array<std::vector<int>, 2> delays;
+		for(size_t c = 0; c < 2; ++c)
+			for(size_t at = 0; at + static_cast<size_t>(_every) <= in.size(); at += static_cast<size_t>(_every))
+			{
+				size_t best = 0;
+				for(size_t k = 1; k < static_cast<size_t>(_every); ++k)
+					if(std::abs(out[c][at + k]) > std::abs(out[c][at + best]))
+						best = k;
+				delays[c].push_back(static_cast<int>(best));
+			}
+		return delays;
+	}
+
+	// The turn of a sweep, in samples: the mean distance between the middles of its valleys, where it runs under a
+	// quarter of its top; the first and the last left out, which may be cut
+	double turnOf(const std::vector<int>& _delays, const int _every)
+	{
+		const int top = *std::max_element(_delays.begin(), _delays.end());
+		std::vector<double> middles;
+		size_t from = 0;
+		bool in = false;
+		for(size_t i = 0; i <= _delays.size(); ++i)
+		{
+			const bool low = i < _delays.size() && _delays[i] * 4 < top;
+			if(low && !in)
+				from = i;
+			else if(!low && in && from > 0 && i < _delays.size())
+				middles.push_back(0.5 * static_cast<double>(from + i - 1));
+			in = low;
+		}
+		require(middles.size() >= 2, "a sweep with no turn");
+		return (middles.back() - middles.front()) * _every / static_cast<double>(middles.size() - 1);
+	}
+
+	// Their tops and turns as measured on the Virus's renders: by impulses (OsTIrus's peak delays and LFO rates), the
+	// sweeps' shapes and the allpass that reads them by noise, in the scratch tools of ticket 14, where both pass
+	// 17 dB or more under the signal
+	void chorusTypes()
+	{
+		struct Case
+		{
+			const char* name;
+			int type, depth, rate;
+			int top;		// the Virus's, in samples
+			double hz;
+		};
+		static constexpr Case Cases[] = {{"Vibrato d127 r32", 1, 127, 32, 317, 1.9997},
+			{"Vibrato d64 r64", 1, 64, 64, 16, 4.0}, {"Vibrato d127 r112", 1, 127, 112, 56, 11.313},
+			{"Air d32", 2, 32, 0, 104, 0.09989}, {"Air d64", 2, 64, 0, 328, 0.09989}, {"Air d127", 2, 127, 0, 512, 0.6118}};
+		for(const auto& c : Cases)
+		{
+			const int every = c.top < 250 ? 256 : 1024;
+			const double seconds = std::max(3.0, 4.5 / c.hz);
+			std::array<std::vector<int>, 2> d;
+			if(c.type == 1)
+			{
+				auto fx = std::make_unique<Vibrato>();
+				fx->set(static_cast<uint8_t>(c.depth), static_cast<uint8_t>(c.rate));
+				d = clickDelays(*fx, every, seconds);
+			}
+			else
+			{
+				auto fx = std::make_unique<Air>();
+				fx->set(static_cast<uint8_t>(c.depth));
+				d = clickDelays(*fx, every, seconds);
+			}
+			const int top = *std::max_element(d[0].begin(), d[0].end());
+			const int low = *std::min_element(d[0].begin(), d[0].end());
+			const double hz = 44100 / turnOf(d[0], every);
+			std::printf("  %s: delay %d to %d samples, the Virus's 0 to %d; %.4f Hz, the Virus's %.4f\n", c.name, low, top,
+				c.top, hz, c.hz);
+			require(low <= 1 && std::abs(top - c.top) <= 2, std::string(c.name) + ": not the Virus's top");
+			require(std::abs(hz / c.hz - 1) < 0.02, std::string(c.name) + ": not the Virus's rate");
+			// Vibrato's channels together, Air's right where its left is not. A click comes out of each channel when its
+			// delay has passed, Air's later on one side by up to its top: its sweep has moved meanwhile
+			int apart = 0;
+			for(size_t i = 0; i < d[0].size(); ++i)
+				apart = std::max(apart, std::abs(c.type == 1 ? d[1][i] - d[0][i] : d[1][i] + d[0][i] - top));
+			const double moved = c.type == 1 ? 0 : 2.0 * c.top * c.top * c.hz / 44100;
+			std::printf("    its channels apart by %d samples at most, the sweep moving %.1f meanwhile\n", apart, moved);
+			require(apart <= 3 + moved, std::string(c.name) + ": its channels apart");
+		}
+		std::printf("PASS: Vibrato's and Air's tops and rates are the Virus's\n");
 	}
 
 	// ---- the master on Main ----
@@ -2584,6 +2689,7 @@ int main()
 		machineTable(flash);
 		familyChains(flash, library);
 		sends(library);
+		chorusTypes();
 		master(library);
 		effectsCost(library);
 		sendTimes(library);

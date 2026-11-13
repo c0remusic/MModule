@@ -3061,9 +3061,10 @@ namespace elektron::drums
 			{"reverb_pre", "PRE-DELAY"}, {"reverb_dec", "DECAY"}, {"reverb_freq", "SHELF FREQ"}, {"reverb_gain", "SHELF GAIN"},
 			{"reverb_hp", "HPF"}, {"reverb_lp", "LPF"}},
 			{true, true, gate, gate, gate, gate, gate, gate, gate, gate, !gate, !gate, !gate, !gate, !gate, !gate});
-		blockOf(2, "fc", "CHORUS", hue::g, {{"chorus_output", "OUT"}, {"chorus_depth", "DEPTH"},
+		blockOf(2, "fc", "CHORUS", hue::g, {{"chorus_type", "TYPE"}, {"chorus_output", "OUT"}, {"chorus_depth", "DEPTH"},
 			{"chorus_rate", "RATE"}, {"chorus_speed", "RATE"}, {"chorus_delay", "DELAY"}, {"chorus_fdbk", "FEEDBACK"},
-			{"chorus_level", "LEVEL"}, {"chorus_shape", "WAVE"}}, {true, true, !chorusSync, chorusSync, true, true, true, true});
+			{"chorus_level", "LEVEL"}, {"chorus_shape", "WAVE"}},
+			{true, true, true, !chorusSync, chorusSync, true, true, true, true});
 		syncOf(2, "chorus_sync", hue::g);
 		blockOf(3, "fp", "PHASER / FLANGER", hue::p, {{"phaser_mode", "TYPE"}, {"phaser_output", "OUT"},
 			{"phaser_stages", "STAGES"}, {"phaser_depth", "DEPTH"}, {"phaser_rate", "RATE"}, {"phaser_speed", "RATE"},

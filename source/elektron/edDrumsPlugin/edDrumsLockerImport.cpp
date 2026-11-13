@@ -15,8 +15,8 @@ namespace elektron::drums
 		const char Magic[9] = "EDMDWRD1";
 		constexpr uint32_t MostWords = 1u << 24;
 
-		// The original machines' own files the walk knows and does not read: SysEx dumps, projects and sounds as their
-		// transfer tool saves them
+		// The original machines' own files the walk knows: SysEx dumps, which it reads, projects and sounds as their
+		// transfer tool saves them, which it does not
 		bool isMachineFile(const juce::String& _name)
 		{
 			for(const auto* ext : {".syx", ".dtprj", ".dtsnd", ".stprj", ".stsnd"})
@@ -163,7 +163,14 @@ namespace elektron::drums
 			}
 			if(isMachineFile(name))
 			{
+				if(name.endsWithIgnoreCase(".syx"))
+				{
+					if(!machineFiles::readSysex(file, r.kits, r.notTaken))
+						++r.unread;
+					continue;
+				}
 				++r.unread;
+				r.notTaken.add(name + ": not read, a project or sound file whose layout Lockstep does not know");
 				continue;
 			}
 			// A flash image: the first one that holds the OS, its words alone kept

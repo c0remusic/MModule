@@ -1187,8 +1187,15 @@ namespace elektron::drums
 			parts.add("factory bank from " + r.image + ", in the Locker at next load");
 		else if(r.refused > 0)
 			parts.add("no factory bank among " + juce::String(r.refused) + " image-sized files");
+		if(!r.kitSlots.empty())
+			parts.add(juce::String(static_cast<int>(r.kitSlots.size())) + (r.kitSlots.size() == 1 ? " kit" : " kits")
+				+ " in the Kits from Slot " + juce::String(r.kitSlots.front() + 1));
 		if(r.unread > 0)
 			parts.add(juce::String(r.unread) + " files not read");
+		// What was not taken: the first line, the rest counted (the log holds them all)
+		if(!r.notTaken.isEmpty())
+			parts.add("not taken: " + r.notTaken[0] + (r.notTaken.size() > 1
+				? " (and " + juce::String(r.notTaken.size() - 1) + " more)" : juce::String()));
 		return r.folder.getFileName() + ": " + parts.joinIntoString("; ");
 	}
 

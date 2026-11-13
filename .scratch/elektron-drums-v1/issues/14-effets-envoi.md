@@ -121,3 +121,60 @@ machine chargée par les autres sessions) : les quatre envois en plus d'une pist
 
 Reste ouvert, et non revendiqué ici : la validation à l'écoute du chorus et du phaser/flanger par l'utilisateur, critère
 de fin du ticket. Le ticket reste donc ouvert.
+
+## État (2026-11-13)
+
+Deux types du chorus Virus sont portés, Vibrato et Air (`Vibrato`, `Air` dans `edDrumsSendFx.*`), mesurés sur des rendus
+d'OsTIrus faits en local (`vfx.exe` sous garde d'horloge, rendus dans `elektron-work/oracle/virus-fx/renders`, scripts et
+résultats dans `elektron-work/oracle/virus-fx/t14`, hors du dépôt). Les deux lisent leur ligne par un allpass d'ordre un
+entre deux échantillons, de coefficient 1 − t et non (1 − t)/(1 + t) : la forme exacte restait 14 dB sous le signal sur
+bruit, celle-ci 25 à 38 dB. Le Classic, lui, lit en ligne droite, comme avant.
+
+Vibrato : sec absent, pas de feedback, Shape et Feedback sans effet (vérifié), les deux canaux au même retard, un sinus
+de 0 au sommet. LFO à 2^(rate/32) Hz (1,9997 Hz mesuré à 32, 15,64 à 127). Le sommet est un écart de hauteur : sommet × Hz
+constant (633,6 à depth 127), relevé à 4 Hz tous les 16 de depth (2,72 à 16, 158,44 à 127), borné à 512. Sous rate 9 le
+sommet touche 512 : non vérifié là.
+
+Air : sec absent, Rate, Shape, Feedback et Amount sans effet (vérifié), une ligne par canal, le droit à sommet − gauche.
+Le balayage est moitié triangle, moitié cosinus surélevé (écart 0,1 % du sommet). Depth seul le règle : le sommet croît
+en ligne droite jusqu'à 32 (103,84), puis de 4/3 tous les 8, jusqu'à 512 à 77 ; au-delà la vitesse monte en huitièmes de
+0,09989 Hz (8 jusqu'à 79, 49 à 127), relevés un par un : entre deux huitièmes la comparaison perdait 10 dB. Air n'a donc
+ni Rate ni Sync, comme sur le Virus.
+
+Comparaison sur bruit stéréo, retour seul (mix 127), après 5 s, avance de notre LFO cherchée par fenêtre comme pour le
+Classic (`cmp_vib.py`, `cmp_air.py`) : Vibrato, huit réglages, 17,3 dB sous le signal au pire (depth 24, rate 40 ; 20,7 à
+38 dB ailleurs) ; Air, neuf depths de 16 à 127, 22,6 dB au pire. Au-dessus des 16 dB du Classic. Dans le dépôt,
+`edDrumsEngineTest` (`chorusTypes`) vérifie sur notre sortie les sommets et vitesses mesurés sur le Virus (à 2 échantillons
+et 2 % près) et la relation des canaux, et `sends` joue les trois types (retour présent, mêmes échantillons quels que
+soient les blocs de l'hôte, Sync qui change Vibrato et pas Air). Coût : Vibrato 0,019 %, Air 0,033 % d'un cœur (Classic
+0,024 %).
+
+Dans le moteur, le type est l'octet `ChorusType` de `Sends::setChorus` (0 Classic, 1 Vibrato, 2 Air), ajouté après ceux
+que compte `ChorusBytes`, comme le S&H du DP/4 ; un changement passe comme un changement de source (fondu, ligne vidée).
+Côté hôte, `chorus_type` (« Chorus Type », Classic, Vibrato, Slow Sweep ; un type nouveau s'ajoute en fin de liste) est
+ajouté en fin d'`edDrumsParameterIds.txt`, enregistré après les relais, transmis par `fx.setChorus(ChorusType, …)`, et a
+sa cellule TYPE en tête du bloc CHORUS de la page FX. `edDrumsProcessorTest` le couvre (liste figée : les relais derniers
+sauf ce qui vient après eux ; le paramètre joue sur le moteur comme les autres), `edDrumsEditorTest` dessine la page pour
+chaque type, `edDrumsVst3HostTest` vérifie sa place après les relais, qu'il s'automatise, et qu'un état le garde.
+
+Hyper, essayé et laissé hors de la liste. Mesuré : sous un crossover du premier ordre vers 307 Hz l'entrée passe telle
+quelle ; au-dessus, une part sèche et une à trois voix, chacune une ligne lue sur le balayage d'Air entre 0,059 et 1 fois
+son sommet, le canal droit un quart de tour plus loin. Le sommet vaut 2,1243 fois celui d'Air, jusqu'à 509,9 ; passé 55
+la vitesse monte par huitièmes, ceux d'Air 21 plus haut (relevés à chaque depth de 40 à 127). Amount ralentit la
+première voix (0,697 fois à 127), fait entrer la deuxième puis la troisième (vers 1,4 et 1,5 fois), et baisse le sec de
+0,711 à 0,505. Porté sur ces lois, il passe à depth 32 pour Amount 0, 32, 64, 96 et 127 : 17,5 dB sous le signal au pire
+(les phases des voix prises sur celles du Virus à chaque fenêtre, comme l'avance du LFO pour les autres types). Mais aux
+Amount intermédiaires (16, 48, 80, 112) les voix du Virus disparaissent par périodes (un tiers du temps à 48), ce que ni
+le modèle ni notre port ne font : 0 à 4 dB seulement à 48, et 12,6 dB à depth 80, Amount 48. Sous le seuil, donc hors de
+la liste. Le port, ses lois et les scripts sont gardés hors du dépôt (`t14/hyper-attempt`, `hyp*.py`, `cmp_hyp.py`,
+`hyp_check.py`) ; il reste à relever ce que font les voix aux Amount intermédiaires.
+
+Rotary, mesuré, non porté. Sur impulsions (`rot1.py`) : à chaque instant une dizaine de prises faibles (0,06 à 0,36) de
+−11 à 120 échantillons, qui bougent avec le temps, des deux signes ; canaux identiques à Amount 64, différents à 0 (Amount
+règle la largeur) ; Rate change leur mouvement, Depth peu de chose. La méthode des types précédents suit une à trois prises
+nettes ; elle ne sépare pas ces chemins, et un modèle qui atteigne 16 dB sur bruit demanderait leur structure entière
+(rotor, tambour, réflexions). Sous le seuil par cette méthode : hors de la liste.
+
+Vintage, non repris dans cette session : sec à 0,707, une voix vers 134 échantillons filtrée (−5 dB à 5 kHz, −35 dB à
+16 kHz), une seconde plus faible, une distorsion qui dépend du niveau (H3 à −44 dB pour 0,3 en entrée), LFO à
+0,25 × 2^(rate/24) Hz, X-Over ; Feedback, Shape et Amount sans effet. Non porté, hors de la liste.

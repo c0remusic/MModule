@@ -52,6 +52,8 @@ namespace
 	constexpr int g_pages = Tracks * g_perTrack + 1 + Tracks * 61 + 65 + 1;	// up to Pattern; then each Track's Machine 9-24
 	constexpr int g_machine24 = g_pages + Tracks * 16;	// up to T16 Machine 24; then tickets 14-15's sync and S&H
 	constexpr int g_parameters = g_machine24 + 7;
+	// After the relays: ticket 14's chorus type
+	constexpr int g_appended = 1;
 	constexpr double g_stallMs = 10.0;
 
 	void require(const bool _condition, const std::string& _message)
@@ -464,9 +466,13 @@ namespace
 		require(parameters[g_pages]->getName(64) == "T01 Machine 9" && parameters[g_machine24 - 1]->getName(64) == "T16 Machine 24"
 			&& parameters[g_parameters - 1]->getName(64) == "Rack S&H Rate",
 			"Machine 9-24's places");
-		std::printf("%d parameters of ours and %d relays, %d automatable with Bypass; latency %d samples\n", g_parameters,
-			elektron::drums::parameters::RelayCount, automatable, plugin.getLatencySamples());
-		require(automatable == g_parameters + elektron::drums::parameters::RelayCount - 2 * Tracks + 1,
+		const int chorusType = g_parameters + elektron::drums::parameters::RelayCount;
+		require(parameters[chorusType]->getName(64) == "Chorus Type" && parameters[chorusType]->isAutomatable()
+			&& parameters[chorusType]->getText(0.0f, 64) == "Classic",
+			"Chorus Type's place after the relays, or its choices");
+		std::printf("%d parameters of ours, %d relays and %d after them, %d automatable with Bypass; latency %d samples\n",
+			g_parameters, elektron::drums::parameters::RelayCount, g_appended, automatable, plugin.getLatencySamples());
+		require(automatable == g_parameters + elektron::drums::parameters::RelayCount + g_appended - 2 * Tracks + 1,
 			"Machine and Chokes are not for the host to automate");
 
 		// Each Track on an Out of its own
@@ -539,6 +545,9 @@ namespace
 			const auto sounds = render(plugin, notes, Samples, g_block);
 			compare("a sound of its own on each Track", sounds, direct(_library, notes, Samples, kit, true), 1e-6f);
 
+			// The chorus's type, after the relays, kept too: no Track sends to the chorus here, so the sound stays
+			const int chorusType = g_parameters + elektron::drums::parameters::RelayCount;
+			parameters[chorusType]->setValueNotifyingHost(1.0f);
 			juce::MemoryBlock state;
 			plugin.getStateInformation(state);
 			auto other = load(formats, description, SampleRate);
@@ -547,6 +556,7 @@ namespace
 			for(int p = 0; p < g_parameters; ++p)
 				require(std::abs(other->plugin->getParameters()[p]->getValue() - parameters[p]->getValue()) < 1e-6f,
 					"parameter " + std::to_string(p) + " of the state");
+			require(other->plugin->getParameters()[chorusType]->getValue() == 1.0f, "the chorus's type of the state");
 			compare("the state in another instance", render(*other->plugin, notes, Samples, g_block), copy(sounds), 0);
 		}
 

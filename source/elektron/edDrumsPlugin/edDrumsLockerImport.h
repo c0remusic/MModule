@@ -7,6 +7,7 @@
 #include <juce_core/juce_core.h>
 
 #include "edDrumsLibrary.h"
+#include "edDrumsMachineFiles.h"
 #include "edDrumsSampleLibrary.h"
 
 // What the LOCKER reads of a folder the user adds (ADD FOLDER, a folder dropped on Browse) or imports (IMPORT PACK):
@@ -15,8 +16,10 @@
 // (ImageWords), written to the Locker's "Factory.words", which the instrument reads as it loads in place of an image:
 // the image is read once and never copied, none of its code goes anywhere; that file is the FACTORY source. Its WAV,
 // AIFF and FLAC files are counted, those the Locker already holds by fingerprint apart; an import copies the others
-// into a folder of the Locker's, at their place under the folder walked. The original machines' own files (SysEx dumps,
-// projects and sounds) are counted, not read. Message thread, but for the walk.
+// into a folder of the Locker's, at their place under the folder walked. Of the original machines' own files, a SysEx
+// file's Kit dumps are read (edDrumsMachineFiles.h), which the Processor writes into empty Slots of the Bank; projects
+// and sounds, whose layout nothing here knows, are counted, not read; what is not taken is said, a line each.
+// Message thread, but for the walk.
 namespace elektron::drums
 {
 	class LockerImport
@@ -31,7 +34,10 @@ namespace elektron::drums
 			int audio = 0, known = 0;	// WAV, AIFF and FLAC files; of them, those the Locker holds
 			int copied = 0;				// files copied into copy
 			int left = 0;				// samples a bound (Bounds) kept out of copy
-			int unread = 0;				// the original machines' own files, which the walk does not read
+			int unread = 0;				// the original machines' own files the walk took nothing of
+			std::vector<machineFiles::FoundKit> kits;	// the Kit dumps found, which takeLockerImport puts in the Bank
+			std::vector<int> kitSlots;	// the Slots they went to, filled by the Processor
+			juce::StringArray notTaken;	// what the original machines' files hold that Lockstep did not take, a line each
 			juce::String error;			// what could not be written; empty if all was
 		};
 
