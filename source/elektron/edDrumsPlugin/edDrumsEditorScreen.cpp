@@ -2780,7 +2780,31 @@ namespace elektron::drums
 			out.labels = outs;
 			out.h = 6;
 			addCell(out);
+			// M and S, the sequencer's mute and solo, as Overview's
+			Hit mute;
+			mute.r = {xc - 6, 214.5f, 12, 8.6f};
+			mute.click = [this, i]
+			{
+				const bool on = !m_processor.sequencer().mute(i);
+				m_processor.editSequencer([i, on](Sequencer& _s) { _s.setMute(i, on); });
+			};
+			addHit(std::move(mute));
+			Hit solo;
+			solo.r = {xc - 6, 223.9f, 12, 8.6f};
+			solo.click = [this, i]
+			{
+				const bool on = !m_processor.sequencer().solo(i);
+				m_processor.editSequencer([i, on](Sequencer& _s) { _s.setSolo(i, on); });
+			};
+			addHit(std::move(solo));
 		}
+		watch({ScreenX, 214, 220, 19}, [this]
+		{
+			uint64_t h = 0;
+			for(int t = 0; t < 16; ++t)
+				h = mix(h, (m_processor.sequencer().mute(t) ? 1u : 0u) | (m_processor.sequencer().solo(t) ? 2u : 0u));
+			return h;
+		});
 		const char* returns[]{"delay_output", "reverb_output", "chorus_output", "phaser_output"};
 		for(int i = 0; i < 4; ++i)
 		{
@@ -2834,6 +2858,27 @@ namespace elektron::drums
 			return hashOf({m_processor.parameter("master_threshold"), m_processor.parameter("master_ratio"),
 				m_processor.parameter("master_makeup"), m_processor.parameter("master_mix")});
 		});
+		// THR on the curve (t-ui-spec gmk): the threshold dragged sideways over the curve's square, the parameter its
+		// THRESHOLD cell sets, in one gesture. The whole square takes the press, so the layout need not follow the line
+		{
+			Hit thr;
+			thr.r = {x1 + 8, 138, 96, 96};
+			thr.cursor = juce::MouseCursor::LeftRightResizeCursor;
+			thr.press = [this]
+			{
+				auto* p = m_processor.parameter("master_threshold");
+				m_press.value = p->getValue();
+				p->beginChangeGesture();
+			};
+			thr.drag = [this](const float _dx, float)
+			{
+				m_press.value = juce::jlimit(0.0f, 1.0f, m_press.value + _dx / 96);
+				m_processor.parameter("master_threshold")->setValueNotifyingHost(m_press.value);
+			};
+			thr.end = [this] { m_processor.parameter("master_threshold")->endChangeGesture(); };
+			thr.click = thr.end;
+			addHit(std::move(thr));
+		}
 	}
 
 	void Editor::drawMaster(Painter& _p)
@@ -2852,11 +2897,12 @@ namespace elektron::drums
 			const float level = trackParameter("level", i)->getValue();
 			ladder(_p, xc - 2.5f, 34, 5, h, m_activity[static_cast<size_t>(i)] * level);
 			_p.text(xc, 206.5f, juce::String(juce::roundToInt(level * 127)), 3.2f, colour::ink, 600, Align::Centre);
-			// Mute and Solo have no engine yet: greyed
+			// Mute and Solo, the sequencer's, lit as Overview's
+			const auto& seq = m_processor.sequencer();
 			_p.rect(xc - 6, 214.5f, 12, 8.6f, colour::button, 0.8f);
-			_p.text(xc, 220.3f, "M", 3, juce::Colour(0xff4E4E4C), 500, Align::Centre);
+			_p.text(xc, 220.3f, "M", 3, seq.mute(i) ? colour::lock : juce::Colour(0xff7A7A75), 600, Align::Centre);
 			_p.rect(xc - 6, 223.9f, 12, 8.6f, colour::button, 0.8f);
-			_p.text(xc, 229.7f, "S", 3, juce::Colour(0xff4E4E4C), 500, Align::Centre);
+			_p.text(xc, 229.7f, "S", 3, seq.solo(i) ? hue::t.c[4] : juce::Colour(0xff7A7A75), 600, Align::Centre);
 		}
 		const char* returns[]{"DLY", "REV", "CHO", "PHA"};
 		for(int i = 0; i < 4; ++i)
@@ -3099,7 +3145,7 @@ namespace elektron::drums
 	// ---- Kits and Browse ----
 
 	// The Bank's 64 Slots in four columns of 16 rows, a click selects one; the Slot selected's panel: LOAD, SAVE HERE,
-	// RENAME, DELETE, a second click on DELETE empties it. IMPORT and EXPORT have no engine yet: greyed
+	// RENAME, DELETE, a second click on DELETE empties it. IMPORT and EXPORT read and write an .edkit file through a file chooser
 	namespace
 	{
 		constexpr float KitRowH = 12.9f, KitPanelX = cx(16), KitButtonW = (8 * Col - 4 - 2) / 2;
@@ -3286,22 +3332,12 @@ namespace elektron::drums
 
 	void Editor::renameKit(const int _slot)
 	{
-		// Deleted by the modal manager after its callback, which reads the name first
-		auto* window = new juce::AlertWindow("Rename kit " + slotNumber(_slot), {}, juce::MessageBoxIconType::NoIcon,
-			this);
-		window->addTextEditor("name", m_processor.kitSlot(_slot).name);
-		window->getTextEditor("name")->setInputRestrictions(16);
-		window->addButton("Rename", 1, juce::KeyPress(juce::KeyPress::returnKey));
-		window->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
-		juce::Component::SafePointer<Editor> self(this);
-		window->enterModalState(true, juce::ModalCallbackFunction::create([self, window, _slot](const int _result)
+		// In place, the field over the Slot's title line, as Browse's RENAME; a Kit's name keeps 16 characters
+		startRename(m_processor.kitSlot(_slot).name, [this, _slot](const juce::String& _name)
 		{
-			const auto name = window->getTextEditorContents("name").trim();
-			if(!self || _result != 1 || name.isEmpty())
-				return;
-			self->m_processor.renameKit(_slot, name);
-			self->repaint();
-		}), true);
+			if(!m_processor.renameKit(_slot, _name.substring(0, 16)))
+				toast("Slot " + slotNumber(_slot) + " could not be renamed");
+		});
 	}
 
 	void Editor::drawKits(Painter& _p)
@@ -3662,7 +3698,7 @@ namespace elektron::drums
 		}
 		if(!browseSamples())
 		{
-			// MACHINES: its list, scrolled by the wheel, and PUT ON TRACK
+			// MACHINES: its list, scrolled by the wheel, PUT ON TRACK, and a row dragged onto a Track puts it there
 			const int n = static_cast<int>(m_processor.machines().size());
 			for(int i = 0; i < 16 && m_browseScroll + i < n; ++i)
 			{
@@ -3675,6 +3711,17 @@ namespace elektron::drums
 					m_browseItem = item;
 					auto* p = trackParameter("machine");
 					setNormalised(*p, p->convertTo0to1(static_cast<float>(item)));
+				};
+				row.drag = [this, item](float, float) { m_browseDrag = item; };
+				row.end = [this, item]
+				{
+					m_browseDrag = -1;
+					const int k = static_cast<int>((m_press.last.x - 10) / KeyPitch);
+					if(m_press.last.y < 244 || k < 0 || k >= 16)
+						return;
+					auto* p = trackParameter("machine", k);
+					setNormalised(*p, p->convertTo0to1(static_cast<float>(item)));
+					toast(machineName(k) + " on Track " + juce::String(k + 1));
 				};
 				addHit(std::move(row));
 			}
@@ -4249,6 +4296,10 @@ namespace elektron::drums
 		Cell os = cellOf(m_processor.parameter("oversampling"), "OVERSAMPLING", cx(13), r1, 2 * Col, hue::k, "menu");
 		os.labels = {"OFF", "2X", "4X"};
 		addCell(os);
+		// The sequencer's tempo where the host gives none (Processor: the playhead's wins)
+		Cell tempo = cellOf(m_processor.parameter("tempo"), "TEMPO", cx(18), r1, 2 * Col, hue::t, "menu");
+		tempo.format = Format::Bpm;
+		addCell(tempo);
 	}
 
 	void Editor::drawMenu(Painter& _p)
@@ -4272,6 +4323,7 @@ namespace elektron::drums
 		cell(10, "SIZE", getWidth() == Width ? "1600 X 1000" : "1280 X 800", colour::ink);
 		head(13, 5, "AUDIO", hue::k);
 		cell(15, "96 KHZ NATIVE", "OFF", colour::dim);
+		head(18, 3, "WITHOUT HOST", hue::t);
 		for(const auto& c : m_cells)
 			if(c.section == "menu")
 				drawCell(_p, c);

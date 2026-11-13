@@ -252,7 +252,7 @@ namespace elektron::drums
 		if(m_selector.open)
 			buildSelector();
 		m_search.setVisible(m_page == Page::Browse && (browseSamples() || m_browseTree == 1) && !m_menu);
-		if(m_rename.isVisible() && (m_page != Page::Browse || m_browseTree != 2 || m_menu))
+		if(m_rename.isVisible() && (m_menu || !(m_page == Page::Kits || (m_page == Page::Browse && m_browseTree == 2))))
 			endRename(false);
 		for(auto& r : m_regions)
 			r.last = r.state();
@@ -573,12 +573,18 @@ namespace elektron::drums
 			const auto at = static_cast<size_t>(m_browseDrag);
 			if(m_browseTree == 1)
 				return at < m_processor.trackSounds().entries().size() ? m_processor.trackSounds().entries()[at].name : "";
+			if(m_browseTree == 3)
+			{
+				const auto* c = dynamic_cast<const juce::AudioParameterChoice*>(trackParameter("machine"));
+				return c && at < static_cast<size_t>(c->choices.size()) ? c->choices[static_cast<int>(at)].toUpperCase()
+					: juce::String();
+			}
 			return at < m_processor.sampleLibrary().entries().size() + m_processor.factorySamples().size()
 				+ m_processor.setSamples().size() ? browseEntry(m_browseDrag).name : "";
 		};
 		if(m_browseDrag >= 0 && m_press.moved && dragged().isNotEmpty())
 		{
-			const auto& h = m_browseTree == 1 ? hue::a : m_browseTree == 4 ? hue::p : hue::g;
+			const auto& h = m_browseTree == 1 ? hue::a : m_browseTree == 3 ? hue::k : m_browseTree == 4 ? hue::p : hue::g;
 			const auto at = m_press.last;
 			const int k = static_cast<int>((at.x - 10) / KeyPitch);
 			if(at.y >= 244 && k >= 0 && k < 16)
@@ -1247,6 +1253,12 @@ namespace elektron::drums
 	void Editor::chooseFile(const juce::String& _title, const juce::String& _pattern, const bool _save,
 		std::function<void(const juce::File&)> _then)
 	{
+		if(chooseFileForTests)
+		{
+			if(const auto file = chooseFileForTests(_title); file != juce::File())
+				_then(file);
+			return;
+		}
 		m_chooser = std::make_unique<juce::FileChooser>(_title, juce::File(), _pattern);
 		juce::Component::SafePointer<Editor> self(this);
 		const int flags = juce::FileBrowserComponent::canSelectFiles | (_save

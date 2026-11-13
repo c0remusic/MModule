@@ -221,6 +221,8 @@ namespace elektron::drums::ui
 					tracks.add(juce::String(t + 1));
 			return tracks.isEmpty() ? juce::String("NONE") : tracks.joinIntoString(",");
 		}
+		case Format::Bpm:
+			return juce::String(plain, 1) + " BPM";
 		case Format::Plain:
 			break;
 		}

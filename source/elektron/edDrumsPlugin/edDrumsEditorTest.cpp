@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdio>
 #include <map>
+#include <set>
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
@@ -775,6 +776,217 @@ namespace
 		check(!processor.live(), "LIVE: a second click turns it off");
 	}
 
+	// Ticket 24, each read back from the Processor: Browse's MACHINES (a double-click, PUT ON TRACK, a drag onto Track 7
+	// put the machine on), Master's M and S (the sequencer's mute and solo) and THR on the curve (the threshold, in one
+	// gesture), FX's cells (a drag in one gesture, SYNC showing TIME or RATE), the Menu's TEMPO
+	void machinesMasterFx(Editor& _editor, Processor& _processor)
+	{
+		const auto px = [&](const float _x, const float _y)
+		{
+			const float s = static_cast<float>(_editor.getWidth()) / ui::UnitWidth;
+			return juce::Point<int>(juce::roundToInt(_x * s), juce::roundToInt(_y * s));
+		};
+		const auto plain = [&](const char* _id)
+		{
+			const auto* p = _processor.parameter(_id);
+			return juce::roundToInt(p->convertFrom0to1(p->getValue()));
+		};
+		{
+			auto* m1 = _processor.parameter("t01_machine");
+			auto* m7 = _processor.parameter("t07_machine");
+			const float was1 = m1->getValue(), was7 = m7->getValue();
+			_editor.showTrack(0);
+			_editor.showPage(Editor::Page::Browse);
+			click(_editor, _editor.browseTreeArea(3).getCentre());
+			_editor.tick();
+			doubleClick(_editor, _editor.browseRowArea(3).getCentre());
+			check(plain("t01_machine") == 3, "MACHINES: a double-click on row 4 puts machine 3 on Track 1");
+			click(_editor, _editor.browseRowArea(4).getCentre());
+			click(_editor, _editor.browseButtonArea(Editor::BrowseButton::Load).getCentre());
+			check(plain("t01_machine") == 4, "MACHINES: row 5, then PUT ON TRACK");
+			drag(_editor, _editor.browseRowArea(5).getCentre(), _editor.stepKeyArea(6).getCentre()
+				- _editor.browseRowArea(5).getCentre());
+			check(plain("t07_machine") == 5, "MACHINES: row 6 dragged onto Track 7 puts machine 5 there, "
+				+ juce::String(plain("t07_machine")));
+			m1->setValueNotifyingHost(was1);
+			m7->setValueNotifyingHost(was7);
+			_editor.tick();
+		}
+		{
+			_editor.showPage(Editor::Page::Master);
+			_editor.tick();
+			const auto& seq = _processor.sequencer();
+			const float xc = 22 + 2 * 13.5f;	// Track 3's strip
+			click(_editor, px(xc, 218.8f));
+			_editor.tick();
+			check(seq.mute(2) && _editor.repainted() > 0, "Master: a click on Track 3's M mutes it, drawn");
+			click(_editor, px(xc, 218.8f));
+			check(!seq.mute(2), "Master: a second click unmutes it");
+			click(_editor, px(xc, 228.2f));
+			check(seq.solo(2), "Master: a click on Track 3's S solos it");
+			click(_editor, px(xc, 228.2f));
+			check(!seq.solo(2), "Master: a second click takes the solo off");
+			_editor.tick();
+
+			Gestures gestures;
+			_processor.addListener(&gestures);
+			auto* thr = _processor.parameter("master_threshold");
+			const float was = thr->getValue();
+			thr->setValueNotifyingHost(0.5f);
+			const float before = thr->getValue();
+			const float a = ui::cx(15) - 2 + 8;
+			drag(_editor, px(a + 48, 186), px(20, 0));
+			check(thr->getValue() - before > 0.15f && gestures.begun == 1 && gestures.ended == 1,
+				"Master: THR dragged 20 mm right on the curve raises the threshold from " + juce::String(before, 3) + " to "
+				+ juce::String(thr->getValue(), 3) + ", in one gesture");
+			_processor.removeListener(&gestures);
+			thr->setValueNotifyingHost(was);
+		}
+		{
+			_editor.showPage(Editor::Page::Fx);
+			_editor.tick();
+			Gestures gestures;
+			_processor.addListener(&gestures);
+			auto* depth = _processor.parameter("chorus_depth");
+			const float before = depth->getValue();
+			const int sign = before < 0.5f ? 1 : -1;
+			drag(_editor, _editor.cellArea("chorus_depth").getCentre(), {sign * 60, 0});
+			check((depth->getValue() - before) * static_cast<float>(sign) > 0.2f && gestures.begun == 1
+				&& gestures.ended == 1, "FX: a drag on the chorus's DEPTH moves it in one gesture");
+			_processor.removeListener(&gestures);
+			depth->setValueNotifyingHost(before);
+			const int sync = plain("delay_sync");
+			click(_editor, _editor.cellArea("delay_sync").getCentre());
+			_editor.tick();
+			const bool synced = plain("delay_sync") != 0;
+			check(plain("delay_sync") != sync && _editor.cellArea("delay_note").isEmpty() != synced
+				&& _editor.cellArea("delay_free").isEmpty() == synced, "FX: SYNC toggles, TIME or RATE shown as it says");
+			click(_editor, _editor.cellArea("delay_sync").getCentre());
+			_editor.tick();
+		}
+		{
+			_editor.showMenu(true);
+			_editor.tick();
+			auto* tempo = _processor.parameter("tempo");
+			const float before = tempo->getValue();
+			drag(_editor, _editor.cellArea("tempo").getCentre(), {60, 0});
+			check(tempo->getValue() > before, "the Menu's TEMPO dragged: " + tempo->getCurrentValueAsText());
+			tempo->setValueNotifyingHost(before);
+			_editor.showMenu(false);
+			_editor.showPage(Editor::Page::Sound);
+			_editor.tick();
+		}
+	}
+
+	// Ticket 24: every host parameter has a control the mouse reaches, on an editor of its own. Sound shows each
+	// Track's, the Track put on the machine that uses the most of Machine 1-24, its pages turned (a cell an LFO card, a
+	// SYNC or a MODE hides counts: those choose it); FX's in each of the 32 states of its SOURCE and SYNC choices, a
+	// cell counting where it shows; Master's, the Menu's, Seq Detail's PATTERN. None for the relays for Push, which aim
+	// at the Track shown, nor for the delays' TIME in 128ths, which ticket 14 leaves to the host (it plays at RATE OFF)
+	void reachable()
+	{
+		Processor processor;
+		Editor editor(processor);
+		std::set<juce::String> bound;
+		const auto collect = [&](const bool _shownOnly)
+		{
+			editor.tick();
+			for(const auto& c : editor.cells())
+				if(c.parameter && (c.visible || !_shownOnly))
+					bound.insert(c.parameter->getParameterID());
+		};
+		const auto& machines = processor.machines();
+		size_t widest = 0;
+		for(size_t m = 0; m < machines.size(); ++m)
+			if(machineParameters(machines[m]) > machineParameters(machines[widest]))
+				widest = m;
+		editor.showPage(Editor::Page::Sound);
+		for(int t = 0; t < 16; ++t)
+		{
+			auto* machine = processor.parameter(juce::String::formatted("t%02d_machine", t + 1));
+			machine->setValueNotifyingHost(machine->convertTo0to1(static_cast<float>(widest)));
+			editor.showTrack(t);
+			editor.tick();
+			for(int page = 0; page < editor.machinePages(); ++page)
+			{
+				editor.showMachinePage(page);
+				collect(false);
+			}
+			editor.showMachinePage(0);
+		}
+		editor.showPage(Editor::Page::Fx);
+		const char* toggles[]{"delay_source", "reverb_source", "delay_sync", "chorus_sync", "phaser_sync"};
+		for(int s = 0; s < 32; ++s)
+		{
+			for(int b = 0; b < 5; ++b)
+			{
+				auto* p = processor.parameter(toggles[b]);
+				p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>((s >> b) & 1)));
+			}
+			collect(true);
+		}
+		editor.showPage(Editor::Page::Master);
+		collect(true);
+		editor.showPage(Editor::Page::Seq);
+		editor.showSeqTab(0);
+		collect(true);
+		editor.showMenu(true);
+		collect(true);
+		editor.showMenu(false);
+
+		const auto& relays = processor.ids(Processor::Section::Relays);
+		juce::StringArray missing;
+		int counted = 0;
+		for(auto* parameter : processor.getParameters())
+		{
+			const auto* p = dynamic_cast<const juce::RangedAudioParameter*>(parameter);
+			if(!p || relays.contains(p->getParameterID()) || p->getParameterID() == "echo_time"
+				|| p->getParameterID() == "delay_time")
+				continue;
+			++counted;
+			if(bound.count(p->getParameterID()) == 0)
+				missing.add(p->getParameterID());
+		}
+		check(missing.isEmpty() && counted > 0, "every host parameter has a control: " + juce::String(counted) + " of "
+			+ juce::String(processor.getParameters().size()) + " (less " + juce::String(relays.size())
+			+ " relays and the two TIMEs)" + (missing.isEmpty() ? juce::String() : ", none for " + missing.joinIntoString(" ")));
+	}
+
+	// Ticket 24: Master's GR, on an editor of its own: loud Hits through the master on, its reduction below 0 dB and
+	// its bar and trace repainted
+	void masterReduction()
+	{
+		Processor processor;
+		Editor editor(processor);
+		editor.showPage(Editor::Page::Master);
+		const auto set = [&](const char* _id, const float _plain)
+		{
+			auto* p = processor.parameter(_id);
+			p->setValueNotifyingHost(p->convertTo0to1(_plain));
+		};
+		set("master_on", 1);
+		set("master_threshold", 0);
+		set("master_ratio", 127);
+		editor.tick();
+		processor.setRateAndBufferSizeDetails(44100, 256);
+		processor.prepareToPlay(44100, 256);
+		juce::AudioBuffer<float> buffer(processor.getTotalNumOutputChannels(), 256);
+		float least = 0;
+		for(int i = 0; i < 200; ++i)
+		{
+			juce::MidiBuffer midi;
+			if(i % 20 == 0)
+				for(int t = 0; t < 4; ++t)
+					midi.addEvent(juce::MidiMessage::noteOn(1, 36 + t, static_cast<juce::uint8>(127)), 0);
+			processor.processBlock(buffer, midi);
+			least = std::min(least, processor.masterReduction());
+		}
+		editor.tick();
+		editor.tick();
+		check(least < -0.5f && editor.repainted() > 0, "Master: GR reads " + juce::String(least, 1)
+			+ " dB at its deepest, the bar and trace repainted");
+	}
+
 	void run(const juce::File& _folder)
 	{
 		_folder.createDirectory();
@@ -891,6 +1103,31 @@ namespace
 			processor.renameKit(5, "Dusty");
 			click(editor, editor.kitActionArea(3).getCentre());
 			check(!processor.kitSlot(5).empty(), "a first click on DELETE keeps the Kit");
+
+			// Ticket 24: RENAME in place over the Slot's title; EXPORT, then IMPORT into Slot 10 (the chooser given by the
+			// test); a second click on DELETE in a row empties the Slot
+			click(editor, editor.kitActionArea(2).getCentre());
+			check(editor.renameField().isVisible() && editor.renameField().getText() == "Dusty",
+				"RENAME opens its field on the Kit's name");
+			editor.renameField().setText("Dusty Room", false);
+			editor.renameField().onReturnKey();
+			check(!editor.renameField().isVisible() && processor.kitSlot(5).name == "Dusty Room",
+				"RENAME names Slot 6 " + processor.kitSlot(5).name);
+			const auto kitFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+				.getChildFile("edDrumsEditorKit.edkit");
+			kitFile.deleteFile();
+			Editor::chooseFileForTests = [kitFile](const juce::String&) { return kitFile; };
+			click(editor, editor.kitActionArea(5).getCentre());
+			check(kitFile.existsAsFile(), "EXPORT writes Slot 6 to " + kitFile.getFileName());
+			click(editor, editor.kitSlotArea(9).getCentre());
+			click(editor, editor.kitActionArea(4).getCentre());
+			check(processor.kitSlot(9).name == "Dusty Room", "IMPORT reads it into Slot 10: " + processor.kitSlot(9).name);
+			Editor::chooseFileForTests = nullptr;
+			click(editor, editor.kitActionArea(3).getCentre());
+			check(!processor.kitSlot(9).empty(), "DELETE on Slot 10 asks again");
+			click(editor, editor.kitActionArea(3).getCentre());
+			check(processor.kitSlot(9).empty(), "the second click empties Slot 10");
+			kitFile.deleteFile();
 			click(editor, editor.kitSlotArea(2).getCentre());
 			freq->setValueNotifyingHost(0.5f);
 		}
@@ -1107,6 +1344,9 @@ namespace
 			auto* level4 = processor.parameter("t04_level");
 			check(juce::roundToInt(level4->convertFrom0to1(level4->getValue())) == 33, "a drag loads it on Track 4");
 		}
+
+		// Ticket 24: MACHINES' gestures, Master's M, S and THR, FX's cells and SYNC, the Menu's TEMPO
+		machinesMasterFx(editor, processor);
 
 		editor.showPage(Editor::Page::Sound);
 		snapshot(editor, _folder.getChildFile("sound.png"));
@@ -1420,6 +1660,8 @@ int main(const int _argc, char** _argv)
 	const auto folder = _argc > 1 ? juce::File(juce::String::fromUTF8(_argv[1]))
 		: juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsEditor");
 	run(folder);
+	reachable();
+	masterReduction();
 	std::printf("%s: %d failure(s)\n", g_failures == 0 ? "PASSED" : "FAILED", g_failures);
 	return g_failures == 0 ? 0 : 1;
 }

@@ -63,6 +63,9 @@ namespace elektron::drums
 		juce::Rectangle<int> kitSlotArea(int _slot) const;
 		juce::Rectangle<int> kitActionArea(int _action) const;
 		int kitSelected() const { return m_kitSel; }
+		// For tests: where set, a Kit's or a pattern's IMPORT and EXPORT take the file it gives for the chooser's title,
+		// no dialog opened; an empty File cancels
+		static inline std::function<juce::File(const juce::String&)> chooseFileForTests;
 		// Browse: a LIBRARY entry's row (MACHINES 3, LOCKER 2, SAMPLES BY TYPE 4), a list row, the list's length, the
 		// search field, the field RENAME opens over the card's title line
 		juce::Rectangle<int> browseTreeArea(int _tree) const;
