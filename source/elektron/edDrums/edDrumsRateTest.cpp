@@ -11,8 +11,9 @@
 //   - pitch: each Hit's spectral peak within 1 cent of its family's rate, a sine on the Sampler's two grains included;
 //   - HitDelay(rate): every machine at notes all over the cycles of the rates, the same samples, jitter 0;
 //   - the sends, the master, the LFOs and the sequencer at the right speed: their output against 44.1 kHz's;
-//   - the cost: the worst kit of 16 Tracks, every send, the master and 2 LFOs a Track on, under 15 % of a core at 88.2
-//     and 96 kHz, and the 2x half-band path the ticket weighed, measured beside it.
+//   - the cost: the worst kit of 16 Tracks (the dearest machine of every family but the Syntakt's on 7 Tracks beside the
+//     nine Syntakt machines, and on all 16), every send, the master and 2 LFOs a Track on, under 15 % of a core at 44.1,
+//     48, 88.2 and 96 kHz (spec 12, criterion 4), and the 2x half-band path the ticket weighed, measured beside it.
 //
 // GEARMULATOR_MD_FIRMWARE_BIN names the flash image; exit 77 without it. SP TWINSHOT plays noise made here.
 
@@ -1150,13 +1151,27 @@ namespace
 			const double spent = std::chrono::duration<double>(Clock::now() - t0).count();
 			return 100 * spent / (static_cast<double>(blocks) * HostBlock / _rate);
 		};
+		// The dearest machine of every family but the Syntakt's, whose cost follows its lanes (spec 12, criterion 4: the
+		// worst case of the whole instrument, ticket 25)
+		std::vector<Machine> candidates;
+		for(const auto& m : machines())
+			if(m.family == Family::Machinedrum)
+				candidates.push_back(m);
+		const std::pair<Family, int> others[] = {{Family::OpenDrum, OpenDrumMachines}, {Family::Sophie, SophieMachines},
+			{Family::SyntaktAnalog, SyntaktAnalogMachines}, {Family::RytmAnalog, RytmAnalogMachines}};
+		for(const auto& [family, count] : others)
+			for(int id = 0; id < count; ++id)
+				candidates.push_back({family, static_cast<uint8_t>(id)});
+		const auto nameOfAny = [](const Machine& _m)
+		{
+			return _m.family == Family::Syntakt || _m.family == Family::Machinedrum ? nameOf(_m)
+				: "family " + std::to_string(static_cast<int>(_m.family)) + " machine " + std::to_string(_m.id);
+		};
 		std::array<Machine, Tracks> kit;
 		Machine dearest;
 		double most = -1;
-		for(const auto& m : machines())
+		for(const auto& m : candidates)
 		{
-			if(m.family != Family::Machinedrum)
-				continue;
 			kit.fill(m);
 			const double pct = once(44100, kit, 0.2, false);
 			if(pct > most)
@@ -1165,22 +1180,27 @@ namespace
 				dearest = m;
 			}
 		}
-		// Nine Syntakt machines, the dearest Machinedrum one on the other 7
+		// Nine Syntakt machines, the dearest other one on the other 7; and the dearest on all 16
+		std::array<Machine, Tracks> mixed;
 		for(int t = 0; t < Tracks; ++t)
-			kit[static_cast<size_t>(t)] = t < SyntaktMachines ? Machine{Family::Syntakt, static_cast<uint8_t>(t)} : dearest;
+			mixed[static_cast<size_t>(t)] = t < SyntaktMachines ? Machine{Family::Syntakt, static_cast<uint8_t>(t)} : dearest;
+		kit.fill(dearest);
 		constexpr int Runs = 5;
 		constexpr double Budget = 15;
 		std::map<double, double> best;
 		for(const double rate : Rates)
 		{
-			std::vector<double> pct;
-			for(int r = 0; r < Runs; ++r)
-				pct.push_back(once(rate, kit, 2.0, true));
-			std::sort(pct.begin(), pct.end());
-			best[rate] = pct.front();
-			std::printf("  the worst kit (9 Syntakt machines, 7 x %s, dearest chains 2x, 2 LFOs a Track, 4 sends, the master) at "
-				"%s: %.2f %% of a core at least, median %.2f\n", nameOf(dearest).c_str(), khz(rate).c_str(), pct.front(),
-				pct[pct.size() / 2]);
+			for(const auto* k : {&mixed, &kit})
+			{
+				std::vector<double> pct;
+				for(int r = 0; r < Runs; ++r)
+					pct.push_back(once(rate, *k, 2.0, true));
+				std::sort(pct.begin(), pct.end());
+				best[rate] = std::max(best[rate], pct.front());
+				std::printf("  %s (%s, dearest chains 2x, 2 LFOs a Track, 4 sends, the master) at %s: %.2f %% of a core at "
+					"least, median %.2f\n", k == &mixed ? "9 Syntakt machines and 7 x" : "16 x", nameOfAny(dearest).c_str(),
+					khz(rate).c_str(), pct.front(), pct[pct.size() / 2]);
+			}
 		}
 		// The path the ticket weighed: the engine at 48 kHz (the Syntakt's) and its 32 channels up 2x by HIIR's half-bands
 		{
@@ -1199,7 +1219,10 @@ namespace
 				"%.2f %%, a Hit placed to 2 host samples (jitter 1); the direct read %.2f %%, jitter 0\n", best[48000], pct,
 				best[48000] + pct, best[96000]);
 		}
-		require(best[88200] < Budget && best[96000] < Budget, "the worst kit over 15 % of a core at 88.2 or 96 kHz");
+		std::printf("  the worst case: %.2f %% at 44.1 kHz, %.2f at 48, %.2f at 88.2, %.2f at 96 (budget %.0f), %.2f at 192 "
+			"(not budgeted)\n", best[44100], best[48000], best[88200], best[96000], Budget, best[192000]);
+		for(const double rate : {44100.0, 48000.0, 88200.0, 96000.0})
+			require(best[rate] < Budget, "the worst kit over 15 % of a core at " + khz(rate));
 	}
 }
 

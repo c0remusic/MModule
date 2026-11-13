@@ -6,6 +6,7 @@
 //   - lanes: a machine's Hits on its first lanes, the groups above let go, a machine with no voice not rendered;
 //   - an off Track and an absent family cost nothing, nothing allocated on the audio path, no denormal;
 //   - Q12: a Choke and a machine change on a sounding voice, without a Hit, MID and CTR machines too;
+//   - Q16: 16 BDs in phase, every value finite, Main the sum of its Tracks, the peaks printed, the master's too;
 //   - what switching a silent voice off changes against rendering all 16 (md::voice's shared scratch, its free-running
 //     state), and what a Hit bringing its Track's ticks changes, measured;
 //   - the OS's machine table against mdProtocol's names;
@@ -968,6 +969,58 @@ namespace
 				const int expected = factor == 1 ? 0 : machine.family == Family::Syntakt ? 1 : -2;
 				require(shift == expected, "a raised drive's Hit, off its stated place");
 			}
+			std::printf("\n");
+		}
+
+		// The same on every Machinedrum machine that sounds (ticket 25, noted by ticket 12: -2 seen on TRX-SD alone): the
+		// onset's shift, and the lag that best lines the raised Hit up with the bare one, its true delay, which must be 0
+		{
+			std::map<std::string, int> shifts;
+			for(const Machine machine : machines())
+			{
+				if(machine.family != Family::Machinedrum)
+					continue;
+				ChainSettings raised;
+				raised.drive[0] = {DriveType::Syntakt, false, 1, 127};
+				const auto bare = hitAt(_library, machine, 0, Samples, &Bare).channel(0);
+				if(peakOf(bare) < 1e-3f)
+					continue;
+				const int alone = onset(bare);
+				for(const int factor : {2, 4})
+				{
+					const auto y = hitAt(_library, machine, 0, Samples, &raised, factor).channel(0);
+					int lag = 0;
+					double bestDot = -1;
+					for(int k = -8; k <= 8; ++k)
+					{
+						double dot = 0, a2 = 0, b2 = 0;
+						for(int n = Delay; n < Samples - 8; ++n)
+						{
+							const double a = bare[static_cast<size_t>(n)], b = y[static_cast<size_t>(n + k)];
+							dot += a * b;
+							a2 += a * a;
+							b2 += b * b;
+						}
+						const double c = dot / std::sqrt(a2 * b2 + 1e-30);
+						if(c > bestDot)
+						{
+							bestDot = c;
+							lag = k;
+						}
+					}
+					char key[64];
+					std::snprintf(key, sizeof(key), "%dx onset %+d lag %+d", factor, onset(y) - alone, lag);
+					++shifts[key];
+					if(lag != 0)
+						std::printf("  %s at %dx: lag %+d, correlation %.3f\n", nameOf(machine).c_str(), factor, lag, bestDot);
+					// The onset's -2 is the half-bands' ringing before the edge; the Hit itself is not moved, where the
+					// raised Hit is its bare self (a noisy machine's correlation says nothing)
+					require(lag == 0 || bestDot < 0.9, nameOf(machine) + ": a raised drive moved the Hit");
+				}
+			}
+			std::printf("  a raised drive on every sounding Machinedrum machine (count):");
+			for(const auto& [key, count] : shifts)
+				std::printf(" %s (%d);", key.c_str(), count);
 			std::printf("\n");
 		}
 
@@ -2443,6 +2496,57 @@ namespace
 			factory, FactorySlots, rom.size(), peakOf(rom));
 	}
 
+	// Q16 (research/19-qualite-audio.md, spec 12 criterion 3): 16 BDs in phase at full level and velocity, in their
+	// family's chain: every value finite, Main the sum of 16 single Hits (no clip hidden in the engine), the peaks
+	// printed; with the master on, every value finite and its peak printed
+	void q16(const Library& _library)
+	{
+		constexpr int Samples = 44100, Note = 64;
+		const auto play = [&](const Machine& _machine, const int _tracks, const bool _master)
+		{
+			auto e = std::make_unique<Engine>(_library);
+			for(int t = 0; t < _tracks; ++t)
+			{
+				e->setMachine(t, _machine);
+				e->setLevel(t, 127);
+			}
+			e->setMasterOn(_master);
+			Take take(Samples);
+			take.render(*e, 0, Note);
+			for(int t = 0; t < _tracks; ++t)
+				e->noteOn(t, 127);
+			take.render(*e, Note, Samples - Note);
+			return take;
+		};
+		const auto finite = [](const Take& _take)
+		{
+			for(int c = 0; c < Channels; ++c)
+				for(const float x : _take.channel(c))
+					if(!std::isfinite(x))
+						return false;
+			return true;
+		};
+		for(const Machine machine : {Machine{Family::Syntakt, 0}, Machine{Family::Machinedrum, 16}})
+		{
+			const auto one = play(machine, 1, false), all = play(machine, Tracks, false), mastered = play(machine, Tracks, true);
+			require(finite(one) && finite(all) && finite(mastered), nameOf(machine) + ": Q16, a value not finite");
+			float peak = 0, error = 0;
+			for(int c = 0; c < 2; ++c)
+				for(int n = 0; n < Samples; ++n)
+				{
+					const float x = all.channel(c)[static_cast<size_t>(n)];
+					peak = std::max(peak, std::abs(x));
+					error = std::max(error, std::abs(x - Tracks * one.channel(c)[static_cast<size_t>(n)]));
+				}
+			const float master = std::max(peakOf(mastered.channel(0)), peakOf(mastered.channel(1)));
+			std::printf("  Q16, 16 x %s in phase: a Track's peak %.3f, Main's %.3f (%+.1f dBFS), %.1f dB from 16 single Hits; "
+				"through the master %.3f (%+.1f dBFS); every value finite\n", nameOf(machine).c_str(),
+				std::max(peakOf(one.channel(0)), peakOf(one.channel(1))), peak, 20 * std::log10(peak),
+				20 * std::log10(std::max(error, 1e-30f) / peak), master, 20 * std::log10(master));
+			require(error <= 1e-5f * peak, nameOf(machine) + ": Q16, Main is not the sum of its Tracks: a clip inside");
+		}
+	}
+
 	std::unique_ptr<syntakt::fast::TwinshotSamples> noise()
 	{
 		auto s = std::make_unique<syntakt::fast::TwinshotSamples>();
@@ -2507,6 +2611,7 @@ int main()
 		off(library);
 		allocations(library);
 		q12(library);
+		q16(library);
 		fullMachine(library);
 		changeAndHit(library);
 		syntaktGaps(samples.get());

@@ -4,7 +4,7 @@
 //   - the class, an instrument by c0remusic; Main and 15 stereo Outs; the 1523 parameters (Machine 9-24 last) and their VST3 IDs, Machine and
 //     Chokes the ones a host does not automate;
 //   - at 44.1 kHz the latency reported is HitDelay; every channel is the engine's, sample for sample, each Track on its
-//     Out, in blocks of 128, of 32, of random sizes, Main alone as with all the Outs;
+//     Out, in blocks of 128, of 32, of random sizes, offline, Main alone as with all the Outs;
 //   - a Hit sounds HitDelay after its note in the plug-in as in the engine;
 //   - a machine set by the host gives Machine 1-8 the machine's defaults, which the host reads again;
 //   - the state through IComponent: another instance gets every parameter back, and plays the same;
@@ -481,6 +481,11 @@ namespace
 		compare("blocks of 32", render(plugin, notes, Samples, 32), whole, 0);
 		instance->prepare(SampleRate, true);
 		compare("random blocks", render(plugin, notes, Samples, 0, 0x12345), whole, 0);
+		// Offline, as a host renders a set to a file (spec 12, criterion 10)
+		plugin.setNonRealtime(true);
+		instance->prepare(SampleRate, true);
+		compare("offline, random blocks", render(plugin, notes, Samples, 0, 0x6789), whole, 0);
+		plugin.setNonRealtime(false);
 		instance->prepare(SampleRate, false);
 		{
 			auto main = render(plugin, notes, Samples, g_block);

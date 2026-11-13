@@ -11,7 +11,9 @@
 #   so and names the load ("timing test failed under load, passed on its second run"); red twice, the gate is red.
 # - Every other test's failure is red at once.
 # - A test that skips (exit 77: its firmware, OS or vectors not found) is red too: ctest counts it as passed, and a
-#   skipped test proves nothing. The log names each one, and the Syntakt variables the gate could not set.
+#   skipped test proves nothing. The log names each one, and the Syntakt variables the gate could not set; any data
+#   missing (the variables above, the flash image, X.20's OS) is red before the build, since a test that skips a part
+#   passes.
 param(
     [string]$Log = (Join-Path ([System.IO.Path]::GetTempPath()) "module-gate.log"),
     [string]$Build = "temp\cmake_vs22",
@@ -111,6 +113,12 @@ try
 {
     Set-Content -Path $Log -Value ("MoDule gate {0}, {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), (git rev-parse --short HEAD))
     if($syntaktMissing.Count -gt 0) { Say "Syntakt data not found (-SyntaktData, -SyntaktOs): $($syntaktMissing -join ', ')" }
+    # Some tests skip a part, not the whole test, without their data (edDrumsSyntaktSlotsTest's comparison with the
+    # original, edDrumsSampleLibraryTest's image walked, mdX20OsTest's X.20): they pass, so ctest cannot tell. Data
+    # missing is red before anything runs (spec 12, criterion 12: no test of the list skipped, ticket 25)
+    $dataMissing = @($syntaktMissing) + @("GEARMULATOR_MD_FIRMWARE_BIN", "MD_X20_OS" |
+        Where-Object { $v = [Environment]::GetEnvironmentVariable($_); -not $v -or -not (Test-Path $v) })
+    if($dataMissing.Count -gt 0) { throw "the tests' data is missing, which would skip them: $($dataMissing -join ', ')" }
     $start = Get-Date
     $built = cmake --build $Build --config Release -j 6 --target $targets 2>&1
     $buildExit = $LASTEXITCODE
