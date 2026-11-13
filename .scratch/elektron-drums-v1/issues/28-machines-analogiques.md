@@ -84,3 +84,25 @@ diffèrent que par les numéros de commutateurs et les mots de la trame, que Voi
 vecteurs des trois passent sur le même code). edDrumsProcessorTest sauve et restaure un état avec trois pistes
 analogiques et un verrou : mêmes échantillons, le verrou joué sur son pas. `analog-28.wav` (NOISE GEN, filtres
 refaits) est rendu à nouveau.
+
+**Timbres (écoute de l'utilisateur, 2026-11-12).** « Pas mal, mais certaines ont très peu de différences de timbre,
+particulièrement les kicks. » Chaque machine des kicks, des caisses claires et caisses de rim, et du métal a désormais
+une structure de circuit à elle, tirée de `.scratch/elektron-drums/research/28-circuits-classiques.md` : résonateur
+frappé et VCO triangle à conformeur pour les kicks, deux sinus amortis contre deux VCO couplés et un passe-bas
+résonant pour les caisses claires, résonateurs amortis et étage non linéaire pour les rims, et pour le métal trois
+combinaisons (banc de six carrés par les passe-bande à 3,4 et 7,1 kHz avec le VCA à balancement, banc simplement
+sommé, paires en anneau). Le contrôle et la carte des commandes vers les mots ne changent pas. edDrumsAnalogTest
+mesure l'écart de timbre entre chaque paire d'une famille aux réglages par défaut (spectre par tiers d'octave et
+enveloppe, en dB) et refuse toute paire sous une ligne fixe par famille : la moitié de sa médiane mesurée avant sa
+reprise (kicks 3,75 dB, caisses claires et rims 12,7, métal 10,6, synthés 9,0), et non la moitié de la médiane
+courante, qu'une reprise aurait pu faire baisser en rapprochant les paires éloignées. Médianes : kicks 7,5 puis
+22,5 dB, caisses claires et rims 25,4 puis 28,4 dB, métal 21,2 puis 17,7 dB. Au métal, toutes les paires dépassent
+10,6 dB (la plus proche, SIX CYMBAL et BAND RIDE, à 12,1) ; TUNED HAT a désormais son propre chemin, sans la bande à
+7,1 kHz, et SIX CYMBAL les passe-haut par bande du 808. La médiane du métal baisse pourtant, et tout l'écart est dans
+le spectre : SIX CLOSED, SIX OPEN, SIX CYMBAL et BAND RIDE partagent le banc de six carrés du 808 et ses passe-bande,
+comme le circuit d'origine (note 28), ce qui les tient proches en spectre ; la ligne fixe par paire est la garde. WARP SNARE et BODY SNARE passent de peu (14,3 dB pour un
+seuil de 14,2 à l'outil de mesure, 14,5 dans edDrumsAnalogTest) : leurs structures diffèrent (grain FM contre échantillon de corps et modes ; 4,2 dB de spectre et
+10,1 dB d'enveloppe), mais le DECAY 48 de WARP SNARE et le corps maison décroissent tous deux en 35 ms environ. Aucun
+réglage n'a été rapproché du seuil : le DECAY par défaut de WARP SNARE est à l'oreille de l'utilisateur, comme le
+décalage d'enveloppe du VCA à balancement du métal et la montée d'environ 140 ms du ride. RING HAT a pris un DECAY
+de 10, une longueur de charleston fermée.

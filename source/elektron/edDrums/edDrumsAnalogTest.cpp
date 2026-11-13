@@ -377,8 +377,7 @@ namespace
 	}
 
 	// The user's listening, 2026-11-12: some machines of a family sounded alike. Within each family, every pair's distance
-	// at the defaults (spectrum and envelope, dB), and the pairs under half the family's median: CLOSE. The families made
-	// distinct so far must have none; the others are printed until their round
+	// at the defaults (spectrum and envelope, dB), and the pairs under the family's fixed line: CLOSE; there must be none
 	void distinct()
 	{
 		using analog::Machine;
@@ -386,12 +385,16 @@ namespace
 		{
 			const char* name;
 			Machine first, last;
-			bool required;
+			double before;		// the family's median distance before its timbre round, dB
 		};
-		const Group groups[] = {{"kicks", Machine::KickHard, Machine::KickAcoustic, true},
-			{"snares and rims", Machine::SnareHard, Machine::RimClassic, false},
-			{"synths", Machine::SynthDual, Machine::SynthChip, false},
-			{"metal", Machine::ClosedClassic, Machine::HatLab, false}};
+		// The lines are fixed, half each family's median measured before its timbre round (2026-11-12): a line relative to
+		// the median as it stands would let a round pass by bringing far pairs closer. Kicks 7.5 dB (line 3.75), snares and
+		// rims 25.4 (12.7), metal 21.2 (10.6); the synths had no round, their median then 18.0 (9.0). The medians are
+		// printed beside those of before: a family whose machines share one circuit, as the metal's 808 bank, keeps a lower one
+		const Group groups[] = {{"kicks", Machine::KickHard, Machine::KickAcoustic, 7.5},
+			{"snares and rims", Machine::SnareHard, Machine::RimClassic, 25.4},
+			{"synths", Machine::SynthDual, Machine::SynthChip, 18.0},
+			{"metal", Machine::ClosedClassic, Machine::HatLab, 21.2}};
 		for(const auto& g : groups)
 		{
 			std::vector<Timbre> t;
@@ -408,14 +411,14 @@ namespace
 			size_t k = 0;
 			for(size_t i = 0; i < t.size(); ++i)
 				for(size_t j = i + 1; j < t.size(); ++j, ++k)
-					if(all[k] < median / 2)
+					if(all[k] < g.before / 2)
 						close += " " + std::to_string(static_cast<int>(g.first) + static_cast<int>(i)) + "-"
 							+ std::to_string(static_cast<int>(g.first) + static_cast<int>(j));
-			std::printf("  %-16s median distance %.1f dB, closest %.1f dB; close pairs:%s\n", g.name, median, sorted.front(),
-				close.empty() ? " none" : close.c_str());
-			require(!g.required || close.empty(), std::string(g.name) + ": machines that sound alike:" + close);
+			std::printf("  %-16s median distance %.1f dB (before %.1f), closest %.1f dB, line %.2f; close pairs:%s\n", g.name,
+				median, g.before, sorted.front(), g.before / 2, close.empty() ? " none" : close.c_str());
+			require(close.empty(), std::string(g.name) + ": machines that sound alike:" + close);
 		}
-		std::printf("PASS: no two kicks alike at their defaults\n");
+		std::printf("PASS: no two machines of a family alike at their defaults\n");
 	}
 
 	void cost(const Library& _library)

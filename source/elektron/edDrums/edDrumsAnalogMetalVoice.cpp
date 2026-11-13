@@ -53,6 +53,10 @@ namespace elektron::drums::analog::circuit
 		constexpr int NoiseFilter = 30;	// the noise filter, two states
 		constexpr int OutHp = 32;		// the output high-pass: its output and its last input
 		constexpr int LastA = 34;
+		constexpr int Tilt = 35;		// the 606 tone filter's low-pass state
+		constexpr int LastNoise = 45;	// the fourth lane's last noise sample
+		constexpr int BandHp = 64;		// the 808 cymbal's high-passes after its VCAs, four lanes as Bands
+		constexpr int Bands = 48;		// the 808 cymbal's band filters as four lanes: two states of four floats
 		constexpr int Increment = 36;	// the eight oscillators' phase steps a host sample, as the last tick ran them
 		constexpr int IncrementRate = 44;	// ... at this host rate		// outA's last value of the previous tick
 		// Circuit::u slots
@@ -156,9 +160,8 @@ namespace elektron::drums::analog::circuit
 		};
 		float sum(const __m128 _v)
 		{
-			alignas(16) float x[4];
-			_mm_store_ps(x, _v);
-			return (x[0] + x[1]) + (x[2] + x[3]);
+			const __m128 pair = _mm_add_ps(_v, _mm_movehl_ps(_v, _v));
+			return _mm_cvtss_f32(_mm_add_ss(pair, _mm_shuffle_ps(pair, pair, _MM_SHUFFLE(1, 1, 1, 1))));
 		}
 
 		// A state-variable filter (trapezoidal), its coefficients for a tick
@@ -187,63 +190,114 @@ namespace elektron::drums::analog::circuit
 			}
 		};
 
-		// What each machine's circuit is made of
-		enum class Source : uint8_t { Six, RingPairs, Bell, RingBell, Ride };
-		struct Band
+		// Four state-variable filters side by side, each lane a band-pass or a high-pass
+		struct Svf4
 		{
-			float hz, q;
-			bool highPass;
-			float w[4];			// the stages that open it, as weights
+			__m128 a1, a2, a3, k, highPass;
+			void set(const Svf* _f, const bool* _hp)
+			{
+				alignas(16) float x[4][4] = {};
+				for(int l = 0; l < 4; ++l)
+				{
+					x[0][l] = _f[l].a1;
+					x[1][l] = _f[l].a2;
+					x[2][l] = _f[l].a3;
+					x[3][l] = _f[l].k;
+				}
+				a1 = _mm_load_ps(x[0]);
+				a2 = _mm_load_ps(x[1]);
+				a3 = _mm_load_ps(x[2]);
+				k = _mm_load_ps(x[3]);
+				highPass = _mm_castsi128_ps(_mm_set_epi32(0, _hp[2] ? -1 : 0, _hp[1] ? -1 : 0, _hp[0] ? -1 : 0));
+			}
+			__m128 run(float* _s, const __m128 _x) const
+			{
+				const __m128 s0 = _mm_load_ps(_s), s1 = _mm_load_ps(_s + 4);
+				const __m128 v3 = _mm_sub_ps(_x, s1);
+				const __m128 v1 = _mm_add_ps(_mm_mul_ps(a1, s0), _mm_mul_ps(a2, v3));
+				const __m128 v2 = _mm_add_ps(_mm_add_ps(s1, _mm_mul_ps(a2, s0)), _mm_mul_ps(a3, v3));
+				_mm_store_ps(_s, _mm_sub_ps(_mm_add_ps(v1, v1), s0));
+				_mm_store_ps(_s + 4, _mm_sub_ps(_mm_add_ps(v2, v2), s1));
+				const __m128 hp = _mm_sub_ps(_mm_sub_ps(_x, _mm_mul_ps(k, v1)), v2);
+				return _mm_or_ps(_mm_and_ps(highPass, hp), _mm_andnot_ps(highPass, v1));
+			}
+			// every lane a high-pass
+			__m128 runHighPass(float* _s, const __m128 _x) const
+			{
+				const __m128 s0 = _mm_load_ps(_s), s1 = _mm_load_ps(_s + 4);
+				const __m128 v3 = _mm_sub_ps(_x, s1);
+				const __m128 v1 = _mm_add_ps(_mm_mul_ps(a1, s0), _mm_mul_ps(a2, v3));
+				const __m128 v2 = _mm_add_ps(_mm_add_ps(s1, _mm_mul_ps(a2, s0)), _mm_mul_ps(a3, v3));
+				_mm_store_ps(_s, _mm_sub_ps(_mm_add_ps(v1, v1), s0));
+				_mm_store_ps(_s + 4, _mm_sub_ps(_mm_add_ps(v2, v2), s1));
+				return _mm_sub_ps(_mm_sub_ps(_x, _mm_mul_ps(k, v1)), v2);
+			}
 		};
-		struct Recipe
+
+		// The circuits, by the classic each evokes (research 28, section 5): three combiners of the oscillators (the
+		// 808's six squares through band-passes at 3.4 and 7.1 kHz, the 606's six squares simply summed, the ring
+		// modulator's pairs) and the 808's two-square bell
+		enum class Kind : uint8_t
 		{
-			Source source;
-			int bands;
-			Band band[3];
-			bool timesD;		// every band also through stage D
-			bool toneFromCv;	// the tone word comes from the control (Cv + 0), else the tone byte
-			float outHp;		// the output high-pass
+			Hat808,		// the 808's hats: the bank, its 7.1 kHz band, a swing VCA, a Sallen-Key high-pass
+			Cymbal808,	// the 808's cymbal: three bands (3.4 kHz, 7.1 kHz, the top above 10.5 kHz), each its envelope
+						// and swing VCA, the tone cutting the top band
+			Ride808,	// the 808's three bands, narrow: they ring through plain VCAs, each at its level; its
+						// oscillators XORed in pairs (the ride's logical interaction), the stick's click
+			Bell808,	// the 808's bell: two squares, their VCA's strike and tail, a 2.64 kHz band-pass after
+			BellRing,	// two squares ring-modulated (their XOR), a narrower and higher band
+			Hat606,		// the 606's hats: the bank summed, a tilt tone filter, a plain VCA, a high-pass; noise
+			RingHat,	// ring-modulated pairs: three narrow high clusters, a broad band, a high-pass, a plain VCA
+			RingCrash,	// ring-modulated pairs in two bands, a noise transient
+			HatLab		// six free squares, no band-pass (research 28, 7.4: HH LAB has none), a high-pass, a plain
+						// VCA
+		};
+		struct Voicing
+		{
+			Kind kind;
 			float trim;			// the output's level at unity
 			float noise;		// the noise path's level at the noise byte's top
 			float burst;		// outA's level at the trig, which the burst's noise scales to one: its peak's inverse
-			bool hpFromByte8;	// parameter byte 8, which the machine's control does not read, moves the high-pass
-			bool drive;			// the snap byte drives the output (a soft clip) instead
+			bool drive;			// the snap byte drives the output (a soft clip)
 		};
-		// Stages: 0 A, 1 B, 2 C, 3 D. A snap weight (the snap byte) adds to the stage marked by w = -1
-		const Recipe& recipeOf(const Machine _m)
+		const Voicing& voicingOf(const Machine _m)
 		{
-			static const Recipe r[] = {
-				// the six-square closed hat: a band at 7 kHz, opened by stage D, stage C a click
-				{Source::Six, 1, {{7100, 1.6f, false, {0, 0, -1, 1}}}, false, true, 6000, 1.35f, 0.4f, 0, true, false},
-				// the open one: stage D
-				{Source::Six, 1, {{7100, 1.6f, false, {0, 0, 0, 1}}}, false, true, 5500, 3.6f, 0.4f, 0, true, true},
-				// the cymbal: three bands, each its stage, through D
-				{Source::Six, 3, {{3440, 1.2f, false, {1, 0, 0, 0}}, {7100, 1.5f, false, {0, 1, 0, 0}},
-					{9000, 0.7f, true, {0, 0, 1, 0}}}, true, true, 2000, 8.0f, 0.4f, 0, false, true},
-				// the two-square bell: a broad band, stage C's strike over D's ring
-				{Source::Bell, 1, {{2640, 0.9f, false, {0, 0, -1, 0.45f}}}, false, false, 300, 2.0f, 0.2f, 0, false,
-					false},
-				// ring-modulated closed hat: three pairs, a band at 8.5 kHz, stage C (its attack) times D
-				{Source::RingPairs, 1, {{8500, 1.4f, false, {0, 0, 1, 0}}}, true, false, 5000, 0.8f, 0.4f, 0, true,
-					true},
-				{Source::RingPairs, 1, {{8500, 1.4f, false, {0, 0, 1, 0}}}, true, false, 5000, 2.4f, 0.4f, 0, true,
-					true},
-				// ring-modulated cymbal: a low and a high band
-				{Source::RingPairs, 2, {{4500, 1.0f, false, {0, 1, 0, 0}}, {9500, 0.7f, true, {0, 0, 1, 0}}}, true,
-					false,
-					2000, 0.48f, 0.4f, 300, false, false},
-				// ring-modulated bell
-				{Source::RingBell, 1, {{2640, 0.9f, false, {0, 0, -1, 0.45f}}}, false, false, 300, 3.5f, 0.2f, 0, false,
-					false},
-				// the ride: three bands opened by stages A, B, C, the stick's click in outA
-				{Source::Ride, 3, {{3440, 1.2f, false, {1, 0, 0, 0}}, {7100, 1.5f, false, {0, 1, 0, 0}},
-					{9000, 0.7f, true, {0, 0, 1, 0}}}, false, false, 2000, 7.7f, 0.0f, 70, false, false},
-				// the beating hat: a band at 8 kHz opened by stage C, its noise burst in outA
-				{Source::Six, 1, {{8000, 1.4f, false, {0, 0, 1, 0}}}, false, true, 6000, 2.7f, 0.6f, 200, false, false},
-				// the tuned hat: six squares at their own knobs, stage C
-				{Source::Six, 1, {{8000, 1.2f, false, {0, 0, 1, 0}}}, false, false, 4000, 1.08f, 0.0f, 0, false, false},
+			static const Voicing v[] = {
+				{Kind::Hat808, 1.3f, 0.4f, 0, false},		// SIX CLOSED: stage D, stage C its click
+				{Kind::Hat808, 2.0f, 0.4f, 0, true},		// SIX OPEN: stage D
+				{Kind::Cymbal808, 4.5f, 0.4f, 0, true},		// SIX CYMBAL
+				{Kind::Bell808, 2.2f, 0.35f, 0, false},		// DUO BELL
+				{Kind::RingHat, 1.0f, 0.4f, 0, true},		// RING HAT
+				{Kind::RingHat, 3.0f, 0.4f, 0, true},		// RING OPEN
+				{Kind::RingCrash, 0.4f, 0.4f, 300, false},	// RING CRASH
+				{Kind::BellRing, 1.0f, 0.6f, 0, false},		// RING BELL
+				{Kind::Ride808, 4.0f, 0.0f, 70, false},		// BAND RIDE
+				{Kind::Hat606, 2.8f, 0.6f, 200, false},		// BEAT HAT
+				{Kind::HatLab, 0.95f, 0.0f, 0, false},		// TUNED HAT: stage C
 			};
-			return r[static_cast<int>(_m) - FirstMetal];
+			return v[static_cast<int>(_m) - FirstMetal];
+		}
+
+		// The 808's swing VCA: a common-emitter stage whose supply is the envelope, so the positive half is amplified
+		// and clips, the negative is squashed; what it adds of the envelope itself the high-pass after takes out
+		float swing(const float _x, const float _env)
+		{
+			float s = _x * (_x > 0.0f ? 4.0f : 0.25f);
+			s = s / (1.0f + std::fabs(s));
+			return (s + 0.2f) * _env;
+		}
+		// ... the three bands' at once
+		__m128 swing(const __m128 _x, const __m128 _env)
+		{
+			const __m128 positive = _mm_cmpgt_ps(_x, _mm_setzero_ps());
+			const __m128 slope = _mm_or_ps(_mm_and_ps(positive, _mm_set1_ps(4.0f)),
+				_mm_andnot_ps(positive, _mm_set1_ps(0.25f)));
+			const __m128 s = _mm_mul_ps(_x, slope);
+			const __m128 magnitude = _mm_andnot_ps(_mm_set1_ps(-0.0f), s);
+			const __m128 d = _mm_add_ps(_mm_set1_ps(1.0f), magnitude);
+			// a 12-bit reciprocal: enough for a clip's curve
+			const __m128 clipped = _mm_mul_ps(s, _mm_rcp_ps(d));
+			return _mm_mul_ps(_mm_add_ps(clipped, _mm_set1_ps(0.2f)), _env);
 		}
 
 		float noiseSample(Circuit& _c)
@@ -278,37 +332,108 @@ namespace elektron::drums::analog::circuit
 
 	void metalRender(const Machine _m, const VoiceIo& _io, Circuit& _c, float* _out, const int _n, const double _rate)
 	{
-		const Recipe& r = recipeOf(_m);
+		const Voicing& v = voicingOf(_m);
+		const Kind kind = v.kind;
 		readStages(_io, _c, _rate);
 		const auto& p = _io.params;
 
-		// the tone: about an octave each way, from the control's word or our own byte
-		const double tone = r.toneFromCv ? static_cast<int16_t>(be16(_io.frame.data() + Cv)) / 32768.0
+		// the tone: the control's tone word (about zero) where it computes one, else our own byte; an octave each way
+		const bool toneFromCv = _m == Machine::ClosedClassic || _m == Machine::OpenClassic ||
+			_m == Machine::CymbalClassic || _m == Machine::HatBasic;
+		const double tone = toneFromCv ? static_cast<int16_t>(be16(_io.frame.data() + Cv)) / 32768.0
 			: (p[ToneByte] - 64) / 64.0;
 		const double reso = std::exp2((p[ResoByte] - 64) / 48.0);
-		Svf f[3];
-		for(int b = 0; b < r.bands; ++b)
-			f[b].set(r.band[b].hz * std::exp2(tone), r.band[b].q * reso, _rate);
-		Svf noiseHp;
-		// the output's one-pole high-pass: y = a (y + x - x_last)
-		const double hpHz = r.outHp * (r.hpFromByte8 ? std::exp2((p[8] - 64) / 32.0) : 1.0);
-		const auto hpA = static_cast<float>(1.0 / (1.0 + 2 * 3.14159265358979 * hpHz / _rate));
-		// the beating hat's noise: its settings a band (byte 2 in hundreds of Hz) and its level (byte 3 of 64)
+		const double hpShift = std::exp2((p[8] - 64) / 32.0);		// HIGHPASS, where the control leaves byte 8 free
+		const bool hpFree = _m == Machine::ClosedClassic || _m == Machine::OpenClassic ||
+			_m == Machine::ClosedMetallic || _m == Machine::OpenMetallic;
+		Svf noiseBand;
+		// the noise's settings, where the control gives them: a band (byte 2 in hundreds of Hz), its Q (byte 0 / 10)
+		// and its level (byte 3 of 64)
 		const bool settings = _io.noise[3] != 0;
-		noiseHp.set(settings ? _io.noise[2] * 100.0 : 7000.0, settings ? _io.noise[0] / 10.0 : 1.0, _rate);
-		const float noiseLevel = r.noise * (p[NoiseByte] / 127.0f) * (settings ? _io.noise[3] / 64.0f : 1.0f);
-		const float snap = p[SnapByte] / 127.0f;
-		const float drive = r.drive ? 3.0f * snap : 0.0f;
-		const float out = r.trim * static_cast<float>(be16(_io.frame.data() + Cv + 8)) / 32768.0f;
+		noiseBand.set(settings ? _io.noise[2] * 100.0 : 7000.0, settings ? _io.noise[0] / 10.0 : 1.0, _rate);
+		Svf f[4], hp;
+		Svf4 bands, bandHp;
+		float topGain = 1.0f, onePole = 0.0f;
+		switch(kind)
+		{
+		case Kind::Hat808:
+			f[0].set(7100 * std::exp2(tone), 2.0 * reso, _rate);
+			hp.set(6000.0 * (hpFree ? hpShift : 1.0), 0.8, _rate);
+			break;
+		case Kind::HatLab:
+			// its six oscillators heard as tuned, above the hats' usual low end
+			hp.set(3000.0, 0.7, _rate);
+			break;
+		case Kind::Cymbal808:
+		case Kind::Ride808:
+		{
+			// the 808's three bands: the cymbal's broad (a wash), the ride's narrow (they ring). The cymbal's tone sets
+			// its top band
+			const double q = (kind == Kind::Ride808 ? 5.0 : 1.6) * reso;
+			f[0].set(3440, q, _rate);
+			f[1].set(7100, q, _rate);
+			f[2].set(10500, 1.5, _rate);
+			if(kind == Kind::Cymbal808)
+				topGain = static_cast<float>(std::exp2(2.0 * tone));
+			static constexpr bool modes[4] = {false, false, true, false};
+			f[3] = noiseBand;
+			bands.set(f, modes);
+			if(kind == Kind::Cymbal808)
+			{
+				// the 808 cymbal's Sallen-Key high-passes after each band's VCA (Werner 2014): they take out what the
+				// swing VCA adds of its envelope and the band-passes' low skirts, the low band's below 2 kHz, the
+				// mid's below 4.3 kHz, the top's again at 10.5 kHz
+				Svf h[4];
+				h[0].set(2000, 0.7, _rate);
+				h[1].set(4300, 0.7, _rate);
+				h[2].set(10500, 0.9, _rate);
+				static constexpr bool highPasses[4] = {true, true, true, false};
+				bandHp.set(h, highPasses);
+			}
+			onePole = static_cast<float>(
+				1.0 / (1.0 + 2 * 3.14159265358979 * (kind == Kind::Ride808 ? 1500.0 : 2500.0) / _rate));
+			break;
+		}
+		case Kind::Bell808:
+			f[0].set(2640 * std::exp2(tone), 0.9 * reso, _rate);
+			hp.set(300, 0.7, _rate);
+			break;
+		case Kind::BellRing:
+			f[0].set(3600 * std::exp2(tone), 2.2 * reso, _rate);
+			hp.set(900, 0.7, _rate);
+			break;
+		case Kind::Hat606:
+			hp.set(6500.0 * std::exp2(0.5 * tone), 0.9 * reso, _rate);
+			break;
+		case Kind::RingHat:
+			f[0].set(8500 * std::exp2(tone), 0.7 * reso, _rate);
+			hp.set((_m == Machine::ClosedMetallic ? 7500.0 : 5500.0) * hpShift, 0.7, _rate);
+			break;
+		case Kind::RingCrash:
+			f[0].set(4500, 1.0 * reso, _rate);
+			f[1].set(9500, 0.7, _rate);
+			hp.set(2000, 0.7, _rate);
+			break;
+		}
+		// the 606's tilt: its tone lifts the top against the low-passed rest (+ shrill, - dull)
+		const auto tiltA = static_cast<float>(1.0 - std::exp(-2 * 3.14159265358979 * 3000.0 / _rate));
+		const auto tilt = static_cast<float>(tone);
+		const float tiltNorm = 1.0f / (1.0f + std::fabs(tilt));		// the tilt moves the balance, not the level
 
-		// the oscillators: six, or three pairs, or two
+		const float noiseLevel = v.noise * (p[NoiseByte] / 127.0f) * (settings ? _io.noise[3] / 64.0f : 1.0f);
+		const float snap = p[SnapByte] / 127.0f;
+		const float drive = v.drive ? 3.0f * snap : 0.0f;
+		const float out = v.trim * static_cast<float>(be16(_io.frame.data() + Cv + 8)) / 32768.0f;
+
+		// the oscillators: the six of the bank, or the three pairs of the second bank, or the bell's two
 		int count = 6, at = 0;
-		if(r.source == Source::RingPairs)
+		if(kind == Kind::RingHat || kind == Kind::RingCrash || kind == Kind::Bell808 || kind == Kind::BellRing)
 			at = 6;
-		else if(r.source == Source::Bell || r.source == Source::RingBell)
-			at = 6, count = 2;
-		// the ride's sets 2 and 3 are the ring-modulated pairs
-		const bool ring = r.source == Source::RingPairs || (r.source == Source::Ride && p[6] >= 2);
+		if(kind == Kind::Bell808 || kind == Kind::BellRing)
+			count = 2;
+		// the ride combines its oscillators by logic, as its type says ("inter-oscillator logical interaction"): each
+		// pair XORed (ring-modulated), whichever set its type picks
+		const bool ring = kind == Kind::RingHat || kind == Kind::RingCrash || kind == Kind::Ride808;
 		// lane 0 the even oscillators, lane 1 the odd: a ring pair is a lane-0 and a lane-1 oscillator
 		alignas(16) float dt[8] = {}, inv[8] = {}, weight[8] = {};
 		for(int i = 0; i < count; ++i)
@@ -348,20 +473,25 @@ namespace elektron::drums::analog::circuit
 		{
 			// the control's falling lines end on a residue of a few LSB that never reaches zero (an arithmetic shift
 			// rounds down): below 2^-20 of full scale, -120 dB, it is no burst
-			const auto v = static_cast<int32_t>(be32(_io.outA.data() + 4 * i));
-			a[i + 1] = std::abs(v) < (1 << 11) ? 0.0f : std::fabs(static_cast<float>(v) / 2147483648.0f);
+			const auto x = static_cast<int32_t>(be32(_io.outA.data() + 4 * i));
+			a[i + 1] = std::abs(x) < (1 << 11) ? 0.0f : std::fabs(static_cast<float>(x) / 2147483648.0f);
 			burst = burst || a[i + 1] != 0.0f;
 		}
 		_c.f[LastA] = a[32];
 		// the voice is frozen once every stage has ended, or once stage D has where every band passes it
+		const bool timesD = kind == Kind::Cymbal808 || kind == Kind::RingHat || kind == Kind::RingCrash;
 		const auto ended = [&](const int _s) { return _c.f[Stage + _s] == 0.0f && _c.f[Target + _s] == 0.0f; };
-		const bool quiet = !burst && ((ended(0) && ended(1) && ended(2) && (r.timesD || ended(3))) ||
-			(r.timesD && ended(3)));
+		const bool quiet = !burst && ((ended(0) && ended(1) && ended(2) && (timesD || ended(3))) ||
+			(timesD && ended(3)));
 		_c.u[Frozen] = quiet ? 1u : 0u;
 		if(quiet)
 		{
 			// a frozen voice: nothing sounds and nothing is left to ring; its oscillators run on
 			std::fill(_c.f.begin() + Filter, _c.f.begin() + LastA, 0.0f);
+			std::fill_n(_c.f.begin() + Bands, 8, 0.0f);
+			std::fill_n(_c.f.begin() + BandHp, 8, 0.0f);
+			_c.f[LastNoise] = 0.0f;
+			_c.f[Tilt] = 0.0f;
 			for(int i = 0; i < 8; ++i)
 			{
 				const double ph = _c.f[static_cast<size_t>(Phase + i)] + static_cast<double>(dt[i]) * _n;
@@ -370,55 +500,119 @@ namespace elektron::drums::analog::circuit
 			return;
 		}
 		const bool noisy = burst || noiseLevel > 0.0f;
+		// the cymbal and ride run their noise band in their filters' fourth lane, its sample a sample late
+		const bool laned = kind == Kind::Cymbal808 || kind == Kind::Ride808;
+		if(laned && !noisy)
+		{
+			// no noise this tick: its lane holds nothing (left to decay it would sink into denormals)
+			_c.f[Bands + 3] = _c.f[Bands + 7] = _c.f[LastNoise] = 0.0f;
+		}
 		// the burst at its snap byte (the ride's at a fixed half)
-		const float burstLevel = r.burst * (r.noise > 0 ? snap : 0.5f);
+		const float burstLevel = v.burst * (v.noise > 0 ? snap : 0.5f);
 		const float cut = static_cast<float>(std::exp(-1.0 / (0.005 * _rate)));
-		float w[3][4];
-		for(int b = 0; b < r.bands; ++b)
-			for(int s = 0; s < 4; ++s)
-				w[b][s] = (r.band[b].w[s] < 0 ? snap : r.band[b].w[s]) * gain[s];
 		const float step = 32.0f / static_cast<float>(_n);
-		float m[4];
+		const __m128 bandScale = _mm_set_ps(0.0f, topGain, 1.0f, 1.0f);
+		alignas(16) float m[4];
 		stageFactors(_c, cut, m);
-		const float* t = &_c.f[Target];
+		// the four stages as one vector: e = t + (e - t) m a sample, each scaled by its gain word
+		const __m128 tv = _mm_load_ps(&_c.f[Target]), mv = _mm_load_ps(m);
+		alignas(16) float gains[4] = {gain[0], gain[1], gain[2], gain[3]};
+		const __m128 gv = _mm_load_ps(gains);
+		__m128 ev = _mm_load_ps(&_c.f[Stage]);
 		for(int i = 0; i < _n; ++i)
 		{
 			const __m128 even = sq.run(&_c.f[Phase], 0), odd = sq.run(&_c.f[Phase + 4], 1);
 			float src;
 			if(ring)
 				src = sum(_mm_mul_ps(_mm_mul_ps(even, odd), pairs));
-			else if(r.source == Source::RingBell)
-				src = 0.7f * sum(_mm_add_ps(_mm_mul_ps(even, w0), _mm_mul_ps(odd, w1))) +
-					0.3f * _mm_cvtss_f32(_mm_mul_ss(even, odd));
+			else if(kind == Kind::BellRing)
+				src = _mm_cvtss_f32(_mm_mul_ss(even, odd));
 			else
 				src = sum(_mm_add_ps(_mm_mul_ps(even, w0), _mm_mul_ps(odd, w1)));
 			float noise = 0, level = 0;
 			if(noisy)
 			{
-				noise = noiseHp.run(&_c.f[NoiseFilter], noiseSample(_c), false);
+				noise = laned ? _c.f[LastNoise] : noiseBand.run(&_c.f[NoiseFilter], noiseSample(_c), false);
 				// outA across the tick at its own rate: 32 values over _n host samples, between the last tick's
 				const float pos = static_cast<float>(i + 1) * step;
 				const int k0 = std::min(static_cast<int>(pos), 31);
 				level = a[k0] + (a[k0 + 1] - a[k0]) * (pos - static_cast<float>(k0));
 			}
-			float* e = &_c.f[Stage];
-			for(int st = 0; st < 4; ++st)
-				e[st] = t[st] + (e[st] - t[st]) * m[st];
+			ev = _mm_add_ps(tv, _mm_mul_ps(_mm_sub_ps(ev, tv), mv));
+			const __m128 egv = _mm_mul_ps(ev, gv);
+			alignas(16) float eg[4];
+			_mm_store_ps(eg, egv);
+			const float eb = eg[1], ec = eg[2], ed = eg[3];
 			const float x = src + noise * noiseLevel;
-			float y = noise * level * burstLevel;
-			for(int b = 0; b < r.bands; ++b)
+			float y = 0;
+			switch(kind)
 			{
-				float open = w[b][0] * e[0] + w[b][1] * e[1] + w[b][2] * e[2] + w[b][3] * e[3];
-				if(r.timesD)
-					open *= e[3] * gain[3];
-				y += f[b].run(&_c.f[Filter + 2 * b], x, r.band[b].highPass) * open;
+			case Kind::Hat808:
+			{
+				const float env = ed + (_m == Machine::ClosedClassic ? snap * ec : 0.0f);
+				y = hp.run(&_c.f[OutHp], swing(f[0].run(&_c.f[Filter], x, false), env), true);
+				break;
 			}
+			case Kind::Cymbal808:
+			case Kind::Ride808:
+			{
+				// low and mid band-passes and the top's high-pass side by side, each through its swing VCA: stages A,
+				// B, C (the cymbal's also through D), the fourth lane the noise's band
+				__m128 env = _mm_mul_ps(egv, bandScale);
+				if(kind == Kind::Cymbal808)
+					env = _mm_mul_ps(env, _mm_shuffle_ps(egv, egv, _MM_SHUFFLE(3, 3, 3, 3)));
+				const __m128 in = _mm_set_ps(noisy ? noiseSample(_c) : 0.0f, x, x, x);
+				const __m128 filtered = bands.run(&_c.f[Bands], in);
+				_c.f[LastNoise] = _mm_cvtss_f32(_mm_shuffle_ps(filtered, filtered, _MM_SHUFFLE(3, 3, 3, 3)));
+				// the cymbal through the 808's swing VCAs; the ride's bands ring through plain ones
+				y = kind == Kind::Cymbal808 ? sum(bandHp.runHighPass(&_c.f[BandHp], swing(filtered, env)))
+					: sum(_mm_mul_ps(filtered, env));
+				// the 808 cymbal's output stage drifts at +6 dB an octave: a first-order high-pass
+				float* h = &_c.f[OutHp];
+				h[0] = onePole * (h[0] + y - h[1]);
+				h[1] = y;
+				y = h[0];
+				break;
+			}
+			case Kind::Bell808:
+			case Kind::BellRing:
+			{
+				// the VCAs before the filter, as the 808's bell: the strike (stage C) over the tail (stage D)
+				const float env = snap * ec + 0.45f * ed;
+				y = hp.run(&_c.f[OutHp], f[0].run(&_c.f[Filter], x * env, false), true);
+				break;
+			}
+			case Kind::Hat606:
+			{
+				float& lp = _c.f[Tilt];
+				lp += tiltA * (x - lp);
+				const float tilted = (lp * (1.0f - tilt) + (x - lp) * (1.0f + tilt)) * tiltNorm;
+				y = hp.run(&_c.f[OutHp], tilted, true) * ec;
+				break;
+			}
+			case Kind::RingHat:
+			{
+				const float body = 0.5f * (x + f[0].run(&_c.f[Filter], x, false));
+				y = hp.run(&_c.f[OutHp], body, true) * ec * ed;
+				break;
+			}
+			case Kind::HatLab:
+				y = hp.run(&_c.f[OutHp], x, true) * ec;
+				break;
+			case Kind::RingCrash:
+			{
+				const float body = f[0].run(&_c.f[Filter], x, false) * eb;
+				const float shimmer = f[1].run(&_c.f[Filter + 2], x, true) * ec;
+				y = hp.run(&_c.f[OutHp], body + shimmer, true) * ed;
+				break;
+			}
+			}
+			// the bursts: noise opened by outA
+			y += noise * level * burstLevel;
 			y = y * (1.0f + drive) / (1.0f + drive * std::fabs(y));
-			float* h = &_c.f[OutHp];
-			h[0] = hpA * (h[0] + y - h[1]);
-			h[1] = y;
-			_out[i] += h[0] * out;
+			_out[i] += y * out;
 		}
+		_mm_store_ps(&_c.f[Stage], ev);
 		settleStages(_c);
 	}
 
@@ -499,7 +693,7 @@ namespace elektron::drums::analog::circuit
 		case Machine::OpenClassic:		return {64, 30, 64, 64, 64, 30, 40, 100};
 		case Machine::CymbalClassic:	return {64, 60, 64, 64, 64, 30, 40, 100};
 		case Machine::BellClassic:		return {64, 30, 72, 64, 64, 0, 80, 100};
-		case Machine::ClosedMetallic:	return {64, 28, 64, 64, 64, 20, 40, 100};
+		case Machine::ClosedMetallic:	return {64, 10, 64, 64, 64, 20, 40, 100};
 		case Machine::OpenMetallic:		return {64, 30, 64, 64, 64, 20, 40, 100};
 		case Machine::CymbalMetallic:	return {64, 50, 64, 64, 64, 20, 40, 100};
 		case Machine::BellMetallic:		return {64, 30, 80, 64, 64, 0, 80, 100};
