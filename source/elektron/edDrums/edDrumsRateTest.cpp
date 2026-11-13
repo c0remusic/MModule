@@ -13,7 +13,8 @@
 //   - the sends, the master, the LFOs and the sequencer at the right speed: their output against 44.1 kHz's;
 //   - the cost: the worst kit of 16 Tracks (the dearest machine of every family but the Syntakt's on 7 Tracks beside the
 //     nine Syntakt machines, and on all 16), every send, the master and 2 LFOs a Track on, under 15 % of a core at 44.1,
-//     48, 88.2 and 96 kHz (spec 12, criterion 4), and the 2x half-band path the ticket weighed, measured beside it.
+//     48, 88.2 and 96 kHz (spec 12, criterion 4), under 17 % with the drives at 4x (the user's decision of 2026-11-13),
+//     and the 2x half-band path the ticket weighed, measured beside it.
 //
 // GEARMULATOR_MD_FIRMWARE_BIN names the flash image; exit 77 without it. SP TWINSHOT plays noise made here.
 
@@ -1066,9 +1067,11 @@ namespace
 	void cost(const Library& _library)
 	{
 		// The dearest Machinedrum machine at full knobs, as edDrumsCost's search finds it, in short runs
-		const auto once = [&](const double _rate, const std::array<Machine, Tracks>& _kit, const double _seconds, const bool _all)
+		const auto once = [&](const double _rate, const std::array<Machine, Tracks>& _kit, const double _seconds, const bool _all,
+			const int _oversampling)
 		{
 			auto e = std::make_unique<Engine>(_library, _rate);
+			e->setOversampling(_oversampling);
 			for(int t = 0; t < Tracks; ++t)
 			{
 				e->setMachine(t, _kit[static_cast<size_t>(t)]);
@@ -1173,7 +1176,7 @@ namespace
 		for(const auto& m : candidates)
 		{
 			kit.fill(m);
-			const double pct = once(44100, kit, 0.2, false);
+			const double pct = once(44100, kit, 0.2, false, 2);
 			if(pct > most)
 			{
 				most = pct;
@@ -1187,21 +1190,29 @@ namespace
 		kit.fill(dearest);
 		constexpr int Runs = 5;
 		constexpr double Budget = 15;
-		std::map<double, double> best;
-		for(const double rate : Rates)
+		// The drives at 4x may cost up to 17 % of a core (the user's decision of 2026-11-13); 2x keeps spec 12's 15 %
+		constexpr double Budget4x = 17;
+		// The worst of the two kits at each rate, at least over the runs, the drives oversampled _oversampling times
+		const auto worst = [&](const int _oversampling, const std::vector<double>& _rates)
 		{
-			for(const auto* k : {&mixed, &kit})
+			std::map<double, double> best;
+			for(const double rate : _rates)
 			{
-				std::vector<double> pct;
-				for(int r = 0; r < Runs; ++r)
-					pct.push_back(once(rate, *k, 2.0, true));
-				std::sort(pct.begin(), pct.end());
-				best[rate] = std::max(best[rate], pct.front());
-				std::printf("  %s (%s, dearest chains 2x, 2 LFOs a Track, 4 sends, the master) at %s: %.2f %% of a core at "
-					"least, median %.2f\n", k == &mixed ? "9 Syntakt machines and 7 x" : "16 x", nameOfAny(dearest).c_str(),
-					khz(rate).c_str(), pct.front(), pct[pct.size() / 2]);
+				for(const auto* k : {&mixed, &kit})
+				{
+					std::vector<double> pct;
+					for(int r = 0; r < Runs; ++r)
+						pct.push_back(once(rate, *k, 2.0, true, _oversampling));
+					std::sort(pct.begin(), pct.end());
+					best[rate] = std::max(best[rate], pct.front());
+					std::printf("  %s (%s, dearest chains %dx, 2 LFOs a Track, 4 sends, the master) at %s: %.2f %% of a core "
+						"at least, median %.2f\n", k == &mixed ? "9 Syntakt machines and 7 x" : "16 x",
+						nameOfAny(dearest).c_str(), _oversampling, khz(rate).c_str(), pct.front(), pct[pct.size() / 2]);
+				}
 			}
-		}
+			return best;
+		};
+		auto best = worst(2, {std::begin(Rates), std::end(Rates)});
 		// The path the ticket weighed: the engine at 48 kHz (the Syntakt's) and its 32 channels up 2x by HIIR's half-bands
 		{
 			Oversampler up(48000);
@@ -1223,6 +1234,12 @@ namespace
 			"(not budgeted)\n", best[44100], best[48000], best[88200], best[96000], Budget, best[192000]);
 		for(const double rate : {44100.0, 48000.0, 88200.0, 96000.0})
 			require(best[rate] < Budget, "the worst kit over 15 % of a core at " + khz(rate));
+
+		auto best4x = worst(4, {44100.0, 48000.0, 88200.0, 96000.0});
+		std::printf("  the worst case, drives at 4x: %.2f %% at 44.1 kHz, %.2f at 48, %.2f at 88.2, %.2f at 96 (budget %.0f)\n",
+			best4x[44100], best4x[48000], best4x[88200], best4x[96000], Budget4x);
+		for(const double rate : {44100.0, 48000.0, 88200.0, 96000.0})
+			require(best4x[rate] < Budget4x, "the worst kit, drives at 4x, over 17 % of a core at " + khz(rate));
 	}
 }
 

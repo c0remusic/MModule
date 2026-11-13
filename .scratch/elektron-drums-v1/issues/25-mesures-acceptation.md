@@ -71,3 +71,36 @@ sans signification). Le -2 est la sonnerie des demi-bandes avant le front, pas u
 Ajouts : `edDrumsEngineTest` (Q16, retard d'un drive relevé sur chaque machine MD), `edDrumsRateTest` (pire cas sur
 toutes les familles, aux quatre fréquences), `edDrumsVst3HostTest` (hors ligne), `scripts/windows/gate.ps1` (données
 manquantes). Ticket laissé ouvert : critère 4, critères 2 et 9 de l'utilisateur.
+
+Critère 7, « ce qui manque » (ticket 20, 2026-11-13) : `edDrumsProcessorTest` (`machineKits`) importe un dossier où
+un fichier SysEx porte un Kit fait par l'encodeur de mdProtocol, et vérifie les huit lignes du rapport de ce qui n'est
+pas pris (machine absente, ROM-35, AM, LFO, lien, master EQ et DYNAMIX, dump de sample, projet non lu). Vert.
+
+Critère 4, SOPHIE et 4x (2026-11-13). Décision de l'utilisateur du 2026-11-13 : drives à 4x, le pire kit peut coûter
+jusqu'à 17 % d'un cœur ; 2x garde 15 %. `edDrumsRateTest` l'exige désormais aux quatre fréquences. SOPHIE coûte
+moins, échantillons identiques : ce qui ne dépend que du patch de la voix est calculé une fois par bloc, le coefficient
+du filtre seulement quand la coupure bouge, et `sinf` n'est plus appelé pour un modulateur que le modèle ne lit pas.
+Les 30 scénarios de `sophieTest` restent identiques bit à bit à l'original, et une scène de 17,6 millions d'échantillons
+(16 sons, 10 réglages, avec et sans FTZ) est identique octet par octet avant et après. Par voix (meilleure de 5) :
+moyenne des 16 sons d'usine de 4,36 à 3,01 µs par bloc de 32 (0,60 à 0,41 %), boutons au maximum de 5,13 à 2,69
+(Boom) et de 5,50 à 4,08 (Stack avec corps). Le pire kit ne bouge pas : sur ces passes, la machine la plus chère est
+une machine MD (145, 149 ou 158 selon la passe), plus SOPHIE. Machine chargée (19 à 29 %), meilleure de 5 : 2x, avant
+11,97 / 12,23 / 13,36 / 13,86 (44,1 / 48 / 88,2 / 96 kHz), après 12,15 / 12,90 / 13,71 / 13,72 et 13,34 / 13,80 /
+14,59 / 14,64 ; 4x, avant 13,89 / 14,56 / 15,76 / 15,48, après 15,19 / 15,91 / 16,62 / **17,05** (rouge) et 14,41 /
+14,48 / 16,44 / 16,24. La marge de 4x à 88,2 et 96 kHz tient dans le bruit de la machine : à remesurer au calme.
+
+Critère 4, marge à 44,1 kHz (2026-11-13). Profil du pire kit (16 x ROM, chaînes 2x, échantillonneur de pile sur
+`edDrumsRateTest`) : la voix ROM de mdVoice prend 62 % du temps (interpolateur x4 16 %, décimateur 11 %, two-pole et
+enveloppe 5 % chacun, lecture des pointeurs 5 %), la chaîne 17 % (Dist 6, Filter 3, drive Syntakt 3, suréchantillonneur
+5), les envois 6 %, le mix 5 %. `mdVoiceRom.cpp` accéléré sans changer un échantillon : table de décodage lue en premier,
+fenêtre de l'interpolateur et entrées du décimateur étendues en signe une fois, produits doublés une fois par somme,
+pointeurs des remplissages écrits directement (A et B laissés comme le dernier INSERT). `mdVoicePortTest`,
+`mdVoiceRomFiltersTest`, `mdVoiceCoefficientsTest`, `mdFastTrackFxTest`, `edDrumsChainTest`, `edDrumsEngineTest`,
+`edDrumsProcessorTest`, `edDrumsRateTest` verts, hachage d'or de 44,1 kHz inchangé (`43f3abf3f1df7256`) ; rendu de 48
+configurations (4 fréquences, 2x et 4x, 3 kits, 560 Mo) identique octet par octet avant et après. Cycles du fil, pire
+kit 2x à 44,1 : -18 à -20 %. Machine chargée (Chrome, Live), meilleure de 5, pire des deux kits, avant puis après :
+2x 11,44 → 10,27 / 13,01 → 11,05 / 13,24 → 11,80 / 13,18 → 12,65 (44,1 / 48 / 88,2 / 96 kHz) ; 4x 44,1 12,98 → 12,26,
+88,2 14,71 → 13,51, 96 14,92 → 13,67, 48 trop bruité à l'horloge (cycles -13 et -21 %). `edDrumsRateTest` après : 2x
+11,89 / 11,81 / 12,80 / 12,91, 4x 13,08 / 14,56 / 14,95 / 16,64 ; le kit le plus cher est désormais le mixte (9 Syntakt
++ 7 MD). Non pris : une table des coefficients de l'interpolateur transposée et étendue en signe (environ 0,4 point),
+qui demanderait aux tests qui remplacent les filtres de la recalculer. Critère 4 à reconfirmer au calme.

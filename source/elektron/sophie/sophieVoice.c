@@ -5,9 +5,11 @@
  * PIPE, BOOM and the smooth-feedback/brightness ideas are adapted from
  * soejrd/digisophie (MIT), commit ee4ff40.
  *
- * Ported from src/dsp/sophie.c: one voice per instance. render_voice is the original's, line for line, its pad
- * target read from the instance's patch; trigger_voice is the original's with a pool of one voice. Upstream's
- * "pad_index == 0" (the kick body) is a flag of its own, so that any pad can play the body.
+ * Ported from src/dsp/sophie.c: one voice per instance. render_voice is the original's, its pad target read from the
+ * instance's patch, with what depends on the voice's patch alone computed once a block (sophie_block_t) and the
+ * filter's coefficient again only when its cutoff moves: the same expressions, the same samples, for a
+ * fifth to a half less of the cost. trigger_voice is the original's with a pool of one voice. Upstream's "pad_index == 0" (the kick body) is a
+ * flag of its own, so that any pad can play the body.
  */
 
 #include "sophieVoice.h"
@@ -29,7 +31,10 @@ static float wrap_phase(float x) {
 }
 
 static float wrap_continuous(float x) {
-    return x - floorf(x / SOPHIE_TAU) * SOPHIE_TAU;
+    /* A phase wrap_phase left inside the turn needs no floorf: floorf(q) is +0 there, and x - 0 is x */
+    float q = x / SOPHIE_TAU;
+    if (q > 0.0f && q < 1.0f) return x;
+    return x - floorf(q) * SOPHIE_TAU;
 }
 
 static float soft_clip(float x) {
@@ -200,13 +205,63 @@ void sophie_trigger(sophie_t *s, int velocity) {
     v->mod3_phase = noise_bipolar(&v->rng) * 0.08f;
 }
 
-static float render_voice(sophie_t *s, sophie_voice_t *v) {
+/* What render_voice reads of the voice's patch, which no render changes (a trigger replaces it between blocks),
+ * computed by the original's own expressions once a block; and the filter's coefficient for the last cutoff seen */
+typedef struct {
+    int legacy_kick, shaped, smooth;
+    float level;
+    float crush;
+    int rate_div;
+    float levels;
+    float drive_gain, norm;
+    float delay_samples, tone, ring_fb, mix;
+    float cutoff_s, f;
+} sophie_block_t;
+
+static float filter_f(const sophie_t *s, float cutoff_s) {
+    float fc = 40.0f * powf(400.0f, cutoff_s * 0.01f);
+    return clampf(2.0f * sinf(SOPHIE_PI * fc / (float)s->sample_rate), 0.001f, 0.95f);
+}
+
+static void block_init(const sophie_t *s, const sophie_voice_t *v, sophie_block_t *k) {
+    const sophie_patch_t *p = &v->patch;
+    k->legacy_kick = v->body && p->model < 4;
+    k->shaped = p->metal_decay > 0 || p->model >= 4;
+    k->smooth = p->feedback_mode == 1;
+    k->level = p->level * 0.01f;
+    k->crush = p->crush * 0.01f;
+    k->rate_div = 1 + (int)(k->crush * k->crush * 31.0f);
+    k->levels = exp2f(15.0f - k->crush * 12.0f);
+    float drive = clampf(p->drive * 0.01f, 0.0f, 1.0f);
+    /* Preserve the original curve through 50%, then open up a much hotter
+     * range above it. The old normalization kept 100% surprisingly polite;
+     * easing it out in the upper half lets the soft clip become audibly
+     * destructive without changing the useful low-drive region. */
+    float drive_units = drive <= 0.5f
+        ? drive * 100.0f
+        : 50.0f + 250.0f * powf((drive - 0.5f) * 2.0f, 1.5f);
+    k->drive_gain = 1.0f + drive_units * 0.075f;
+    k->norm = soft_clip(k->drive_gain);
+    if (drive > 0.5f) {
+        float t = (drive - 0.5f) * 2.0f;
+        k->norm += (1.0f - k->norm) * 0.72f * t;
+    }
+    float delay_samples = p->ring_time * 0.001f * (float)s->sample_rate;
+    k->delay_samples = clampf(delay_samples, 1.0f, (float)(SOPHIE_MAX_DELAY_SAMPLES - 2));
+    k->tone = 0.02f + p->ring_tone * 0.0098f;
+    k->ring_fb = p->ring_feedback * 0.01f;
+    k->mix = p->ring_mix * 0.01f;
+    k->cutoff_s = v->cutoff_s;
+    k->f = filter_f(s, v->cutoff_s);
+}
+
+static float render_voice(sophie_t *s, sophie_voice_t *v, sophie_block_t *k) {
     if (!v->active) return 0.0f;
     const sophie_patch_t *p = &v->patch;
 
-    int legacy_kick = v->body && p->model < 4;
-    int shaped = p->metal_decay > 0 || p->model >= 4;
-    int smooth = p->feedback_mode == 1;
+    int legacy_kick = k->legacy_kick;
+    int shaped = k->shaped;
+    int smooth = k->smooth;
     if (p->tail_mode == 1) {
         const sophie_patch_t *target = &s->patch;
 #define SLEW(field) v->field##_s += (target->field - v->field##_s) * s->control_slew
@@ -230,7 +285,8 @@ static float render_voice(sophie_t *s, sophie_voice_t *v) {
     float brightness = shaped ? v->metal_env : v->pitch_env;
     float sweep_range = legacy_kick ? 2.5f : 4.5f;
     float sweep_oct = p->sweep * 0.01f * sweep_range * v->pitch_env;
-    float hz = clampf(v->base_hz * exp2f(sweep_oct), 18.0f, 18000.0f);
+    /* exp2f(±0) is exactly 1: a Sweep at 0, or a pitch envelope run out, needs no call */
+    float hz = clampf(v->base_hz * (sweep_oct == 0.0f ? 1.0f : exp2f(sweep_oct)), 18.0f, 18000.0f);
 
     /* Deliberately non-integer ratios: Color moves through useful clang zones. */
     float r1 = 0.47f + color * color * 7.6f;
@@ -258,8 +314,9 @@ static float render_voice(sophie_t *s, sophie_voice_t *v) {
     }
     float fb = v->feedback_z * feedback * (2.0f + metal * 10.0f);
     float m1 = sinf(v->mod1_phase + fb);
-    float m2 = sinf(v->mod2_phase + m1 * metal * 2.5f);
-    float m3 = sinf(v->mod3_phase);
+    /* Only the kick, Fuse, Stack and Split read m2, only Stack and Split m3: a sine nobody reads is not computed */
+    float m2 = legacy_kick || p->model <= 2 ? sinf(v->mod2_phase + m1 * metal * 2.5f) : 0.0f;
+    float m3 = !legacy_kick && (p->model == 1 || p->model == 2) ? sinf(v->mod3_phase) : 0.0f;
     float index = metal * metal * (2.0f + 24.0f * (0.25f + brightness * 0.75f));
     if (smooth) {
         /* Heuristic FM bandwidth ceiling, not an alias-free guarantee. */
@@ -334,43 +391,25 @@ static float render_voice(sophie_t *s, sophie_voice_t *v) {
     v->feedback_z = smooth ? v->feedback_z + (feedback_out - v->feedback_z) * s->feedback_slew : feedback_out;
     out *= v->amp_env * v->attack;
 
-    out *= p->level * 0.01f;
+    out *= k->level;
 
-    float crush = p->crush * 0.01f;
-    if (crush >= 0.005f) {
-        int rate_div = 1 + (int)(crush * crush * 31.0f);
+    if (k->crush >= 0.005f) {
         if (v->crush_count <= 0) {
             v->crush_hold = out;
-            v->crush_count = rate_div;
+            v->crush_count = k->rate_div;
         }
         out = v->crush_hold;
         v->crush_count--;
-        float levels = exp2f(15.0f - crush * 12.0f);
-        out = floorf(out * levels + 0.5f) / levels;
+        out = floorf(out * k->levels + 0.5f) / k->levels;
     }
-    float drive = clampf(p->drive * 0.01f, 0.0f, 1.0f);
-    /* Preserve the original curve through 50%, then open up a much hotter
-     * range above it. The old normalization kept 100% surprisingly polite;
-     * easing it out in the upper half lets the soft clip become audibly
-     * destructive without changing the useful low-drive region. */
-    float drive_units = drive <= 0.5f
-        ? drive * 100.0f
-        : 50.0f + 250.0f * powf((drive - 0.5f) * 2.0f, 1.5f);
-    float drive_gain = 1.0f + drive_units * 0.075f;
-    float norm = soft_clip(drive_gain);
-    if (drive > 0.5f) {
-        float t = (drive - 0.5f) * 2.0f;
-        norm += (1.0f - norm) * 0.72f * t;
-    }
-    float dry = (soft_clip(out * drive_gain) / norm) * v->velocity;
+    /* Drive (block_init): the original curve through 50%, then a much hotter range above it */
+    float dry = (soft_clip(out * k->drive_gain) / k->norm) * v->velocity;
 
     /* Per-voice short feedback delay. At sub-10 ms times this behaves like a
      * resonant comb, adding the metallic rings used in Sophie's references.
      * The bounded buffer and one interpolated read keep it cheap and smooth;
      * zero mix is a true bypass apart from the buffer write. */
-    float delay_samples = p->ring_time * 0.001f * (float)s->sample_rate;
-    delay_samples = clampf(delay_samples, 1.0f, (float)(SOPHIE_MAX_DELAY_SAMPLES - 2));
-    float read = (float)v->delay_pos - delay_samples;
+    float read = (float)v->delay_pos - k->delay_samples;
     while (read < 0.0f) read += (float)SOPHIE_MAX_DELAY_SAMPLES;
     /* A read a hair below zero rounds to exactly the buffer's length when the length is added: that
      * is the wrap point, the buffer's first sample, not one past its end */
@@ -379,21 +418,22 @@ static float render_voice(sophie_t *s, sophie_voice_t *v) {
     int rnext = (r0 + 1) % SOPHIE_MAX_DELAY_SAMPLES;
     float frac = read - (float)r0;
     float delayed = v->delay_buf[r0] * (1.0f - frac) + v->delay_buf[rnext] * frac;
-    float tone = 0.02f + p->ring_tone * 0.0098f;
-    v->delay_lp += tone * (delayed - v->delay_lp);
+    v->delay_lp += k->tone * (delayed - v->delay_lp);
     delayed = v->delay_lp;
-    float ring_fb = p->ring_feedback * 0.01f;
-    v->delay_buf[v->delay_pos] = clampf(dry + delayed * ring_fb, -1.0f, 1.0f);
+    v->delay_buf[v->delay_pos] = clampf(dry + delayed * k->ring_fb, -1.0f, 1.0f);
     v->delay_pos = (v->delay_pos + 1) % SOPHIE_MAX_DELAY_SAMPLES;
-    float mix = p->ring_mix * 0.01f;
-    out = dry * (1.0f - mix) + delayed * mix;
+    out = dry * (1.0f - k->mix) + delayed * k->mix;
 
     /* The per-pad filter is deliberately last: crusher, drive and ring delay
      * all create fresh high-frequency material, and the filter must be able to
      * tame the complete sound. It sits outside the delay feedback loop so a
      * cutoff change shapes the output without rewriting the loop's decay. */
-    float fc = 40.0f * powf(400.0f, v->cutoff_s * 0.01f);
-    float f = clampf(2.0f * sinf(SOPHIE_PI * fc / (float)s->sample_rate), 0.001f, 0.95f);
+    /* The cutoff moves only under a Live tail's slew: its coefficient is computed again only then */
+    if (v->cutoff_s != k->cutoff_s) {
+        k->cutoff_s = v->cutoff_s;
+        k->f = filter_f(s, v->cutoff_s);
+    }
+    float f = k->f;
     float q = clampf(1.0f - v->resonance_s * 0.009f, 0.05f, 1.0f);
     v->filter_low += f * v->filter_band;
     float high = out - v->filter_low - q * v->filter_band;
@@ -424,5 +464,11 @@ static float render_voice(sophie_t *s, sophie_voice_t *v) {
 }
 
 void sophie_render(sophie_t *s, float *out, int frames) {
-    for (int i = 0; i < frames; ++i) out[i] = render_voice(s, &s->voice);
+    if (!s->voice.active) {
+        for (int i = 0; i < frames; ++i) out[i] = 0.0f;
+        return;
+    }
+    sophie_block_t k;
+    block_init(s, &s->voice, &k);
+    for (int i = 0; i < frames; ++i) out[i] = render_voice(s, &s->voice, &k);
 }
