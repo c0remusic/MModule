@@ -1,5 +1,6 @@
 // The OPEN DRUM family (ticket 26 of .scratch/elektron-drums-v1) against the original engine:
 //
+//   - the drum voice's pitch within 0.1 cent of its oscillator's formula at 44.1 kHz, the rate the engine plays it at;
 //   - each voice alone in its blocks of 64, against the renders of the original firmware's code (OPENDRUM_REFERENCES,
 //     recorded out of the repository by opendrumRefs): init kit, Machine 1-8 at two settings, another note, other
 //     parameters and a velocity, sample for sample;
@@ -7,7 +8,7 @@
 //     Engine::HitDelay after its note wherever the note falls, its voice no longer rendered once quiet;
 //   - what a voice costs per 32-sample block, nothing allocated on the audio path.
 //
-// Exit 77 without OPENDRUM_REFERENCES.
+// Exit 77 without OPENDRUM_REFERENCES, after the pitch.
 
 #include <algorithm>
 #include <array>
@@ -134,6 +135,47 @@ namespace
 		}
 		require(exact == static_cast<int>(_scenarios.size()), "the port differs from the original");
 		std::printf("PASS: %d renders of the original, sample for sample, at 64-sample blocks\n", exact);
+	}
+
+	// The drum voice's pitch: a plain sine at TUNE 69 (A4, 440 Hz in the firmware's note table) and FINE 64, its
+	// frequency from the zero crossings of 1.5 s of its render, against the oscillator's formula. The engine plays the
+	// voice's samples one for one at 44.1 kHz at every host rate, so REAL_FS must be 44 100: at the hardware's 44 140
+	// the voice played 1.57 cents flat
+	void pitch()
+	{
+		VoiceMemory memory;
+		auto* v = memory.voice();
+		openDrum_init(v, OpenDrumDrum);
+		// TUNE, DECAY, PITCH AMT, FM AMT, CLICK, DRIVE, FINE, WAVE sine, FM/MIX, FILTER open, FILT TYPE LP
+		const std::pair<int, uint8_t> knobs[]{{0, 69}, {1, 127}, {3, 0}, {4, 0}, {6, 0}, {7, 0}, {8, 64}, {9, 0}, {11, 0},
+			{16, 127}, {18, 0}};
+		for(const auto& [index, knob] : knobs)
+			openDrum_setParameter(v, openDrum_machineParameter(OpenDrumDrum, index),
+				openDrum_machineValue(OpenDrumDrum, index, knob));
+		openDrum_settle(v);
+		openDrum_trigger(v, 127, 60, 0);
+		std::vector<int16_t> out(1034 * OpenDrumBlock);
+		for(size_t at = 0; at + OpenDrumBlock <= out.size(); at += OpenDrumBlock)
+			openDrum_render(v, out.data() + at);
+		double first = -1, last = -1;
+		int crossings = 0;
+		for(size_t n = 4096; n + 1 < out.size(); ++n)
+		{
+			if(out[n] >= 0 || out[n + 1] < 0)
+				continue;
+			const double t = static_cast<double>(n) + static_cast<double>(-out[n]) / (out[n + 1] - out[n]);
+			first = first < 0 ? t : first;
+			last = t;
+			++crossings;
+		}
+		require(crossings > 100, "the drum voice's sine does not sound");
+		const double got = (crossings - 1) * SampleRate / (last - first);
+		const double want = 440.0 * (1 + (64 / 127.0 - 0.5) * (std::pow(2.0, 1 / 12.0) - 1));
+		const double cents = 1200 * std::log2(got / want);
+		std::printf("  OD DRUM sine at TUNE 69 FINE 64: %.4f Hz rendered, %.4f Hz by its formula, %+.4f cent\n", got,
+			want, cents);
+		require(std::abs(cents) < 0.1, "OD DRUM's pitch is " + std::to_string(cents) + " cent off its formula at 44.1 kHz");
+		std::printf("PASS: OD DRUM's oscillator within 0.1 cent of its formula at 44.1 kHz\n");
 	}
 
 	const ChainSettings Bare{};		// every slot off
@@ -396,6 +438,7 @@ int main()
 	setvbuf(stdout, nullptr, _IONBF, 0);
 	try
 	{
+		pitch();
 		const char* path = std::getenv("OPENDRUM_REFERENCES");
 		if(!path || !*path)
 		{

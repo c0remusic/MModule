@@ -71,7 +71,9 @@
 
 #define SYNTH_FS 			I2S_AUDIOFREQ_44K		  	// the requested I2S samplerate => 44.1 kHz
 
-#define REAL_FS				(float)44140.f//((float)44002.7573529412f) 	// since the prescaler wont allow for accurate 44.1kHz
+// MModule: the rate the voices render at in the instrument, 44.1 kHz whatever the host's (the engine resamples);
+// the hardware's 44 140 Hz played them 1.57 cents flat there. The filters do not read it.
+#define REAL_FS				(float)44100.f//(float)44140.f//((float)44002.7573529412f) 	// since the prescaler wont allow for accurate 44.1kHz
 #define REAL_FS2			(REAL_FS/2.f)
 													  	// this is the real sample rate our system is running
 //the number of drum voices (bd tom1 tom2)

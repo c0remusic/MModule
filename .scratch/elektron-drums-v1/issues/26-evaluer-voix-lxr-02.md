@@ -89,3 +89,7 @@ de +1,6 dB d'énergie d'écart ; Machine 1-20 fixés ou lockés pareil ; voix l�
 le son) ; rien d'alloué ; 1,7 à 4,9 µs par voix et 32 échantillons seule, 71 µs pour 16 pistes. `sophieTest` reste au
 bit près. Non fait : l'écoute, les unités des valeurs à l'écran, et les sons d'usine dans la bibliothèque de sons du
 ticket 19, proposés dans le bloc Machine à la place pour ne pas toucher ce travail en cours.
+
+## État (2026-11-13) : `REAL_FS` à 44 100
+
+`REAL_FS` vaut désormais 44 100 Hz (`opendrum/config.h`) : à 44 140, les oscillateurs des quatre voix jouaient 1,57 cent trop bas à 44,1 kHz, et non trop haut comme écrit plus haut (mesuré sur rendu : −1,5696 cent à 110 et 440 Hz, 0,0001 cent après) ; les filtres ne lisent pas `REAL_FS` (fréquence de coupure en fraction de la cadence, `g = fastTan(π f)`), leur coupure et leur Q mesurés sur rendu sont identiques au bit près aux deux valeurs et suivent leur formule à 1 à 3 cents près (Q à 2 % à faible niveau, l'écart venant de la saturation douce de l'état, qui croît avec le niveau), et la voix tourne à 44,1 kHz à toutes les cadences de l'hôte, le moteur rééchantillonnant ; `edDrumsOpenDrumTest` vérifie la hauteur d'OD DRUM à 0,1 cent près (échoue avant, passe après), et ses 25 rendus de référence sont réenregistrés avec l'original compilé à `REAL_FS` 44 100 (identiques au bit près ; les anciens gardés en `opendrum-44140.bin`).

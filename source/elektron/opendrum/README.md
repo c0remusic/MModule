@@ -28,7 +28,9 @@ HIHAT, ported from the sound engine of a drum machine firmware that its maker pu
   variable-length arrays, `distortion.c` without its C99 `inline`.
 - Includes flattened to this folder; `stm32f7xx_hal.h` here is MModule's stand-in for the intrinsics.
 - `openDrum.h` and `openDrum.c` are MModule's: a voice in the caller's memory, its init kit, Machine 1-24.
+- 2026-11-13: `REAL_FS` is 44 100 Hz, the rate the instrument renders the voices at whatever the host's (its engine
+  resamples), in place of the hardware's 44 140 Hz, at which the oscillators played 1.57 cents flat. The filters'
+  coefficients do not read it (a cutoff is a fraction of the rate), nor the envelopes, which step per block.
 
-`REAL_FS` stays 44 140 Hz, the hardware's: at 44.1 kHz the voices play 1.6 cents sharp, their filters at the
-hardware's coefficients. edDrumsOpenDrumTest compares the port with renders of the original
-(`OPENDRUM_REFERENCES`, recorded out of the repository).
+edDrumsOpenDrumTest compares the port with renders of the original compiled with `REAL_FS` at 44 100 Hz as well
+(`OPENDRUM_REFERENCES`, recorded out of the repository), and the drum voice's pitch with its oscillator's formula.

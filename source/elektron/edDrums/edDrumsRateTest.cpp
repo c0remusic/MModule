@@ -497,8 +497,9 @@ namespace
 	}
 
 	// What the scene rendered at 44.1 kHz before ticket 16, measured on the engine of commit 3413ea64: a change meant at
-	// 44.1 kHz gives this its new value, nothing else may
-	constexpr uint64_t Golden = 0xbfc5a39c2d1d1e3aull;
+	// 44.1 kHz gives this its new value, nothing else may. 2026-11-13: OPEN DRUM's REAL_FS from 44,140 to 44,100 (its
+	// oscillators 1.57 cent flat before); 0xbfc5a39c2d1d1e3a until then
+	constexpr uint64_t Golden = 0x43f3abf3f1df7256ull;
 
 	void unchanged(const Library& _library, const char* _dump)
 	{
