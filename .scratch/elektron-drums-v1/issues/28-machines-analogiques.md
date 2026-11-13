@@ -151,3 +151,9 @@ Reste, à l'oreille :
 - CLICK RIM et RING RIM (7,2 puis 7,5 dB) et TWIN OSC et RAW OSC (7,7 puis 9,5 dB) bougent peu à la mesure du spectre
   seul : leur nouveau circuit attend l'écoute ;
 - les fichiers analog-1, -12 à -15 et -21 à -23 sont rendus à nouveau (les anciens dans `before-2026-11-13`).
+
+**Écoute de l'utilisateur (2026-11-13).** L'utilisateur a écouté `analog-0.wav` à `analog-29.wav` après `c9b41653` et
+valide tout : les retouches (kick 808, rims, synthés, les trois métaux RING, la bande de RING OPEN comprise) et les
+paires que la mesure du spectre seul trouve encore proches (HARD THUMP et SOFT KICK ; SIX CLOSED et SIX OPEN contre
+BEAT HAT), que `edDrumsAnalogTest` range désormais parmi les paires entendues et gardées. L'étape 1 (pistes 9 à 12 du
+Syntakt) est faite, écoute comprise. Reste l'étape 2, le Rytm : le ticket reste ouvert.

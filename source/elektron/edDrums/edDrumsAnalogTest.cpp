@@ -477,14 +477,14 @@ namespace
 		// Pairs the spectrum-only line does not judge, each list with its reason:
 		// - one circuit: a closed and an open hat on the same circuit share their metal, as on an 808, and may differ in
 		//   length alone (the user's decision, 2026-11-13);
-		// - pending the user's ear: under the line before the round of 2026-11-13 and not touched by it (HARD THUMP and
-		//   SOFT KICK; the 808 hats against BEAT HAT); printed, not failed, until the user has heard them
+		// - heard alike and kept: under the line but heard and kept by the user on 2026-11-13 (HARD THUMP and SOFT KICK;
+		//   the 808 hats against BEAT HAT); printed, not failed
 		struct Pair
 		{
 			Machine a, b;
 		};
 		static constexpr Pair oneCircuit[] = {{Machine::ClosedClassic, Machine::OpenClassic}};
-		static constexpr Pair pendingEar[] = {{Machine::KickHard, Machine::KickSilky},
+		static constexpr Pair heardAlike[] = {{Machine::KickHard, Machine::KickSilky},
 			{Machine::ClosedClassic, Machine::HatBasic}, {Machine::OpenClassic, Machine::HatBasic}};
 		const auto listed = [](const auto& _list, const int _a, const int _b)
 		{
@@ -511,7 +511,7 @@ namespace
 			{
 				std::vector<double> sorted = _all;
 				std::sort(sorted.begin(), sorted.end());
-				std::string pairs, same, pending;
+				std::string pairs, same, heard;
 				size_t k = 0;
 				for(size_t i = 0; i < t.size(); ++i)
 					for(size_t j = i + 1; j < t.size(); ++j, ++k)
@@ -524,8 +524,8 @@ namespace
 						std::snprintf(text, sizeof(text), " %d-%d (%.1f dB)", a, b, _all[k]);
 						if(_lists && listed(oneCircuit, a, b))
 							same += text;
-						else if(_lists && listed(pendingEar, a, b))
-							pending += text;
+						else if(_lists && listed(heardAlike, a, b))
+							heard += text;
 						else
 							pairs += text;
 					}
@@ -535,8 +535,8 @@ namespace
 				if(!same.empty())
 					std::printf("  %-16s %-13s one circuit, closed and open (the user's decision, 2026-11-13):%s\n", g.name,
 						_measure, same.c_str());
-				if(!pending.empty())
-					std::printf("  %-16s %-13s pending the user's ear:%s\n", g.name, _measure, pending.c_str());
+				if(!heard.empty())
+					std::printf("  %-16s %-13s heard and kept by the user, 2026-11-13:%s\n", g.name, _measure, heard.c_str());
 				if(!pairs.empty())
 					close += std::string(" (") + _measure + ")" + pairs;
 			};
