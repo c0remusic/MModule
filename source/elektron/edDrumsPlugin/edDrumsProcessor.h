@@ -84,6 +84,12 @@ namespace elektron::drums
 		void setStateInformation(const void* _data, int _size) override;
 		static std::unique_ptr<juce::XmlElement> readState(const void* _data, int _size);
 
+		// Each Track's colour, 0 (ivory) to TrackColours - 1, which the editor lights its key with and names its number in.
+		// Message thread. Kept in the set's state, not in a Kit
+		static constexpr int TrackColours = 10;
+		int trackColour(const int _track) const { return m_colours[static_cast<size_t>(_track)]; }
+		void setTrackColour(int _track, int _colour);
+
 		// The Track the editor shows, 0-15, which the relays for Push aim at (parameters::relaySpecs) and which their
 		// Track relay sets. Any thread. Not kept in the state
 		int shownTrack() const { return m_shownTrack.load(std::memory_order_acquire); }
@@ -321,6 +327,7 @@ namespace elektron::drums
 			std::array<std::array<Watched, parameters::LfoValues>, 2> lfo{};
 			std::array<Watched, SendCount> sends{};
 			Watched accent;
+			Watched repeatSync, repeatNote;		// the Sampler's REPEAT GAP in note values
 		};
 
 		// A sample on its way to the audio thread, numbered in the order published
@@ -535,6 +542,7 @@ namespace elektron::drums
 		std::vector<uint8_t> m_kitParameter;
 		std::unique_ptr<KitBank> m_kits;
 		int m_kitSlot = -1;
+		std::array<uint8_t, Tracks> m_colours{};
 		bool m_kitHeld = false;		// m_kitValues and m_kitSamples hold the Slot's Kit: false for an empty Slot
 		std::vector<float> m_kitValues;
 		std::array<std::unique_ptr<Sample>, Tracks> m_kitSamples;

@@ -2,6 +2,7 @@
 
 #include <array>
 #include <functional>
+#include <map>
 #include <memory>
 #include <set>
 #include <vector>
@@ -53,6 +54,13 @@ namespace elektron::drums
 		// The LFO block's card of LFO _lfo, a click on which shows that LFO
 		juce::Rectangle<int> lfoCardArea(int _lfo) const;
 		int lfo() const { return m_lfo; }
+		// The LFO block's ASSIGN, and the LFO it armed, -1 for none: the next click on a cell that LFO can aim at sets
+		// its TARGET and disarms; a click on a cell it cannot aim at says so and stays armed; any other click disarms
+		juce::Rectangle<int> assignArea() const;
+		int assigning() const { return m_assign; }
+		// Sound's COLOR, and Overview's number of Track _track: a click opens the colours
+		juce::Rectangle<int> colourArea() const;
+		juce::Rectangle<int> overviewNumberArea(int _track) const;
 
 		// For tests: the page shown's cells, hidden ones included (the LFO not shown, a source's set); a cell's and a step
 		// key's area in pixels
@@ -132,6 +140,7 @@ namespace elektron::drums
 			std::function<bool(int)> disabled;
 			float x = 0, y = 0;
 			bool stays = false;
+			std::vector<juce::Colour> swatches;	// a swatch before each entry where given (COLOR)
 		};
 
 		// The press under way
@@ -144,6 +153,7 @@ namespace elektron::drums
 			float value = 0;				// a cell's value as the drag goes, normalised
 			bool gesture = false;			// a parameter's gesture begun
 			int armed = -1;					// the line armed before the press, which a lane's X keeps
+			int assign = -1;				// the LFO ASSIGN armed before the press, which ASSIGN's click disarms
 		};
 
 		// A block's title line: a rule in its hue, its name; rank 0 a block, 1 the page's first, 2 one that matters less
@@ -200,6 +210,8 @@ namespace elektron::drums
 		void cellUp(const ui::Cell& _cell);
 		bool lockable(const ui::Cell& _cell) const;
 		bool sectionOff(const juce::String& _section) const;
+		// What an LFO aims at to move a cell's parameter, None where it cannot (a cell off, a parameter no LFO reaches)
+		LfoTarget lfoTargetOf(const ui::Cell& _cell) const;
 
 		// Drawing
 		void drawSprites(juce::Graphics& _g);
@@ -230,6 +242,9 @@ namespace elektron::drums
 		void drawSegments(ui::Painter& _p, float _x, float _y, float _w, const juce::StringArray& _items, int _on,
 			const ui::Hue* _hue = nullptr, int _enabled = 1 << 30);
 		void sprite(juce::Graphics& _g, const juce::Image& _plate, juce::Rectangle<float> _mm, float _plateY) const;
+		// Track key _key's light, lit or dim, in colour _colour, at plate scale _q: built once, then kept
+		const juce::Image& tintedKey(int _key, int _colour, bool _bright, size_t _q);
+		std::map<int, juce::Image> m_tinted;
 
 		// Values
 		juce::RangedAudioParameter* trackParameter(const juce::String& _suffix, int _track = -1) const;
@@ -267,7 +282,10 @@ namespace elektron::drums
 		void toast(const juce::String& _text);
 
 		void openSelector(float _x, float _y, const juce::StringArray& _items, std::function<bool(int)> _current,
-			std::function<void(int)> _choose, std::function<bool(int)> _disabled = {}, bool _stays = false);
+			std::function<void(int)> _choose, std::function<bool(int)> _disabled = {}, bool _stays = false,
+			std::vector<juce::Colour> _swatches = {});
+		// The colours' list for Track _track, opened at _x, _y as openSelector's
+		void chooseColour(int _track, float _x, float _y);
 		void loadSample(int _track, const juce::File& _file);
 		void loadSample(int _track, const SampleLibrary::Entry& _entry);
 		void sampleLoaded(int _track);
@@ -310,6 +328,7 @@ namespace elektron::drums
 		int m_track = 0;
 		bool m_menu = false;
 		int m_lfo = 0;
+		int m_assign = -1;
 		int m_machinePage = 0;
 		juce::String m_focus = "f";
 		int m_stepPage = 0;
@@ -359,7 +378,7 @@ namespace elektron::drums
 		struct KeyChoices
 		{
 			juce::RangedAudioParameter *machine, *lfo1Track, *lfo2Track, *fltType, *bandType, *ampMode, *lfo1Sync, *lfo2Sync,
-				*note;
+				*note, *gapSync;
 		};
 		std::array<KeyChoices, 16> m_keyChoices{};
 		// Seq's Detail, as layout() built it: its lines (lockLineList), refreshed by an edit of the pattern too; + LOCK's

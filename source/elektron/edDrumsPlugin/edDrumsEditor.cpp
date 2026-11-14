@@ -17,6 +17,8 @@ namespace elektron::drums
 		// from y 272 mm
 		enum Plate { B0, B1, B2, Sa };
 		constexpr float B2Y = 172, SaY = 272;
+		// A Track key's light, under its LCD
+		constexpr float KeyLightY = 261.83f;
 
 		juce::Image load(const char* _data, const int _size)
 		{
@@ -40,7 +42,7 @@ namespace elektron::drums
 			m_keyChoices[static_cast<size_t>(t)] = {trackParameter("machine", t), trackParameter("lfo1_track", t),
 				trackParameter("lfo2_track", t), trackParameter("flt_type", t), trackParameter("band_type", t),
 				trackParameter("amp_mode", t), trackParameter("lfo1_sync", t), trackParameter("lfo2_sync", t),
-				trackParameter("note", t)};
+				trackParameter("note", t), trackParameter("gap_sync", t)};
 		using namespace LockstepAssets;
 		m_plates[B0] = {load(b0_1x_jpg, b0_1x_jpgSize), load(b0_2x_jpg, b0_2x_jpgSize)};
 		m_plates[B1] = {load(b1_1x_jpg, b1_1x_jpgSize), load(b1_2x_jpg, b1_2x_jpgSize)};
@@ -210,7 +212,8 @@ namespace elektron::drums
 		key << "/" << choiceOf(*shown.machine) << "/" << choiceOf(*shown.fltType) << "/" << choiceOf(*shown.bandType) << "/"
 			<< choiceOf(*shown.ampMode) << "/" << choiceOf(*shown.lfo1Sync) << "/" << choiceOf(*shown.lfo2Sync) << "/"
 			<< choiceOf("delay_source") << "/" << choiceOf("reverb_source") << "/" << choiceOf("delay_sync")
-			<< choiceOf("chorus_sync") << choiceOf("phaser_sync") << "/" << m_processor.sampleName(m_track) << "/";
+			<< choiceOf("chorus_sync") << choiceOf("phaser_sync") << choiceOf(*shown.gapSync) << "/"
+			<< m_processor.sampleName(m_track) << "/";
 		// The LFOs' TARGET lists name Machine 1-24 by the machine of the Track each aims at
 		key << choiceOf(*shown.lfo1Track) << "," << choiceOf(*shown.lfo2Track) << ",";
 		for(const auto& t : m_keyChoices)
@@ -442,6 +445,7 @@ namespace elektron::drums
 				uint64_t h = mix(0, k == m_track ? 1 : 0);
 				h = mix(h, static_cast<uint64_t>(m_activity[static_cast<size_t>(k)] * 10));
 				h = mixFloat(h, trackParameter("level", k)->getValue());
+				h = mix(h, static_cast<uint64_t>(m_processor.trackColour(k)));
 				return mix(h, static_cast<uint64_t>(choiceOf(trackParameter("machine", k)->getParameterID())));
 			});
 			watch({x - 1, 274, KeyWidth + 2, 36}, [this, k]
@@ -469,6 +473,7 @@ namespace elektron::drums
 			for(int t = 0; t < 16; ++t)
 				h = mix(h, m_processor.playingStep(t) >= 0 ? 1 : 0);
 			h = mix(h, static_cast<uint64_t>(m_processor.chainSlot() + 1));	// Seq's CHAIN n/m
+			h = mix(h, static_cast<uint64_t>(m_processor.trackColour(m_track)));	// Sound's COLOR
 			return mix(h, static_cast<uint64_t>(m_processor.currentPattern()));
 		});
 	}
@@ -481,6 +486,36 @@ namespace elektron::drums
 		_g.drawImage(_plate, dest.getX(), dest.getY(), dest.getWidth(), dest.getHeight(),
 			juce::roundToInt(_mm.getX() * q), juce::roundToInt((_mm.getY() - _plateY) * q),
 			juce::roundToInt(_mm.getWidth() * q), juce::roundToInt(_mm.getHeight() * q));
+	}
+
+	// t-ui-spec: the colour goes to the key's light alone, the lit or dim plate's light over the unlit plate b0 multiplied
+	// by the colour and added to b0, so that the key's material stays as it is
+	const juce::Image& Editor::tintedKey(const int _key, const int _colour, const bool _bright, const size_t _q)
+	{
+		const int id = ((_key * Processor::TrackColours + _colour) * 2 + (_bright ? 1 : 0)) * 2 + static_cast<int>(_q);
+		auto& image = m_tinted[id];
+		if(image.isValid())
+			return image;
+		const auto& plate = m_plates[_bright ? B1 : B2][_q];
+		const auto& b0 = m_plates[B0][_q];
+		const float k = static_cast<float>(plate.getWidth()) / UnitWidth;
+		const int x0 = juce::roundToInt((keyX(_key) + 1) * k), w = juce::roundToInt(26 * k), h = juce::roundToInt(9 * k);
+		const int plateTop = juce::roundToInt((KeyLightY - (_bright ? 0 : B2Y)) * k), baseTop = juce::roundToInt(KeyLightY * k);
+		const auto colour = trackHue(_colour).c[0];
+		image = juce::Image(juce::Image::RGB, w, h, false);
+		const auto channel = [](const int _base, const int _lit, const int _colour)
+		{
+			return static_cast<juce::uint8>(std::min(255, _base + std::abs(_lit - _base) * _colour / 255));
+		};
+		for(int j = 0; j < h; ++j)
+			for(int i = 0; i < w; ++i)
+			{
+				const auto lit = plate.getPixelAt(x0 + i, plateTop + j), base = b0.getPixelAt(x0 + i, baseTop + j);
+				image.setPixelAt(i, j, juce::Colour(channel(base.getRed(), lit.getRed(), colour.getRed()),
+					channel(base.getGreen(), lit.getGreen(), colour.getGreen()),
+					channel(base.getBlue(), lit.getBlue(), colour.getBlue())));
+			}
+		return image;
 	}
 
 	void Editor::drawSprites(juce::Graphics& _g)
@@ -516,7 +551,15 @@ namespace elektron::drums
 			const float x = keyX(k);
 			const int n = m_stepPage * 16 + k;
 			const bool bright = k == m_track || m_activity[static_cast<size_t>(k)] > 0.5f;
-			sprite(_g, bright ? b1 : b2, {x + 1, 261.83f, 26, 9}, bright ? 0 : B2Y);
+			if(const int c = m_processor.trackColour(k))
+			{
+				const auto dest = toPx({x + 1, KeyLightY, 26, 9});
+				const auto& image = tintedKey(k, c, bright, q);
+				_g.drawImage(image, dest.getX(), dest.getY(), dest.getWidth(), dest.getHeight(), 0, 0, image.getWidth(),
+					image.getHeight());
+			}
+			else
+				sprite(_g, bright ? b1 : b2, {x + 1, KeyLightY, 26, 9}, bright ? 0 : B2Y);
 			if(p.step(m_track, n).trig)
 				sprite(_g, sa, {x - 0.3f, 281.03f, 28.6f, 28.6f}, SaY);
 			if(playing == n)
@@ -627,6 +670,29 @@ namespace elektron::drums
 				found = i;
 				break;
 			}
+		// ASSIGN armed: a cell sets the LFO's TARGET or says it cannot be one; anything but ASSIGN itself disarms
+		if(m_assign >= 0)
+		{
+			const auto* hit = found >= 0 ? &m_hits[static_cast<size_t>(found)] : nullptr;
+			if(hit && hit->cell >= 0 && m_page == Page::Sound)
+			{
+				const auto& cell = m_cells[static_cast<size_t>(hit->cell)];
+				m_press = {};
+				const auto target = lfoTargetOf(cell);
+				if(target == LfoTarget::None)
+				{
+					toast(cell.name + " IS NO LFO TARGET");
+					return;
+				}
+				auto& p = *trackParameter("lfo" + juce::String(m_assign + 1) + "_target");
+				setNormalised(p, p.convertTo0to1(static_cast<float>(target)));
+				toast("LFO " + juce::String(m_assign + 1) + " TARGET " + cell.name);
+				m_assign = -1;
+				layout();
+				repaint();
+				return;
+			}
+		}
 		if(!m_lockSteps.empty() && (found < 0 || !m_hits[static_cast<size_t>(found)].keepsLocks))
 		{
 			m_lockSteps.clear();
@@ -636,6 +702,12 @@ namespace elektron::drums
 		m_press = {};
 		m_press.armed = m_armedLine;
 		m_armedLine = -1;
+		m_press.assign = m_assign;
+		if(m_assign >= 0)
+		{
+			m_assign = -1;
+			repaint();
+		}
 		if(found < 0)
 			return;
 		m_press.hit = found;
@@ -1009,11 +1081,26 @@ namespace elektron::drums
 
 	void Editor::openSelector(const float _x, const float _y, const juce::StringArray& _items,
 		std::function<bool(int)> _current, std::function<void(int)> _choose, std::function<bool(int)> _disabled,
-		const bool _stays)
+		const bool _stays, std::vector<juce::Colour> _swatches)
 	{
-		m_selector = {true, _items, std::move(_current), std::move(_choose), std::move(_disabled), _x, _y, _stays};
+		m_selector = {true, _items, std::move(_current), std::move(_choose), std::move(_disabled), _x, _y, _stays,
+			std::move(_swatches)};
 		layout();
 		repaint();
+	}
+
+	void Editor::chooseColour(const int _track, const float _x, const float _y)
+	{
+		static_assert(Processor::TrackColours == 10, "trackColourNames and trackHue name ten");
+		std::vector<juce::Colour> swatches;
+		for(int i = 0; i < Processor::TrackColours; ++i)
+			swatches.push_back(trackHue(i).c[0]);
+		openSelector(_x, _y, trackColourNames(), [this, _track](const int _i) { return m_processor.trackColour(_track) == _i; },
+			[this, _track](const int _i)
+			{
+				m_processor.setTrackColour(_track, _i);
+				repaint();
+			}, {}, false, std::move(swatches));
 	}
 
 	// ---- samples ----

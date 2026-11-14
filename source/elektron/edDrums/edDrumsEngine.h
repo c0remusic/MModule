@@ -287,6 +287,15 @@ namespace elektron::drums
 		// 0-127: a Hit with an accent plays at velocity 128 + 2 x amount
 		void setAccent(int _track, int _amount);
 
+		// REPEAT GAP in note values: _quarters beats between the repeats at the tempo, 0 for REPEAT GAP's own law (the
+		// ROM player's RTIM, CRUNCH 12's). On the machines repeatsInNotes names; the Sampler's 12-BIT grain only, VINTAGE
+		// does not repeat. A CRUNCH 12 machine repeats on the voice's 32-sample blocks, as its own law does
+		void setRepeatNote(int _track, double _quarters);
+		static bool repeatsInNotes(const Machine& _machine)
+		{
+			return _machine == Sampler || (_machine.family == Family::Machinedrum && _machine.id >= 48 && _machine.id <= 61);
+		}
+
 		// A Hit, _velocity 1-127, and its end for a machine that holds
 		void noteOn(int _track, int _velocity, bool _accent = false);
 		void noteOff(int _track);
@@ -370,6 +379,7 @@ namespace elektron::drums
 			int output = 0;
 			uint32_t chokes = 0;
 			int accent = 0;
+			double repeatQuarters = 0;		// setRepeatNote's
 			Family chainFamily = Family::Off;	// the Chain that holds its settings
 			bool held = false;				// its chain's amp holds its voice (Chain::holdsVoice)
 			std::array<int, static_cast<size_t>(LfoTarget::Count)> taken{};	// what the LFOs aimed here add up to, as far as its slope has got
@@ -430,6 +440,8 @@ namespace elektron::drums
 		// Machine _slot + 1 of a Syntakt Track to what plays it: its voice's index, or the OVERDRIVE stage
 		void playSyntakt(int _track, int _slot);
 		void setOver(int _track, int _word);
+		// The ROM player's retrigger time word for the Track's REPEAT GAP in note values at m_tempo, or none
+		void applyRepeatNote(int _track);
 		void overdrive(Block& _in, uint32_t _live);
 		static int playedValue(const Track& _track, const int _index)
 		{

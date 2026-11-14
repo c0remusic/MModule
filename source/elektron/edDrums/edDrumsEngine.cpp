@@ -585,6 +585,7 @@ namespace elektron::drums
 			auto& md = m_mdTracks[static_cast<size_t>(_track)];
 			md.setMachine(_machine == Sampler ? static_cast<uint8_t>(Rom33 + _track) : _machine.id, defaults(_machine));
 			md.clearMachineLocks();
+			applyRepeatNote(_track);
 			t.vt.stop();
 			t.vtTrig = false;
 			// What it took while on no Machinedrum machine went nowhere
@@ -717,9 +718,40 @@ namespace elektron::drums
 		m_tracks[static_cast<size_t>(_track)].send[static_cast<size_t>(_send)] = g * g;
 	}
 
+	void Engine::setRepeatNote(const int _track, const double _quarters)
+	{
+		m_tracks[static_cast<size_t>(_track)].repeatQuarters = std::max(_quarters, 0.0);
+		applyRepeatNote(_track);
+	}
+
+	void Engine::applyRepeatNote(const int _track)
+	{
+		const auto& t = m_tracks[static_cast<size_t>(_track)];
+		auto& md = m_mdTracks[static_cast<size_t>(_track)];
+		if(!repeatsInNotes(t.machine) || t.repeatQuarters <= 0)
+		{
+			md.setOverride(-1, 0);
+			return;
+		}
+		// The ROM player's word 9 counts a quarter of a sample, a CRUNCH 12 machine's word 10 a sample (their words
+		// against the gaps measured, edDrumsEngineTest), at the tempo the voice reads (m_tempo, 24ths of a beat), at
+		// least the coefficient function's own floor
+		const bool rom = t.machine == Sampler;
+		const double samples = t.repeatQuarters * 60.0 * 24.0 / m_tempo * SampleRate;
+		md.setOverride(rom ? 9 : 10, std::clamp<int64_t>(std::llround(samples * (rom ? 4 : 1)), rom ? 0x44 : 0x11,
+			0x7fffff));
+	}
+
 	void Engine::setTempo(const double _bpm)
 	{
-		m_tempo = static_cast<uint32_t>(std::lround(std::clamp(_bpm, 30.0, 300.0) * 24.0));
+		const uint32_t tempo = static_cast<uint32_t>(std::lround(std::clamp(_bpm, 30.0, 300.0) * 24.0));
+		if(tempo != m_tempo)
+		{
+			m_tempo = tempo;
+			for(int t = 0; t < Tracks; ++t)
+				if(m_tracks[static_cast<size_t>(t)].repeatQuarters > 0)
+					applyRepeatNote(t);
+		}
 		m_sends->setTempo(m_tempo);
 		m_sends->setBpm(std::clamp(_bpm, 1.0, 1000.0));
 		const double perSample = std::clamp(_bpm, 1.0, 1000.0) / 60 / m_rate;

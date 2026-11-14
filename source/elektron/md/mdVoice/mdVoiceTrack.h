@@ -56,6 +56,16 @@ namespace md::voice
 
 		void tick() { m_smoother.tick(); }
 
+		// A word of the slot that every update writes in place of the coefficient function's, -1 for none: what the
+		// machine does not compute itself (Lockstep's REPEAT GAP in note values, the ROM player's word 9). It takes
+		// effect at the next update, which it asks for
+		void setOverride(int _index, int64_t _word)
+		{
+			m_overrideIndex = _index;
+			m_overrideWord = static_cast<uint32_t>(_word);
+			m_moved = true;
+		}
+
 		// This Track's ticks from block _block on. The OS runs every Hit at a tick, for all Tracks; mdEngine, and so the
 		// oracle, keeps the ticks fixed and updates a Hit's voice between them. A Hit that calls this brings its Track's
 		// ticks along, so that what follows it does not depend on where its note fell
@@ -80,6 +90,8 @@ namespace md::voice
 		int m_pending = 0;	// the machine the next Hit brings, -1: none. HostModel assigns machine 0 at construction
 		bool m_trigger = false;
 		int m_tickPhase = 0;
+		int m_overrideIndex = -1;
+		uint32_t m_overrideWord = 0;
 	};
 
 	// The parameters and slots of a block, in the order of HostModel::renderBlock: the Hits' locks, then the voices'

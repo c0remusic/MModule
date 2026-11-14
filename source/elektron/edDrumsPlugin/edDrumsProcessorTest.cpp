@@ -265,7 +265,10 @@ namespace
 
 		// The relays for Push: 64, last but the parameters appended after them, each named in Push's ten characters, as
 		// its target on Track 1 in range and kind
-		const juce::StringArray afterRelays{"chorus_type"};
+		juce::StringArray afterRelays{"chorus_type"};
+		for(int t = 0; t < Tracks; ++t)
+			afterRelays.addArray(juce::StringArray{juce::String::formatted("t%02d_gap_sync", t + 1),
+				juce::String::formatted("t%02d_gap_note", t + 1)});
 		const auto& relays = _processor.ids(Processor::Section::Relays);
 		require(relays.size() == parameters::RelayCount
 			&& ids.indexOf(relays[0]) == ids.size() - parameters::RelayCount - afterRelays.size(),
@@ -290,7 +293,7 @@ namespace
 		}
 		std::printf("  %d parameters, %d per Track, %d shared; the IDs are the frozen list's\n", ids.size(),
 			_processor.trackIds(0).size(), ids.size() - Tracks * _processor.trackIds(0).size());
-		require(_processor.trackIds(0).size() == 75 + 16, "91 a Track: 75 and Machine 9-24");
+		require(_processor.trackIds(0).size() == 75 + 16 + 2, "93 a Track: 75, Machine 9-24 and REPEAT GAP's Sync and Note");
 		std::printf("PASS: the IDs are frozen\n");
 	}
 
@@ -303,6 +306,8 @@ namespace
 		std::array<ChainSettings, Tracks> chain{};
 		std::array<std::array<LfoSettings, 2>, Tracks> lfo{};
 		bool masterOn = false;
+		std::array<bool, Tracks> gapSync{};		// REPEAT GAP's Sync and Note, one engine call for the pair
+		std::array<int, Tracks> gapNote{};
 	};
 
 	using TrackSetter = std::function<void(Engine&, Expected&, int, double)>;
@@ -387,6 +392,8 @@ namespace
 			send("send_chorus", Send::Chorus);
 			send("send_phaser", Send::Phaser);
 			m["accent"] = [](Engine& _e, Expected&, const int _t, const double _v) { _e.setAccent(_t, whole(_v)); };
+			m["gap_sync"] = [](Engine&, Expected& _x, const int _t, const double _v) { _x.gapSync[static_cast<size_t>(_t)] = _v != 0; };
+			m["gap_note"] = [](Engine&, Expected& _x, const int _t, const double _v) { _x.gapNote[static_cast<size_t>(_t)] = whole(_v); };
 			for(int i = 8; i < MachineParameters; ++i)
 				m["m" + std::to_string(i + 1)] = [i](Engine& _e, Expected&, const int _t, const double _v)
 				{
@@ -522,6 +529,8 @@ namespace
 			e->setChain(t, x.chain[static_cast<size_t>(t)]);
 			for(int l = 0; l < 2; ++l)
 				e->setLfo(t, l, x.lfo[static_cast<size_t>(t)][static_cast<size_t>(l)]);
+			e->setRepeatNote(t, x.gapSync[static_cast<size_t>(t)]
+				? parameters::repeatNoteQuarters(x.gapNote[static_cast<size_t>(t)]) : 0.0);
 		}
 		e->setMasterOn(x.masterOn);
 		return e;
@@ -872,6 +881,10 @@ namespace
 		// Delay Duration plays while Sync is on, which both sounds leave off for TIME's sake: delay_sync's step, which
 		// turns it on, plays the processor's against the engine's, and edDrumsEngineTest's sendTimes the notes
 		expected.push_back("delay_note");
+		// REPEAT GAP's Sync and Note play on a Sampler or CRUNCH 12 machine that repeats, which neither sound has:
+		// repeatSync() hears them
+		expected.push_back("gap_sync");
+		expected.push_back("gap_note");
 		require(unheard == expected, "a setting the processor gives is not heard");
 		std::printf("PASS: every parameter reaches the engine\n");
 	}
@@ -2214,6 +2227,20 @@ namespace
 			require(s.mute(3) && !s.mute(2) && s.solo(5) && s.fill() && s.seed() == 77 && s.chainLength() == 2
 				&& s.chainEntry(0).pattern == 2 && s.chainEntry(0).repeats == 3 && s.chainEntry(0).fill
 				&& s.chainEntry(1).pattern == 0 && !s.chainEntry(1).fill, "the sequencer's settings in the state");
+			// The Tracks' colours too; a state without them, ivory
+			kept.setTrackColour(0, 4);
+			kept.setTrackColour(15, 9);
+			kept.getStateInformation(state);
+			restored.setTrackColour(7, 2);
+			restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+			require(restored.trackColour(0) == 4 && restored.trackColour(15) == 9 && restored.trackColour(7) == 0,
+				"the Tracks' colours in the state");
+			auto xml = Processor::readState(state.getData(), static_cast<int>(state.getSize()));
+			xml->removeAttribute("colours");
+			juce::MemoryBlock old;
+			juce::AudioProcessor::copyXmlToBinary(*xml, old);
+			restored.setStateInformation(old.getData(), static_cast<int>(old.getSize()));
+			require(restored.trackColour(0) == 0 && restored.trackColour(15) == 0, "a state without colours: ivory");
 			playSequenced(restored, 4 * Block);
 			require(restored.chainSlot() == 0 && restored.currentPattern() == 2, "the restored chain plays");
 			std::printf("  the state keeps mutes, solos, fill, seed and the chain playing\n");
@@ -2842,6 +2869,31 @@ namespace
 		return take;
 	}
 
+	// REPEAT GAP's Sync and Note reach the engine (edDrumsEngineTest measures the gaps): Track 1's Sampler repeating, the
+	// Hit differs with Sync on, and between two notes; Sync off gives REPEAT GAP's own Hit back
+	void repeatSync(const juce::File& _wav)
+	{
+		const auto hit = [&_wav](const bool _sync, const int _note)
+		{
+			Processor p;
+			allOutputs(p);
+			set(find(p, "t01_machine"), p.samplerChoice());
+			// A block first: the Sampler's Machine 1-8 take its defaults on the audio thread
+			p.prepareToPlay(SampleRate, Block);
+			block(p);
+			juce::String error;
+			require(p.loadSample(0, _wav, error), "the WAV refused: " + error.toStdString());
+			set(find(p, "t01_m7"), 40);
+			set(find(p, "t01_gap_sync"), _sync ? 1 : 0);
+			set(find(p, "t01_gap_note"), _note);
+			return playHit(p, 0, 344 * Block)[0];
+		};
+		const auto own = hit(false, 5), sixteenth = hit(true, 5), eighth = hit(true, 8);
+		require(sixteenth != own && eighth != sixteenth, "REPEAT GAP's Sync or Note changes nothing");
+		require(hit(false, 8) == own, "REPEAT GAP's Note plays with its Sync off");
+		std::printf("PASS: REPEAT GAP's Sync and Note reach the engine\n");
+	}
+
 	// A SysEx file of our own, made by mdProtocol's encoder, imported as a folder is: its Kit in an empty Slot of the
 	// Bank, loaded, every value Lockstep has on its Tracks; and what Lockstep lacks of it, a line each (ticket 20)
 	void machineKits()
@@ -3361,6 +3413,7 @@ int main(const int _argc, char** _argv)
 		kits(wav);
 		kitFiles(library, wav);
 		machineKits();
+		repeatSync(wav);
 		sampleLibrary();
 		wav.deleteFile();
 		slides(library);

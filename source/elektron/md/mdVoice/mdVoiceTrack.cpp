@@ -95,6 +95,8 @@ namespace md::voice
 			}
 			Packet packet;
 			const int n = coefficients(_tables, m_machine, values, m_trigger, _tempo, packet);
+			if(m_overrideIndex >= 0 && m_overrideIndex < n)
+				packet[static_cast<size_t>(m_overrideIndex)] = m_overrideWord;
 			_voice.setSlot(packet.data(), n);
 		}
 		else if(m_trigger)

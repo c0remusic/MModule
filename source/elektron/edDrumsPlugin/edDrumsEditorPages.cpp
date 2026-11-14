@@ -80,6 +80,20 @@ namespace elektron::drums::ui
 		const Hue t = makeHue(0xffE9DCC2, 0xff3f3b33, 0xff38352e, 0xff59544a, 0xffF3EADA);
 	}
 
+	const juce::StringArray& trackColourNames()
+	{
+		static const juce::StringArray names{"IVORY", "CORAL", "ORANGE", "YELLOW", "GREEN", "CYAN", "BLUE", "VIOLET",
+			"PINK", "GREY"};
+		return names;
+	}
+
+	const Hue& trackHue(const int _colour)
+	{
+		static const std::array<const Hue*, 10> hues{&hue::t, &hue::s, &hue::a, &hue::y, &hue::g, &hue::k, &hue::b, &hue::p,
+			&hue::m, &hue::w};
+		return *hues[static_cast<size_t>(juce::jlimit(0, 9, _colour))];
+	}
+
 	Painter::Painter(juce::Graphics& _g, const float _scale) : g(_g), scale(_scale) {}
 
 	juce::String Painter::faceName()

@@ -670,6 +670,16 @@ namespace elektron::drums
 
 		// Appended after the relays, in the frozen order: ticket 14's chorus types
 		shared(m_chorusType, chorusTypeSpec, 0, Section::Effects);
+		// ... then each Track's REPEAT GAP in note values
+		for(int t = 0; t < Tracks; ++t)
+		{
+			const auto id = juce::String::formatted("t%02d_", t + 1);
+			const auto name = juce::String::formatted("T%02d ", t + 1);
+			auto& p = m_tracks[static_cast<size_t>(t)];
+			watch(p.repeatSync, repeatSyncSpec, id + repeatSyncSpec.id, name + repeatSyncSpec.name, 0, Section::Machine, t);
+			watch(p.repeatNote, repeatNoteSpec, id + repeatNoteSpec.id, name + repeatNoteSpec.name, DefaultRepeatNote,
+				Section::Machine, t);
+		}
 
 		m_edited = std::make_unique<Sequencer>();
 		for(auto& s : m_sequencers)
@@ -1725,6 +1735,10 @@ namespace elektron::drums
 					e.setSend(t, static_cast<Send>(s), p.sends[s].integer());
 			if(p.accent.changed() && !held(p.accent.parameter))
 				e.setAccent(t, p.accent.integer());
+			// Both read: a change of either gives the engine the pair
+			const bool repeatSync = p.repeatSync.changed();
+			if(p.repeatNote.changed() || repeatSync)
+				e.setRepeatNote(t, p.repeatSync.integer() ? parameters::repeatNoteQuarters(p.repeatNote.integer()) : 0.0);
 		}
 		syncShared();
 	}
@@ -2258,6 +2272,11 @@ namespace elektron::drums
 		xml.setAttribute("version", StateVersion);
 		writeSound(xml, true);
 		xml.setAttribute("kit", m_kitSlot);
+		// The Tracks' colours, a digit each
+		juce::String colours;
+		for(const auto c : m_colours)
+			colours << static_cast<int>(c);
+		xml.setAttribute("colours", colours);
 		for(int i = 0; i < SeqPatterns; ++i)
 			if(auto pattern = patternXml(m_edited->pattern(i), i))
 				xml.addChildElement(pattern.release());
@@ -2316,6 +2335,7 @@ namespace elektron::drums
 			for(auto& send : p.sends)
 				send.due = true;
 			p.accent.due = true;
+			p.repeatSync.due = true;
 		}
 		// A parameter the state lacks takes its default; one it holds that is not ours is not read; the relays follow
 		// the Track shown (syncRelays)
@@ -2399,6 +2419,14 @@ namespace elektron::drums
 		suspendProcessing(false);
 		tellHostAll();
 
+		// A state without them, or a digit out of range: ivory
+		const auto colours = xml->getStringAttribute("colours");
+		for(int t = 0; t < Tracks; ++t)
+		{
+			const int c = t < colours.length() ? colours[t] - '0' : 0;
+			m_colours[static_cast<size_t>(t)] = static_cast<uint8_t>(c >= 0 && c < TrackColours ? c : 0);
+		}
+
 		// The Kit played, compared from now on with what its Slot holds now
 		const int slot = xml->getIntAttribute("kit", -1);
 		m_kitSlot = KitBank::valid(slot) ? slot : -1;
@@ -2406,6 +2434,18 @@ namespace elektron::drums
 		const auto kit = m_kitSlot < 0 ? nullptr : readKit(m_kitSlot);
 		rememberKit(kit.get());
 		prepareKits(~uint64_t{0});
+	}
+
+	void Processor::setTrackColour(const int _track, const int _colour)
+	{
+		jassert(juce::MessageManager::existsAndIsCurrentThread());
+		auto& c = m_colours[static_cast<size_t>(juce::jlimit(0, Tracks - 1, _track))];
+		const auto to = static_cast<uint8_t>(juce::jlimit(0, TrackColours - 1, _colour));
+		if(c == to)
+			return;
+		c = to;
+		// The set's state keeps it: the host saves it again
+		updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
 	}
 
 	// ---- the Kits ----
@@ -2735,6 +2775,7 @@ namespace elektron::drums
 		for(auto& send : p.sends)
 			send.due = true;
 		p.accent.due = true;
+		p.repeatSync.due = true;
 		for(const auto& id : trackIds(_track))
 			if(soundSuffix(id.substring(4)))
 			{
@@ -2789,6 +2830,7 @@ namespace elektron::drums
 		for(size_t s = 0; s < p.sends.size(); ++s)
 			e.setSend(0, static_cast<Send>(s), plain(p.sends[s].parameter));
 		e.setAccent(0, plain(p.accent.parameter));
+		e.setRepeatNote(0, plain(p.repeatSync.parameter) ? parameters::repeatNoteQuarters(plain(p.repeatNote.parameter)) : 0.0);
 		std::unique_ptr<Sample> sample;
 		juce::String ref;
 		if(const auto* element = kit->getChildByName("sample"))

@@ -2564,6 +2564,122 @@ namespace
 				"a sample at its own rate plays otherwise");
 		}
 
+		// REPEAT GAP follows the host's tempo, as RTIM does on the Machinedrum (mdVoice's retriggerTime): a short burst
+		// repeated, the repeats' starts measured at 120 and 60 BPM for a few gaps
+		{
+			const auto burst = sine(1000, 44100, 400, "burst");
+			const auto starts = [&](const double _bpm, const int _gap, const double _quarters = 0)
+			{
+				auto e = engineWith(_library, Sampler);
+				e->setChain(0, Bare);
+				e->setSample(0, &burst);
+				e->setTempo(_bpm);
+				e->setRepeatNote(0, _quarters);
+				e->setParameter(0, 1, 127);		// DECAY
+				e->setParameter(0, 6, 40);		// REPEATS
+				e->setParameter(0, 7, static_cast<uint8_t>(_gap));
+				Take take(Note + 3 * 44100);
+				take.render(*e, 0, Note);
+				e->noteOn(0, 127);
+				take.render(*e, Note, take.samples() - Note);
+				const auto& y = take.channel(0);
+				const float peak = peakOf(y);
+				std::vector<int> s;
+				int quiet = 1000;
+				for(int n = 0; n < static_cast<int>(y.size()); ++n)
+				{
+					if(std::abs(y[static_cast<size_t>(n)]) >= 0.05f * peak)
+					{
+						if(quiet >= 100)
+							s.push_back(n);
+						quiet = 0;
+					}
+					else
+						++quiet;
+				}
+				return s;
+			};
+			// Below 64 a line, a 256th of a 16th a step: 32 a 128th note, 64 a 64th; above, steeper
+			for(const int gap : {32, 48, 64, 80, 100})
+			{
+				std::array<double, 2> sixteenths{};
+				for(size_t i = 0; i < 2; ++i)
+				{
+					const double bpm = i ? 60 : 120;
+					const auto s = starts(bpm, gap);
+					require(s.size() > 2, "REPEAT GAP's repeats not found");
+					sixteenths[i] = static_cast<double>(s[2] - s[1]) / (44100.0 * 15 / bpm);
+				}
+				std::printf("  REPEAT GAP %d: %.4f of a 16th at 120 BPM, %.4f at 60\n", gap, sixteenths[0], sixteenths[1]);
+				require(std::abs(sixteenths[0] - sixteenths[1]) < 0.002, "REPEAT GAP does not follow the tempo");
+				if(gap <= 64)
+					// 64 measures 0.2520 at both tempos, 11 samples over a 64th note at 120 BPM
+					require(std::abs(sixteenths[1] - gap / 256.0) < 0.004, "REPEAT GAP below 64 is not gap / 256 of a 16th");
+			}
+			// In note values (setRepeatNote): the gap is the note at the tempo, whatever REPEAT GAP holds; 0 gives its law
+			// back
+			for(const double quarters : {1.0 / 16, 1.0 / 6, 0.25, 0.5, 1.0})
+				for(const double bpm : {120.0, 60.0, 174.0})
+				{
+					const auto s = starts(bpm, 20, quarters);
+					require(s.size() > 2, "the repeats in note values not found");
+					const double gap = static_cast<double>(s[2] - s[1]), expected = quarters * 60 / bpm * 44100;
+					std::printf("  repeats every %.4f beat at %.0f BPM: %.0f samples for %.1f\n", quarters, bpm, gap, expected);
+					require(std::abs(gap - expected) <= 2, "the repeats in note values fall elsewhere");
+				}
+			require(starts(120, 48, 0) == starts(120, 48), "setRepeatNote(0) is not REPEAT GAP's own law");
+			// The first repeat's start: where a Hit with one repeat leaves the same Hit without, after the Hit's onset
+			const auto firstRepeat = [&](const Machine& _machine, const double _bpm, const int _gap, const double _quarters,
+				const int _fewer = 0, const int _more = 20)
+			{
+				const bool e12 = !(_machine == Sampler);
+				const auto render = [&](const int _repeats)
+				{
+					auto e = engineWith(_library, _machine);
+					e->setChain(0, Bare);
+					if(!e12)
+						e->setSample(0, &burst);
+					e->setTempo(_bpm);
+					e->setRepeatNote(0, _quarters);
+					e->setParameter(0, e12 ? 5 : 6, static_cast<uint8_t>(_repeats));
+					e->setParameter(0, e12 ? 6 : 7, static_cast<uint8_t>(_gap));
+					Take take(Note + 2 * 44100);
+					take.render(*e, 0, Note);
+					e->noteOn(0, 127);
+					take.render(*e, Note, take.samples() - Note);
+					return take.channel(0);
+				};
+				const auto none = render(_fewer), one = render(_more);
+				int onset = -1, split = -1;
+				for(int n = 0; n < static_cast<int>(none.size()); ++n)
+				{
+					if(onset < 0 && none[static_cast<size_t>(n)] != 0)
+						onset = n;
+					if(split < 0 && none[static_cast<size_t>(n)] != one[static_cast<size_t>(n)])
+						split = n;
+				}
+				return onset < 0 || split < 0 ? -1 : split - onset;
+			};
+			// CRUNCH 12 machines in note values: a repeat starts on the voice's 32-sample blocks, as their own law's, the
+			// first within a block before the note, each next a whole number of blocks after, within a block over the note
+			// (the gap drifts by up to a block a repeat); the Sampler's own within 12 samples. LOFI RIM and LOFI TRI, which
+			// sound long enough at their defaults: a voice ended repeats no more (LOFI KICK's third, past its decay)
+			for(const int id : {53, 61})
+				for(const double q : {0.25, 1.0 / 6})
+				{
+					const Machine m{Family::Machinedrum, static_cast<uint8_t>(id)};
+					const double expected = q * 60 / 120 * 44100;
+					const int r1 = firstRepeat(m, 120, 20, q, 0, 20), r2 = firstRepeat(m, 120, 20, q, 2, 3),
+						r3 = firstRepeat(m, 120, 20, q, 3, 4);
+					std::printf("  E12 %d every %.4f beat: repeats at %d %d %d for %.1f\n", id, q, r1, r2, r3, expected);
+					require(r1 > expected - 32 && r1 <= expected && r1 % 32 == 0, "an E12 machine's first repeat elsewhere");
+					for(const int gap : {r2 - r1, r3 - r2})
+						require(gap % 32 == 0 && gap >= expected && gap < expected + 32, "an E12 machine's repeats apart otherwise");
+					const int s1 = firstRepeat(Sampler, 120, 20, q, 0, 20), s2 = firstRepeat(Sampler, 120, 20, q, 2, 3);
+					require(std::abs(s1 - expected) <= 12 && std::abs(s2 - 2 * expected) <= 12, "the Sampler's repeats elsewhere");
+				}
+		}
+
 		// Two Tracks, each its own sample on its own output; then Track 0's changed while Track 1 sounds, and while it
 		// sounds itself: Track 1's samples do not move, Track 0's ramp, nothing allocated
 		const auto b = sine(1500, 44100, Length, "sine 1500");

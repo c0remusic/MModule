@@ -40,6 +40,10 @@ namespace elektron::drums::ui
 		extern const Hue g, k, a, b, s, p, y, m, v, w, t;
 	}
 
+	// A Track's colour (Processor::trackColour), the mockup's ten: its name, and the hue whose first shade it is
+	const juce::StringArray& trackColourNames();
+	const Hue& trackHue(int _colour);
+
 	// Writes in mm on a Graphics scaled to the window. Text at the three sizes of the style guide (cap height 4.0, 3.2
 	// and 2.8 mm), at a baseline
 	class Painter

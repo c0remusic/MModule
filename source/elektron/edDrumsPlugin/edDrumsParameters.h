@@ -75,6 +75,11 @@ namespace elektron::drums::parameters
 	// Beats of delayNoteSpec's and lfoNoteSpecs' choices
 	double delayNoteQuarters(int _choice);
 	double lfoNoteQuarters(int _choice);
+	// A Track's, appended after the chorus's type: the Sampler's REPEAT GAP as a note of the host's tempo while its Sync
+	// is on (Engine::setRepeatNote), and its beats
+	extern const Spec repeatSyncSpec, repeatNoteSpec;
+	constexpr int DefaultRepeatNote = 5;		// 1/16
+	double repeatNoteQuarters(int _choice);
 
 	// The relays for Push (ticket 18, as MoDule's: docs/md-drums-push2.md): 64 host parameters in Push's banks of 8, each
 	// the parameter of the Track the editor shows whose ID ends in its target ("t05_" + target for Track 5), the first

@@ -1097,6 +1097,39 @@ namespace
 				"a click on LFO 2's card shows LFO 2's cells");
 			click(editor, editor.lfoCardArea(0).getCentre());
 			check(editor.lfo() == 0, "a click on LFO 1's card shows LFO 1 again");
+
+			// ASSIGN: armed, a cell no LFO reaches leaves it armed and the target as it was, LEVEL sets TARGET and
+			// disarms; a second click on ASSIGN disarms, as does a click anywhere else
+			auto* target = processor.parameter("t01_lfo1_target");
+			const float aimed = target->getValue();
+			const auto targetIs = [&] { return juce::roundToInt(target->convertFrom0to1(target->getValue())); };
+			click(editor, editor.assignArea().getCentre());
+			check(editor.assigning() == 0, "ASSIGN arms LFO 1");
+			click(editor, editor.cellArea("t01_lfo1_depth").getCentre());
+			check(editor.assigning() == 0 && target->getValue() == aimed, "a click on DEPTH, no target, leaves ASSIGN "
+				"armed and TARGET as it was");
+			click(editor, editor.cellArea("t01_level").getCentre());
+			check(editor.assigning() == -1 && targetIs() == static_cast<int>(elektron::drums::LfoTarget::Level),
+				"a click on LEVEL aims LFO 1 at Level and disarms ASSIGN, TARGET " + juce::String(targetIs()));
+			click(editor, editor.assignArea().getCentre());
+			click(editor, editor.assignArea().getCentre());
+			check(editor.assigning() == -1, "a second click on ASSIGN disarms it");
+			click(editor, editor.assignArea().getCentre());
+			click(editor, editor.lfoCardArea(0).getCentre());
+			check(editor.assigning() == -1 && targetIs() == static_cast<int>(elektron::drums::LfoTarget::Level),
+				"a click on a card disarms ASSIGN, TARGET unchanged");
+			// The band's A and B follow its type: 3 BAND's gains, not its frequencies
+			auto* band = processor.parameter("t01_band_type");
+			const float bandWas = band->getValue();
+			band->setValueNotifyingHost(band->convertTo0to1(3));
+			editor.tick();
+			click(editor, editor.assignArea().getCentre());
+			click(editor, editor.cellArea("t01_band_4").getCentre());
+			check(targetIs() == static_cast<int>(elektron::drums::LfoTarget::BandB), "on 3 BAND, the middle band's gain "
+				"is EQ B, TARGET " + juce::String(targetIs()));
+			band->setValueNotifyingHost(bandWas);
+			target->setValueNotifyingHost(aimed);
+			editor.tick();
 			auto* type = processor.parameter("t01_drv2_type");
 			const float was = type->getValue();
 			type->setValueNotifyingHost(0.0f);
@@ -1445,6 +1478,64 @@ namespace
 		editor.showLfo(1);
 		snapshot(editor, _folder.getChildFile("sound-lfo2.png"));
 		editor.showLfo(0);
+		click(editor, editor.assignArea().getCentre());
+		snapshot(editor, _folder.getChildFile("sound-assign.png"));
+		click(editor, editor.assignArea().getCentre());
+
+		// REPEAT GAP in note values: Track 1's Sampler shows SYNC on REPEAT GAP's name line; on, the note takes its place
+		{
+			auto* sync = processor.parameter("t01_gap_sync");
+			check(!editor.cellArea("t01_gap_sync").isEmpty() && editor.cellArea("t01_gap_note").isEmpty()
+				&& !editor.cellArea("t01_m8").isEmpty(), "the Sampler: SYNC shown, REPEAT GAP in its own values");
+			click(editor, editor.cellArea("t01_gap_sync").getCentre());
+			check(sync->getValue() > 0.5f && !editor.cellArea("t01_gap_note").isEmpty() && editor.cellArea("t01_m8").isEmpty(),
+				"a click on SYNC: REPEAT GAP in note values");
+			snapshot(editor, _folder.getChildFile("sound-repeat-sync.png"));
+			click(editor, editor.cellArea("t01_gap_sync").getCentre());
+			check(sync->getValue() < 0.5f && !editor.cellArea("t01_m8").isEmpty(), "a second click: its own values again");
+			// LOFI KICK, a CRUNCH 12 machine: SYNC on its Machine 7
+			auto* machine = processor.parameter("t01_machine");
+			const float was = machine->getValue();
+			const auto& list = processor.machines();
+			int lofi = -1;
+			for(size_t i = 0; i < list.size(); ++i)
+				if(list[i] == elektron::drums::Machine{elektron::drums::Family::Machinedrum, 48})
+					lofi = static_cast<int>(i);
+			machine->setValueNotifyingHost(machine->convertTo0to1(static_cast<float>(lofi)));
+			editor.tick();
+			click(editor, editor.cellArea("t01_gap_sync").getCentre());
+			check(lofi >= 0 && sync->getValue() > 0.5f && !editor.cellArea("t01_gap_note").isEmpty()
+				&& editor.cellArea("t01_m7").isEmpty() && !editor.cellArea("t01_m8").isEmpty(),
+				"LOFI KICK: SYNC puts the note in REPEAT GAP's place, Machine 7");
+			sync->setValueNotifyingHost(0.0f);
+			machine->setValueNotifyingHost(was);
+			editor.tick();
+		}
+
+		// COLOR: Sound's field and Overview's number open the ten colours; a colour lights its Track's key, names the
+		// field and the number
+		{
+			click(editor, editor.colourArea().getCentre());
+			click(editor, editor.selectorItemArea(4).getCentre());
+			check(processor.trackColour(0) == 4, "COLOR's fifth entry makes Track 1 GREEN, "
+				+ juce::String(processor.trackColour(0)));
+			for(int k = 1; k < 16; ++k)
+				processor.setTrackColour(k, k % 10);
+			editor.tick();
+			snapshot(editor, _folder.getChildFile("sound-colours.png"));
+			editor.showPage(Editor::Page::Seq);
+			editor.showSeqTab(1);
+			click(editor, editor.overviewNumberArea(2).getCentre());
+			click(editor, editor.selectorItemArea(6).getCentre());
+			check(processor.trackColour(2) == 6, "Overview's number 3, then the seventh entry: Track 3 BLUE, "
+				+ juce::String(processor.trackColour(2)));
+			snapshot(editor, _folder.getChildFile("seq-overview-colours.png"));
+			for(int k = 0; k < 16; ++k)
+				processor.setTrackColour(k, 0);
+			editor.showSeqTab(0);
+			editor.showPage(Editor::Page::Sound);
+			editor.tick();
+		}
 		editor.showMenu(true);
 		snapshot(editor, _folder.getChildFile("menu.png"));
 		editor.showMenu(false);

@@ -33,6 +33,10 @@ namespace elektron::drums
 			const float w = (ModW - 8) / 2;
 			return {ModX + 2 + static_cast<float>(_i) * (w + 2), LfoY + 83, w, 28};
 		}
+		// Sound's COLOR, in the screen's title line (t.js: 169, 28 mm)
+		const juce::Rectangle<float> ColourBox{169, ScreenY + 2, 28, 8};
+		// ASSIGN, left of SYNC on the LFO block's title line
+		const juce::Rectangle<float> assignBox{ModX + ModW - 54, LfoY + 1.8f, 20, 6};
 		// EQ's curve: under its row of cells, lower and shorter under 3 BAND's two rows
 		juce::Rectangle<float> eqPicture(const int _type)
 		{
@@ -549,8 +553,10 @@ namespace elektron::drums
 			break;
 		}
 		const bool edit = lockEdit() && lockable(_c) && !off;
-		_p.text(_c.x, _c.y + 3.3f, _c.name, 3.2f, locked ? colour::lock : edit ? colour::lockLight : off ? colour::dim
-			: colour::mid);
+		// ASSIGN armed: the names its LFO can aim at in the LFO's hue
+		const bool aim = m_assign >= 0 && m_page == Page::Sound && lfoTargetOf(_c) != LfoTarget::None;
+		_p.text(_c.x, _c.y + 3.3f, _c.name, 3.2f, locked ? colour::lock : aim ? (m_assign ? hue::m : hue::y).c[0]
+			: edit ? colour::lockLight : off ? colour::dim : colour::mid);
 		if(m_page == Page::Sound && _c.parameter && _c.look == Look::Cell)
 			_p.rect(_c.x, _c.y + 4, static_cast<float>(_c.name.length()) * 1.72f + 0.2f, 0.15f, colour::rule);
 		_p.text(_c.x, _c.y + 10, text, 4, locked ? colour::lock : off ? colour::dim : colour::ink, 600);
@@ -584,6 +590,11 @@ namespace elektron::drums
 		{
 		case Page::Sound:
 			drawHeader(_p, "SOUND", juce::String(m_track + 1) + "  " + machineName(m_track));
+			{
+				const int c = m_processor.trackColour(m_track);
+				_p.text(ColourBox.getX() + 1, ScreenY + 7.4f, "COLOR", 2.8f, colour::mid);
+				_p.text(ColourBox.getX() + 14, ScreenY + 7.4f, trackColourNames()[c], 2.8f, trackHue(c).c[0], 600);
+			}
 			drawSoundPictures(_p);
 			break;
 		case Page::Seq: drawSeq(_p); break;
@@ -615,8 +626,55 @@ namespace elektron::drums
 		return toPx(lfoCard(_lfo));
 	}
 
+	juce::Rectangle<int> Editor::assignArea() const
+	{
+		return toPx(assignBox);
+	}
+
+	juce::Rectangle<int> Editor::colourArea() const
+	{
+		return toPx(ColourBox);
+	}
+
+	LfoTarget Editor::lfoTargetOf(const Cell& _cell) const
+	{
+		if(!_cell.parameter || _cell.off || sectionOff(_cell.section))
+			return LfoTarget::None;
+		// A Track's parameter: "tNN_" before its suffix
+		const auto id = _cell.parameter->getParameterID();
+		if(id.length() < 5 || id[0] != 't' || id[3] != '_')
+			return LfoTarget::None;
+		const int track = id.substring(1, 3).getIntValue() - 1;
+		const auto s = id.substring(4);
+		if(s[0] == 'm' && s.length() > 1 && s.substring(1).containsOnly("0123456789"))
+		{
+			const int n = s.substring(1).getIntValue();
+			return n >= 1 && n <= 24 ? machineTarget(n - 1) : LfoTarget::None;
+		}
+		static const std::pair<const char*, LfoTarget> fixed[] = {{"level", LfoTarget::Level}, {"pan", LfoTarget::Pan},
+			{"drv1_amount", LfoTarget::DriveA}, {"drv2_amount", LfoTarget::DriveB}, {"flt_freq", LfoTarget::Frequency},
+			{"flt_res", LfoTarget::Resonance}, {"flt_width", LfoTarget::Width}, {"fenv_depth", LfoTarget::EnvelopeDepth}};
+		for(const auto& [suffix, target] : fixed)
+			if(s == suffix)
+				return target;
+		// The band's A and B as Chain::setBand reads them: BASE and WIDTH, EQF and EQG, 3 BAND's low and middle gains
+		const int type = choiceOf(*trackParameter("band_type", track));
+		const bool threeBand = type == static_cast<int>(BandType::ThreeBand);
+		if(s == (threeBand ? "band_2" : "band_1"))
+			return LfoTarget::BandA;
+		if(s == (threeBand ? "band_4" : "band_2"))
+			return LfoTarget::BandB;
+		return LfoTarget::None;
+	}
+
 	void Editor::buildSound()
 	{
+		{
+			Hit colourHit;
+			colourHit.r = ColourBox;
+			colourHit.click = [this] { chooseColour(m_track, ColourBox.getX(), ScreenY - 6); };
+			addHit(std::move(colourHit));
+		}
 		const auto t = [this](const char* _suffix) { return trackParameter(_suffix); };
 		// A block's cells: _columns across its width, rows of 18 mm from _top. A cell hidden is made so, taking no mouse
 		const auto put = [this](const float _x, const float _top, const float _w, const int _columns, const int _slot,
@@ -671,6 +729,28 @@ namespace elektron::drums
 				const int c = put(x, SoundY + 113, w, 4, i, t(("m" + juce::String(n)).toRawUTF8()),
 					l.isEmpty() ? "M" + juce::String(n) : l, hue::k, "m");
 				m_cells[static_cast<size_t>(c)].off = l.isEmpty();
+			}
+			// REPEAT GAP, the Sampler's Machine 8 and a CRUNCH 12 machine's Machine 7 (Engine::repeatsInNotes): SYNC on its
+			// name line, and while on, the note in its place. Off, or on another machine, the note's cell is there hidden,
+			// as SYNC's off the machine's first page
+			{
+				const auto& machine = trackMachine(m_track);
+				const bool here = Engine::repeatsInNotes(machine) && m_machinePage == 0;
+				const int slot = machine == Sampler ? 7 : 6;
+				const bool sync = choiceOf(*t("gap_sync")) != 0;
+				const int note = put(x, SoundY + 113, w, 4, slot, t("gap_note"), "REPEAT GAP", hue::k, "m", here && sync);
+				if(here && sync)
+					for(auto& c : m_cells)
+						if(c.parameter == t(slot == 7 ? "m8" : "m7"))
+							c.visible = false;
+				const float cw = (w - 2) / 4;
+				const auto& at = m_cells[static_cast<size_t>(note)];
+				Cell s = cellOf(t("gap_sync"), "SYNC", at.x + cw - 26, at.y - 1.5f, 22, hue::k, "m");
+				s.look = Look::Segments;
+				s.labels = {"FREE", "SYNC"};
+				s.h = 4.6f;
+				s.visible = here;
+				addCell(s);
 			}
 			// The page selector in the head, left of the machine's name: a page the machine does not use stays shut
 			for(int i = 0; i < 3; ++i)
@@ -857,6 +937,14 @@ namespace elektron::drums
 				card.click = [this, i] { showLfo(i); };
 				addHit(std::move(card));
 			}
+			Hit assign;
+			assign.r = assignBox;
+			assign.click = [this]
+			{
+				m_assign = m_press.assign == m_lfo ? -1 : m_lfo;
+				repaint();
+			};
+			addHit(std::move(assign));
 			const juce::StringArray shapes{"TRI", "SIN", "SQR", "SAW", "EXP", "RMP", "RND"};
 			juce::StringArray tracks{"OWN"};
 			for(int i = 1; i <= 16; ++i)
@@ -1128,6 +1216,8 @@ namespace elektron::drums
 				curve.push_back({x + 1 + (w - 2) * u, m - wv * a * depth});
 			}
 			picture(_p, x, r.getY(), w, r.getHeight(), h, guide, curve, sectionOff(m_lfo ? "l2" : "l1"));
+			drawButton(_p, assignBox.getX(), assignBox.getY(), assignBox.getWidth(), assignBox.getHeight(), "ASSIGN",
+				m_assign == m_lfo);
 			// A card: its LFO's wave and mode, where it aims, its depth and rate, as its cells write them
 			for(int i = 0; i < 2; ++i)
 			{
@@ -2139,6 +2229,12 @@ namespace elektron::drums
 	{
 		constexpr float OvRow = 12.65f, OvW = 32 * OvRow, OvX = 474.7f - OvW, OvY = 36;
 
+		// A row's number, in its Track's colour
+		juce::Rectangle<float> numberBox(const int _track)
+		{
+			return {ScreenX + 0.6f, OvY + static_cast<float>(_track) * OvRow, 6.4f, OvRow - 0.4f};
+		}
+
 		// Steps of _track in the pattern's length, counted at its own scale
 		int rowSteps(const Pattern& _p, const int _track)
 		{
@@ -2170,6 +2266,11 @@ namespace elektron::drums
 				c.push_back(_s.chainEntry(i));
 			return c;
 		}
+	}
+
+	juce::Rectangle<int> Editor::overviewNumberArea(const int _track) const
+	{
+		return toPx(numberBox(_track));
 	}
 
 	void Editor::buildOverview()
@@ -2224,6 +2325,11 @@ namespace elektron::drums
 			name.r = {ScreenX + 2, y, 38, OvRow - 0.4f};
 			name.click = [this, i] { showTrack(i); };
 			addHit(std::move(name));
+			// The row's number, in its colour: a click chooses it
+			Hit number;
+			number.r = numberBox(i);
+			number.click = [this, i, y] { chooseColour(i, ScreenX + 6.6f, y - 8); };
+			addHit(std::move(number));
 			Hit mute;
 			mute.r = {ScreenX + 41, y, 6, OvRow - 0.4f};
 			mute.click = [this, i]
@@ -2361,6 +2467,7 @@ namespace elektron::drums
 					static_cast<uint64_t>(q.trackScale[static_cast<size_t>(t)]));
 				h = mix(h, static_cast<uint64_t>(m_processor.playingRowStep(t) + 1));
 				h = mix(h, (m_processor.sequencer().mute(t) ? 1u : 0u) | (m_processor.sequencer().solo(t) ? 2u : 0u));
+				h = mix(h, static_cast<uint64_t>(m_processor.trackColour(t)));
 				for(int s = 0; s < SeqSteps; ++s)
 				{
 					const auto& st = q.step(t, s);
@@ -2416,8 +2523,9 @@ namespace elektron::drums
 				_p.rect(ScreenX + 2, y, OvX - ScreenX - 2.7f, OvRow - 0.7f, juce::Colour(0xff1D1F21), 0.5f);
 				_p.rect(ScreenX + 2, y + 0.6f, 0.7f, OvRow - 1.9f, hue::t.c[0], 0.3f);
 			}
-			_p.text(ScreenX + 6.6f, y + 7.2f, juce::String(i + 1), 2.8f, sel ? colour::mid : juce::Colour(0xff7A7A75), 500,
-				Align::Right);
+			const int c = m_processor.trackColour(i);
+			_p.text(ScreenX + 6.6f, y + 7.2f, juce::String(i + 1), 2.8f, c ? trackHue(c).c[0] : sel ? colour::mid
+				: juce::Colour(0xff7A7A75), 500, Align::Right);
 			_p.text(ScreenX + 8.4f, y + 7.2f, machineName(i).substring(0, 10), 3.2f,
 				sel ? colour::ink : silent ? juce::Colour(0xff57564F) : colour::mid, sel ? 600 : 500);
 			_p.text(ScreenX + 44, y + 7.2f, "M", 3, seq.mute(i) ? colour::lock : juce::Colour(0xff7A7A75), 600, Align::Centre);
@@ -4364,7 +4472,7 @@ namespace elektron::drums
 		int longest = 0;
 		for(const auto& s : m_selector.items)
 			longest = std::max(longest, s.length());
-		_columnWidth = std::max(17.0f, static_cast<float>(longest) * 2 + 4);
+		_columnWidth = std::max(17.0f, static_cast<float>(longest) * 2 + 4) + (m_selector.swatches.empty() ? 0.0f : 5.0f);
 		const float h = 7.6f, wd = static_cast<float>(cols) * _columnWidth, ht = static_cast<float>(rows) * h;
 		const float a = juce::jlimit(ScreenX + 4, ScreenX + ScreenW - wd - 4, m_selector.x);
 		const float b = std::max(ScreenY + 4, m_selector.y + 16 + ht <= ScreenY + ScreenH - 4 ? m_selector.y + 16
@@ -4412,6 +4520,8 @@ namespace elektron::drums
 			const bool on = m_selector.current && m_selector.current(i);
 			const bool dis = m_selector.disabled && m_selector.disabled(i);
 			_p.rect(x + 0.3f, y + 0.3f, cw - 0.6f, 7, on ? hue::t.c[3] : colour::cellBack, 0.6f);
+			if(static_cast<size_t>(i) < m_selector.swatches.size())
+				_p.rect(x + 1.4f, y + 1.6f, 3, 4.4f, m_selector.swatches[static_cast<size_t>(i)], 0.4f);
 			_p.text(x + cw / 2, y + 3.8f + 1.2f, m_selector.items[i], 2.8f, dis ? juce::Colour(0xff4E4E4C) : on
 				? hue::t.c[4] : colour::mid, on ? 600 : 500, Align::Centre);
 		}

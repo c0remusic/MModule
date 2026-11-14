@@ -634,6 +634,18 @@ namespace elektron::drums::parameters
 		return Beats[std::clamp(_choice, 0, 14)];
 	}
 
+	const Spec repeatSyncSpec{"gap_sync", "Gap Sync", 0, 1, nullptr, true};
+	const Spec repeatNoteSpec{"gap_note", "Gap Note", 0, 16,
+		"1/64|1/32T|1/32|1/16T|1/32D|1/16|1/8T|1/16D|1/8|1/4T|1/8D|1/4|1/2T|1/4D|1/2|1/2D|1/1"};
+
+	double repeatNoteQuarters(const int _choice)
+	{
+		// 1/64 and 1/32T, then the delay's notes
+		if(_choice <= 1)
+			return _choice == 0 ? 1.0 / 16 : 1.0 / 12;
+		return delayNoteQuarters(_choice - 2);
+	}
+
 	double lfoNoteQuarters(const int _choice)
 	{
 		// 1/64 a sixteenth of a beat, doubling to 16 bars of 4
