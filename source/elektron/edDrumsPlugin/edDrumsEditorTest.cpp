@@ -472,6 +472,16 @@ namespace
 					&& painter.textWidth(c.name, 3.2f) > c.w - 2)
 					unfit.addIfNotAlreadyThere(c.name + " (" + juce::String(painter.textWidth(c.name, 3.2f), 1) + " of "
 						+ juce::String(c.w - 2, 1) + " mm)");
+			// A value shrinks to 3 mm at the least to stay in its cell
+			for(const auto& c : _editor.cells())
+			{
+				if(!c.visible || (c.look != ui::Cell::Look::Cell && c.look != ui::Cell::Look::Plain) || !c.parameter)
+					continue;
+				const auto v = c.valueText(c.normalised());
+				if(painter.textWidth(v, 3.0f, 600) > c.w - 2)
+					unfit.addIfNotAlreadyThere(c.name + " = " + v + " (" + juce::String(painter.textWidth(v, 3.0f, 600), 1)
+						+ " of " + juce::String(c.w - 2, 1) + " mm)");
+			}
 		};
 		auto* machine = _processor.parameter("t01_machine");
 		auto* target = _processor.parameter("t01_lfo1_target");

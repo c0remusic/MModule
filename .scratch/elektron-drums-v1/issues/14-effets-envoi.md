@@ -256,7 +256,10 @@ qu'X-Over change le retour de Bucket Brigade et pas celui de Classic ; `edDrumsP
 (non entendu sur les deux sons du test, qui ne choisissent pas Bucket Brigade) ; `edDrumsEditorTest` qu'il a sa commande,
 rendu `fx-bucket-brigade.png` ; `edDrumsVst3HostTest` sa place, son nom et son texte.
 
-Vu au rendu, non corrigé ici : sur la page FX, « BUCKET BRIGADE » déborde sur la valeur de OUT dans la ligne TYPE.
+Vu au rendu : sur la page FX, « BUCKET BRIGADE » débordait sur la valeur de OUT dans la ligne TYPE. Corrigé ensuite
+pour toute cellule : la valeur, en 4 mm, descend par pas de 0,2 mm jusqu'à 3 mm au plus bas tant qu'elle dépasse sa
+cellule (`valueCap`), et `edDrumsEditorTest` vérifie qu'à 3 mm chaque valeur montrée tient, sur toutes les pages qu'il
+parcourt (chaque machine et chaque type d'effet).
 
 Reste ouvert : Hyper (à reprendre du patch, Depth au-delà de 100 à faire passer), Rotary, et la validation à l'écoute du
 chorus et du phaser/flanger par l'utilisateur. Le ticket reste ouvert.

@@ -99,6 +99,15 @@ namespace elektron::drums
 			return _text;
 		}
 
+		// A cell's value at 4 mm, smaller down to 3 mm where it would run into the next cell ("BUCKET BRIGADE")
+		float valueCap(const Painter& _p, const juce::String& _text, const float _cellWidth)
+		{
+			float cap = 4;
+			while(cap > 3 && _p.textWidth(_text, cap, 600) > _cellWidth - 2)
+				cap -= 0.2f;
+			return cap;
+		}
+
 		// A level line dashed in steps of 1.2 mm, its dashes a list of rectangles: a dashed stroke or a path of them costs
 		// some 0.6 ms a line, the list 0.02
 		void dashed(const Painter& _p, const float _x0, const float _x1, const float _y, const juce::Colour _colour,
@@ -559,7 +568,7 @@ namespace elektron::drums
 			: edit ? colour::lockLight : off ? colour::dim : colour::mid);
 		if(m_page == Page::Sound && _c.parameter && _c.look == Look::Cell)
 			_p.rect(_c.x, _c.y + 4, static_cast<float>(_c.name.length()) * 1.72f + 0.2f, 0.15f, colour::rule);
-		_p.text(_c.x, _c.y + 10, text, 4, locked ? colour::lock : off ? colour::dim : colour::ink, 600);
+		_p.text(_c.x, _c.y + 10, text, valueCap(_p, text, _c.w), locked ? colour::lock : off ? colour::dim : colour::ink, 600);
 		if(_c.isList())
 		{
 			if(locked)
