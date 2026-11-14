@@ -141,6 +141,48 @@ namespace elektron::drums
 		float m_top = 0, m_topTo = 0, m_delay[2] = {}, m_state[2] = {};
 	};
 
+	// A chorus after a bucket brigade's: below a first-order crossover the input passes as it is; above it, a direct
+	// part and one voice, a line read straight between samples and low-passed by a second order near 4.2 kHz, a
+	// triangle sweeping its delay, the right channel half a turn on. Measured on OsTIrus's Vintage chorus: the triangle
+	// at 0.25 x 2^(rate / 24) Hz, Depth widening the sweep about 132 samples, X-Over moving the crossover from 19.7 Hz
+	// up a semitone a step or near; Amount, Feedback and Shape do nothing there
+	class Vintage
+	{
+	public:
+		static constexpr int BlockSize = 32;
+
+		Vintage();
+
+		// 0-127. A change of depth glides over blocks
+		void set(uint8_t _depth, uint8_t _rate, uint8_t _xover = 0);
+		// The triangle at _hz in place of the rate byte's, until the next set
+		void setHz(double _hz);
+		static double hz(uint8_t _rate);
+		// The read's shortest and longest delay at a depth, in samples
+		static double shortest(uint8_t _depth);
+		static double longest(uint8_t _depth);
+		// The crossover's frequency at an X-Over byte, in Hz
+		static double crossover(uint8_t _xover);
+
+		void settle();
+		// The triangle at _turn: for a test that meets another's
+		void restart(double _turn);
+
+		void process(const float* _inL, const float* _inR, float* _outL, float* _outR);
+		void clear();
+
+	private:
+		static constexpr uint32_t Size = 512, Mask = Size - 1;			// the longest delay is 247 samples
+
+		std::vector<float> m_line[2];
+		uint32_t m_write = 0, m_phase = 0, m_step = 0;
+		float m_k = 0, m_pole = 0;										// the crossover's one-pole
+		float m_low[2] = {}, m_lastIn[2] = {};
+		float m_lo = 0, m_hi = 0, m_loTo = 0, m_hiTo = 0, m_delay[2] = {};
+		float m_b0 = 0, m_b1 = 0, m_a1 = 0, m_a2 = 0;					// the low-pass; its b2 is b0
+		float m_z1[2] = {}, m_z2[2] = {};
+	};
+
 	// One to six second-order allpasses in a row, the same on a channel, the right ones a little higher, a triangle
 	// sweeping them up together; the last fed back to the first
 	class Phaser

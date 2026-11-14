@@ -1714,7 +1714,7 @@ namespace
 		};
 		// The chorus's types and the phaser's modes
 		for(const auto& [send, mode] : {std::pair<Send, int>{Send::Chorus, 0}, {Send::Chorus, 1}, {Send::Chorus, 2},
-			{Send::Phaser, 0}, {Send::Phaser, 1}, {Send::Phaser, 2}})
+			{Send::Chorus, 3}, {Send::Phaser, 0}, {Send::Phaser, 1}, {Send::Phaser, 2}})
 		{
 			const auto take = ours(send, mode, 32);
 			require(energy(take.channel(2 * Out)) > 1e-3, "no chorus, phaser or flanger");
@@ -1773,11 +1773,12 @@ namespace
 		std::printf("PASS: the sends, none at 0, the returns where they are sent, the same whatever the blocks\n");
 	}
 
-	// ---- the chorus's Vibrato and Air against what OsTIrus's do ----
+	// ---- the chorus's Vibrato, Air and Vintage against what OsTIrus's do ----
 
 	// A click every _every samples through _fx for _seconds; at each click, per channel, the delay of the strongest
-	// answer before the next click, in whole samples
-	template<typename Fx> std::array<std::vector<int>, 2> clickDelays(Fx& _fx, const int _every, const double _seconds)
+	// answer before the next click from _from on, in whole samples
+	template<typename Fx> std::array<std::vector<int>, 2> clickDelays(Fx& _fx, const int _every, const double _seconds,
+		const size_t _from = 0)
 	{
 		const int blocks = static_cast<int>(_seconds * 44100) / 32;
 		std::vector<float> in(static_cast<size_t>(blocks) * 32), out[2];
@@ -1792,8 +1793,8 @@ namespace
 		for(size_t c = 0; c < 2; ++c)
 			for(size_t at = 0; at + static_cast<size_t>(_every) <= in.size(); at += static_cast<size_t>(_every))
 			{
-				size_t best = 0;
-				for(size_t k = 1; k < static_cast<size_t>(_every); ++k)
+				size_t best = _from;
+				for(size_t k = _from + 1; k < static_cast<size_t>(_every); ++k)
 					if(std::abs(out[c][at + k]) > std::abs(out[c][at + best]))
 						best = k;
 				delays[c].push_back(static_cast<int>(best));
@@ -1801,17 +1802,18 @@ namespace
 		return delays;
 	}
 
-	// The turn of a sweep, in samples: the mean distance between the middles of its valleys, where it runs under a
-	// quarter of its top; the first and the last left out, which may be cut
-	double turnOf(const std::vector<int>& _delays, const int _every)
+	// The middles of a sweep's valleys, where it runs under a quarter of the way from its bottom to its top, in clicks;
+	// the first and the last left out, which may be cut
+	std::vector<double> valleysOf(const std::vector<int>& _delays)
 	{
 		const int top = *std::max_element(_delays.begin(), _delays.end());
+		const int bottom = *std::min_element(_delays.begin(), _delays.end());
 		std::vector<double> middles;
 		size_t from = 0;
 		bool in = false;
 		for(size_t i = 0; i <= _delays.size(); ++i)
 		{
-			const bool low = i < _delays.size() && _delays[i] * 4 < top;
+			const bool low = i < _delays.size() && (_delays[i] - bottom) * 4 < top - bottom;
 			if(low && !in)
 				from = i;
 			else if(!low && in && from > 0 && i < _delays.size())
@@ -1819,6 +1821,13 @@ namespace
 			in = low;
 		}
 		require(middles.size() >= 2, "a sweep with no turn");
+		return middles;
+	}
+
+	// The turn of a sweep, in samples: the mean distance between the middles of its valleys
+	double turnOf(const std::vector<int>& _delays, const int _every)
+	{
+		const auto middles = valleysOf(_delays);
 		return (middles.back() - middles.front()) * _every / static_cast<double>(middles.size() - 1);
 	}
 
@@ -1870,7 +1879,47 @@ namespace
 			std::printf("    its channels apart by %d samples at most, the sweep moving %.1f meanwhile\n", apart, moved);
 			require(apart <= 3 + moved, std::string(c.name) + ": its channels apart");
 		}
-		std::printf("PASS: Vibrato's and Air's tops and rates are the Virus's\n");
+
+		// Vintage: its sweep's ends and rate as the Virus's impulses gave them (its low-passed answer peaks 2 samples
+		// after its delay), past the direct part's answer
+		struct Swept
+		{
+			const char* name;
+			int depth, rate;
+			int low, top;	// the Virus's, in samples
+			double hz;
+			double apart;	// the right's turn past the left's
+		};
+		static constexpr Swept Sweeps[] = {{"Vintage d16 r64", 16, 64, 120, 146, 1.587, 0.5},
+			{"Vintage d64 r64", 64, 64, 77, 181, 1.587, 0.5}, {"Vintage d64 r0", 64, 0, 77, 181, 0.24971, 0.5},
+			{"Vintage d127 r64", 127, 64, 70, 249, 1.587, 0.5}};
+		for(const auto& c : Sweeps)
+		{
+			const int every = c.top < 250 ? 256 : 1024;
+			const double seconds = std::max(3.0, 4.5 / c.hz);
+			auto fx = std::make_unique<Vintage>();
+			fx->set(static_cast<uint8_t>(c.depth), static_cast<uint8_t>(c.rate));
+			const auto d = clickDelays(*fx, every, seconds, 20);
+			const int top = *std::max_element(d[0].begin(), d[0].end());
+			const int low = *std::min_element(d[0].begin(), d[0].end());
+			const double turn = turnOf(d[0], every);
+			const double hz = 44100 / turn;
+			// The right's valleys a share of a turn before the left's
+			const auto left = valleysOf(d[0]), right = valleysOf(d[1]);
+			double apart = std::fmod((left[1] - right[1]) * every / turn + 2, 1.0);
+			std::printf("  %s: delay %d to %d samples, the Virus's %d to %d; %.4f Hz, the Virus's %.4f; the right %.3f "
+				"turn past the left\n", c.name, low, top, c.low, c.top, hz, c.hz, apart);
+			require(std::abs(low - c.low) <= 2 && std::abs(top - c.top) <= 2, std::string(c.name) + ": not the Virus's ends");
+			require(std::abs(hz / c.hz - 1) < 0.02, std::string(c.name) + ": not the Virus's rate");
+			require(std::abs(apart - c.apart) < 0.03, std::string(c.name) + ": its channels apart");
+		}
+		// Vintage's crossover (noise, least squares)
+		static constexpr std::pair<int, double> Crossovers[] = {{0, 19.75}, {32, 126.92}, {64, 812.86}, {96, 5260.05},
+			{112, 13277.3}};
+		for(const auto& [xover, hz] : Crossovers)
+			require(std::abs(Vintage::crossover(static_cast<uint8_t>(xover)) / hz - 1) < 0.01,
+				"Vintage's crossover is not the Virus's at X-Over " + std::to_string(xover));
+		std::printf("PASS: Vibrato's, Air's and Vintage's tops and rates are the Virus's\n");
 	}
 
 	// ---- the master on Main ----

@@ -624,7 +624,7 @@ namespace elektron::drums::parameters
 	}};
 	const Spec dp4SampleHoldSpec{"phaser_dp4_sh", "Rack S&H Rate"};
 	// A new type is appended, so that a set keeps the one it chose
-	const Spec chorusTypeSpec{"chorus_type", "Chorus Type", 0, 2, "Classic|Vibrato|Slow Sweep"};
+	const Spec chorusTypeSpec{"chorus_type", "Chorus Type", 0, 3, "Classic|Vibrato|Slow Sweep|Bucket Brigade"};
 
 	double delayNoteQuarters(const int _choice)
 	{

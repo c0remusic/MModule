@@ -178,3 +178,68 @@ nettes ; elle ne sépare pas ces chemins, et un modèle qui atteigne 16 dB sur b
 Vintage, non repris dans cette session : sec à 0,707, une voix vers 134 échantillons filtrée (−5 dB à 5 kHz, −35 dB à
 16 kHz), une seconde plus faible, une distorsion qui dépend du niveau (H3 à −44 dB pour 0,3 en entrée), LFO à
 0,25 × 2^(rate/24) Hz, X-Over ; Feedback, Shape et Amount sans effet. Non porté, hors de la liste.
+
+## État (2026-11-13, suite)
+
+Vintage est porté et ajouté en fin de liste de `chorus_type` : « Bucket Brigade », après Slow Sweep, si bien qu'un set
+enregistré garde son type. Hyper a été porté puis retiré le 2026-11-14 sur décision de l'utilisateur : il ne passe pas
+le seuil à Depth 127 (voir plus bas). Son code est gardé hors du dépôt, `elektron-work/oracle/virus-fx/t14b/
+with-hyper.patch` (le diff complet avec Hyper, Vintage et leurs tests). Rotary n'est pas porté. Scripts,
+rendus et résultats hors du dépôt : `elektron-work/oracle/virus-fx/t14b` (rendus dans `renders`, préfixes `k10_`,
+`n10_`, `k11_`, `n11_`, et les nouveaux `k6_`/`n3_` aux Amount intermédiaires).
+
+Hyper, d'abord le défaut. Les voix ne disparaissent pas : sur la réponse brute de chaque impulsion, la voix « perdue »
+est là, à son retard et à son gain (vérifié à 9,12 s, 13,77 s et 15,86 s sur `k6_hyp_d032_a048`). C'est l'outil de suivi
+(`track.py`, `taps`) qui la jetait : son écart minimal compare l'indice d'une corrélation à un retard déjà décalé de PRE
+(60), si bien qu'une voix tombe chaque fois qu'une autre se trouve de 54 à 66 échantillons plus loin, ce qui arrive par
+périodes quand deux voix tournent à des vitesses différentes. Les phases cherchées sur ces prises fausses (« 8 % des
+impulsions » dans `hyp_check.py`) donnaient les 0 à 4 dB. Les retards lus directement sur chaque réponse (`irtaps.py`)
+suivent deux ou trois balayages continus, de forme Air, à 0,3 échantillon près.
+
+Hyper, ce qui a changé dans les lois. Le bas du balayage vaut 0,0589 du sommet à tout Amount et à toute profondeur
+mesurée (0,0595 à Amount 0 coûtait 13 dB à la fenêtre où une voix tourne au bas). Les gains suivent une loi simple,
+relevée sur bruit par moindres carrés tous les 16 d'Amount : la part sèche haute descend en ligne droite de 0,7102 à
+0,5812 de 0 à 64, puis à 0,5053 à 127 ; chaque voix en vaut 0,98 ; la deuxième entre de 0 à 64 (Amount / 64), la
+troisième de 64 à 128 ((Amount − 64) / 64), là où l'ancien port la faisait entrer à 96. Les vitesses des voix sont celles
+relevées sur impulsions tous les 16. À Depth 0, l'Hyper du Virus rend son entrée telle quelle (sur bruit, à 290 dB) :
+le port fait de même, en fondu.
+
+Hyper contre OsTIrus, sur bruit stéréo, retour seul, fenêtres 6,5, 7,5, 8,5 et 9,2 s (9,2 ajoutée : une voix y passe au
+bas du balayage), un tour par voix pour les deux canaux, pris sur les impulsions du même rendu puis affiné sur chaque
+fenêtre comme l'avance du LFO des autres types (`hcmp.py`, `hall.py`), le code du dépôt compilé tel quel (`probe2.cpp`).
+Depth 32, les 17 Amount de 0 à 127 tous les 8, dont les huit jamais ajustés : 20,3 dB sous le signal au pire (Amount
+80), 21 à 29 dB ailleurs. Depth 64 (Amount 0, 48, 96, 127) : 16,9 dB au pire. Depth 80, Amount 48 : 16,3. Depth 100,
+Amount 80 : 17,1. Depth 0 : exact. Depth 127 (Amount 0, 64, 127) : 13,4 à 16,1 dB, sous le seuil. Là le balayage va à
+1,3 Hz et l'écart d'un quart de tour entre les canaux, à 2 × 10⁻⁴ tour près selon la fenêtre (sans signe constant), suffit
+à coûter : chaque canal placé seul passe à 22,9 dB au pire, mais ce n'est pas la mesure des autres types. Hyper passe donc
+jusqu'à Depth 100 et non à 127 ; le sommet (510 jusqu'à 100, mal mesuré plus haut sur impulsions) reste à vérifier à
+ces profondeurs.
+
+Vintage, porté. Mesuré sur bruit par moindres carrés à Depth 0, puis sur impulsions : sous un crossover du premier
+ordre l'entrée passe telle quelle ; au-dessus, une part directe de 0,7101 et une voix, la ligne lue en ligne droite
+puis passée dans un passe-bas du second ordre (4 198,8 Hz, Q 0,715, gain 0,982), à 132,0 échantillons à Depth 0. Un
+triangle balaie le retard, le canal droit un demi-tour plus loin, à 0,25 × 2^(rate/24) Hz (0,24971 à 9,7927 Hz relevés de
+Rate 0 à 127). Depth élargit le balayage en deux droites : de 120 à 146 échantillons de pic à 16, 77 à 181 à 64, 70 à 249
+à 127. X-Over règle le crossover, 19,74 × 2^(xover/11,92) Hz (relevé tous les 8 : 19,75 Hz à 0, 812,9 à 64, 13 277 à 112),
+tenu sous Nyquist. Amount, Feedback et Shape ne font rien. La distorsion qui dépend du niveau n'est pas portée : sur
+bruit à 0,1 elle reste sous 36 dB. Contre OsTIrus, même mesure (`vcmp.py`) : Depth 0 à 127 tous les 16 à Rate 64, Rate
+0, 32, 96 et 127 à Depth 64, X-Over tous les 8 à Depth 0 et 64 à Depth 64 : 26,6 dB sous le signal au pire (Depth 64,
+Rate 127), 30 à 32 dB modulé, 43,7 à 85 dB fixe. Dans le produit X-Over reste à 0 : aucun paramètre hôte ne le porte
+encore ; `Vintage::set` le prend.
+
+Côté hôte, Vintage lit Depth et Rate, et suit Sync comme Vibrato. Dans le dépôt, `edDrumsEngineTest` (`chorusTypes`)
+vérifie sur notre sortie les bouts et vitesses relevés sur le Virus (Vintage à quatre réglages, à 2 échantillons et 2 %
+près, et l'écart des canaux) et le crossover de Vintage ; `sends` joue les quatre types. `edDrumsVst3HostTest` vérifie le dernier choix. Coût sur bruit,
+blocs de 32, meilleur de 7, le même banc pour tous (`costs.cpp`) : Hyper à trois voix 0,068 à 0,079 %, Vintage
+0,046 % d'un cœur, contre Classic 0,022, Vibrato 0,020 et Air 0,031 ; `effectsCost` (les quatre envois sur une piste)
+reste à 0,65 à 0,85 %.
+
+Rotary, arrêté. Les impulsions lues brutes (`rlook.py`, `k8_rot_r0`) montrent ce que le suivi masquait : même à Rate 0
+le rotor tourne ; un chemin principal balaie en sinus de 6 à 45 échantillons, sa réponse positive puis négative (filtrée),
+et au moins quatre ou cinq chemins plus faibles entre 60 et 130 échantillons, chacun en sinus au même rythme, de phase,
+de profondeur et de signe propres, plus une traîne au-delà de 180 (3 % de l'énergie). Il manque, pour un modèle qu'on
+puisse dire : le filtre de chaque chemin, la répartition entre pavillon et tambour (crossover, seconde vitesse), les lois
+de Rate, Depth et Amount sur chacun. Rien n'en est porté ; le type n'est pas dans la liste.
+
+Reste ouvert : Hyper (à reprendre du patch, Depth au-delà de 100 à faire passer), Rotary, X-Over comme paramètre hôte, et la validation à l'écoute du chorus
+et du phaser/flanger par l'utilisateur. Le ticket reste ouvert.

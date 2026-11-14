@@ -468,7 +468,8 @@ namespace
 			"Machine 9-24's places");
 		const int chorusType = g_parameters + elektron::drums::parameters::RelayCount;
 		require(parameters[chorusType]->getName(64) == "Chorus Type" && parameters[chorusType]->isAutomatable()
-			&& parameters[chorusType]->getText(0.0f, 64) == "Classic",
+			&& parameters[chorusType]->getText(0.0f, 64) == "Classic"
+			&& parameters[chorusType]->getText(1.0f, 64) == "Bucket Brigade",
 			"Chorus Type's place after the relays, or its choices");
 		std::printf("%d parameters of ours, %d relays and %d after them, %d automatable with Bypass; latency %d samples\n",
 			g_parameters, elektron::drums::parameters::RelayCount, g_appended, automatable, plugin.getLatencySamples());

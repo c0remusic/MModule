@@ -56,6 +56,18 @@ namespace elektron::drums
 			const uint32_t rising = _phase >> 31 ? ~_phase : _phase;
 			return static_cast<float>(rising) / 2147483648.0f;
 		}
+
+		// Straight between two knots
+		template<size_t N> double straight(const Knot (&_knots)[N], const uint8_t _value)
+		{
+			size_t i = 0;
+			while(i + 2 < N && _value > _knots[i + 1].at)
+				++i;
+			const Knot& a = _knots[i];
+			const Knot& b = _knots[i + 1];
+			const double t = std::clamp(static_cast<double>(_value - a.at) / (b.at - a.at), 0.0, 1.0);
+			return a.value + (b.value - a.value) * t;
+		}
 	}
 
 	double sendFxRateHz(const uint8_t _rate)
@@ -351,6 +363,130 @@ namespace elektron::drums
 			}
 			m_delay[c] = to[c];
 		}
+	}
+
+	namespace
+	{
+		// Vintage, fitted on noise and on impulses. Its direct part's gain; the voice's low-pass and gain
+		constexpr double VintageDirect = 0.7101;
+		constexpr double VintageCutoff = 4198.8, VintageQ = 0.715, VintageWet = 0.982;
+		// The read's ends against Depth, straight between, measured every 16: the impulses' peaks less the low-pass's
+		// 2.19 samples
+		constexpr Knot VintageShortest[] = {{0, 131.99}, {64, 74.9}, {127, 68.05}};
+		constexpr Knot VintageLongest[] = {{0, 131.99}, {64, 178.9}, {127, 246.78}};
+	}
+
+	Vintage::Vintage()
+	{
+		for(auto& line : m_line)
+			line.assign(Size, 0.0f);
+		const double k = std::tan(Pi * VintageCutoff / Rate);
+		const double d = 1 + k / VintageQ + k * k;
+		m_b0 = static_cast<float>(VintageWet * k * k / d);
+		m_b1 = 2 * m_b0;
+		m_a1 = static_cast<float>(2 * (k * k - 1) / d);
+		m_a2 = static_cast<float>((1 - k / VintageQ + k * k) / d);
+		set(0, 64, 0);
+		settle();
+	}
+
+	double Vintage::hz(const uint8_t _rate)
+	{
+		return 0.25 * std::exp2(_rate / 24.0);
+	}
+
+	double Vintage::shortest(const uint8_t _depth)
+	{
+		return straight(VintageShortest, _depth);
+	}
+
+	double Vintage::longest(const uint8_t _depth)
+	{
+		return straight(VintageLongest, _depth);
+	}
+
+	double Vintage::crossover(const uint8_t _xover)
+	{
+		// Fitted on noise every 8: 19.7 Hz at 0, 13.3 kHz at 112; held under Nyquist, where the low part takes all
+		return std::min(19.74 * std::exp2(_xover / 11.92), 0.495 * Rate);
+	}
+
+	void Vintage::set(const uint8_t _depth, const uint8_t _rate, const uint8_t _xover)
+	{
+		m_loTo = static_cast<float>(shortest(_depth));
+		m_hiTo = static_cast<float>(longest(_depth));
+		m_step = stepOf(hz(_rate));
+		const double k = std::tan(Pi * crossover(_xover) / Rate);
+		m_k = static_cast<float>(k / (1 + k));
+		m_pole = static_cast<float>((1 - k) / (1 + k));
+	}
+
+	void Vintage::setHz(const double _hz)
+	{
+		m_step = stepOf(_hz);
+	}
+
+	void Vintage::settle()
+	{
+		m_lo = m_loTo;
+		m_hi = m_hiTo;
+		m_delay[0] = m_lo + (m_hi - m_lo) * triangle(m_phase);
+		m_delay[1] = m_lo + (m_hi - m_lo) * triangle(m_phase + 0x80000000u);
+	}
+
+	void Vintage::restart(const double _turn)
+	{
+		m_phase = static_cast<uint32_t>(std::fmod(_turn, 1.0) * 4294967296.0);
+		settle();
+	}
+
+	void Vintage::clear()
+	{
+		for(auto& line : m_line)
+			std::fill(line.begin(), line.end(), 0.0f);
+		for(int c = 0; c < 2; ++c)
+			m_low[c] = m_lastIn[c] = m_z1[c] = m_z2[c] = 0;
+	}
+
+	void Vintage::process(const float* const _inL, const float* const _inR, float* const _outL, float* const _outR)
+	{
+		m_phase += m_step;
+		m_lo = m_loTo + Glide * (m_lo - m_loTo);
+		m_hi = m_hiTo + Glide * (m_hi - m_hiTo);
+		// The right half a turn on, each straight from where the last block left it
+		const float to[2] = {m_lo + (m_hi - m_lo) * triangle(m_phase),
+			m_lo + (m_hi - m_lo) * triangle(m_phase + 0x80000000u)};
+		const float* const in[2] = {_inL, _inR};
+		float* const out[2] = {_outL, _outR};
+		const auto direct = static_cast<float>(VintageDirect);
+		for(int c = 0; c < 2; ++c)
+		{
+			const float step = (to[c] - m_delay[c]) / BlockSize;
+			float delay = m_delay[c];
+			auto& line = m_line[c];
+			uint32_t write = m_write;
+			for(int k = 0; k < BlockSize; ++k)
+			{
+				const float x = in[c][k];
+				m_low[c] = m_k * (x + m_lastIn[c]) + m_pole * m_low[c];
+				m_lastIn[c] = x;
+				const float high = x - m_low[c];
+				write = (write + 1) & Mask;
+				line[write] = high;
+				delay += step;
+				const auto whole = static_cast<uint32_t>(delay);
+				const float t = delay - static_cast<float>(whole);
+				const float a = line[(write - whole) & Mask], b = line[(write - whole - 1) & Mask];
+				const float read = a + t * (b - a);
+				// The low-pass, transposed direct form II
+				const float wet = m_b0 * read + m_z1[c];
+				m_z1[c] = m_b1 * read - m_a1 * wet + m_z2[c];
+				m_z2[c] = m_b0 * read - m_a2 * wet;
+				out[c][k] = m_low[c] + direct * high + wet;
+			}
+			m_delay[c] = to[c];
+		}
+		m_write = (m_write + BlockSize) & Mask;
 	}
 
 	void Phaser::set(const int _stages, const uint8_t _frequency, const uint8_t _spread, const uint8_t _depth,
