@@ -37,7 +37,7 @@ le dernier vert est celui de `00e4ca7a`, 72 sur 72, le 2026-11-13 à 07:02.
 | 1 | Q1 exact ; Q2-Q4 à tolérance, toutes fréquences | `mdVoicePortTest`, `mdEngineFirmwareTest`, `mdFastTrackFxTest`, `mdFastSendsTest`, `stFast*Test`, `edDrumsEngineTest` (Q1 dans la chaîne), `edDrumsChainTest` (Q3), `edDrumsRateTest` (Q15 contre la fréquence de la famille) | Q1 : 10 machines MD dans leur chaîne, 0 LSB ; Q3 au pire SNR 85,0 dB, fenêtre 69,0 (seuils 70/60), tenues 58,7 (borne 58) ; aux autres fréquences, au pire 0,002 dB d'enveloppe, 0,006 dB par tiers d'octave | vert |
 | 2 | « Sonne pareil » à 44,1 et 48 kHz | aucune mesure automatique : critère de l'utilisateur | brouillon d'usine prêt à l'écoute : `C:\dev\elektron\elektron-work\factory-draft\` (kits, patterns, un WAV par kit) | en attente de l'utilisateur |
 | 3 | Q5-Q7, Q9, Q11-Q16 | `edDrumsChainTest`, `edDrumsEngineTest`, `edDrumsLfoTest`, `stFastResampleTest`, `mdFastTrackFxTest`, `stFastSyBitsTest`, `edDrumsRateTest`, les tests d'envoi | Q5 -inf dBFS ; Q6 drive Syntakt -67,0 à 2x, -83,3 à 4x (DIST -49,6 et -61,0, écarté par l'utilisateur au ticket 12) ; Q7 0,0000 dB, THD+N -121,2 au pire ; Q9 0,000 dB, aucune valeur non finie ; Q11 +0,0004 dB, THD+N -91,4, rejet -70,3 dB ; Q12 -50,7 au pire (chaîne), -51,8 (LFO), -52,6 (Choke) ; Q13 SRR du MD au Q2, bit reducer de SY BITS au Q3 seulement ; Q14 tenu (moteur, envois, TrackFx) ; Q15 0,002 dB, Syntakt à 44,1 sous ses bornes par machine ; **Q16 nouveau** : 16 BD en phase, Main +19,6 dBFS (BD MODERN) et +27,0 dBFS (TRX-BD), à -134 dB de 16 Hits seuls, donc aucun écrêtage caché, tout fini, le master sort à 1,000 | vert |
-| 4 | Pire cas sous 15 % à 44,1, 48, 88,2, 96 kHz | `edDrumsRateTest` (étendu : machine la plus chère de toutes les familles hors Syntakt, sur 7 et sur 16 pistes, exigé aux quatre fréquences) ; `edDrumsCost` à la main | drives 2x, trois passes : 44,1 de 11,57 à **15,59** (une passe sur trois au-dessus), 48 de 12,32 à 13,92, 88,2 de 13,06 à 14,52, 96 de 13,69 à 14,49. La plus chère est SOPHIE, pas une machine MD. Drives 4x, kit alterné MD/Syntakt (SOPHIE non mesurée) : 14,97 et 15,67 | **rouge ou à la limite** |
+| 4 | Pire cas sous 15 % à 44,1, 48, 88,2, 96 kHz | `edDrumsRateTest` (étendu : machine la plus chère de toutes les familles hors Syntakt, sur 7 et sur 16 pistes, exigé aux quatre fréquences) ; `edDrumsCost` à la main | drives 2x, trois passes : 44,1 de 11,57 à **15,59** (une passe sur trois au-dessus), 48 de 12,32 à 13,92, 88,2 de 13,06 à 14,52, 96 de 13,69 à 14,49. La plus chère est SOPHIE, pas une machine MD. Drives 4x, kit alterné MD/Syntakt (SOPHIE non mesurée) : 14,97 et 15,67 | **rouge ou à la limite** ; vert au calme le 2026-11-14 (voir plus bas) |
 | 5 | Gigue 0, latence publiée | `edDrumsEngineTest`, `edDrumsRateTest`, `edDrumsAnalogTest`, `edDrumsSequencerTest`, `edDrumsVst3HostTest` | gigue 0 partout ; `HitDelay` 81 (1,84 ms) à 44,1, 117 à 48, 213 à 88,2, 233 à 96, rapporté à l'hôte | vert |
 | 6 | Séquenceur | `edDrumsSequencerTest`, `edDrumsProcessorTest` | 54 Hits sur 54 à l'échantillon ; pattern du critère 6 rendu deux fois et en blocs de 37 et 512, mêmes échantillons ; changement à la fin du pattern ; MIDI relu par JUCE | vert |
 | 7 | Kits et état | `edDrumsProcessorTest`, `edDrumsSampleLibraryTest` | kit et état restitués : mêmes échantillons ; deux instances gardent les emplacements l'une de l'autre ; identifiant manquant à son défaut ; l'import compte ce qu'il trouve et refuse. « Ce qui manque » n'est pas vérifié par un test | vert, sauf ce dernier point |
@@ -104,3 +104,20 @@ kit 2x à 44,1 : -18 à -20 %. Machine chargée (Chrome, Live), meilleure de 5, 
 11,89 / 11,81 / 12,80 / 12,91, 4x 13,08 / 14,56 / 14,95 / 16,64 ; le kit le plus cher est désormais le mixte (9 Syntakt
 + 7 MD). Non pris : une table des coefficients de l'interpolateur transposée et étendue en signe (environ 0,4 point),
 qui demanderait aux tests qui remplacent les filtres de la recalculer. Critère 4 à reconfirmer au calme.
+
+## État (2026-11-14)
+
+Critère 4 remesuré au calme, sur `085a065d` : le garde-fou venait de mesurer 0,3 cœur pris hors de lui (Live ouvert sans
+jouer, 0,2), aucune autre session ni Chrome actif. `edDrumsRateTest`, trois passes l'une après l'autre, minimum de
+chaque passe, pire des deux kits (mixte 9 Syntakt + 7 MD, et 16 MD sur la machine MD la plus chère, 153, 159 ou 156
+selon la passe) :
+
+| Drives | 44,1 kHz | 48 kHz | 88,2 kHz | 96 kHz | Borne |
+|---|---|---|---|---|---|
+| 2x | 11,27 à 11,50 | 10,66 à 11,08 | 11,68 à 11,95 | 12,10 à 12,89 | 15 |
+| 4x | 12,11 à 12,46 | 12,49 à 12,93 | 13,16 à 13,43 | 13,51 à 13,80 | 17 |
+
+À 192 kHz (hors budget) : 13,77 à 14,15. Marge au pire : 2,1 points à 2x (96 kHz), 3,2 à 4x (96 kHz). Le 15,59 du
+2026-11-13 tenait à la charge de la machine et aux voix accélérées depuis (ROM, SOPHIE). Critère 4 vert.
+
+Reste ouvert : les critères 2 et 9, à l'écoute et au regard de l'utilisateur.
