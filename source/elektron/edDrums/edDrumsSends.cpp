@@ -188,7 +188,7 @@ namespace elektron::drums
 			static_cast<ModulatedDelay::Shape>(std::min<int>(b[ChorusShape], 5)));
 		m_vibrato->set(b[ChorusDepth], b[ChorusRate]);
 		m_air->set(b[ChorusDepth]);
-		m_vintage->set(b[ChorusDepth], b[ChorusRate]);
+		m_vintage->set(b[ChorusDepth], b[ChorusRate], b[ChorusXOver]);
 		giveLfoRates();
 		static constexpr SendSource Types[] = {SendSource::Classic, SendSource::Vibrato, SendSource::Air,
 			SendSource::Vintage};

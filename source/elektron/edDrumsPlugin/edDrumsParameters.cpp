@@ -376,6 +376,8 @@ namespace elektron::drums::parameters
 			return seconds((ModulatedDelay::ChorusStep * _v + 1) / 44100);
 		if(is("chorus_fdbk"))
 			return withUnit(100 * (_v - 64) / 65.6, "%");
+		if(is("chorus_xover"))
+			return hertz(Vintage::crossover(static_cast<uint8_t>(_v)));
 		if(is("chorus_level") || is("phaser_level"))
 			return gain(sendFxLevel(static_cast<uint8_t>(_v)));
 		const auto mode = [&] { return _other("phaser_mode"); };
@@ -625,6 +627,7 @@ namespace elektron::drums::parameters
 	const Spec dp4SampleHoldSpec{"phaser_dp4_sh", "Rack S&H Rate"};
 	// A new type is appended, so that a set keeps the one it chose
 	const Spec chorusTypeSpec{"chorus_type", "Chorus Type", 0, 3, "Classic|Vibrato|Slow Sweep|Bucket Brigade"};
+	const Spec chorusXOverSpec{"chorus_xover", "Chorus X-Over"};
 
 	double delayNoteQuarters(const int _choice)
 	{

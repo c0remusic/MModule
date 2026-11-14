@@ -243,3 +243,20 @@ de Rate, Depth et Amount sur chacun. Rien n'en est porté ; le type n'est pas da
 
 Reste ouvert : Hyper (à reprendre du patch, Depth au-delà de 100 à faire passer), Rotary, X-Over comme paramètre hôte, et la validation à l'écoute du chorus
 et du phaser/flanger par l'utilisateur. Le ticket reste ouvert.
+
+## État (2026-11-14)
+
+X-Over de Bucket Brigade (Vintage) est un paramètre hôte : `chorus_xover` (« Chorus X-Over », 0-127, 0 par défaut, soit
+19,7 Hz, la valeur que le produit jouait jusqu'ici), ajouté en fin d'`edDrumsParameterIds.txt` après ceux de REPEAT GAP.
+Il passe par l'octet `ChorusXOver` de `Sends::setChorus`, après `ChorusType`, jusqu'à `Vintage::set`. Son texte est la
+fréquence de coupure, `Vintage::crossover` (19,7 Hz à 0, 813 Hz à 64, 21,8 kHz à 127, tenue sous Nyquist). Sur la page
+FX, la cellule X-OVER du bloc CHORUS ne se montre que sur Bucket Brigade ; les autres types n'ont pas de crossover
+(Classic, Vibrato, Air), et le type du chorus entre dans la clé de mise en page. `edDrumsEngineTest` (`sends`) vérifie
+qu'X-Over change le retour de Bucket Brigade et pas celui de Classic ; `edDrumsProcessorTest` qu'il atteint le moteur
+(non entendu sur les deux sons du test, qui ne choisissent pas Bucket Brigade) ; `edDrumsEditorTest` qu'il a sa commande,
+rendu `fx-bucket-brigade.png` ; `edDrumsVst3HostTest` sa place, son nom et son texte.
+
+Vu au rendu, non corrigé ici : sur la page FX, « BUCKET BRIGADE » déborde sur la valeur de OUT dans la ligne TYPE.
+
+Reste ouvert : Hyper (à reprendre du patch, Depth au-delà de 100 à faire passer), Rotary, et la validation à l'écoute du
+chorus et du phaser/flanger par l'utilisateur. Le ticket reste ouvert.

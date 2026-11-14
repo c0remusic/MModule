@@ -71,6 +71,8 @@ namespace elektron::drums::parameters
 	extern const Spec dp4SampleHoldSpec;
 	// The chorus's type (Sends' ChorusType), appended after the relays
 	extern const Spec chorusTypeSpec;
+	// Bucket Brigade's crossover (Sends' ChorusXOver), appended after REPEAT GAP's
+	extern const Spec chorusXOverSpec;
 	constexpr int DefaultDelayNote = 9, DefaultLfoNote = 6;		// 1/4, 1 Bar
 	// Beats of delayNoteSpec's and lfoNoteSpecs' choices
 	double delayNoteQuarters(int _choice);

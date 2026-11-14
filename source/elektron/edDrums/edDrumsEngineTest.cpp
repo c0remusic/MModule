@@ -1684,7 +1684,7 @@ namespace
 		const auto other = play(127, 127, Out, 57);
 		require(sent.channel(2 * Out) == other.channel(2 * Out), "a return moves with the host's blocks");
 		const auto ours = [&](const Send _send, const int _mode, const int _block, const int _rate = 64,
-			const int _frequency = 64, const int _feedback = 64)
+			const int _frequency = 64, const int _feedback = 64, const int _xover = 0)
 		{
 			auto e = std::make_unique<Engine>(_library);
 			e->setMachine(0, {Family::Machinedrum, 16});
@@ -1696,6 +1696,7 @@ namespace
 			fx.setChorus(ChorusLevel, 127);
 			fx.setChorus(ChorusShape, 1);
 			fx.setChorus(ChorusType, static_cast<uint8_t>(_send == Send::Chorus ? _mode : 0));
+			fx.setChorus(ChorusXOver, static_cast<uint8_t>(_xover));
 			for(int byte = 0; byte < PhaserBytes; ++byte)
 				fx.setPhaser(byte, 64);
 			fx.setPhaser(PhaserMode, static_cast<uint8_t>(_mode));
@@ -1757,6 +1758,10 @@ namespace
 			for(const float x : take.channel(2 * Out))
 				require(std::isfinite(x) && std::abs(x) < 4, "ours run away");
 		}
+		// X-Over moves Vintage's crossover, and no other type's
+		require(ours(Send::Chorus, 3, 32).channel(2 * Out) != ours(Send::Chorus, 3, 32, 64, 64, 64, 96).channel(2 * Out)
+			&& ours(Send::Chorus, 0, 32).channel(2 * Out) == ours(Send::Chorus, 0, 32, 64, 64, 64, 96).channel(2 * Out),
+			"X-Over is not Vintage's alone");
 		// The sweep at its fastest, a low frequency, all the feedback: a direct form's state ran away here
 		for(const int rate : {124, 127})
 			for(const int feedback : {0, 127})

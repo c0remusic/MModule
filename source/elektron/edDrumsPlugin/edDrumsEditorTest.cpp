@@ -977,6 +977,11 @@ namespace
 			}
 			collect(true);
 		}
+		// X-Over shows on Bucket Brigade alone
+		auto* chorusType = processor.parameter("chorus_type");
+		chorusType->setValueNotifyingHost(1.0f);
+		collect(true);
+		chorusType->setValueNotifyingHost(0.0f);
 		editor.showPage(Editor::Page::Master);
 		collect(true);
 		editor.showPage(Editor::Page::Seq);
@@ -1669,6 +1674,15 @@ namespace
 		snapshot(editor, _folder.getChildFile("master.png"));
 		editor.showPage(Editor::Page::Fx);
 		snapshot(editor, _folder.getChildFile("fx.png"));
+		{
+			// Bucket Brigade's X-Over
+			auto* chorusType = processor.parameter("chorus_type");
+			chorusType->setValueNotifyingHost(1.0f);
+			editor.tick();
+			snapshot(editor, _folder.getChildFile("fx-bucket-brigade.png"));
+			chorusType->setValueNotifyingHost(0.0f);
+			editor.tick();
+		}
 		editor.showPage(Editor::Page::Kits);
 		snapshot(editor, _folder.getChildFile("kits.png"));
 		editor.showPage(Editor::Page::Browse);

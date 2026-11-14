@@ -269,6 +269,7 @@ namespace
 		for(int t = 0; t < Tracks; ++t)
 			afterRelays.addArray(juce::StringArray{juce::String::formatted("t%02d_gap_sync", t + 1),
 				juce::String::formatted("t%02d_gap_note", t + 1)});
+		afterRelays.add("chorus_xover");
 		const auto& relays = _processor.ids(Processor::Section::Relays);
 		require(relays.size() == parameters::RelayCount
 			&& ids.indexOf(relays[0]) == ids.size() - parameters::RelayCount - afterRelays.size(),
@@ -448,7 +449,7 @@ namespace
 			};
 			chorus("chorus_rate", ChorusRate); chorus("chorus_depth", ChorusDepth); chorus("chorus_delay", ChorusDelay);
 			chorus("chorus_fdbk", ChorusFeedback); chorus("chorus_level", ChorusLevel); chorus("chorus_shape", ChorusShape);
-			chorus("chorus_type", ChorusType);
+			chorus("chorus_type", ChorusType); chorus("chorus_xover", ChorusXOver);
 			const auto phaser = [&m](const char* _id, const int _byte)
 			{
 				m[_id] = [_byte](Engine& _e, const double _v) { _e.sends().setPhaser(_byte, byteOf(_v)); };
@@ -885,6 +886,8 @@ namespace
 		// repeatSync() hears them
 		expected.push_back("gap_sync");
 		expected.push_back("gap_note");
+		// X-Over plays on Bucket Brigade alone, which neither sound chooses: edDrumsEngineTest's sends hears it
+		expected.push_back("chorus_xover");
 		require(unheard == expected, "a setting the processor gives is not heard");
 		std::printf("PASS: every parameter reaches the engine\n");
 	}

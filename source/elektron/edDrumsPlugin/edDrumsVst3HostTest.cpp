@@ -53,7 +53,7 @@ namespace
 	constexpr int g_machine24 = g_pages + Tracks * 16;	// up to T16 Machine 24; then tickets 14-15's sync and S&H
 	constexpr int g_parameters = g_machine24 + 7;
 	// After the relays: ticket 14's chorus type, then each Track's REPEAT GAP Sync and Note
-	constexpr int g_appended = 1 + 2 * Tracks;
+	constexpr int g_appended = 1 + 2 * Tracks + 1;
 	constexpr double g_stallMs = 10.0;
 
 	void require(const bool _condition, const std::string& _message)
@@ -475,6 +475,10 @@ namespace
 			&& parameters[chorusType + 2 * Tracks]->getName(64) == "T16 Gap Note"
 			&& parameters[chorusType + 2]->getText(0.0f, 64) == "1/64" && parameters[chorusType + 2]->getText(1.0f, 64) == "1/1",
 			"REPEAT GAP's Sync and Note after Chorus Type, or their choices");
+		require(parameters[chorusType + 2 * Tracks + 1]->getName(64) == "Chorus X-Over"
+			&& parameters[chorusType + 2 * Tracks + 1]->isAutomatable()
+			&& parameters[chorusType + 2 * Tracks + 1]->getText(0.0f, 64) == "19.7 Hz",
+			"Chorus X-Over after REPEAT GAP's, or its text");
 		std::printf("%d parameters of ours, %d relays and %d after them, %d automatable with Bypass; latency %d samples\n",
 			g_parameters, elektron::drums::parameters::RelayCount, g_appended, automatable, plugin.getLatencySamples());
 		require(automatable == g_parameters + elektron::drums::parameters::RelayCount + g_appended - 2 * Tracks + 1,

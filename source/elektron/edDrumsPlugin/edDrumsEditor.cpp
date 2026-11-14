@@ -212,7 +212,7 @@ namespace elektron::drums
 		key << "/" << choiceOf(*shown.machine) << "/" << choiceOf(*shown.fltType) << "/" << choiceOf(*shown.bandType) << "/"
 			<< choiceOf(*shown.ampMode) << "/" << choiceOf(*shown.lfo1Sync) << "/" << choiceOf(*shown.lfo2Sync) << "/"
 			<< choiceOf("delay_source") << "/" << choiceOf("reverb_source") << "/" << choiceOf("delay_sync")
-			<< choiceOf("chorus_sync") << choiceOf("phaser_sync") << choiceOf(*shown.gapSync) << "/"
+			<< choiceOf("chorus_sync") << choiceOf("phaser_sync") << choiceOf(*shown.gapSync) << choiceOf("chorus_type") << "/"
 			<< m_processor.sampleName(m_track) << "/";
 		// The LFOs' TARGET lists name Machine 1-24 by the machine of the Track each aims at
 		key << choiceOf(*shown.lfo1Track) << "," << choiceOf(*shown.lfo2Track) << ",";

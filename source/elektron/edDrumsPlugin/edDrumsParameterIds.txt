@@ -1625,3 +1625,4 @@ t15_gap_sync
 t15_gap_note
 t16_gap_sync
 t16_gap_note
+chorus_xover

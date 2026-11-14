@@ -680,6 +680,8 @@ namespace elektron::drums
 			watch(p.repeatNote, repeatNoteSpec, id + repeatNoteSpec.id, name + repeatNoteSpec.name, DefaultRepeatNote,
 				Section::Machine, t);
 		}
+		// ... then Bucket Brigade's X-Over
+		shared(m_chorusXOver, chorusXOverSpec, 0, Section::Effects);
 
 		m_edited = std::make_unique<Sequencer>();
 		for(auto& s : m_sequencers)
@@ -1804,6 +1806,8 @@ namespace elektron::drums
 			fx.setPhaser(PhaserDp4SampleHold, byte(m_dp4SampleHold));
 		if(m_chorusType.changed())
 			fx.setChorus(ChorusType, byte(m_chorusType));
+		if(m_chorusXOver.changed())
+			fx.setChorus(ChorusXOver, byte(m_chorusXOver));
 		if(m_delayNote.changed())
 			fx.setDelayNote(parameters::delayNoteQuarters(m_delayNote.integer()));
 		if(m_delaySync.changed())
