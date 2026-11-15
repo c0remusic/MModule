@@ -8,7 +8,8 @@ project(edDrumsPlugin VERSION ${CMAKE_PROJECT_VERSION})
 
 set(SOURCES edDrumsProcessor.cpp edDrumsProcessor.h edDrumsParameters.cpp edDrumsParameters.h edDrumsSampleFiles.cpp
 	edDrumsSampleFiles.h edDrumsSampleLibrary.cpp edDrumsSampleLibrary.h edDrumsKits.cpp edDrumsKits.h
-	edDrumsTrackSounds.cpp edDrumsTrackSounds.h edDrumsLockerImport.cpp edDrumsLockerImport.h edDrumsMachineFiles.cpp edDrumsMachineFiles.h edDrumsNames.cpp edDrumsNames.h)
+	edDrumsTrackSounds.cpp edDrumsTrackSounds.h edDrumsLockerImport.cpp edDrumsLockerImport.h edDrumsMachineFiles.cpp edDrumsMachineFiles.h edDrumsNames.cpp edDrumsNames.h
+	edDrumsLocks.cpp edDrumsLocks.h)
 
 juce_add_plugin(edDrumsPlugin
 	COMPANY_NAME "c0remusic"
@@ -41,9 +42,11 @@ set_property(TARGET edDrumsPlugin PROPERTY FOLDER "Elektron")
 # plug-in itself: the Bank's first Slots, the Track sounds and the Locker's LOCKSTEP on the first open, a new
 # instance's A01-A16
 file(GLOB ED_DRUMS_FACTORY CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/resources/factory/*.edkit
-	${CMAKE_CURRENT_SOURCE_DIR}/resources/factory/*.edpattern ${CMAKE_CURRENT_SOURCE_DIR}/resources/factory/sounds/*.edsound
+	${CMAKE_CURRENT_SOURCE_DIR}/resources/factory/*.edpattern
+	${CMAKE_CURRENT_SOURCE_DIR}/resources/factory/sounds/*.edsound
 	${CMAKE_CURRENT_SOURCE_DIR}/resources/factory/samples/*.flac)
-juce_add_binary_data(edDrumsFactoryAssets HEADER_NAME FactoryAssets.h NAMESPACE FactoryAssets SOURCES ${ED_DRUMS_FACTORY})
+juce_add_binary_data(edDrumsFactoryAssets HEADER_NAME FactoryAssets.h NAMESPACE FactoryAssets
+	SOURCES ${ED_DRUMS_FACTORY})
 set_property(TARGET edDrumsFactoryAssets PROPERTY FOLDER "Elektron")
 target_link_libraries(edDrumsPlugin PRIVATE edDrumsFactoryAssets)
 
@@ -65,6 +68,13 @@ if(BUILD_TESTING)
 	add_test(NAME edDrumsSampleLibraryTest COMMAND edDrumsSampleLibraryTest)
 	set_tests_properties(edDrumsSampleLibraryTest PROPERTIES TIMEOUT 120)
 	set_property(TARGET edDrumsSampleLibraryTest PROPERTY FOLDER "Elektron/test")
+
+	# The sequencer's Locks as they play and as a lane draws them, without a Processor or JUCE
+	add_executable(edDrumsLocksTest edDrumsLocksTest.cpp edDrumsLocks.cpp edDrumsLocks.h)
+	target_link_libraries(edDrumsLocksTest PRIVATE edDrums)
+	add_test(NAME edDrumsLocksTest COMMAND edDrumsLocksTest)
+	set_tests_properties(edDrumsLocksTest PROPERTIES TIMEOUT 60)
+	set_property(TARGET edDrumsLocksTest PROPERTY FOLDER "Elektron/test")
 
 	# The host's transport, the frozen IDs, every parameter against the engine, the state (GEARMULATOR_MD_FIRMWARE_BIN:
 	# exit 77 without it)

@@ -920,10 +920,8 @@ namespace elektron::drums
 	{
 		if(!_cell.parameter || m_page != Page::Sound)
 			return false;
-		const auto& id = _cell.parameter->getParameterID();
-		if(!id.startsWith(juce::String::formatted("t%02d_", m_track + 1)))
-			return false;
-		return !id.endsWith("_machine") && !id.endsWith("_output") && !id.endsWith("_chokes");
+		// What the Processor plays a Lock of: REPEAT GAP's, the machine's or the Out's would be dropped
+		return m_processor.locks().lockable(_cell.parameter->getParameterIndex(), m_track);
 	}
 
 	void Editor::cellSet(const Cell& _cell, const float _normalised)

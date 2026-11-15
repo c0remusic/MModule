@@ -1898,8 +1898,10 @@ namespace
 			double apart;	// the right's turn past the left's
 		};
 		static constexpr Swept Sweeps[] = {{"Vintage d16 r64", false, 16, 64, 120, 146, 1.587, 0.5},
-			{"Vintage d64 r64", false, 64, 64, 77, 181, 1.587, 0.5}, {"Vintage d64 r0", false, 64, 0, 77, 181, 0.24971, 0.5},
-			{"Vintage d127 r64", false, 127, 64, 70, 249, 1.587, 0.5}, {"Hyper d32", true, 32, 0, 13, 221, 0.09986, 0.25},
+			{"Vintage d64 r64", false, 64, 64, 77, 181, 1.587, 0.5},
+			{"Vintage d64 r0", false, 64, 0, 77, 181, 0.24971, 0.5},
+			{"Vintage d127 r64", false, 127, 64, 70, 249, 1.587, 0.5},
+			{"Hyper d32", true, 32, 0, 13, 221, 0.09986, 0.25},
 			{"Hyper d80", true, 80, 0, 30, 510, 0.23723, 0.25}};
 		for(const auto& c : Sweeps)
 		{
@@ -1937,8 +1939,8 @@ namespace
 		for(const auto& [xover, hz] : Crossovers)
 			require(std::abs(Vintage::crossover(static_cast<uint8_t>(xover)) / hz - 1) < 0.01,
 				"Vintage's crossover is not the Virus's at X-Over " + std::to_string(xover));
-		// Hyper's voices against Amount: each one's rate (impulses, at depth 32 and at 127, where the voices fitted at 32
-		// had missed by up to 0.73 %) and gain (noise, least squares), the dry high part's first
+		// Hyper's voices against Amount: each one's rate (impulses, at depth 32 and at 127, where the voices fitted at
+		// 32 had missed by up to 0.73 %) and gain (noise, least squares), the dry high part's first
 		struct Voices
 		{
 			int depth, amount;
@@ -1957,7 +1959,8 @@ namespace
 				require(std::abs(Hyper::gain(amount, p) - a.gain[p]) < 0.03 * a.gain[1],
 					"Hyper's gains are not the Virus's at amount " + std::to_string(a.amount));
 			for(int v = 0; v < Hyper::Voices; ++v)
-				require(a.hz[v] == 0 || std::abs(Hyper::hz(static_cast<uint8_t>(a.depth), amount, v) / a.hz[v] - 1) < 0.002,
+				require(a.hz[v] == 0
+					|| std::abs(Hyper::hz(static_cast<uint8_t>(a.depth), amount, v) / a.hz[v] - 1) < 0.002,
 					"Hyper's rates are not the Virus's at depth " + std::to_string(a.depth) + ", amount "
 						+ std::to_string(a.amount));
 		}

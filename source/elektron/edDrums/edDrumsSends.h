@@ -33,8 +33,9 @@ namespace elektron::drums
 	// A change of Mode goes as a change of source does
 	// Shape: 0 sine, 1 triangle, 2 saw, 3 square, 4 sample and hold, 5 sample and glide. Type, appended after the host
 	// parameters ChorusBytes counts: 0 the chorus above, 1 Vibrato (Depth and Rate alone), 2 Air (Depth alone), 3 Vintage
-	// (Depth and Rate), 4 Hyper (Depth, and Delay as its Amount); a change of Type goes as a change of source does. XOver, after it: Vintage's crossover, under
-	// which its input passes as it is, 0 at 19.7 Hz (Vintage::crossover); the other types have none
+	// (Depth and Rate), 4 Hyper (Depth, and Delay as its Amount); a change of Type goes as a change of source does.
+	// XOver, after it: Vintage's crossover, under which its input passes as it is, 0 at 19.7 Hz (Vintage::crossover);
+	// the other types have none
 	enum ChorusByte
 	{
 		ChorusRate, ChorusDepth, ChorusDelay, ChorusFeedback, ChorusLevel, ChorusShape, ChorusBytes,

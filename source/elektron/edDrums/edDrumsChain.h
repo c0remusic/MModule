@@ -228,7 +228,7 @@ namespace elektron::drums
 	private:
 		enum Place { Pre0, Pre1, BandBefore, FilterPlace, BandAfter, Post0, Post1, Places };
 
-		// Off, then the stages of a place: the drives' six, the band's and the filter's three
+		// Off, then the stages of a place: the drives' five, the band's and the filter's three
 		static constexpr int Types = 6;
 		static constexpr int8_t NoPending = -1;
 

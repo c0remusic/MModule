@@ -105,13 +105,7 @@ namespace elektron::drums
 		// start and end (they differ where a slide glides), and whether the step holds its own Lock; a step whose condition
 		// may not play it holds none, and may: its Lock's value would. _locks, where given, gets the steps of the 64 that
 		// hold a Lock of it
-		struct LaneStep
-		{
-			float from, to;
-			bool locked;
-			bool may = false;
-			float would = 0;
-		};
+		using LaneStep = Locks::LaneStep;
 		std::vector<LaneStep> laneSteps(int _line, int* _locks = nullptr) const;
 		// The timer's work, once
 		void tick();

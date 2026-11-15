@@ -32,7 +32,7 @@ namespace elektron::drums
 		// SAMPLE LAYER's LOAD, 3 mm after the block's title (drawBlockTitle: 3.2 mm, 600)
 		float sampleLoadX(const float _x)
 		{
-			return _x + 2 + Painter::font(3.2f, 600).getStringWidthFloat("SAMPLE LAYER") + 3;
+			return _x + 2 + Painter::textWidth("SAMPLE LAYER", 3.2f, 600) + 3;
 		}
 		juce::Rectangle<float> lfoCard(const int _i)
 		{
@@ -422,15 +422,6 @@ namespace elektron::drums
 		}
 
 		// The Lock of parameter _parameter on _track's step _step, nullptr for none (Pattern::setLock keeps one a parameter)
-		const Lock* lockAt(const Pattern& _p, const int _track, const int _step, const int _parameter)
-		{
-			const auto* l = _p.locks(_track, _step);
-			for(int i = 0; l && i < _p.step(_track, _step).lockCount; ++i)
-				if(l[i].parameter == _parameter)
-					return &l[i];
-			return nullptr;
-		}
-
 		// The steps of _track's 64 that hold a Lock of _parameter
 		int lockCount(const Pattern& _p, const int _track, const int _parameter)
 		{
@@ -745,9 +736,9 @@ namespace elektron::drums
 					l.isEmpty() ? "M" + juce::String(n) : l, hue::k, "m");
 				m_cells[static_cast<size_t>(c)].off = l.isEmpty();
 			}
-			// REPEAT GAP, the Sampler's Machine 8 and a CRUNCH 12 machine's Machine 7 (Engine::repeatsInNotes): SYNC right
-			// of its value (its name leaves no room in Barlow), and while on, the note in its place. Off, or on another machine, the note's cell is there hidden,
-			// as SYNC's off the machine's first page
+			// REPEAT GAP, the Sampler's Machine 8 and a CRUNCH 12 machine's Machine 7 (Engine::repeatsInNotes): SYNC
+			// right of its value (its name leaves no room in Barlow), and while on, the note in its place. Off, or on
+			// another machine, the note's cell is there hidden, as SYNC's off the machine's first page
 			{
 				const auto& machine = trackMachine(m_track);
 				const bool here = Engine::repeatsInNotes(machine) && m_machinePage == 0;
@@ -1333,99 +1324,18 @@ namespace elektron::drums
 		return lines;
 	}
 
-	// As the sequencer plays the Track's steps (edDrumsSequencer.cpp) and Processor::applyEvent applies them: a step with
-	// a trig or a Lock is an event, and an event releases what the Track's last one locked and locks its own; so a Lock
-	// holds to the next event, then the base comes back, across the loop's end too. A trig's Lock of Machine 1-24 without
-	// SLIDE is the Hit's (Engine::lock), which only the Track's next trig releases, or a trigless Lock of it. A trig with
-	// SLIDE glides what it locks towards the next trig's Lock, or the base, until the next event. On a trig, a step's note
-	// plays over a Lock of Note. A step whose condition is not Always may not play (Sequencer::emit): it neither releases
-	// nor locks here, and its own Lock is drawn as one that may play
+	// What the Processor plays on each step, from the same rules (Locks::lane)
 	std::vector<Editor::LaneStep> Editor::laneSteps(const int _line, int* _locks) const
 	{
-		const auto& p = pattern();
 		auto* rp = dynamic_cast<juce::RangedAudioParameter*>(m_processor.getParameters()[_line]);
-		const float base = rp ? rp->getValue() : 0.0f;
-		std::vector<LaneStep> steps(static_cast<size_t>(SeqSteps), {base, base, false});
-		const int length = std::min(SeqSteps, p.trackLength[static_cast<size_t>(m_track)]);
-		if(_locks)
-			*_locks = 0;
 		if(!rp)
-			return steps;
-		const bool note = _line == m_keyChoices[static_cast<size_t>(m_track)].note->getParameterIndex();
-		const bool machine = m_processor.lockTarget(_line).kind == Processor::LockKind::Machine;
-		// Each step's own Lock, the step's note over it on a trig; whether a Lock in its list slides; whether the step is an
-		// event, sure to play; whether its Lock is the Hit's; the value it locks
-		std::array<bool, SeqSteps> own{}, events{}, hits{};
-		std::array<float, SeqSteps> value;
-		value.fill(base);
-		// Past the Track's length, a step's Lock is counted only
-		for(int s = 0; s < SeqSteps; ++s)
 		{
-			const auto* lock = lockAt(p, m_track, s, _line);
-			if(_locks && lock)
-				++*_locks;
-			if(s >= length)
-				continue;
-			const auto i = static_cast<size_t>(s);
-			auto& st = steps[i];
-			const auto& step = p.step(m_track, s);
-			const bool locks = lock != nullptr;
-			bool has = locks;
-			if(lock)
-				value[i] = rp->convertTo0to1(lock->value);
-			if(note && step.trig && step.note != NoNote)
-			{
-				value[i] = rp->convertTo0to1(static_cast<float>(step.note));
-				has = true;
-			}
-			if(step.condition.kind != ConditionKind::Always)
-			{
-				st.may = has;
-				st.would = value[i];
-				continue;
-			}
-			st.locked = has;
-			own[i] = locks;
-			events[i] = step.trig || step.lockCount > 0;
-			hits[i] = machine && step.trig && locks && !step.slide;
+			if(_locks)
+				*_locks = 0;
+			return std::vector<LaneStep>(static_cast<size_t>(SeqSteps), {0.0f, 0.0f, false});
 		}
-		// Two laps, the second drawn: what the first left held is what every later lap starts with
-		float held = base;
-		bool hitHeld = false;
-		for(int n = 0; n < 2 * length; ++n)
-		{
-			const auto i = static_cast<size_t>(n % length);
-			if(events[i] && (p.step(m_track, n % length).trig || steps[i].locked || !hitHeld))
-			{
-				held = steps[i].locked ? value[i] : base;
-				hitHeld = hits[i];
-			}
-			if(n >= length)
-				steps[i].from = steps[i].to = held;
-		}
-		for(int s = 0; s < length; ++s)
-		{
-			const auto& step = p.step(m_track, s);
-			if(!step.trig || !step.slide || !own[static_cast<size_t>(s)])
-				continue;
-			for(int d = 1; d <= length; ++d)
-			{
-				const int next = (s + d) % length;
-				if(!p.step(m_track, next).trig)
-					continue;
-				const float v0 = steps[static_cast<size_t>(s)].from;
-				const auto* lock = lockAt(p, m_track, next, _line);
-				const float vt = lock ? rp->convertTo0to1(lock->value) : base;
-				for(int k = 0; k < d && (k == 0 || !events[static_cast<size_t>((s + k) % length)]); ++k)
-				{
-					auto& st = steps[static_cast<size_t>((s + k) % length)];
-					st.from = v0 + (vt - v0) * static_cast<float>(k) / static_cast<float>(d);
-					st.to = v0 + (vt - v0) * static_cast<float>(k + 1) / static_cast<float>(d);
-				}
-				break;
-			}
-		}
-		return steps;
+		return m_processor.locks().lane(pattern(), m_track, _line, rp->getValue(),
+			[rp](const float _v) { return rp->convertTo0to1(_v); }, _locks);
 	}
 
 	void Editor::buildSeq()
@@ -1879,10 +1789,10 @@ namespace elektron::drums
 		const float cw = (ScreenW - 8) / 10;
 		for(const auto& id : m_processor.trackIds(m_track))
 		{
-			if(id.endsWith("_machine") || id.endsWith("_output") || id.endsWith("_chokes"))
-				continue;
 			auto* p = m_processor.parameter(id);
 			const int index = p->getParameterIndex();
+			if(!m_processor.locks().lockable(index, m_track))
+				continue;
 			if(const auto& target = m_processor.lockTarget(index); target.kind == Processor::LockKind::Machine
 				&& target.a >= used)
 				continue;
@@ -1961,7 +1871,8 @@ namespace elektron::drums
 			drawPatterns(_p);
 			return;
 		}
-		_p.text(SG + 3 * SC + 3, ScreenY + 7.4f, juce::String(m_track + 1) + "  " + machineName(m_track), 2.8f, colour::mid);
+		_p.text(SG + 3 * SC + 3, ScreenY + 7.4f, juce::String(m_track + 1) + "  " + machineName(m_track), 2.8f,
+			colour::mid);
 
 		const auto field = [&](const float _x, const juce::String& _name, const juce::String& _value)
 		{

@@ -1,6 +1,7 @@
 #include "edDrumsEditorPages.h"
 
 #include <cmath>
+#include <vector>
 
 #include "LockstepAssets.h"
 
@@ -13,8 +14,8 @@ namespace elektron::drums::ui
 			return {{juce::Colour(_a), juce::Colour(_b), juce::Colour(_c), juce::Colour(_d), juce::Colour(_e)}};
 		}
 
-		// The face, Barlow Semi Condensed from the plug-in's data, its two weights, and how high its capitals stand in a
-		// JUCE font height
+		// The face, Barlow Semi Condensed from the plug-in's data, its two weights, and how high its capitals stand in
+		// a JUCE font height
 		struct Face
 		{
 			juce::Typeface::Ptr regular, bold;
@@ -36,10 +37,28 @@ namespace elektron::drums::ui
 				ga.addLineOfText(juce::Font(r.bold).withHeight(100.0f), "H", 0, 0);
 				juce::Path outline;
 				ga.createPath(outline);
-				r.capRatio = outline.getBounds().getHeight() / 100.0f;
+				const float cap = outline.getBounds().getHeight();
+				if(cap > 10)
+					r.capRatio = cap / 100.0f;
 				return r;
 			}();
 			return f;
+		}
+
+		// The 0's advance in a font, laid out once for each of the few the editor draws in
+		float zeroAdvance(const juce::Font& _font)
+		{
+			struct Known { juce::Typeface* face; float height, kerning, advance; };
+			thread_local std::vector<Known> known;
+			auto* const face = _font.getTypefacePtr().get();
+			for(const auto& k : known)
+				if(k.face == face && k.height == _font.getHeight() && k.kerning == _font.getExtraKerningFactor())
+					return k.advance;
+			juce::GlyphArrangement zero;
+			zero.addLineOfText(_font, "0", 0, 0);
+			const float advance = zero.getGlyph(0).getRight() - zero.getGlyph(0).getLeft();
+			known.push_back({face, _font.getHeight(), _font.getExtraKerningFactor(), advance});
+			return advance;
 		}
 
 		// A line of text with every digit in the 0's advance, its glyph centred there: Barlow's digits are
@@ -47,9 +66,7 @@ namespace elektron::drums::ui
 		juce::GlyphArrangement arrange(const juce::Font& _font, const juce::String& _text, const float _x,
 			const float _baseline)
 		{
-			juce::GlyphArrangement zero;
-			zero.addLineOfText(_font, "0", 0, 0);
-			const float advance = zero.getGlyph(0).getRight() - zero.getGlyph(0).getLeft();
+			const float advance = zeroAdvance(_font);
 			juce::GlyphArrangement ga;
 			ga.addLineOfText(_font, _text, _x, _baseline);
 			float shift = 0;
@@ -126,7 +143,7 @@ namespace elektron::drums::ui
 		return font;
 	}
 
-	float Painter::textWidth(const juce::String& _text, const float _cap, const int _weight) const
+	float Painter::textWidth(const juce::String& _text, const float _cap, const int _weight)
 	{
 		auto ga = arrange(font(_cap, _weight), _text, 0, 0);
 		return widthOf(ga, 0);

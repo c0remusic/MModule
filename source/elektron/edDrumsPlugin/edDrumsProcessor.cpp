@@ -783,13 +783,11 @@ namespace elektron::drums
 
 	void Processor::buildLockTargets()
 	{
-		m_lockTargets.assign(static_cast<size_t>(getParameters().size()), {});
-		m_locked.assign(m_lockTargets.size(), 0);
-		m_lockValue.assign(m_lockTargets.size(), 0.0f);
-		const auto target = [this](const juce::AudioProcessorParameter* _p, const int _track, const LockKind _kind,
+		std::vector<LockTarget> targets(static_cast<size_t>(getParameters().size()));
+		const auto target = [&](const juce::AudioProcessorParameter* _p, const int _track, const LockKind _kind,
 			const int _a = 0, const int _b = 0)
 		{
-			m_lockTargets[static_cast<size_t>(_p->getParameterIndex())] = {_track, _kind, _a, _b};
+			targets[static_cast<size_t>(_p->getParameterIndex())] = {_track, _kind, _a, _b};
 		};
 		for(int t = 0; t < Tracks; ++t)
 		{
@@ -807,16 +805,13 @@ namespace elektron::drums
 			for(size_t i = 0; i < p.sends.size(); ++i)
 				target(p.sends[i].parameter, t, LockKind::Send, static_cast<int>(i));
 			target(p.accent.parameter, t, LockKind::Accent);
-			// Each of a Track's parameters once at most: the list never grows past this on the audio thread
-			m_lockedBy[static_cast<size_t>(t)].reserve(static_cast<size_t>(trackIds(t).size()));
-			m_slides[static_cast<size_t>(t)].glides.reserve(static_cast<size_t>(trackIds(t).size()));
 		}
+		m_locks.setTargets(std::move(targets));
 	}
 
 	float Processor::lockOr(const Watched& _watched) const
 	{
-		return held(_watched.parameter)
-			? m_lockValue[static_cast<size_t>(_watched.parameter->getParameterIndex())] : _watched.value();
+		return held(_watched.parameter) ? m_locks.value(_watched.parameter->getParameterIndex()) : _watched.value();
 	}
 
 	parameters::ChainArray Processor::chainValues(const int _track) const
@@ -853,11 +848,10 @@ namespace elektron::drums
 	void Processor::applyTarget(const int _parameter)
 	{
 		const auto i = static_cast<size_t>(_parameter);
-		const auto& target = m_lockTargets[i];
+		const auto& target = m_locks.target(_parameter);
 		const int t = target.track;
 		auto& e = *m_engine;
-		const auto* parameter = static_cast<const juce::RangedAudioParameter*>(getParameters()[_parameter]);
-		const int v = juce::roundToInt(m_locked[i] ? m_lockValue[i] : parameter->convertFrom0to1(parameter->getValue()));
+		const int v = juce::roundToInt(m_locks.held(_parameter) ? m_locks.value(_parameter) : host(_parameter));
 		switch(target.kind)
 		{
 		case LockKind::None:	break;
@@ -875,118 +869,35 @@ namespace elektron::drums
 		}
 	}
 
-	// The Track's next Hit or Lock: what the last step locked takes the host's values again
-	void Processor::releaseLocks(const int _track)
+	float Processor::host(const int _parameter) const
 	{
-		endSlide(_track);
-		auto& list = m_lockedBy[static_cast<size_t>(_track)];
-		for(const int i : list)
-			m_locked[static_cast<size_t>(i)] = 0;
-		for(const int i : list)
-			applyTarget(i);
-		list.clear();
+		const auto* p = static_cast<const juce::RangedAudioParameter*>(getParameters()[_parameter]);
+		return p->convertFrom0to1(p->getValue());
 	}
 
-	void Processor::endSlide(const int _track)
+	float Processor::snap(const int _parameter, const float _value) const
 	{
-		auto& slide = m_slides[static_cast<size_t>(_track)];
-		slide.next = NoSlide;
-		slide.glides.clear();
+		const auto* p = static_cast<const juce::RangedAudioParameter*>(getParameters()[_parameter]);
+		return p->convertFrom0to1(p->convertTo0to1(_value));
 	}
 
-	// A slide's step: each value where the line stands at this sample, the last on the next trig's value
-	void Processor::stepSlide(const int _track)
+	void Processor::hitLock(const int _track, const int _machine, const uint8_t _value)
 	{
-		auto& slide = m_slides[static_cast<size_t>(_track)];
-		const int64_t elapsed = std::min(slide.next - slide.start, slide.length);
-		const float f = static_cast<float>(elapsed) / static_cast<float>(slide.length);
-		for(const auto& g : slide.glides)
-		{
-			m_lockValue[static_cast<size_t>(g.parameter)] = g.from + (g.to - g.from) * f;
-			applyTarget(g.parameter);
-		}
-		slide.next = elapsed >= slide.length ? NoSlide : slide.next + SlideStep;
+		m_engine->lock(_track, _machine, _value);
 	}
 
 	// _at: the event's sample since prepareToPlay
 	void Processor::applyEvent(const Event& _event, const int64_t _at)
 	{
-		const int t = _event.track;
 		// The end of a Hit's gate: what it locked holds until the Track's next Hit or Lock
 		if(_event.off)
 		{
-			m_engine->noteOff(t);
+			m_engine->noteOff(_event.track);
 			return;
 		}
-		// A ratchet's later Hit keeps what its step locked, and locks Machine 1-8 again, which Engine::lock holds a Hit; it
-		// leaves its step's slide going
-		if(!_event.retrig)
-			releaseLocks(t);
-		const bool slides = _event.slide && !_event.retrig && _event.slideSamples > 0;
-		auto& slide = m_slides[static_cast<size_t>(t)];
-		for(int k = 0; k < _event.lockCount; ++k)
-		{
-			const auto& lock = _event.locks[k];
-			if(lock.parameter >= m_lockTargets.size())
-				continue;
-			const auto& target = m_lockTargets[lock.parameter];
-			if(target.track != t || target.kind == LockKind::None)
-				continue;
-			if(_event.retrig && target.kind != LockKind::Machine)
-				continue;
-			// Within the parameter's range, on its steps
-			const auto* parameter = static_cast<const juce::RangedAudioParameter*>(getParameters()[lock.parameter]);
-			const float value = parameter->convertFrom0to1(parameter->convertTo0to1(lock.value));
-			const bool hitLock = _event.trig && target.kind == LockKind::Machine;
-			// A ratchet's later Hit locks where its step's slide stands, not back at the slide's start
-			const float held = _event.retrig && m_locked[lock.parameter] ? m_lockValue[lock.parameter] : value;
-			if(hitLock)
-				m_engine->lock(t, target.a, static_cast<uint8_t>(juce::roundToInt(held)));
-			if(hitLock && !slides)
-				continue;
-			// A Machine 1-8 the Hit locks is held while it slides, and takes the host's value again where the slide ends
-			m_lockValue[lock.parameter] = value;
-			if(!m_locked[lock.parameter])
-			{
-				m_locked[lock.parameter] = 1;
-				m_lockedBy[static_cast<size_t>(t)].push_back(lock.parameter);
-			}
-			if(!hitLock)
-				applyTarget(lock.parameter);
-			if(!slides)
-				continue;
-			float to = parameter->convertFrom0to1(parameter->getValue());
-			for(int n = 0; n < _event.nextLockCount; ++n)
-				if(_event.nextLocks[n].parameter == lock.parameter)
-					to = parameter->convertFrom0to1(parameter->convertTo0to1(_event.nextLocks[n].value));
-			// A step may lock a parameter twice: one glide each, so that the list stays within what it reserved
-			const auto same = std::find_if(slide.glides.begin(), slide.glides.end(),
-				[&](const Glide& _g) { return _g.parameter == lock.parameter; });
-			if(same != slide.glides.end())
-				*same = {lock.parameter, value, to};
-			else
-				slide.glides.push_back({lock.parameter, value, to});
-		}
-		if(slides && !slide.glides.empty())
-		{
-			slide.start = _at;
-			slide.length = _event.slideSamples;
-			slide.next = _at + SlideStep;
-		}
-		// The step's note is a Lock of the Track's Note, over a Lock of Note the step may hold
-		if(_event.trig && _event.note != NoNote)
-		{
-			const auto i = static_cast<size_t>(m_tracks[static_cast<size_t>(t)].note->getParameterIndex());
-			m_lockValue[i] = _event.note;
-			if(!m_locked[i])
-			{
-				m_locked[i] = 1;
-				m_lockedBy[static_cast<size_t>(t)].push_back(static_cast<int>(i));
-			}
-			applyTarget(static_cast<int>(i));
-		}
+		m_locks.play(_event, _at, *this);
 		if(_event.trig)
-			m_engine->noteOn(t, _event.velocity, _event.accent);
+			m_engine->noteOn(_event.track, _event.velocity, _event.accent);
 	}
 
 	void Processor::editSequencer(const std::function<void(Sequencer&)>& _edit)
@@ -1041,7 +952,7 @@ namespace elektron::drums
 		}
 		if(!m_gestures[static_cast<size_t>(_index)])
 			return;
-		const auto& target = m_lockTargets[static_cast<size_t>(_index)];
+		const auto& target = m_locks.target(_index);
 		const int step = target.track < 0 ? -1 : playingStep(target.track);
 		if(target.kind == LockKind::None || step < 0)
 			return;
@@ -1066,7 +977,7 @@ namespace elektron::drums
 	// plays, for the timer. Nothing allocated or locked; a full queue drops the move
 	void Processor::liveHostChange(const int _index, const float _value)
 	{
-		const auto& target = m_lockTargets[static_cast<size_t>(_index)];
+		const auto& target = m_locks.target(_index);
 		const int step = target.track < 0 ? -1 : playingStep(target.track);
 		if(!m_live.load(std::memory_order_relaxed) || target.kind == LockKind::None || step < 0)
 			return;
@@ -1656,11 +1567,7 @@ namespace elektron::drums
 			w->due = true;
 		m_engineFamily.fill(Family::Off);
 		// ... no Lock, and the Tracks' samples, which a mail still on its way gives it again
-		std::fill(m_locked.begin(), m_locked.end(), uint8_t{0});
-		for(auto& list : m_lockedBy)
-			list.clear();
-		for(int t = 0; t < Tracks; ++t)
-			endSlide(t);
+		m_locks.forgetAll();
 		m_now = 0;
 		if(m_engine)
 			for(int t = 0; t < Tracks; ++t)
@@ -1943,15 +1850,11 @@ namespace elektron::drums
 		{
 			for(;;)
 			{
-				int64_t step = NoSlide;
-				for(const auto& slide : m_slides)
-					step = std::min(step, slide.next);
+				const int64_t step = m_locks.nextSlideStep();
 				if(step > m_now + _sample)
 					break;
 				renderTo(static_cast<int>(step - m_now), _done);
-				for(int t = 0; t < Tracks; ++t)
-					if(m_slides[static_cast<size_t>(t)].next == step)
-						stepSlide(t);
+				m_locks.stepSlides(step, *this);
 			}
 			renderTo(_sample, _done);
 		};
@@ -2260,12 +2163,12 @@ namespace elektron::drums
 			{
 				const int colon = pair.indexOfChar(':');
 				const int parameter = colon > 0 ? pair.substring(0, colon).getIntValue() : -1;
-				if(parameter < 0 || parameter >= static_cast<int>(m_lockTargets.size()))
+				if(parameter < 0 || parameter >= m_locks.size())
 				{
 					locks.add(pair);
 					continue;
 				}
-				const auto& target = m_lockTargets[static_cast<size_t>(parameter)];
+				const auto& target = m_locks.target(parameter);
 				if(target.kind != LockKind::Machine || target.a >= 8 || !syntakt(target.track))
 				{
 					locks.add(pair);
@@ -2337,65 +2240,32 @@ namespace elektron::drums
 	}
 
 	// What a state or a Kit gives: the parameters, all or a Kit's, and the Tracks' samples. Processing suspended
+	// What syncSound gives the engine only where it changed, given again at the next block: the Track's values read
+	// anew, from a state, a Kit or a Track sound
+	void Processor::markDue(const int _track)
+	{
+		auto& p = m_tracks[static_cast<size_t>(_track)];
+		p.chain[0].due = true;
+		for(auto& lfo : p.lfo)
+			lfo[0].due = true;
+		for(auto& send : p.sends)
+			send.due = true;
+		p.accent.due = true;
+		p.repeatSync.due = true;
+	}
+
 	void Processor::readSound(const juce::XmlElement& _xml, const bool _all)
 	{
 		// No Lock outlives the state: the engine takes every value again at the next block
-		std::fill(m_locked.begin(), m_locked.end(), uint8_t{0});
-		for(auto& list : m_lockedBy)
-			list.clear();
+		m_locks.forgetAll();
 		for(int t = 0; t < Tracks; ++t)
-			endSlide(t);
-		for(auto& p : m_tracks)
-		{
-			p.chain[0].due = true;
-			for(auto& lfo : p.lfo)
-				lfo[0].due = true;
-			for(auto& send : p.sends)
-				send.due = true;
-			p.accent.due = true;
-			p.repeatSync.due = true;
-		}
-		// A parameter the state lacks takes its default; one it holds that is not ours is not read; the relays follow
-		// the Track shown (syncRelays)
+			markDue(t);
+		// The relays follow the Track shown (syncRelays)
+		const auto values = soundValues(_xml, _all);
 		for(auto* parameter : getParameters())
-		{
-			auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter);
-			if(!p || isRelay(p->getParameterIndex()) || !(_all || isKitParameter(p->getParameterIndex())))
-				continue;
-			if(_xml.hasAttribute(p->getParameterID()))
-				setQuietly(*p, static_cast<float>(_xml.getDoubleAttribute(p->getParameterID())));
-			else
-				static_cast<juce::AudioProcessorParameter&>(*p).setValue(p->getDefaultValue());
-		}
-		// A state or Kit from before Delay Sync played its TIME: it keeps it, a new one starts synced
-		if(auto* sync = m_delaySync.parameter; !_xml.hasAttribute(sync->getParameterID())
-			&& (_all || isKitParameter(sync->getParameterIndex())))
-			setQuietly(*sync, 0.0f);
-		// Machine's choice in the list the state or Kit was written with
-		const int version = _xml.getIntAttribute("version");
-		for(auto& p : m_tracks)
-			if(_xml.hasAttribute(p.machine->getParameterID()))
-				setQuietly(*p.machine, static_cast<float>(choiceOf(m_machines,
-					_xml.getIntAttribute(p.machine->getParameterID()), version, _all)));
-		// Machine 9-24, which a state or Kit from before them lacks: the machine's own defaults
-		for(auto& p : m_tracks)
-		{
-			const auto all = allDefaults(m_machines[static_cast<size_t>(p.machine->getIndex())]);
-			for(size_t i = 8; i < p.values.size(); ++i)
-				if(!_xml.hasAttribute(p.values[i]->getParameterID()))
-					setQuietly(*p.values[i], static_cast<float>(all[i]));
-		}
-		// ... but a chain the state lacks is the one its machine's family brings, as the engine loads it
-		for(auto& p : m_tracks)
-		{
-			const auto& machine = m_machines[static_cast<size_t>(p.machine->getIndex())];
-			if(machine.family == Family::Off)
-				continue;
-			const auto chain = parameters::valuesOf(parameters::familyChain(machine));
-			for(size_t i = 0; i < chain.size(); ++i)
-				if(!_xml.hasAttribute(p.chain[i].parameter->getParameterID()))
-					setQuietly(*p.chain[i].parameter, static_cast<float>(chain[i]));
-		}
+			if(const int i = parameter->getParameterIndex(); dynamic_cast<juce::RangedAudioParameter*>(parameter)
+				&& inSound(i, _all))
+				parameter->setValue(values[static_cast<size_t>(i)]);
 
 		// The samples the state holds, none else
 		std::array<const juce::XmlElement*, Tracks> samples{};
@@ -2501,46 +2371,63 @@ namespace elektron::drums
 		return kit;
 	}
 
-	// _kit's values as readSound gives them, normalised by parameter index: a missing one, its default; Machine 9-24
-	// that it lacks, its machine's defaults; a chain it lacks, its machine's family's
 	std::vector<float> Processor::kitValuesOf(const juce::XmlElement& _kit) const
 	{
-		std::vector<float> values(m_kitParameter.size(), 0.0f);
-		const int version = _kit.getIntAttribute("version");
-		for(auto* parameter : getParameters())
+		return soundValues(_kit, false);
+	}
+
+	bool Processor::inSound(const int _index, const bool _all) const
+	{
+		return !isRelay(_index) && (_all || isKitParameter(_index));
+	}
+
+	// What a state (_all) or a Kit gives the parameters, normalised by index; 0 for one it does not set:
+	// - a parameter it lacks takes its default, one it holds that is not ours is not read;
+	// - Machine's choice is in the list it was written with (choiceOf);
+	// - one from before Delay Sync played its TIME: it keeps it, a new one starts synced;
+	// - Machine 9-24, which one from before them lacks: the machine's own defaults;
+	// - a chain it lacks is the one its machine's family brings, as the engine loads it
+	std::vector<float> Processor::soundValues(const juce::XmlElement& _xml, const bool _all) const
+	{
+		const auto& all = getParameters();
+		std::vector<float> values(static_cast<size_t>(all.size()), 0.0f);
+		const auto set = [&](const juce::RangedAudioParameter& _p, const float _plain)
+		{
+			values[static_cast<size_t>(_p.getParameterIndex())] = _p.convertTo0to1(_plain);
+		};
+		for(auto* parameter : all)
 		{
 			const auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter);
-			if(!p || !isKitParameter(p->getParameterIndex()))
+			if(!p || !inSound(p->getParameterIndex(), _all))
 				continue;
-			const auto& id = p->getParameterID();
-			const float value = id.endsWith("_machine")
-				? static_cast<float>(choiceOf(m_machines, _kit.getIntAttribute(id), version, false))
-				: static_cast<float>(_kit.getDoubleAttribute(id));
-			values[static_cast<size_t>(p->getParameterIndex())] = _kit.hasAttribute(id)
-				? p->convertTo0to1(value) : p->getDefaultValue();
+			if(_xml.hasAttribute(p->getParameterID()))
+				set(*p, static_cast<float>(_xml.getDoubleAttribute(p->getParameterID())));
+			else
+				values[static_cast<size_t>(p->getParameterIndex())] = p->getDefaultValue();
 		}
-		// As readSound: a Kit from before Delay Sync keeps its TIME
-		if(const auto* sync = m_delaySync.parameter; isKitParameter(sync->getParameterIndex())
-			&& !_kit.hasAttribute(sync->getParameterID()))
-			values[static_cast<size_t>(sync->getParameterIndex())] = 0.0f;
+		if(const auto* sync = m_delaySync.parameter; !_xml.hasAttribute(sync->getParameterID())
+			&& inSound(sync->getParameterIndex(), _all))
+			set(*sync, 0.0f);
+		const int version = _xml.getIntAttribute("version");
 		for(const auto& p : m_tracks)
 		{
 			const auto& id = p.machine->getParameterID();
-			const int choice = std::clamp(_kit.hasAttribute(id) ? choiceOf(m_machines, _kit.getIntAttribute(id), version, false)
-				: defaultMachine(m_machines, static_cast<int>(&p - m_tracks.data())), 0, static_cast<int>(m_machines.size()) - 1);
-			const auto& machine = m_machines[static_cast<size_t>(choice)];
-			const auto all = allDefaults(machine);
+			if(_xml.hasAttribute(id))
+				set(*p.machine, static_cast<float>(choiceOf(m_machines, _xml.getIntAttribute(id), version, _all)));
+			const int choice = juce::roundToInt(p.machine->convertFrom0to1(values[static_cast<size_t>(
+				p.machine->getParameterIndex())]));
+			const auto& machine = m_machines[static_cast<size_t>(std::clamp(choice, 0,
+				static_cast<int>(m_machines.size()) - 1))];
+			const auto defaults = allDefaults(machine);
 			for(size_t i = 8; i < p.values.size(); ++i)
-				if(!_kit.hasAttribute(p.values[i]->getParameterID()))
-					values[static_cast<size_t>(p.values[i]->getParameterIndex())]
-						= p.values[i]->convertTo0to1(static_cast<float>(all[i]));
+				if(!_xml.hasAttribute(p.values[i]->getParameterID()))
+					set(*p.values[i], static_cast<float>(defaults[i]));
 			if(machine.family == Family::Off)
 				continue;
 			const auto chain = parameters::valuesOf(parameters::familyChain(machine));
 			for(size_t i = 0; i < chain.size(); ++i)
-				if(!_kit.hasAttribute(p.chain[i].parameter->getParameterID()))
-					values[static_cast<size_t>(p.chain[i].parameter->getParameterIndex())]
-						= p.chain[i].parameter->convertTo0to1(static_cast<float>(chain[i]));
+				if(!_xml.hasAttribute(p.chain[i].parameter->getParameterID()))
+					set(*p.chain[i].parameter, static_cast<float>(chain[i]));
 		}
 		return values;
 	}
@@ -2728,7 +2615,8 @@ namespace elektron::drums
 				f.data = FactoryAssets::getNamedResource(FactoryAssets::namedResourceList[i], f.size);
 				files.push_back(f);
 			}
-			std::sort(files.begin(), files.end(), [](const FactoryFile& _a, const FactoryFile& _b) { return _a.name < _b.name; });
+			std::sort(files.begin(), files.end(),
+				[](const FactoryFile& _a, const FactoryFile& _b) { return _a.name < _b.name; });
 			return files;
 		}
 	}
@@ -2736,10 +2624,12 @@ namespace elektron::drums
 	void Processor::writeFactorySamples()
 	{
 		const auto folder = SampleLibrary::importedFolder(dataFolder()).getChildFile("LOCKSTEP");
-		if(!folder.createDirectory())
-			return;
+		bool written = folder.createDirectory().wasOk();
 		for(const auto& f : factoryFiles(".flac"))
-			folder.getChildFile(f.name).replaceWithData(f.data, static_cast<size_t>(f.size));
+			written = written && folder.getChildFile(f.name).replaceWithData(f.data, static_cast<size_t>(f.size));
+		// A write that failed takes the Locker it made away, so that the next open writes them all again
+		if(!written)
+			SampleLibrary::lockerFolder(dataFolder()).deleteRecursively();
 	}
 
 	void Processor::factoryStart(const bool _fillBank, const bool _fillSounds)
@@ -2753,7 +2643,9 @@ namespace elektron::drums
 			m_trackSounds->follow();
 		}
 		std::unique_ptr<juce::XmlElement> first;
-		for(size_t i = 0; i < kits.size() && KitBank::valid(static_cast<int>(i)); ++i)
+		// The Bank filled, every Kit; else the first alone, the Kit played
+		const size_t read = _fillBank ? kits.size() : std::min<size_t>(kits.size(), 1);
+		for(size_t i = 0; i < read && KitBank::valid(static_cast<int>(i)); ++i)
 		{
 			auto kit = KitBank::readData(kits[i].data, static_cast<size_t>(kits[i].size), KitBank::Tag);
 			jassert(kit);
@@ -2768,7 +2660,8 @@ namespace elektron::drums
 		{
 			for(size_t i = 0; i < patterns.size() && i < static_cast<size_t>(SeqPatterns); ++i)
 			{
-				const auto file = KitBank::readData(patterns[i].data, static_cast<size_t>(patterns[i].size), PatternTag);
+				const auto& f = patterns[i];
+				const auto file = KitBank::readData(f.data, static_cast<size_t>(f.size), PatternTag);
 				const auto* xml = file ? file->getChildByName("pattern") : nullptr;
 				jassert(xml);
 				if(!xml)
@@ -2784,7 +2677,8 @@ namespace elektron::drums
 		if(first)
 		{
 			readSound(*first, false);
-			m_kitSlot = m_kits->slot(0).name == first->getStringAttribute("name") ? 0 : -1;
+			const auto held = m_kits->read(0);
+			m_kitSlot = held && held->isEquivalentTo(first.get(), false) ? 0 : -1;
 			rememberKit(first.get());
 		}
 	}
@@ -2866,19 +2760,8 @@ namespace elektron::drums
 		// As a Kit loads: no block meanwhile, the host reads the parameters again, none told as an edit
 		// ... and no Lock of the Track outlives it: the engine takes its values again at the next block
 		suspendProcessing(true);
-		auto& locked = m_lockedBy[static_cast<size_t>(_track)];
-		for(const int i : locked)
-			m_locked[static_cast<size_t>(i)] = 0;
-		locked.clear();
-		endSlide(_track);
-		auto& p = m_tracks[static_cast<size_t>(_track)];
-		p.chain[0].due = true;
-		for(auto& lfo : p.lfo)
-			lfo[0].due = true;
-		for(auto& send : p.sends)
-			send.due = true;
-		p.accent.due = true;
-		p.repeatSync.due = true;
+		m_locks.forget(_track);
+		markDue(_track);
 		for(const auto& id : trackIds(_track))
 			if(soundSuffix(id.substring(4)))
 			{
@@ -2960,15 +2843,7 @@ namespace elektron::drums
 		if(!std::holds_alternative<Sample>(made))
 			return false;
 		m_auditioned = std::make_unique<Sample>(std::move(std::get<Sample>(made)));
-		auto mail = std::make_unique<SampleMail>();
-		mail->sample = *m_auditioned;
-		mail->serial = ++m_sampleSerial;
-		auto* sent = mail.get();
-		m_auditionFlight.push_back(std::move(mail));
-		if(const auto* old = m_auditionMail.exchange(sent, std::memory_order_acq_rel))
-			m_auditionFlight.erase(std::find_if(m_auditionFlight.begin(), m_auditionFlight.end(),
-				[old](const auto& _m) { return _m.get() == old; }));
-		pruneSamples();
+		sendAudition();
 		return true;
 	}
 

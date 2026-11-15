@@ -54,7 +54,7 @@ namespace elektron::drums::ui
 		enum class Align { Left, Centre, Right };
 		void text(float _x, float _baseline, const juce::String& _text, float _cap, juce::Colour _colour,
 			int _weight = 500, Align _align = Align::Left) const;
-		float textWidth(const juce::String& _text, float _cap, int _weight = 500) const;
+		static float textWidth(const juce::String& _text, float _cap, int _weight = 500);
 		void rect(float _x, float _y, float _w, float _h, juce::Colour _colour, float _radius = 0) const;
 		void frame(float _x, float _y, float _w, float _h, juce::Colour _colour, float _radius, float _line) const;
 		void line(float _x0, float _y0, float _x1, float _y1, juce::Colour _colour, float _width) const;
@@ -64,8 +64,8 @@ namespace elektron::drums::ui
 		juce::Graphics& g;
 		const float scale;
 
-		// The style guide's face, Barlow Semi Condensed (Medium and SemiBold, in the plug-in's data), every digit in the
-		// 0's advance. Its name, for the test's report
+		// The style guide's face, Barlow Semi Condensed (Medium and SemiBold, in the plug-in's data), every digit in
+		// the 0's advance. Its name, for the test's report
 		static juce::String faceName();
 		// The face at a cap height in mm, for a mm-scaled Graphics: a component in pixels scales its height
 		static juce::Font font(float _cap, int _weight);

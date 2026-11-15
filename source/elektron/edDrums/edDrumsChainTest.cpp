@@ -444,7 +444,10 @@ namespace
 	// The Overdrive drive is the master's saturator (ticket 15): AMOUNT is the master's DRIVE, at 0 the Track dry
 	void overdrive()
 	{
-		const auto signal = [](const int64_t _n) { return 0.8 * std::sin(2 * Pi * 220.0 * static_cast<double>(_n) / 44100); };
+		const auto signal = [](const int64_t _n)
+		{
+			return 0.8 * std::sin(2 * Pi * 220.0 * static_cast<double>(_n) / 44100);
+		};
 		double worst = 0;
 		for(const int amount : {0, 16, 64, 127})
 		{
@@ -461,7 +464,8 @@ namespace
 			}
 			if(amount == 0)
 				for(size_t n = 0; n < y.size(); ++n)
-					require(y[n] == static_cast<float>(signal(static_cast<int64_t>(n))), "Overdrive at 0 is not the dry Track");
+					require(y[n] == static_cast<float>(signal(static_cast<int64_t>(n))),
+						"Overdrive at 0 is not the dry Track");
 		}
 		std::printf("  Overdrive: the master's saturator at AMOUNT 0, 16, 64, 127 within %.1f dB\n", decibels(worst));
 		require(worst < 1e-6, "Overdrive is not the master's saturator");

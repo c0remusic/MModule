@@ -184,11 +184,11 @@ namespace elektron::drums
 	};
 
 	// Many voices: below a first-order crossover near 307 Hz the input passes as it is; above it, a part dry and one to
-	// three voices, each a line read on Air's sweep between 0.0589 of its top and its top, the right a quarter turn past
-	// the left. Measured on OsTIrus's Hyper chorus: Depth sets the top and the sweep's speed as Air's does (the top 2.12
-	// times Air's, up to 510 samples), and at 0 the input comes out as it is; Amount brings the second voice in from 0
-	// to 64 and the third from 64 to 128, each at its own speed, slows them, and lowers the dry part and the voices
-	// together
+	// three voices, each a line read on Air's sweep between 0.0589 of its top and its top, the right a quarter turn
+	// past the left. Measured on OsTIrus's Hyper chorus: Depth sets the top and the sweep's speed as Air's does (the
+	// top 2.12 times Air's, up to 510 samples), and at 0 the input comes out as it is; Amount brings the second voice
+	// in from 0 to 64 and the third from 64 to 128, each at its own speed, slows them, and lowers the dry part and the
+	// voices together
 	class Hyper
 	{
 	public:

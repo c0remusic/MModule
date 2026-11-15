@@ -479,12 +479,13 @@ namespace
 					continue;
 				for(const auto& c : _editor.cells())
 				{
-					if(!c.visible || (c.look != ui::Cell::Look::Cell && c.look != ui::Cell::Look::Plain) || c.name.isEmpty())
+					if(!c.visible || (c.look != ui::Cell::Look::Cell && c.look != ui::Cell::Look::Plain)
+						|| c.name.isEmpty())
 						continue;
 					const float right = c.x + painter.textWidth(c.name, 3.2f);
 					if(c.y < s.y + s.h && c.y + 3.3f > s.y && c.x < s.x + s.w && right + 1 > s.x)
-						unfit.addIfNotAlreadyThere(c.name + " under " + s.name + " (name to " + juce::String(right - c.x, 1)
-							+ ", toggle from " + juce::String(s.x - c.x, 1) + " mm)");
+						unfit.addIfNotAlreadyThere(c.name + " under " + s.name + " (name to "
+							+ juce::String(right - c.x, 1) + ", toggle from " + juce::String(s.x - c.x, 1) + " mm)");
 				}
 			}
 			// A value shrinks to 3 mm at the least to stay in its cell
@@ -1618,8 +1619,13 @@ namespace
 			const int used = machineParameters(processor.machines()[static_cast<size_t>(machine->getIndex())]);
 			for(const auto& id : processor.trackIds(0))
 			{
-				if(id.endsWith("_machine") || id.endsWith("_output") || id.endsWith("_chokes"))
+				// REPEAT GAP's two neither: the Processor plays no Lock of them
+				if(id.endsWith("_machine") || id.endsWith("_output") || id.endsWith("_chokes") || id.endsWith("_gap_sync")
+					|| id.endsWith("_gap_note"))
+				{
+					check(editor.lockMenuArea(index(id)).isEmpty(), id + " is not in the menu");
 					continue;
+				}
 				const auto suffix = id.substring(4);
 				if(suffix.startsWithChar('m') && suffix.substring(1).containsOnly("0123456789")
 					&& suffix.substring(1).getIntValue() > used)

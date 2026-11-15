@@ -80,9 +80,11 @@ namespace elektron::drums
 		double sweptTop(const int _depth)
 		{
 			// Fitted on noise: straight to 32, 4/3 every 8 past it, 512 from 77
-			static constexpr Knot Top[] = {{8, 25.75}, {16, 51.41}, {24, 77.09}, {32, 103.84}, {40, 138.44}, {48, 184.6},
-				{56, 246.15}, {64, 328.22}, {72, 437.65}, {76, 505.38}};
-			return _depth < 8 ? Top[0].value * _depth / 8 : _depth > 76 ? 512 : knots(Top, static_cast<uint8_t>(_depth));
+			static constexpr Knot Top[] = {{8, 25.75}, {16, 51.41}, {24, 77.09}, {32, 103.84}, {40, 138.44},
+				{48, 184.6}, {56, 246.15}, {64, 328.22}, {72, 437.65}, {76, 505.38}};
+			if(_depth < 8)
+				return Top[0].value * _depth / 8;
+			return _depth > 76 ? 512 : knots(Top, static_cast<uint8_t>(_depth));
 		}
 
 		// Past 76 the sweep speeds up in eighths of its slowest, fitted one depth at a time, Air's to 127 and Hyper's
@@ -90,9 +92,10 @@ namespace elektron::drums
 		// agree, but at Air's 123, Hyper's 102: 42 and 43
 		int sweptEighths(const int _depth)
 		{
-			static constexpr uint8_t Eighths[] = {8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16,
-				16, 17, 18, 18, 19, 20, 20, 21, 22, 23, 24, 24, 25, 26, 27, 28, 29, 31, 32, 33, 34, 35, 37, 38, 39, 41, 42, 44,
-				46, 47, 49, 51, 53, 55, 57, 59, 61, 63, 66, 68, 71, 73, 76, 79, 82, 85, 88, 91, 94, 98, 102, 105};
+			static constexpr uint8_t Eighths[] = {8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15,
+				16, 16, 17, 18, 18, 19, 20, 20, 21, 22, 23, 24, 24, 25, 26, 27, 28, 29, 31, 32, 33, 34, 35, 37, 38, 39,
+				41, 42, 44, 46, 47, 49, 51, 53, 55, 57, 59, 61, 63, 66, 68, 71, 73, 76, 79, 82, 85, 88, 91, 94, 98, 102,
+				105};
 			static_assert(std::size(Eighths) == 149 - 77);
 			return _depth <= 76 ? 8 : Eighths[_depth - 77];
 		}
@@ -539,7 +542,8 @@ namespace elektron::drums
 		uint32_t hyperQuarters(const uint8_t _depth, const uint8_t _amount, const int _voice)
 		{
 			const double* const k = HyperShare[_voice];
-			const double share = _amount <= 64 ? k[0] + (k[1] - k[0]) * _amount / 64 : k[1] + (k[2] - k[1]) * (_amount - 64) / 64;
+			const double share = _amount <= 64 ? k[0] + (k[1] - k[0]) * _amount / 64
+				: k[1] + (k[2] - k[1]) * (_amount - 64) / 64;
 			const int base = HyperQuartersPerEighth * sweptEighths(_depth + HyperDeeper);
 			// 1e-9 above, so that a share that lands on a whole number, 1.5 x 152, is not floored below it
 			return static_cast<uint32_t>(std::floor(base * share + 1e-9));

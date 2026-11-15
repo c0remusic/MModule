@@ -13,6 +13,7 @@
 #include "edDrumsEngine.h"
 #include "edDrumsKits.h"
 #include "edDrumsLockerImport.h"
+#include "edDrumsLocks.h"
 #include "edDrumsParameters.h"
 #include "edDrumsSampleLibrary.h"
 #include "edDrumsSequencer.h"
@@ -51,7 +52,7 @@
 // (editSequencer), and the audio thread takes the copy published at its next block.
 namespace elektron::drums
 {
-	class Processor final : public juce::AudioProcessor, juce::Timer
+	class Processor final : public juce::AudioProcessor, juce::Timer, Locks::Sink
 	{
 	public:
 		Processor();
@@ -122,16 +123,13 @@ namespace elektron::drums
 		const juce::StringArray& ids(Section _section, int _track = 0) const;
 		const juce::StringArray& trackIds(const int _track) const { return m_trackIds[static_cast<size_t>(_track)]; }
 
-		// What a host parameter is to a Lock of the sequencer's: whose Track, and which of its values
-		enum class LockKind : uint8_t { None, Machine, Note, Level, Pan, Chain, Lfo, Send, Accent };
-		struct LockTarget
-		{
-			int track = -1;
-			LockKind kind = LockKind::None;
-			int a = 0, b = 0;	// Machine 1-8's, the chain's or the send's index; the LFO and its value's
-		};
+		// What a host parameter is to a Lock of the sequencer's (edDrumsLocks.h)
+		using LockKind = drums::LockKind;
+		using LockTarget = drums::LockTarget;
 		// The parameter of index _index's, one of getParameters()
-		const LockTarget& lockTarget(const int _index) const { return m_lockTargets[static_cast<size_t>(_index)]; }
+		const LockTarget& lockTarget(const int _index) const { return m_locks.target(_index); }
+		// Which parameters take a Lock, and a Seq lane's steps: its targets are set at construction, and never change
+		const Locks& locks() const { return m_locks; }
 
 		// The Sampler's index in machines(), OPEN DRUM's four after it, then SOPHIE
 		int samplerChoice() const
@@ -358,17 +356,20 @@ namespace elektron::drums
 		void buildLockTargets();
 		bool held(const juce::AudioProcessorParameter* _parameter) const
 		{
-			return m_locked[static_cast<size_t>(_parameter->getParameterIndex())] != 0;
+			return m_locks.held(_parameter->getParameterIndex());
 		}
 		float lockOr(const Watched& _watched) const;
 		parameters::ChainArray chainValues(int _track) const;
 		parameters::LfoArray lfoValues(int _track, int _lfo) const;
 		void setChainHeld(int _track);
 		void applyTarget(int _parameter);
-		void releaseLocks(int _track);
-		void endSlide(int _track);
-		void stepSlide(int _track);
+		void releaseLocks(int _track) { m_locks.release(_track, *this); }
 		void applyEvent(const Event& _event, int64_t _at);
+		// Locks::Sink, on the audio thread
+		float host(int _parameter) const override;
+		float snap(int _parameter, float _value) const override;
+		void apply(const int _parameter) override { applyTarget(_parameter); }
+		void hitLock(int _track, int _machine, uint8_t _value) override;
 		void publishSequencer();
 		void publishSample(int _track);
 		void pruneSamples();
@@ -390,6 +391,7 @@ namespace elektron::drums
 		std::unique_ptr<juce::XmlElement> readKit(int _slot) const;
 		std::unique_ptr<juce::XmlElement> soundAsKit(const juce::XmlElement& _sound, int _track) const;
 		void sendAudition();
+		void markDue(int _track);
 		void readSound(const juce::XmlElement& _xml, bool _all);
 		void rememberKit(const juce::XmlElement* _kit);
 		// A new instance: the factory's Kits in the Bank's first Slots on the first open (_fillBank), its Track sounds
@@ -400,6 +402,9 @@ namespace elektron::drums
 		// "LOCKSTEP", a source once adoptImported takes it
 		void writeFactorySamples();
 		std::vector<float> kitValuesOf(const juce::XmlElement& _kit) const;
+		// Whether a state (_all) or a Kit sets parameter _index; what it sets them to, the rules in one place
+		bool inSound(int _index, bool _all) const;
+		std::vector<float> soundValues(const juce::XmlElement& _xml, bool _all) const;
 		void prepareKits(uint64_t _changed);
 		void takeKitSwitch();
 		void switchKit(const PreparedKit& _kit);
@@ -589,29 +594,8 @@ namespace elektron::drums
 		std::atomic<int> m_shownTrack{0};
 		int m_relaysTrack = 0;
 
-		// The audio thread's Locks: by parameter index, held and the value; by Track, the ones it holds
-		std::vector<LockTarget> m_lockTargets;
-		std::vector<uint8_t> m_locked;
-		std::vector<float> m_lockValue;
-		std::array<std::vector<int>, Tracks> m_lockedBy;	// reserved: no allocation on the audio thread
-
-		// The audio thread's slides: a step with SLIDE moves what it locks in a line, from its Locks to the next trig's, or
-		// to the host's value where that trig locks none, over the time to that trig, a step every SlideStep samples
-		// from the slide's Hit; the Track's next Hit or Lock, host note or step, ends it
-		static constexpr int SlideStep = 32;
-		static constexpr int64_t NoSlide = std::numeric_limits<int64_t>::max();
-		struct Glide
-		{
-			int parameter = 0;
-			float from = 0, to = 0;
-		};
-		struct Slide
-		{
-			int64_t start = 0, length = 0;
-			int64_t next = NoSlide;			// the sample of its next step
-			std::vector<Glide> glides;		// reserved as m_lockedBy
-		};
-		std::array<Slide, Tracks> m_slides;
+		// The audio thread's Locks and slides, by parameter index and by Track
+		Locks m_locks;
 		int64_t m_now = 0;		// samples processed since prepareToPlay
 		double m_rate = SampleRate;	// the host's, since prepareToPlay
 

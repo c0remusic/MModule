@@ -1647,14 +1647,14 @@ namespace
 		void audioProcessorParameterChangeGestureEnd(juce::AudioProcessor*, int) override { ++edits; }
 	};
 
-	// The first open (ticket 21): the data folder has no Kits yet. The factory's 16 Kits fill Slots 1-16, a new instance
-	// plays Boom Room with the factory's patterns as A01-A16, each loading its Slot at its start; a later open does not
-	// fill the Bank or the Track sounds again, though a new instance still starts so
+	// The first open (ticket 21): the data folder has no Kits yet. The factory's 16 Kits fill Slots 1-16, a new
+	// instance plays Boom Room with the factory's patterns as A01-A16, each loading its Slot at its start; a later open
+	// does not fill the Bank or the Track sounds again, though a new instance still starts so
 	void factory()
 	{
 		const juce::StringArray names{"Boom Room", "Steel Floor", "Night Shift", "Wire Funk", "Rust Belt", "Dust Tape",
-			"Glass Shards", "Wood And Skin", "Market Day", "Six Operators", "Static Field", "Open Circuit", "Hyper Metal",
-			"Deep Garage", "Breakline", "Crossroads"};
+			"Glass Shards", "Wood And Skin", "Market Day", "Six Operators", "Static Field", "Open Circuit",
+			"Hyper Metal", "Deep Garage", "Breakline", "Crossroads"};
 		// A data folder of its own, a new instance as a host makes it: the other tests start blank in theirs
 		const auto* root = std::getenv("GEARMULATOR_DATA_ROOT");
 		const juce::File was(juce::String::fromUTF8(root ? root : "")), own = was.getChildFile("factory");
@@ -1668,8 +1668,12 @@ namespace
 			require(_p.kitSlot(16).empty(), "Slot 17 empty");
 			// The 118 factory Track sounds, each a played Track of a Kit, named after its Kit and machine
 			const auto& sounds = _p.trackSounds().entries();
-			require(static_cast<int>(sounds.size()) == 118 - (_emptied >= 0 ? 1 : 0) && std::any_of(sounds.begin(), sounds.end(),
-				[](const TrackSounds::Entry& _e) { return _e.name == "Boom Room SOFT KICK" && _e.machineChoice == 71; }),
+			const auto softKick = [](const TrackSounds::Entry& _e)
+			{
+				return _e.name == "Boom Room SOFT KICK" && _e.machineChoice == 71;
+			};
+			require(static_cast<int>(sounds.size()) == 118 - (_emptied >= 0 ? 1 : 0)
+				&& std::any_of(sounds.begin(), sounds.end(), softKick),
 				"the factory's Track sounds: " + std::to_string(sounds.size()));
 			// Boom Room's Track 1, a SOFT KICK (machine choice 71), its Level as saved
 			require(plain(find(_p, "t01_machine")) == 71 && plain(find(_p, "t01_level")) == 77, "Boom Room played");
@@ -1685,11 +1689,13 @@ namespace
 			check(first, -1);
 			require(first.currentKit() == 0 && !first.kitDiffers(), "Boom Room played from Slot 1");
 			require(first.clearKit(3), "Slot 4 cleared");
-			require(first.trackSounds().entries().front().file.deleteFile() && first.trackSounds().follow(), "a sound removed");
+			require(first.trackSounds().entries().front().file.deleteFile() && first.trackSounds().follow(),
+				"a sound removed");
 			// The 118 samples, an IMPORTED source of the Locker named LOCKSTEP; one removed
 			auto& library = first.sampleLibrary();
+			const auto lockstep = SampleLibrary::importedFolder(Processor::dataFolder()).getChildFile("LOCKSTEP");
 			waitForScan(library);
-			const int source = library.indexOf(SampleLibrary::importedFolder(Processor::dataFolder()).getChildFile("LOCKSTEP"));
+			const int source = library.indexOf(lockstep);
 			require(source >= 0 && library.sources()[static_cast<size_t>(source)].kind == SampleLibrary::Kind::Imported
 				&& library.sources()[static_cast<size_t>(source)].name == "LOCKSTEP", "the Locker's LOCKSTEP source");
 			int samples = 0;
@@ -1698,17 +1704,18 @@ namespace
 				if(e.folder == source)
 				{
 					++samples;
-					kick = kick || (e.file.getFileName() == "Boom Room SOFT KICK.flac" && e.channels == 1 && e.rate == 44100);
+					kick = kick
+						|| (e.file.getFileName() == "Boom Room SOFT KICK.flac" && e.channels == 1 && e.rate == 44100);
 				}
 			require(samples == 118 && kick, "LOCKSTEP holds " + std::to_string(samples) + " samples");
-			require(SampleLibrary::importedFolder(Processor::dataFolder()).getChildFile("LOCKSTEP").getChildFile("Boom Room SOFT KICK.flac")
-				.deleteFile(), "a sample removed");
+			require(lockstep.getChildFile("Boom Room SOFT KICK.flac").deleteFile(), "a sample removed");
 		}
 		{
 			Processor later;
 			check(later, 3);
-			require(SampleLibrary::importedFolder(Processor::dataFolder()).getChildFile("LOCKSTEP").findChildFiles(juce::File::findFiles, false,
-				"*.flac").size() == 117, "a removed sample stays removed");
+			const auto lockstep = SampleLibrary::importedFolder(Processor::dataFolder()).getChildFile("LOCKSTEP");
+			require(lockstep.findChildFiles(juce::File::findFiles, false, "*.flac").size() == 117,
+				"a removed sample stays removed");
 		}
 		_putenv_s("GEARMULATOR_DATA_ROOT", was.getFullPathName().toRawUTF8());
 		_putenv_s("ED_DRUMS_BLANK_START", "1");
