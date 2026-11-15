@@ -1686,15 +1686,34 @@ namespace
 			require(first.currentKit() == 0 && !first.kitDiffers(), "Boom Room played from Slot 1");
 			require(first.clearKit(3), "Slot 4 cleared");
 			require(first.trackSounds().entries().front().file.deleteFile() && first.trackSounds().follow(), "a sound removed");
+			// The 118 samples, an IMPORTED source of the Locker named LOCKSTEP; one removed
+			auto& library = first.sampleLibrary();
+			waitForScan(library);
+			const int source = library.indexOf(SampleLibrary::importedFolder(Processor::dataFolder()).getChildFile("LOCKSTEP"));
+			require(source >= 0 && library.sources()[static_cast<size_t>(source)].kind == SampleLibrary::Kind::Imported
+				&& library.sources()[static_cast<size_t>(source)].name == "LOCKSTEP", "the Locker's LOCKSTEP source");
+			int samples = 0;
+			bool kick = false;
+			for(const auto& e : library.entries())
+				if(e.folder == source)
+				{
+					++samples;
+					kick = kick || (e.file.getFileName() == "Boom Room SOFT KICK.flac" && e.channels == 1 && e.rate == 44100);
+				}
+			require(samples == 118 && kick, "LOCKSTEP holds " + std::to_string(samples) + " samples");
+			require(SampleLibrary::importedFolder(Processor::dataFolder()).getChildFile("LOCKSTEP").getChildFile("Boom Room SOFT KICK.flac")
+				.deleteFile(), "a sample removed");
 		}
 		{
 			Processor later;
 			check(later, 3);
+			require(SampleLibrary::importedFolder(Processor::dataFolder()).getChildFile("LOCKSTEP").findChildFiles(juce::File::findFiles, false,
+				"*.flac").size() == 117, "a removed sample stays removed");
 		}
 		_putenv_s("GEARMULATOR_DATA_ROOT", was.getFullPathName().toRawUTF8());
 		_putenv_s("ED_DRUMS_BLANK_START", "1");
 		std::printf("PASS the first open fills Slots 1-16 with the factory's Kits, a new instance plays Boom Room and"
-			" A01-A16, the 118 Track sounds fill their Library; a later open keeps both as left\n");
+			" A01-A16, the 118 Track sounds and samples their Libraries; a later open keeps all as left\n");
 	}
 
 	// GEARMULATOR_DATA_ROOT names a folder of the test's own, empty at its start

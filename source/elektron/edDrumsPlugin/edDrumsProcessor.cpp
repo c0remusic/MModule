@@ -704,18 +704,23 @@ namespace elektron::drums
 			const auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter);
 			m_kitParameter.push_back(p && !global.contains(p->getParameterID()) && !isRelay(p->getParameterIndex()) ? 1 : 0);
 		}
+		// ED_DRUMS_BLANK_START, which tests set: a new instance with nothing in it, the Bank, the Track sounds and the
+		// Locker left as they are
+		const auto* blankStart = std::getenv("ED_DRUMS_BLANK_START");
+		const bool blank = blankStart && *blankStart;
 		// The first open on this computer: no Kits folder yet, the factory's Kits fill the Bank's first Slots; no
-		// TrackSounds folder yet, the factory's Track sounds fill it
+		// TrackSounds folder yet, the factory's Track sounds fill it; no Locker yet, the factory's samples are an
+		// IMPORTED source of it, which adoptImported takes
 		const bool firstOpen = !dataFolder().getChildFile("Kits").exists();
 		const bool firstSounds = !dataFolder().getChildFile("TrackSounds").exists();
+		if(!blank && !SampleLibrary::lockerFolder(dataFolder()).exists())
+			writeFactorySamples();
 		m_kits = std::make_unique<KitBank>(dataFolder().getChildFile("Kits"));
 		m_trackSounds = std::make_unique<TrackSounds>(dataFolder().getChildFile("TrackSounds"));
 		m_sampleLibrary = std::make_unique<SampleLibrary>(dataFolder());
 		m_sampleLibrary->adoptImported();
 		m_import = std::make_unique<LockerImport>(dataFolder());
-		// ED_DRUMS_BLANK_START, which tests set: a new instance with nothing in it and a Bank left as it is
-		const auto* blank = std::getenv("ED_DRUMS_BLANK_START");
-		if(!blank || !*blank)
+		if(!blank)
 			factoryStart(firstOpen, firstSounds);
 		startTimerHz(20);
 	}
@@ -2726,6 +2731,15 @@ namespace elektron::drums
 			std::sort(files.begin(), files.end(), [](const FactoryFile& _a, const FactoryFile& _b) { return _a.name < _b.name; });
 			return files;
 		}
+	}
+
+	void Processor::writeFactorySamples()
+	{
+		const auto folder = SampleLibrary::importedFolder(dataFolder()).getChildFile("LOCKSTEP");
+		if(!folder.createDirectory())
+			return;
+		for(const auto& f : factoryFiles(".flac"))
+			folder.getChildFile(f.name).replaceWithData(f.data, static_cast<size_t>(f.size));
 	}
 
 	void Processor::factoryStart(const bool _fillBank, const bool _fillSounds)

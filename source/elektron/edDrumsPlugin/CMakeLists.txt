@@ -37,10 +37,12 @@ target_compile_definitions(edDrumsPlugin PRIVATE ED_DRUMS_NAME="${ED_DRUMS_NAME}
 target_link_libraries(edDrumsPlugin PRIVATE edDrums mdProtocol juce_plugin_modules)
 set_property(TARGET edDrumsPlugin PROPERTY FOLDER "Elektron")
 
-# The factory's 16 Kits, their patterns and their Tracks' sounds (ticket 21), made with the plug-in itself: the Bank's
-# first Slots and the Track sounds on the first open, a new instance's A01-A16
+# The factory's 16 Kits, their patterns, their Tracks' sounds and those hit once as samples (ticket 21), made with the
+# plug-in itself: the Bank's first Slots, the Track sounds and the Locker's LOCKSTEP on the first open, a new
+# instance's A01-A16
 file(GLOB ED_DRUMS_FACTORY CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/resources/factory/*.edkit
-	${CMAKE_CURRENT_SOURCE_DIR}/resources/factory/*.edpattern ${CMAKE_CURRENT_SOURCE_DIR}/resources/factory/sounds/*.edsound)
+	${CMAKE_CURRENT_SOURCE_DIR}/resources/factory/*.edpattern ${CMAKE_CURRENT_SOURCE_DIR}/resources/factory/sounds/*.edsound
+	${CMAKE_CURRENT_SOURCE_DIR}/resources/factory/samples/*.flac)
 juce_add_binary_data(edDrumsFactoryAssets HEADER_NAME FactoryAssets.h NAMESPACE FactoryAssets SOURCES ${ED_DRUMS_FACTORY})
 set_property(TARGET edDrumsFactoryAssets PROPERTY FOLDER "Elektron")
 target_link_libraries(edDrumsPlugin PRIVATE edDrumsFactoryAssets)

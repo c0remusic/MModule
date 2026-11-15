@@ -1,7 +1,7 @@
 # Contenu d'usine maison
 
 Type: HITL
-Status: ready-for-human
+Status: resolved
 Assignee: 
 Blocked by: 19, 20
 
@@ -63,3 +63,21 @@ remplissent ; ensuite jamais plus, même retirés. `edDrumsProcessorTest` (`fact
 Room SOFT KICK sur sa machine, puis vérifie qu'un son retiré ne revient pas à l'ouverture suivante.
 
 Reste : les samples maison ou CC0 pour le Sampler (aucun kit ni son ne l'utilise) et la licence de chacun.
+
+## Samples maison livrés (2026-11-15)
+
+Chacun des 118 sons de piste d'usine frappé une fois sur la piste 1 à vélocité 100, sans image flash (outil hors dépôt
+`elektron-work\listen-all\tool\listenfx.exe --oneshots`) : Main sommé en mono depuis son premier échantillon, coupé
+où 100 ms restent 60 dB sous sa crête (3 s au plus), crête à −1 dBFS, fondu de 5 ms, 44,1 kHz, FLAC 24 bits ; 6,3 Mo
+dans `edDrumsPlugin/resources/factory/samples/`. Écoutés sur la page d'écoute : l'utilisateur garde tous les 118.
+
+Licence : faits par nous, par le plug-in lui-même, de nos machines et nos réglages ; aucun échantillon d'un tiers,
+rien d'Elektron. Ils suivent la licence du dépôt.
+
+Première ouverture, pas encore de dossier Locker : ils sont écrits dans `Locker/Imported/LOCKSTEP`, qu'`adoptImported`
+prend comme source IMPORTED « LOCKSTEP » (ensuite jamais réécrits, même retirés). `edDrumsProcessorTest` (`factory`)
+trouve la source et ses 118 samples après le scan, Boom Room SOFT KICK en mono à 44,1 kHz, puis qu'un sample retiré ne
+revient pas.
+
+Critère de fin rempli : banque livrée et chargée à la première ouverture, validée par l'utilisateur ; licence de chaque
+sample notée. Ticket résolu.

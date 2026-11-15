@@ -396,6 +396,9 @@ namespace elektron::drums
 		// in the Library on the first (_fillSounds), its patterns as A01-A16, each playing its Slot at its start, and
 		// the first Kit played
 		void factoryStart(bool _fillBank, bool _fillSounds);
+		// The first open: the factory's 118 samples (each Track sound hit once, FLAC) into the Locker's Imported
+		// "LOCKSTEP", a source once adoptImported takes it
+		void writeFactorySamples();
 		std::vector<float> kitValuesOf(const juce::XmlElement& _kit) const;
 		void prepareKits(uint64_t _changed);
 		void takeKitSwitch();
