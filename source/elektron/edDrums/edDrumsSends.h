@@ -20,10 +20,10 @@ namespace elektron::drums
 {
 	enum class Send : uint8_t { Delay, Reverb, Chorus, Phaser };
 	constexpr int SendCount = 4;
-	// The delay's and the reverb's two, the Phaser send's three, the Chorus send's four
+	// The delay's and the reverb's two, the Phaser send's three, the Chorus send's five
 	enum class SendSource : uint8_t
 	{
-		Machinedrum, Syntakt, Dp4, Vintage, Phaser = Machinedrum, Flanger = Syntakt, Classic = Machinedrum,
+		Machinedrum, Syntakt, Dp4, Vintage, Hyper, Phaser = Machinedrum, Flanger = Syntakt, Classic = Machinedrum,
 		Vibrato = Syntakt, Air = Dp4
 	};
 
@@ -33,7 +33,7 @@ namespace elektron::drums
 	// A change of Mode goes as a change of source does
 	// Shape: 0 sine, 1 triangle, 2 saw, 3 square, 4 sample and hold, 5 sample and glide. Type, appended after the host
 	// parameters ChorusBytes counts: 0 the chorus above, 1 Vibrato (Depth and Rate alone), 2 Air (Depth alone), 3 Vintage
-	// (Depth and Rate); a change of Type goes as a change of source does. XOver, after it: Vintage's crossover, under
+	// (Depth and Rate), 4 Hyper (Depth, and Delay as its Amount); a change of Type goes as a change of source does. XOver, after it: Vintage's crossover, under
 	// which its input passes as it is, 0 at 19.7 Hz (Vintage::crossover); the other types have none
 	enum ChorusByte
 	{
@@ -160,6 +160,7 @@ namespace elektron::drums
 		std::unique_ptr<Vibrato> m_vibrato;
 		std::unique_ptr<Air> m_air;
 		std::unique_ptr<Vintage> m_vintage;
+		std::unique_ptr<Hyper> m_hyper;
 		std::unique_ptr<Phaser> m_phaser;
 		std::unique_ptr<Dp4Phaser> m_dp4;
 		std::array<uint8_t, ChorusAllBytes> m_chorusBytes{};

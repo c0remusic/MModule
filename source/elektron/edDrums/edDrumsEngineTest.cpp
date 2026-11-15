@@ -1715,7 +1715,7 @@ namespace
 		};
 		// The chorus's types and the phaser's modes
 		for(const auto& [send, mode] : {std::pair<Send, int>{Send::Chorus, 0}, {Send::Chorus, 1}, {Send::Chorus, 2},
-			{Send::Chorus, 3}, {Send::Phaser, 0}, {Send::Phaser, 1}, {Send::Phaser, 2}})
+			{Send::Chorus, 3}, {Send::Chorus, 4}, {Send::Phaser, 0}, {Send::Phaser, 1}, {Send::Phaser, 2}})
 		{
 			const auto take = ours(send, mode, 32);
 			require(energy(take.channel(2 * Out)) > 1e-3, "no chorus, phaser or flanger");
@@ -1748,10 +1748,11 @@ namespace
 				e->noteOn(0, 127);
 				t.render(*e, 0, Samples - Warm);
 				require(fx.peak(send) > 0.01f && fx.peak(Send::Delay) == 0, "a return's peak is not its own");
-				// Air has no rate: its depth alone sets its sweep, as on the Virus
-				const bool air = send == Send::Chorus && mode == 2;
+				// Air and Hyper have no rate: their depth alone sets their sweep, as on the Virus
+				const bool rateless = send == Send::Chorus && (mode == 2 || mode == 4);
 				if(synced)
-					require((t.channel(2 * Out) != free) != air, "the LFO's note changes nothing, or Air's something");
+					require((t.channel(2 * Out) != free) != rateless,
+						"the LFO's note changes nothing, or Air's or Hyper's something");
 				free = t.channel(2 * Out);
 			}
 			require(take.channel(2 * Out) == ours(send, mode, 57).channel(2 * Out), "ours move with the host's blocks");
@@ -1778,7 +1779,7 @@ namespace
 		std::printf("PASS: the sends, none at 0, the returns where they are sent, the same whatever the blocks\n");
 	}
 
-	// ---- the chorus's Vibrato, Air and Vintage against what OsTIrus's do ----
+	// ---- the chorus's Vibrato, Air, Vintage and Hyper against what OsTIrus's do ----
 
 	// A click every _every samples through _fx for _seconds; at each click, per channel, the delay of the strongest
 	// answer before the next click from _from on, in whole samples
@@ -1885,26 +1886,38 @@ namespace
 			require(apart <= 3 + moved, std::string(c.name) + ": its channels apart");
 		}
 
-		// Vintage: its sweep's ends and rate as the Virus's impulses gave them (its low-passed answer peaks 2 samples
-		// after its delay), past the direct part's answer
+		// Vintage, and Hyper at Amount 0, one voice: their sweeps' ends and rates as the Virus's impulses gave them (a
+		// voice's delay; Vintage's low-passed answer peaks 2 samples after its delay), past the direct part's answer
 		struct Swept
 		{
 			const char* name;
+			bool hyper;
 			int depth, rate;
 			int low, top;	// the Virus's, in samples
 			double hz;
 			double apart;	// the right's turn past the left's
 		};
-		static constexpr Swept Sweeps[] = {{"Vintage d16 r64", 16, 64, 120, 146, 1.587, 0.5},
-			{"Vintage d64 r64", 64, 64, 77, 181, 1.587, 0.5}, {"Vintage d64 r0", 64, 0, 77, 181, 0.24971, 0.5},
-			{"Vintage d127 r64", 127, 64, 70, 249, 1.587, 0.5}};
+		static constexpr Swept Sweeps[] = {{"Vintage d16 r64", false, 16, 64, 120, 146, 1.587, 0.5},
+			{"Vintage d64 r64", false, 64, 64, 77, 181, 1.587, 0.5}, {"Vintage d64 r0", false, 64, 0, 77, 181, 0.24971, 0.5},
+			{"Vintage d127 r64", false, 127, 64, 70, 249, 1.587, 0.5}, {"Hyper d32", true, 32, 0, 13, 221, 0.09986, 0.25},
+			{"Hyper d80", true, 80, 0, 30, 510, 0.23723, 0.25}};
 		for(const auto& c : Sweeps)
 		{
 			const int every = c.top < 250 ? 256 : 1024;
 			const double seconds = std::max(3.0, 4.5 / c.hz);
-			auto fx = std::make_unique<Vintage>();
-			fx->set(static_cast<uint8_t>(c.depth), static_cast<uint8_t>(c.rate));
-			const auto d = clickDelays(*fx, every, seconds, 20);
+			std::array<std::vector<int>, 2> d;
+			if(c.hyper)
+			{
+				auto fx = std::make_unique<Hyper>();
+				fx->set(static_cast<uint8_t>(c.depth), 0);
+				d = clickDelays(*fx, every, seconds, 4);
+			}
+			else
+			{
+				auto fx = std::make_unique<Vintage>();
+				fx->set(static_cast<uint8_t>(c.depth), static_cast<uint8_t>(c.rate));
+				d = clickDelays(*fx, every, seconds, 20);
+			}
 			const int top = *std::max_element(d[0].begin(), d[0].end());
 			const int low = *std::min_element(d[0].begin(), d[0].end());
 			const double turn = turnOf(d[0], every);
@@ -1924,7 +1937,31 @@ namespace
 		for(const auto& [xover, hz] : Crossovers)
 			require(std::abs(Vintage::crossover(static_cast<uint8_t>(xover)) / hz - 1) < 0.01,
 				"Vintage's crossover is not the Virus's at X-Over " + std::to_string(xover));
-		std::printf("PASS: Vibrato's, Air's and Vintage's tops and rates are the Virus's\n");
+		// Hyper's voices against Amount: each one's rate (impulses, at depth 32 and at 127, where the voices fitted at 32
+		// had missed by up to 0.73 %) and gain (noise, least squares), the dry high part's first
+		struct Voices
+		{
+			int depth, amount;
+			double hz[3], gain[4];
+		};
+		static constexpr Voices Amounts[] = {{32, 16, {0.09525, 0.13343, 0}, {0.6786, 0.6666, 0.1651, 0}},
+			{32, 48, {0.08735, 0.12162, 0}, {0.6135, 0.604, 0.4497, 0}},
+			{32, 96, {0.07681, 0.10782, 0.14987}, {0.543, 0.5321, 0.5337, 0.2663}},
+			{32, 127, {0.06959, 0.09994, 0.14001}, {0.5053, 0.4934, 0.4978, 0.4899}},
+			{127, 0, {1.31099, 0, 0}, {}}, {127, 64, {1.10071, 1.52062, 0}, {}},
+			{127, 127, {0.92000, 1.31362, 1.83934}, {}}};
+		for(const auto& a : Amounts)
+		{
+			const auto amount = static_cast<uint8_t>(a.amount);
+			for(int p = 0; p <= Hyper::Voices && a.gain[0] > 0; ++p)
+				require(std::abs(Hyper::gain(amount, p) - a.gain[p]) < 0.03 * a.gain[1],
+					"Hyper's gains are not the Virus's at amount " + std::to_string(a.amount));
+			for(int v = 0; v < Hyper::Voices; ++v)
+				require(a.hz[v] == 0 || std::abs(Hyper::hz(static_cast<uint8_t>(a.depth), amount, v) / a.hz[v] - 1) < 0.002,
+					"Hyper's rates are not the Virus's at depth " + std::to_string(a.depth) + ", amount "
+						+ std::to_string(a.amount));
+		}
+		std::printf("PASS: Vibrato's, Air's, Vintage's and Hyper's tops, rates and gains are the Virus's\n");
 	}
 
 	// ---- the master on Main ----

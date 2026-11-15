@@ -989,7 +989,7 @@ namespace
 		}
 		// X-Over shows on Bucket Brigade alone
 		auto* chorusType = processor.parameter("chorus_type");
-		chorusType->setValueNotifyingHost(1.0f);
+		chorusType->setValueNotifyingHost(chorusType->convertTo0to1(3.0f));
 		collect(true);
 		chorusType->setValueNotifyingHost(0.0f);
 		editor.showPage(Editor::Page::Master);
@@ -1687,7 +1687,7 @@ namespace
 		{
 			// Bucket Brigade's X-Over
 			auto* chorusType = processor.parameter("chorus_type");
-			chorusType->setValueNotifyingHost(1.0f);
+			chorusType->setValueNotifyingHost(chorusType->convertTo0to1(3.0f));
 			editor.tick();
 			snapshot(editor, _folder.getChildFile("fx-bucket-brigade.png"));
 			chorusType->setValueNotifyingHost(0.0f);

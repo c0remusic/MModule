@@ -263,3 +263,59 @@ parcourt (chaque machine et chaque type d'effet).
 
 Reste ouvert : Hyper (à reprendre du patch, Depth au-delà de 100 à faire passer), Rotary, et la validation à l'écoute du
 chorus et du phaser/flanger par l'utilisateur. Le ticket reste ouvert.
+
+## Hyper à Depth 127 (2026-11-14, suite)
+
+Hyper revient dans la liste, en dernier choix (« Multi Voice », `chorus_type` 4, après Bucket Brigade : un set garde son
+type). Il passe désormais à Depth 127. Diagnostic et scripts dans `elektron-work/oracle/virus-fx/t14c/` (hors dépôt),
+douze rendus OsTIrus de plus à Depth 127 (Amount 16, 32, 48, 80, 96, 112).
+
+Ce qui ne marchait pas, hypothèse par hypothèse. L'écart d'un quart de tour entre canaux est exact (chaque canal placé
+seul sur 23 fenêtres de 5,5 à 9,9 s : ±1,5 × 10⁻⁴ tour, de moyenne nulle, sans dérive). Le balayage n'est pas en
+escalier (ajusté sur les retards au moment de la lecture, il colle aux impulsions à 0,1 échantillon). Deux choses
+étaient fausses dans le modèle :
+
+- **La loi des vitesses.** Relevée à Depth 32, où l'arrondi la masque, elle manquait de 0,56 à 0,73 % à Depth 127.
+  Chaque voix avance d'un nombre entier de quarts de 44 100 / 2²⁶ Hz : le plancher de 19 quarts par huitième de la
+  vitesse la plus lente d'Air à la profondeur 21 plus haut (152 à Depth 32, 1 995 à 127), fois une part qui va en ligne
+  droite d'Amount 0 à 64 puis de 64 à 128 (voix 1 : 1, 0,84, 0,70 ; voix 2 : 1,4, 1,16, 1,0 ; voix 3 : 1,6, 1,6, 1,4).
+  Les 37 vitesses relevées sur impulsions (Depth 32, 64, 100, 127 ; tous les 16 d'Amount à 127) tombent sur leur quart
+  à 0,01 près. C'est un plancher, pas un arrondi (Depth 64, Amount 48 : 231 pour 231,8).
+- **Le sommet** vaut 510,04 échantillons et non 509,9 (relevé de 510,03 à 510,06 à Depth 64, 100 et 127). Le bas reste
+  0,0589 du sommet, soit 30,04.
+
+La mesure avait aussi un défaut, qui ne vient pas du modèle : `irtaps` date un retard du moment où l'impulsion entre
+(q), alors qu'il est lu à sa sortie (q + d). À Depth 127, le tour pris sur les impulsions tombe ainsi 0,008 tour à
+côté, plus que la fenêtre où l'affinage sur bruit le cherche (0,006). Corrigé (`READTIME=1` dans `hall2.py` : le
+temps devient q + d / fs). L'affinage reste le même : un tour par voix, partagé par les deux canaux. Sans cette
+correction, l'ancien port tombait à −1,6 dB à Depth 127, Amount 127, contre 13,5 dB avec : la mesure, pas le modèle.
+Avec la mesure d'avant, le nouveau port reste sous le seuil à quatre Amount de Depth 127.
+
+Scores, en dB sous le signal, pire des quatre fenêtres et des deux canaux, mesure corrigée, ancien port puis nouveau :
+
+| Depth | Amount | Ancien | Nouveau |
+|---|---|---|---|
+| 127 | 0 / 64 / 127 | 15,9 / 13,9 / 13,5 | 20,9 / 19,5 / 19,8 |
+| 127 | 16 / 32 / 48 | 10,4 / 11,3 / 12,0 | 21,1 / 20,4 / 19,7 |
+| 127 | 80 / 96 / 112 | 16,0 / 16,7 / 13,2 | 20,9 / 20,4 / 19,4 |
+| 64 | 0 / 48 / 96 / 127 | 21,8 / 19,3 / 16,9 / 17,0 | 21,3 / 21,4 / 20,8 / 21,1 |
+| 80 | 48 | 16,5 | 21,1 |
+| 100 | 80 | 16,7 | 20,2 |
+| 32 | 0 à 127 tous les 8 | pire 18,0 (Amount 8) | identique à 0,1 près |
+| 0 | 64 | exact | exact |
+
+Pire cas, tout réglage : 18,0 dB (Depth 32, Amount 8, inchangé). Seule baisse : Depth 64, Amount 0, de 0,5 dB, à 21,3.
+J'ai refait moi-même les trois cas de Depth 127 (Amount 0, 64, 127) avec la sonde compilée du nouveau port : 20,9,
+19,5 et 19,8, les mêmes. Le seuil FLOOR = 0,2 de la mesure cache la troisième voix à Amount 80 (gain près de 0,13) et
+donne 13,1 dB à Depth 32 et 100 sur l'ancien port comme sur le nouveau ; avec FLOOR = 0,08, on retrouve 20,4 et 20,2.
+Non vérifié : Depth 110 et 120, et les Amount autres que 0, 64 et 127 sous Depth 127 (hors Depth 32).
+
+Dans le dépôt : `Hyper` (`edDrumsSendFx.*`, constantes mesurées seulement), `SendSource::Hyper` dans `Sends`, qui lui
+passe Depth et Delay comme Amount ; il n'a pas de vitesse à synchroniser. `edDrumsEngineTest` : `sends` joue les cinq
+types et vérifie que Sync ne change rien à Hyper ; `chorusTypes` vérifie les bouts et la vitesse du balayage d'Hyper à
+Depth 32 et 80 sur notre sortie, ses gains à quatre Amount, et les vitesses de ses voix contre le Virus à Depth 32 et
+127, à 0,2 % près. `edDrumsVst3HostTest` vérifie les deux derniers choix ; `edDrumsEditorTest` montre X-OVER sur
+Bucket Brigade, désormais le choix 3.
+
+Reste ouvert : Rotary, et la validation à l'écoute du chorus (dont Multi Voice) et du phaser/flanger par
+l'utilisateur. Le ticket reste ouvert.

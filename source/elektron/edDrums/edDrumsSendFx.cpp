@@ -68,6 +68,40 @@ namespace elektron::drums
 			const double t = std::clamp(static_cast<double>(_value - a.at) / (b.at - a.at), 0.0, 1.0);
 			return a.value + (b.value - a.value) * t;
 		}
+
+		// Air's and Hyper's sweep, 0 to 1 and back: half a triangle, half a raised cosine
+		float airSweep(const uint32_t _phase)
+		{
+			const float turn = static_cast<float>(_phase >> 8) / 16777216.0f;
+			return 0.5f * triangle(_phase) + 0.25f - 0.25f * std::cos(turn * 6.2831853f);
+		}
+
+		// Air's top and sweep at a depth, which Hyper takes 21 higher: 0 to 148
+		double sweptTop(const int _depth)
+		{
+			// Fitted on noise: straight to 32, 4/3 every 8 past it, 512 from 77
+			static constexpr Knot Top[] = {{8, 25.75}, {16, 51.41}, {24, 77.09}, {32, 103.84}, {40, 138.44}, {48, 184.6},
+				{56, 246.15}, {64, 328.22}, {72, 437.65}, {76, 505.38}};
+			return _depth < 8 ? Top[0].value * _depth / 8 : _depth > 76 ? 512 : knots(Top, static_cast<uint8_t>(_depth));
+		}
+
+		// Past 76 the sweep speeds up in eighths of its slowest, fitted one depth at a time, Air's to 127 and Hyper's
+		// past (a speed between two of them missed the Virus by 10 dB more on noise). Where both were fitted they
+		// agree, but at Air's 123, Hyper's 102: 42 and 43
+		int sweptEighths(const int _depth)
+		{
+			static constexpr uint8_t Eighths[] = {8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16,
+				16, 17, 18, 18, 19, 20, 20, 21, 22, 23, 24, 24, 25, 26, 27, 28, 29, 31, 32, 33, 34, 35, 37, 38, 39, 41, 42, 44,
+				46, 47, 49, 51, 53, 55, 57, 59, 61, 63, 66, 68, 71, 73, 76, 79, 82, 85, 88, 91, 94, 98, 102, 105};
+			static_assert(std::size(Eighths) == 149 - 77);
+			return _depth <= 76 ? 8 : Eighths[_depth - 77];
+		}
+
+		double sweptHz(const int _depth)
+		{
+			constexpr double Slowest = 0.09989;
+			return Slowest * sweptEighths(_depth) / 8;
+		}
 	}
 
 	double sendFxRateHz(const uint8_t _rate)
@@ -305,22 +339,12 @@ namespace elektron::drums
 
 	double Air::top(const uint8_t _depth)
 	{
-		// Fitted on noise: straight to 32, 4/3 every 8 past it, 512 from 77
-		static constexpr Knot Top[] = {{8, 25.75}, {16, 51.41}, {24, 77.09}, {32, 103.84}, {40, 138.44}, {48, 184.6},
-			{56, 246.15}, {64, 328.22}, {72, 437.65}, {76, 505.38}};
-		return _depth < 8 ? Top[0].value * _depth / 8 : _depth > 76 ? 512 : knots(Top, _depth);
+		return sweptTop(_depth);
 	}
 
 	double Air::hz(const uint8_t _depth)
 	{
-		// Past 76 the sweep speeds up in eighths of its slowest, fitted on noise one depth at a time: a speed between
-		// two of them missed the Virus by 10 dB more on noise
-		static constexpr uint8_t Eighths[] = {8, 8, 8, 9, 9, 9, 10, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16,
-			17, 18, 18, 19, 20, 20, 21, 22, 23, 24, 24, 25, 26, 27, 28, 29, 31, 32, 33, 34, 35, 37, 38, 39, 41, 42, 44, 46,
-			47, 49};
-		static_assert(std::size(Eighths) == 128 - 77);
-		constexpr double Slowest = 0.09989;
-		return _depth <= 76 ? Slowest : Slowest * Eighths[_depth - 77] / 8;
+		return sweptHz(_depth);
 	}
 
 	void Air::set(const uint8_t _depth)
@@ -345,8 +369,7 @@ namespace elektron::drums
 	{
 		m_phase += m_step;
 		m_top = m_topTo + Glide * (m_top - m_topTo);
-		const float turn = static_cast<float>(m_phase >> 8) / 16777216.0f;
-		const float sweep = 0.5f * triangle(m_phase) + 0.25f - 0.25f * std::cos(turn * 6.2831853f);
+		const float sweep = airSweep(m_phase);
 		// The right where the left is not, each straight from where the last block left it
 		const float to[2] = {m_top * sweep, m_top * (1 - sweep)};
 		const float step[2] = {(to[0] - m_delay[0]) / BlockSize, (to[1] - m_delay[1]) / BlockSize};
@@ -487,6 +510,190 @@ namespace elektron::drums
 			m_delay[c] = to[c];
 		}
 		m_write = (m_write + BlockSize) & Mask;
+	}
+
+	namespace
+	{
+		// Hyper's crossover, fitted on noise: first order, the low part straight to the output
+		constexpr double HyperCrossover = 307.5;
+		// Its sweeps' lowest delay, a share of the top (impulses, every amount and depth to 100; on noise a thousandth
+		// more costs 13 dB where a voice turns at the bottom); its top's most
+		constexpr double HyperLo = 0.0589, HyperTopMost = 510.04;
+		// Its top is 2.1243 times Air's at the same depth, fitted every depth from 40 to 55 and on noise at 32 (a
+		// tenth of a sample off costs dB on noise); its speed-ups, fitted every depth from 56, are Air's 21 deeper
+		constexpr double HyperTopOfAir = 2.1243;
+		constexpr int HyperDeeper = 21;
+		// The dry high part's gain against Amount, straight from 0 to 64 and from 64 to 127, fitted on noise every 16;
+		// each voice's 0.98 of it, the second's coming in from 0 to 64, the third's from 64 to 128
+		constexpr Knot HyperDry[] = {{0, 0.7102}, {64, 0.5812}, {127, 0.5053}};
+		constexpr double HyperVoice = 0.98;
+		// Each voice's sweep advances a whole number of quarters of 44100 / 2^26 Hz: the floor of a share of the
+		// depth's base, 19 quarters per eighth of Air's slowest at the depth 21 higher (152 to 1,995). The share runs
+		// straight from Amount 0 to 64 and from 64 to 128; the second's at 0 and the third's to 64, where they are
+		// silent, carried on. Every voice's rate fitted on impulses (depth 32, 64, 100 and 127, every 16 of Amount at
+		// 127) is its quarter to 0.01 of one
+		constexpr double HyperShare[Hyper::Voices][3] = {{1, 0.84, 0.7}, {1.4, 1.16, 1}, {1.6, 1.6, 1.4}};
+		constexpr int HyperQuartersPerEighth = 19;
+		constexpr double HyperQuarter = 44100 / 67108864.0;
+
+		uint32_t hyperQuarters(const uint8_t _depth, const uint8_t _amount, const int _voice)
+		{
+			const double* const k = HyperShare[_voice];
+			const double share = _amount <= 64 ? k[0] + (k[1] - k[0]) * _amount / 64 : k[1] + (k[2] - k[1]) * (_amount - 64) / 64;
+			const int base = HyperQuartersPerEighth * sweptEighths(_depth + HyperDeeper);
+			// 1e-9 above, so that a share that lands on a whole number, 1.5 x 152, is not floored below it
+			return static_cast<uint32_t>(std::floor(base * share + 1e-9));
+		}
+	}
+
+	Hyper::Hyper()
+	{
+		const double k = std::tan(Pi * HyperCrossover / Rate);
+		m_k = static_cast<float>(k / (1 + k));
+		m_pole = static_cast<float>((1 - k) / (1 + k));
+		const double turns[Voices] = {0, 1.0 / 3, 2.0 / 3};
+		restart(turns);
+	}
+
+	double Hyper::top(const uint8_t _depth)
+	{
+		return std::min(HyperTopMost, HyperTopOfAir * sweptTop(_depth));
+	}
+
+	double Hyper::hz(const uint8_t _depth, const uint8_t _amount, const int _voice)
+	{
+		return hyperQuarters(_depth, _amount, _voice) * HyperQuarter;
+	}
+
+	double Hyper::gain(const uint8_t _amount, const int _part)
+	{
+		const double dry = straight(HyperDry, _amount);
+		switch(_part)
+		{
+		case 0:
+			return dry;
+		case 1:
+			return HyperVoice * dry;
+		case 2:
+			return HyperVoice * dry * std::min(1.0, _amount / 64.0);
+		default:
+			return HyperVoice * dry * std::max(0.0, (_amount - 64) / 64.0);
+		}
+	}
+
+	void Hyper::set(const uint8_t _depth, const uint8_t _amount)
+	{
+		m_topTo = static_cast<float>(top(_depth));
+		// At depth 0 the Virus's Hyper gives its input back, on noise to the last bit
+		m_throughTo = _depth == 0 ? 1.0f : 0.0f;
+		for(int v = 0; v < Voices; ++v)
+			m_step[v] = hyperQuarters(_depth, _amount, v) << 11;	// a quarter is 2^6 of our 2^32, 32 samples a block
+		for(int g = 0; g <= Voices; ++g)
+			m_gainTo[g] = static_cast<float>(gain(_amount, g));
+	}
+
+	void Hyper::settle()
+	{
+		m_top = m_topTo;
+		m_through = m_throughTo;
+		std::copy(std::begin(m_gainTo), std::end(m_gainTo), std::begin(m_gain));
+		// The voices where their sweeps are, not gliding from where the last top left them
+		const auto lo = static_cast<float>(HyperLo);
+		for(int v = 0; v < Voices; ++v)
+			for(int c = 0; c < 2; ++c)
+				m_delay[v][c] = m_top * (lo + (1 - lo) * airSweep(m_phase[v] + (c ? 0x40000000u : 0)));
+	}
+
+	void Hyper::restart(const double (&_turns)[Voices])
+	{
+		for(int v = 0; v < Voices; ++v)
+			m_phase[v] = static_cast<uint32_t>(std::fmod(_turns[v], 1.0) * 4294967296.0);
+		settle();
+	}
+
+	void Hyper::clear()
+	{
+		for(auto& line : m_line)
+			line.clear();
+		for(auto& state : m_state)
+			state[0] = state[1] = 0;
+		m_low[0] = m_low[1] = m_lastIn[0] = m_lastIn[1] = 0;
+	}
+
+	void Hyper::process(const float* const _inL, const float* const _inR, float* const _outL, float* const _outR)
+	{
+		m_top = m_topTo + Glide * (m_top - m_topTo);
+		float gainFrom[Voices + 1], gainStep[Voices + 1];
+		for(int g = 0; g <= Voices; ++g)
+		{
+			gainFrom[g] = m_gain[g];
+			m_gain[g] = m_gainTo[g] + Glide * (m_gain[g] - m_gainTo[g]);
+			gainStep[g] = (m_gain[g] - gainFrom[g]) / BlockSize;
+		}
+		float to[Voices][2], step[Voices][2];
+		const float lo = static_cast<float>(HyperLo) * m_top;
+		for(int v = 0; v < Voices; ++v)
+		{
+			m_phase[v] += m_step[v];
+			for(int c = 0; c < 2; ++c)
+			{
+				// The right a quarter turn past the left
+				to[v][c] = lo + (m_top - lo) * airSweep(m_phase[v] + (c ? 0x40000000u : 0));
+				step[v][c] = (to[v][c] - m_delay[v][c]) / BlockSize;
+			}
+		}
+		const float* const in[2] = {_inL, _inR};
+		float* const out[2] = {_outL, _outR};
+		for(int c = 0; c < 2; ++c)
+		{
+			float gains[Voices + 1];
+			std::copy(std::begin(gainFrom), std::end(gainFrom), gains);
+			float delays[Voices];
+			for(int v = 0; v < Voices; ++v)
+				delays[v] = m_delay[v][c];
+			auto& line = m_line[c];
+			for(int k = 0; k < BlockSize; ++k)
+			{
+				const float x = in[c][k];
+				m_low[c] = m_k * (x + m_lastIn[c]) + m_pole * m_low[c];
+				m_lastIn[c] = x;
+				const float high = x - m_low[c];
+				line.write(high);
+				for(int g = 0; g <= Voices; ++g)
+					gains[g] += gainStep[g];
+				float y = m_low[c] + gains[0] * high;
+				for(int v = 0; v < Voices; ++v)
+				{
+					delays[v] += step[v][c];
+					// A voice faded out is still read, so that it comes back where its sweep is
+					y += gains[v + 1] * line.read(delays[v], m_state[v][c]);
+				}
+				out[c][k] = y;
+			}
+		}
+		for(int v = 0; v < Voices; ++v)
+			for(int c = 0; c < 2; ++c)
+				m_delay[v][c] = to[v][c];
+		// To and from depth 0, the voices and the input crossfaded, straight over the blocks of a glide
+		const float from = m_through;
+		m_through = m_throughTo + Glide * (m_through - m_throughTo);
+		if(from == 0 && m_through < 1e-6f)
+		{
+			m_through = 0;
+			return;
+		}
+		if(m_through > 1 - 1e-6f)
+			m_through = 1;
+		const float throughStep = (m_through - from) / BlockSize;
+		for(int c = 0; c < 2; ++c)
+		{
+			float through = from;
+			for(int k = 0; k < BlockSize; ++k)
+			{
+				through += throughStep;
+				out[c][k] += through * (in[c][k] - out[c][k]);
+			}
+		}
 	}
 
 	void Phaser::set(const int _stages, const uint8_t _frequency, const uint8_t _spread, const uint8_t _depth,

@@ -183,6 +183,46 @@ namespace elektron::drums
 		float m_z1[2] = {}, m_z2[2] = {};
 	};
 
+	// Many voices: below a first-order crossover near 307 Hz the input passes as it is; above it, a part dry and one to
+	// three voices, each a line read on Air's sweep between 0.0589 of its top and its top, the right a quarter turn past
+	// the left. Measured on OsTIrus's Hyper chorus: Depth sets the top and the sweep's speed as Air's does (the top 2.12
+	// times Air's, up to 510 samples), and at 0 the input comes out as it is; Amount brings the second voice in from 0
+	// to 64 and the third from 64 to 128, each at its own speed, slows them, and lowers the dry part and the voices
+	// together
+	class Hyper
+	{
+	public:
+		static constexpr int BlockSize = 32, Voices = 3;
+
+		Hyper();
+
+		// 0-127. A change glides over blocks
+		void set(uint8_t _depth, uint8_t _amount);
+		// The depth's top in samples, and a voice's sweep in Hz at a depth and an amount
+		static double top(uint8_t _depth);
+		static double hz(uint8_t _depth, uint8_t _amount, int _voice);
+		// The dry high part's gain, then each voice's, at an amount
+		static double gain(uint8_t _amount, int _part);
+
+		void settle();
+		// Each voice's sweep at _turns of its own, the right channel's a quarter turn past: for a test that meets
+		// another's voices, whose turns are their history's
+		void restart(const double (&_turns)[Voices]);
+
+		void process(const float* _inL, const float* _inR, float* _outL, float* _outR);
+		void clear();
+
+	private:
+		SweptLine m_line[2];
+		float m_k = 0, m_pole = 0;										// the crossover's one-pole
+		float m_low[2] = {}, m_lastIn[2] = {};
+		uint32_t m_phase[Voices] = {}, m_step[Voices] = {};
+		float m_top = 0, m_topTo = 0;
+		float m_gain[Voices + 1] = {}, m_gainTo[Voices + 1] = {};		// the dry high part's, then the voices'
+		float m_delay[Voices][2] = {}, m_state[Voices][2] = {};
+		float m_through = 0, m_throughTo = 0;							// the input as it is, at depth 0
+	};
+
 	// One to six second-order allpasses in a row, the same on a channel, the right ones a little higher, a triangle
 	// sweeping them up together; the last fed back to the first
 	class Phaser

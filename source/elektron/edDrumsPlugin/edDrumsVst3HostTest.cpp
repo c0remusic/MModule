@@ -469,7 +469,8 @@ namespace
 		const int chorusType = g_parameters + elektron::drums::parameters::RelayCount;
 		require(parameters[chorusType]->getName(64) == "Chorus Type" && parameters[chorusType]->isAutomatable()
 			&& parameters[chorusType]->getText(0.0f, 64) == "Classic"
-			&& parameters[chorusType]->getText(1.0f, 64) == "Bucket Brigade",
+			&& parameters[chorusType]->getText(0.75f, 64) == "Bucket Brigade"
+			&& parameters[chorusType]->getText(1.0f, 64) == "Multi Voice",
 			"Chorus Type's place after the relays, or its choices");
 		require(parameters[chorusType + 1]->getName(64) == "T01 Gap Sync"
 			&& parameters[chorusType + 2 * Tracks]->getName(64) == "T16 Gap Note"
