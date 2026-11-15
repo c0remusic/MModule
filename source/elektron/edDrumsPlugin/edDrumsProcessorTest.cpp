@@ -1649,7 +1649,7 @@ namespace
 
 	// The first open (ticket 21): the data folder has no Kits yet. The factory's 16 Kits fill Slots 1-16, a new instance
 	// plays Boom Room with the factory's patterns as A01-A16, each loading its Slot at its start; a later open does not
-	// fill the Bank again, though a new instance still starts so
+	// fill the Bank or the Track sounds again, though a new instance still starts so
 	void factory()
 	{
 		const juce::StringArray names{"Boom Room", "Steel Floor", "Night Shift", "Wire Funk", "Rust Belt", "Dust Tape",
@@ -1666,6 +1666,11 @@ namespace
 				require(i == _emptied ? _p.kitSlot(i).empty() : _p.kitSlot(i).name == names[i],
 					"Slot " + std::to_string(i + 1) + " holds " + _p.kitSlot(i).name.toStdString());
 			require(_p.kitSlot(16).empty(), "Slot 17 empty");
+			// The 118 factory Track sounds, each a played Track of a Kit, named after its Kit and machine
+			const auto& sounds = _p.trackSounds().entries();
+			require(static_cast<int>(sounds.size()) == 118 - (_emptied >= 0 ? 1 : 0) && std::any_of(sounds.begin(), sounds.end(),
+				[](const TrackSounds::Entry& _e) { return _e.name == "Boom Room SOFT KICK" && _e.machineChoice == 71; }),
+				"the factory's Track sounds: " + std::to_string(sounds.size()));
 			// Boom Room's Track 1, a SOFT KICK (machine choice 71), its Level as saved
 			require(plain(find(_p, "t01_machine")) == 71 && plain(find(_p, "t01_level")) == 77, "Boom Room played");
 			int trigs = 0;
@@ -1680,6 +1685,7 @@ namespace
 			check(first, -1);
 			require(first.currentKit() == 0 && !first.kitDiffers(), "Boom Room played from Slot 1");
 			require(first.clearKit(3), "Slot 4 cleared");
+			require(first.trackSounds().entries().front().file.deleteFile() && first.trackSounds().follow(), "a sound removed");
 		}
 		{
 			Processor later;
@@ -1688,7 +1694,7 @@ namespace
 		_putenv_s("GEARMULATOR_DATA_ROOT", was.getFullPathName().toRawUTF8());
 		_putenv_s("ED_DRUMS_BLANK_START", "1");
 		std::printf("PASS the first open fills Slots 1-16 with the factory's Kits, a new instance plays Boom Room and"
-			" A01-A16; a later open keeps the Bank as left\n");
+			" A01-A16, the 118 Track sounds fill their Library; a later open keeps both as left\n");
 	}
 
 	// GEARMULATOR_DATA_ROOT names a folder of the test's own, empty at its start

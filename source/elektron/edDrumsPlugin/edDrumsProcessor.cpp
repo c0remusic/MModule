@@ -704,8 +704,10 @@ namespace elektron::drums
 			const auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter);
 			m_kitParameter.push_back(p && !global.contains(p->getParameterID()) && !isRelay(p->getParameterIndex()) ? 1 : 0);
 		}
-		// The first open on this computer: no Kits folder yet, the factory's Kits fill the Bank's first Slots
+		// The first open on this computer: no Kits folder yet, the factory's Kits fill the Bank's first Slots; no
+		// TrackSounds folder yet, the factory's Track sounds fill it
 		const bool firstOpen = !dataFolder().getChildFile("Kits").exists();
+		const bool firstSounds = !dataFolder().getChildFile("TrackSounds").exists();
 		m_kits = std::make_unique<KitBank>(dataFolder().getChildFile("Kits"));
 		m_trackSounds = std::make_unique<TrackSounds>(dataFolder().getChildFile("TrackSounds"));
 		m_sampleLibrary = std::make_unique<SampleLibrary>(dataFolder());
@@ -714,7 +716,7 @@ namespace elektron::drums
 		// ED_DRUMS_BLANK_START, which tests set: a new instance with nothing in it and a Bank left as it is
 		const auto* blank = std::getenv("ED_DRUMS_BLANK_START");
 		if(!blank || !*blank)
-			factoryStart(firstOpen);
+			factoryStart(firstOpen, firstSounds);
 		startTimerHz(20);
 	}
 
@@ -2726,9 +2728,16 @@ namespace elektron::drums
 		}
 	}
 
-	void Processor::factoryStart(const bool _fillBank)
+	void Processor::factoryStart(const bool _fillBank, const bool _fillSounds)
 	{
 		const auto kits = factoryFiles(".edkit"), patterns = factoryFiles(".edpattern");
+		if(_fillSounds)
+		{
+			for(const auto& f : factoryFiles(TrackSounds::Extension))
+				if(const auto sound = KitBank::readData(f.data, static_cast<size_t>(f.size), TrackSounds::Tag))
+					m_trackSounds->write(*sound);
+			m_trackSounds->follow();
+		}
 		std::unique_ptr<juce::XmlElement> first;
 		for(size_t i = 0; i < kits.size() && KitBank::valid(static_cast<int>(i)); ++i)
 		{

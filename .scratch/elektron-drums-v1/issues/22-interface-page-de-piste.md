@@ -1,7 +1,7 @@
 # Interface : page de piste et knobs en JUCE
 
 Type: AFK
-Status: ready-for-agent
+Status: resolved
 Assignee: 
 Blocked by: 11
 
@@ -139,3 +139,10 @@ touchait l'onglet PATTERNS : 3 mm d'écart. `edDrumsEditorTest` vérifie désorm
 ne le recouvre pas (le cas REPEAT GAP l'a fait échouer avant correction : nom jusqu'à 23,7 mm, bascule dès 17,3).
 
 Reste : le regard de l'utilisateur sur l'ensemble (critère 9 du ticket 25).
+
+## Regard de l'utilisateur (2026-11-15)
+
+Les neuf pages de l'éditeur en Barlow, rendues par `edDrumsEditorTest`, jugées à côté de la maquette : OK. Décision de
+l'utilisateur : ce regard tient lieu du premier critère de fin (comparaison automatique boîte par boîte, qui
+demanderait d'exporter dans le dépôt les positions de la maquette, laquelle reste hors dépôt). Le second critère
+(trame sans changement sans repeinte, rien sur le fil audio) est vérifié par `edDrumsEditorTest`. Ticket résolu.

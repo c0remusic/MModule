@@ -51,3 +51,15 @@ emplacements 1-16 et le 17 vide, Boom Room joué (piste 1 SOFT KICK, niveau 77) 
 leurs emplacements, A17 sans kit ; puis, l'emplacement 4 vidé, qu'une instance suivante ne le remplit pas.
 
 Reste : les sons de piste ; les samples maison ou CC0 pour le Sampler et la licence de chacun.
+
+## Sons de piste livrés (2026-11-15)
+
+118 sons de piste, chacun une piste jouée d'un des seize kits validés, enregistrée par `saveTrackSound` (outil hors
+dépôt `elektron-work\listen-all\tool\listenfx.exe --sounds`, sans image flash) ; deux égaux à un précédent écartés.
+Nommés « Kit Machine » (« Boom Room SOFT KICK »), un numéro ajouté quand un kit joue deux fois la même machine
+(« Hyper Metal HYPER FM 2 ») : livrés tels quels, décision de l'utilisateur. 182 Ko, dans
+`edDrumsPlugin/resources/factory/sounds/`. Première ouverture du dossier TrackSounds (pas encore de dossier) : ils le
+remplissent ; ensuite jamais plus, même retirés. `edDrumsProcessorTest` (`factory`) compte les 118 et y trouve Boom
+Room SOFT KICK sur sa machine, puis vérifie qu'un son retiré ne revient pas à l'ouverture suivante.
+
+Reste : les samples maison ou CC0 pour le Sampler (aucun kit ni son ne l'utilise) et la licence de chacun.
