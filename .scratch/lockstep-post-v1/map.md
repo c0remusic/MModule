@@ -42,6 +42,10 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
   (ONESHOT, WERP, STRETCH, REPITCH, SLICE, GRID), boucles, ±5 octaves, sample par pas, 16 bits 48 kHz mono ou stéréo ;
   BR, overdrive, SRR, base-width et AMP sont dans la chaîne, que Lockstep a déjà : seule la voix est à porter ; s'oppose
   à la mono, aux 44,1 kHz, à l'unique sample par piste, au GRAIN binaire de Machine 9 et à STRT/END.
+- [Place du Digitakt II dans Lockstep](issues/05-place-du-dt2.md): pas de famille DT2 ; le Sampler gagne un lecteur DT2
+  (GRAIN à trois valeurs, sets migrés), MODE à six machines, la couche le lit en ONESHOT ; mono, 48 kHz puis
+  `fast::Host` ; BR, SRR et base-width en types de chaîne ; ordre : lecteur, layering, filtres, BR/SRR/base-width,
+  WERP/SLICE/STRETCH, envois.
 
 - [La couche sample du Rytm dans son firmware](issues/08-couche-sample-rytm.md): seul le lecteur est numérique (16
   bits, 48 kHz, mono, TUNE, FINE, BR, SMP, STRT/END, LOOP, LEV), sommé à la voix avant overdrive et filtre analogiques,
