@@ -1,7 +1,7 @@
 # Effets d'envoi partagés
 
 Type: AFK
-Status: ready-for-agent
+Status: resolved
 Assignee: 
 Blocked by: 10, 11
 
@@ -319,3 +319,19 @@ Bucket Brigade, désormais le choix 3.
 
 Reste ouvert : Rotary, et la validation à l'écoute du chorus (dont Multi Voice) et du phaser/flanger par
 l'utilisateur. Le ticket reste ouvert.
+
+## Rotary abandonné (2026-11-15)
+
+Rotary n'est pas porté, sur décision de l'utilisateur : le type n'en vaut pas le coût de modélisation (rotor à plusieurs
+chemins, voir plus haut). Le chorus garde cinq types, Multi Voice en dernier.
+
+Reste ouvert : la validation à l'écoute du chorus (dont Multi Voice) et du phaser/flanger par l'utilisateur. Le ticket
+reste ouvert.
+
+## Écoute de l'utilisateur (2026-11-15)
+
+Sur la page d'écoute `C:\dev\elektron\elektron-work\listen-all\index.html`, hors dépôt (rendus de `df980a4f` sans image flash, `listen-all\tool\listenfx.exe`) : Wire Funk, chaque piste envoyée à 90, réglages par défaut. Les cinq types de chorus (Classic,
+Vibrato, Slow Sweep, Bucket Brigade, Multi Voice) et les trois modes du phaser (Phaser, Flanger, 90s Rack) : OK.
+
+Critère de fin rempli : delay et reverb du Syntakt contre le port exact, envoi à 0 nul, coût mesuré, chorus et
+phaser/flanger validés à l'écoute. Rotary est abandonné (voir plus haut). Ticket résolu.

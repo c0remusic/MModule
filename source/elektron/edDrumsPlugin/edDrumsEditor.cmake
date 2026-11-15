@@ -1,5 +1,5 @@
 # The editor, after the Lockstep mockup (.scratch/elektron-drums/concepts/t.html), included by CMakeLists.txt: its
-# sources in the plug-in, the plates it draws from (b0, b1, b2, sa at 1x and 2x, 1.8 MB), and its test
+# sources in the plug-in, the plates it draws from (b0, b1, b2, sa at 1x and 2x, 1.8 MB), its face, and its test
 set(ED_DRUMS_EDITOR_SOURCES
 	edDrumsEditor.cpp edDrumsEditor.h edDrumsEditorPages.cpp edDrumsEditorPages.h edDrumsEditorScreen.cpp)
 target_sources(edDrumsPlugin PRIVATE ${ED_DRUMS_EDITOR_SOURCES})
@@ -10,6 +10,10 @@ foreach(plate b0 b1 b2 sa)
 	foreach(scale 1x 2x)
 		list(APPEND ED_DRUMS_PLATES ${CMAKE_CURRENT_SOURCE_DIR}/resources/lockstep/${plate}_${scale}.jpg)
 	endforeach()
+endforeach()
+# The style guide's face, its two weights (SIL OFL 1.1, fonts/OFL.txt)
+foreach(weight Medium SemiBold)
+	list(APPEND ED_DRUMS_PLATES ${CMAKE_CURRENT_SOURCE_DIR}/resources/lockstep/fonts/BarlowSemiCondensed-${weight}.ttf)
 endforeach()
 juce_add_binary_data(edDrumsLockstepAssets HEADER_NAME LockstepAssets.h NAMESPACE LockstepAssets
 	SOURCES ${ED_DRUMS_PLATES})

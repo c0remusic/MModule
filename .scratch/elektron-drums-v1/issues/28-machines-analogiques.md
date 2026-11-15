@@ -1,7 +1,7 @@
 # Machines analogiques : Rytm et pistes 9-12 du Syntakt (J4)
 
 Type: AFK puis HITL (écoutes)
-Status: ready-for-agent
+Status: resolved
 Assignee: 
 Blocked by: 16
 
@@ -205,3 +205,11 @@ RYTM_SECTION3, sortie 77 sans eux).
 réglages par défaut, puis TUNE ou TONE bas et haut, DECAY court et long ; pour le clap 3 et 4 : un seul clap, six claps
 lents). Les niveaux, les constantes de hauteur (le gros tom vers 47 Hz à ses défauts, avant l'octave de son SNAP) et les
 décroissances sont à régler à l'oreille. Le ticket reste ouvert.
+
+## Écoute de l'utilisateur (2026-11-15)
+
+Sur la page d'écoute `C:\dev\elektron\elektron-work\listen-all\index.html`, hors dépôt, les fichiers `control-listen\rytm\rytm-<m>-<k>.wav` : BURST CLAP, DEEP TOM et SWEEP TOM, réglages par
+défaut et leurs quatre variantes : OK, sans retouche. Les niveaux, hauteurs et décroissances restent tels quels.
+
+Critère de fin rempli pour les deux étapes (Syntakt validé le 2026-11-13, Rytm ce jour). Les écarts des trente
+machines que le Rytm partage avec le Syntakt restent une étape à part, non demandée. Ticket résolu.

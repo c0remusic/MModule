@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "LockstepAssets.h"
+
 namespace elektron::drums::ui
 {
 	namespace
@@ -11,11 +13,11 @@ namespace elektron::drums::ui
 			return {{juce::Colour(_a), juce::Colour(_b), juce::Colour(_c), juce::Colour(_d), juce::Colour(_e)}};
 		}
 
-		// The face, its two weights, and how high its capitals stand in a JUCE font height
+		// The face, Barlow Semi Condensed from the plug-in's data, its two weights, and how high its capitals stand in a
+		// JUCE font height
 		struct Face
 		{
-			juce::String name, regular, bold;
-			float horizontal = 1;
+			juce::Typeface::Ptr regular, bold;
 			float capRatio = 0.7f;
 		};
 
@@ -23,39 +25,51 @@ namespace elektron::drums::ui
 		{
 			static const Face f = []
 			{
+				using namespace LockstepAssets;
 				Face r;
-				const auto styles = juce::Font::findAllTypefaceStyles("Bahnschrift");
-				if(styles.contains("SemiCondensed") && styles.contains("SemiBold SemiCondensed"))
-				{
-					r.name = "Bahnschrift";
-					r.regular = "SemiCondensed";
-					r.bold = "SemiBold SemiCondensed";
-				}
-				else if(!styles.isEmpty())
-				{
-					r.name = "Bahnschrift";
-					r.regular = "Regular";
-					r.bold = styles.contains("SemiBold") ? "SemiBold" : "Bold";
-					r.horizontal = 0.88f;
-				}
-				else
-				{
-					r.name = juce::Font::getDefaultSansSerifFontName();
-					r.regular = "Regular";
-					r.bold = "Bold";
-					r.horizontal = 0.85f;
-				}
+				r.regular = juce::Typeface::createSystemTypefaceFor(BarlowSemiCondensedMedium_ttf,
+					BarlowSemiCondensedMedium_ttfSize);
+				r.bold = juce::Typeface::createSystemTypefaceFor(BarlowSemiCondensedSemiBold_ttf,
+					BarlowSemiCondensedSemiBold_ttfSize);
 				// The capital's ink, from its outline (a glyph's box is the font's whole height)
 				juce::GlyphArrangement ga;
-				ga.addLineOfText(juce::Font(r.name, r.bold, 100.0f), "H", 0, 0);
+				ga.addLineOfText(juce::Font(r.bold).withHeight(100.0f), "H", 0, 0);
 				juce::Path outline;
 				ga.createPath(outline);
-				const float cap = outline.getBounds().getHeight();
-				if(cap > 10)
-					r.capRatio = cap / 100.0f;
+				r.capRatio = outline.getBounds().getHeight() / 100.0f;
 				return r;
 			}();
 			return f;
+		}
+
+		// A line of text with every digit in the 0's advance, its glyph centred there: Barlow's digits are
+		// proportional, and a value that changes must not move its neighbours
+		juce::GlyphArrangement arrange(const juce::Font& _font, const juce::String& _text, const float _x,
+			const float _baseline)
+		{
+			juce::GlyphArrangement zero;
+			zero.addLineOfText(_font, "0", 0, 0);
+			const float advance = zero.getGlyph(0).getRight() - zero.getGlyph(0).getLeft();
+			juce::GlyphArrangement ga;
+			ga.addLineOfText(_font, _text, _x, _baseline);
+			float shift = 0;
+			for(int i = 0; i < ga.getNumGlyphs(); ++i)
+			{
+				auto& g = ga.getGlyph(i);
+				g.moveBy(shift, 0);
+				if(!juce::CharacterFunctions::isDigit(g.getCharacter()))
+					continue;
+				const float w = g.getRight() - g.getLeft();
+				g.moveBy((advance - w) / 2, 0);
+				shift += advance - w;
+			}
+			return ga;
+		}
+
+		float widthOf(juce::GlyphArrangement& _ga, const float _x)
+		{
+			const int n = _ga.getNumGlyphs();
+			return n == 0 ? 0 : _ga.getGlyph(n - 1).getRight() - _x;
 		}
 
 		// The style guide's three sizes: 4.0, 3.2, 2.8 mm
@@ -98,22 +112,24 @@ namespace elektron::drums::ui
 
 	juce::String Painter::faceName()
 	{
-		return face().name + " " + face().regular + " / " + face().bold;
+		const auto& f = face();
+		return f.regular->getName() + " / " + f.bold->getName();
 	}
 
 	juce::Font Painter::font(const float _cap, const int _weight)
 	{
 		const auto& f = face();
 		const float cap = snapCap(_cap);
-		juce::Font font(f.name, _weight >= 600 ? f.bold : f.regular, cap / f.capRatio);
-		font.setHorizontalScale(f.horizontal);
+		juce::Font font(_weight >= 600 ? f.bold : f.regular);
+		font.setHeight(cap / f.capRatio);
 		font.setExtraKerningFactor(cap >= 4 ? 0.0f : 0.02f);
 		return font;
 	}
 
 	float Painter::textWidth(const juce::String& _text, const float _cap, const int _weight) const
 	{
-		return font(_cap, _weight).getStringWidthFloat(_text);
+		auto ga = arrange(font(_cap, _weight), _text, 0, 0);
+		return widthOf(ga, 0);
 	}
 
 	void Painter::text(float _x, const float _baseline, const juce::String& _text, const float _cap,
@@ -123,17 +139,12 @@ namespace elektron::drums::ui
 			return;
 		if(drawnTexts)
 			drawnTexts->add(_text);
-		// The minus sign U+2212, which Bahnschrift lacks: its en dash there
-		const auto text = face().name == "Bahnschrift" ? _text.replace(juce::String::fromUTF8("\xe2\x88\x92"),
-			juce::String::fromUTF8("\xe2\x80\x93")) : _text;
-		const auto f = font(_cap, _weight);
+		auto ga = arrange(font(_cap, _weight), _text, _x, _baseline);
 		if(_align != Align::Left)
 		{
-			const float w = f.getStringWidthFloat(text);
-			_x -= _align == Align::Right ? w : w / 2;
+			const float w = widthOf(ga, _x);
+			ga.moveRangeOfGlyphs(0, -1, _align == Align::Right ? -w : -w / 2, 0);
 		}
-		juce::GlyphArrangement ga;
-		ga.addLineOfText(f, text, _x, _baseline);
 		g.setColour(_colour);
 		ga.draw(g);
 	}

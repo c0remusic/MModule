@@ -63,3 +63,11 @@ Coût du master, mesuré par `effectsCost` (une piste, blocs de 128, 44,1 kHz, m
 
 Reste ouvert, et non revendiqué ici : « sonne pareil » à 44,1 et 48 kHz à l'écoute de l'utilisateur. Toujours pas
 construits : le second bus, les sources de sidechain autres que l'entrée, le saturateur seul en drive de piste.
+
+## Écoute de l'utilisateur (2026-11-15)
+
+Sur la page d'écoute `C:\dev\elektron\elektron-work\listen-all\index.html`, hors dépôt (rendus de `df980a4f` sans image flash) : master allumé et réglé fort (seuil vers -22 dB, ratio 4:1, makeup vers +4 dB, drive vers -9 dB),
+le même kit à 44,1 et 48 kHz, bascule en lecture au même instant. Deep Garage et Boom Room : OK, pareils.
+
+Critère « sonne pareil » rempli. Reste ouvert : le drive de piste « DT2 Overdrive » (le saturateur seul, que « Quoi » demande),
+jamais construit ; le second bus et les sources de sidechain autres que l'entrée, toujours pas construits.

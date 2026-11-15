@@ -11,6 +11,10 @@ MoDule's skin bundles four faces of Inter 4.1 (The Inter Project Authors, SIL Op
 `source/elektron/md/mdDrumsPlugin/skins/mdDrums/Inter-OFL.txt`), reduced to Latin-1 with tabular digits and a legacy
 kerning table by `.scratch/md-drums-editor/tools/make_inter.py`. The font keeps its own licence.
 
+The drum instrument's editor bundles Barlow Semi Condensed Medium and SemiBold, unmodified (The Barlow Project Authors,
+SIL Open Font License 1.1, `source/elektron/edDrumsPlugin/resources/lockstep/fonts/OFL.txt`), from Google Fonts'
+repository (`google/fonts`, `ofl/barlowsemicondensed`). The font keeps its own licence.
+
 The drum instrument's OPEN DRUM machines (`source/elektron/opendrum/`) are four voices ported from the LXR firmware's
 sound engine, Copyright (C) 2012-2026 Erica Synths, from `erica-synths/lxr-desktop-app` at commit
 `a43cd4fcda23ec3d577dc425261c3eb28bd5abff`, under the GNU GPL v3 only with the additional permission and terms of its

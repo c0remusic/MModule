@@ -472,6 +472,21 @@ namespace
 					&& painter.textWidth(c.name, 3.2f) > c.w - 2)
 					unfit.addIfNotAlreadyThere(c.name + " (" + juce::String(painter.textWidth(c.name, 3.2f), 1) + " of "
 						+ juce::String(c.w - 2, 1) + " mm)");
+			// A toggle on a name's line (REPEAT GAP's FREE / SYNC) clears that name
+			for(const auto& s : _editor.cells())
+			{
+				if(!s.visible || s.look != ui::Cell::Look::Segments)
+					continue;
+				for(const auto& c : _editor.cells())
+				{
+					if(!c.visible || (c.look != ui::Cell::Look::Cell && c.look != ui::Cell::Look::Plain) || c.name.isEmpty())
+						continue;
+					const float right = c.x + painter.textWidth(c.name, 3.2f);
+					if(c.y < s.y + s.h && c.y + 3.3f > s.y && c.x < s.x + s.w && right + 1 > s.x)
+						unfit.addIfNotAlreadyThere(c.name + " under " + s.name + " (name to " + juce::String(right - c.x, 1)
+							+ ", toggle from " + juce::String(s.x - c.x, 1) + " mm)");
+				}
+			}
 			// A value shrinks to 3 mm at the least to stay in its cell
 			for(const auto& c : _editor.cells())
 			{

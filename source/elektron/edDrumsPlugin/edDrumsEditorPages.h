@@ -64,8 +64,8 @@ namespace elektron::drums::ui
 		juce::Graphics& g;
 		const float scale;
 
-		// The face the style guide names is Barlow Semi Condensed; until its file is in the repository, the nearest
-		// one Windows has (Bahnschrift SemiCondensed), or the default sans narrowed. Its name, for the test's report
+		// The style guide's face, Barlow Semi Condensed (Medium and SemiBold, in the plug-in's data), every digit in the
+		// 0's advance. Its name, for the test's report
 		static juce::String faceName();
 		// The face at a cap height in mm, for a mm-scaled Graphics: a component in pixels scales its height
 		static juce::Font font(float _cap, int _weight);

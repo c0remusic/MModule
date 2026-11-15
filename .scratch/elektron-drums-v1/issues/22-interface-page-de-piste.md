@@ -122,3 +122,20 @@ l'autre (environ 0,5 ms). Gardé ainsi sur décision de l'utilisateur. Une LOFI 
 bascule sur le Sampler et sur LOFI KICK, rendu `sound-repeat-sync.png`.
 
 Reste : la police Barlow (téléchargement non donné).
+
+## État (2026-11-15)
+
+La police est Barlow Semi Condensed, Medium et SemiBold (SIL OFL 1.1, téléchargées le 2026-11-15 du dépôt `google/fonts`,
+`ofl/barlowsemicondensed`), sans modification, dans les données du plug-in (`resources/lockstep/fonts/`, avec `OFL.txt`,
+mentionnées dans `NOTICE.md`) : `Painter` les charge par `Typeface::createSystemTypefaceFor`, Bahnschrift n'est plus lu.
+Chiffres à chasse fixe faits à la main, comme le demande le guide de style : chaque chiffre prend l'avance du 0, son
+glyphe centré dedans (`arrange`), à l'écriture comme à la mesure (`textWidth`). Le signe moins U+2212 est celui de
+Barlow, plus remplacé.
+
+Avec Barlow, trois places se chevauchaient sur les rendus (positions fixes, non mesurées sur le texte), corrigées : LOAD de SAMPLE LAYER se place après le titre mesuré (et le nom du sample après LOAD) ; la
+bascule FREE / SYNC de REPEAT GAP passe à droite de la valeur (le nom, 23,7 mm, ne laissait que 14,6 mm sur sa ligne,
+trop peu pour deux segments) ; COND après « 1:2 » mesuré dans la légende de Seq. Le sous-titre de Seq (« 1 SAMPLER »)
+touchait l'onglet PATTERNS : 3 mm d'écart. `edDrumsEditorTest` vérifie désormais qu'une bascule sur la ligne d'un nom
+ne le recouvre pas (le cas REPEAT GAP l'a fait échouer avant correction : nom jusqu'à 23,7 mm, bascule dès 17,3).
+
+Reste : le regard de l'utilisateur sur l'ensemble (critère 9 du ticket 25).

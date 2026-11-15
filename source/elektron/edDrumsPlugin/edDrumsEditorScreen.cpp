@@ -28,6 +28,12 @@ namespace elektron::drums
 		const juce::Rectangle<float> envelopePicture{TimX + 35, FltY + 63, TimW - 39, 36};
 		const juce::Rectangle<float> ampPicture{ModX + 2, SoundY + 43, ModW - 6, 30};
 		const juce::Rectangle<float> lfoPicture{ModX + 2, LfoY + 47, ModW - 6, 33};
+
+		// SAMPLE LAYER's LOAD, 3 mm after the block's title (drawBlockTitle: 3.2 mm, 600)
+		float sampleLoadX(const float _x)
+		{
+			return _x + 2 + Painter::font(3.2f, 600).getStringWidthFloat("SAMPLE LAYER") + 3;
+		}
 		juce::Rectangle<float> lfoCard(const int _i)
 		{
 			const float w = (ModW - 8) / 2;
@@ -739,8 +745,8 @@ namespace elektron::drums
 					l.isEmpty() ? "M" + juce::String(n) : l, hue::k, "m");
 				m_cells[static_cast<size_t>(c)].off = l.isEmpty();
 			}
-			// REPEAT GAP, the Sampler's Machine 8 and a CRUNCH 12 machine's Machine 7 (Engine::repeatsInNotes): SYNC on its
-			// name line, and while on, the note in its place. Off, or on another machine, the note's cell is there hidden,
+			// REPEAT GAP, the Sampler's Machine 8 and a CRUNCH 12 machine's Machine 7 (Engine::repeatsInNotes): SYNC right
+			// of its value (its name leaves no room in Barlow), and while on, the note in its place. Off, or on another machine, the note's cell is there hidden,
 			// as SYNC's off the machine's first page
 			{
 				const auto& machine = trackMachine(m_track);
@@ -754,10 +760,10 @@ namespace elektron::drums
 							c.visible = false;
 				const float cw = (w - 2) / 4;
 				const auto& at = m_cells[static_cast<size_t>(note)];
-				Cell s = cellOf(t("gap_sync"), "SYNC", at.x + cw - 26, at.y - 1.5f, 22, hue::k, "m");
+				Cell s = cellOf(t("gap_sync"), "SYNC", at.x + cw - 26, at.y + 4.6f, 22, hue::k, "m");
 				s.look = Look::Segments;
 				s.labels = {"FREE", "SYNC"};
-				s.h = 4.6f;
+				s.h = 6;
 				s.visible = here;
 				addCell(s);
 			}
@@ -830,7 +836,7 @@ namespace elektron::drums
 			const float x = SrcX, w = SrcW;
 			block(x, LowY, w, "x", "SAMPLE LAYER", hue::g, 53.5f);
 			Hit load;
-			load.r = {x + 30, LowY + 1.4f, 19, 6};
+			load.r = {sampleLoadX(x), LowY + 1.4f, 19, 6};
 			load.click = [this] { chooseSample(m_track); };
 			addHit(std::move(load));
 			const char* first[]{"START", "END", "LOOP", "TUNE", "LEVEL"};
@@ -1140,11 +1146,12 @@ namespace elektron::drums
 		// SAMPLE LAYER's title line: LOAD, the file, CLEAR
 		{
 			const float x = SrcX, w = SrcW;
-			drawButton(_p, x + 30, LowY + 1.4f, 19, 6, "LOAD", false);
+			const float load = sampleLoadX(x), file = load + 22;
+			drawButton(_p, load, LowY + 1.4f, 19, 6, "LOAD", false);
 			_p.text(x + w - 26, LowY + 6.2f, "GRAIN J2", 2.8f, colour::dim, 500, Align::Right);
 			const auto name = fitted(_p, m_processor.sampleName(m_track).toUpperCase(), 2.8f,
-				w - 26 - _p.textWidth("GRAIN J2", 2.8f) - 4 - 52, 600);
-			_p.text(x + 52, LowY + 6.2f, name.isEmpty() ? "NO SAMPLE" : name, 2.8f, name.isEmpty() ? colour::dim
+				x + w - 26 - _p.textWidth("GRAIN J2", 2.8f) - 4 - file, 600);
+			_p.text(file, LowY + 6.2f, name.isEmpty() ? "NO SAMPLE" : name, 2.8f, name.isEmpty() ? colour::dim
 				: hue::g.c[4], 600);
 			if(m_processor.sampleName(m_track).isNotEmpty())
 				drawButton(_p, x + w - 24, LowY + 1.4f, 20, 6, "CLEAR", false);
@@ -1954,7 +1961,7 @@ namespace elektron::drums
 			drawPatterns(_p);
 			return;
 		}
-		_p.text(SG + 3 * SC, ScreenY + 7.4f, juce::String(m_track + 1) + "  " + machineName(m_track), 2.8f, colour::mid);
+		_p.text(SG + 3 * SC + 3, ScreenY + 7.4f, juce::String(m_track + 1) + "  " + machineName(m_track), 2.8f, colour::mid);
 
 		const auto field = [&](const float _x, const juce::String& _name, const juce::String& _value)
 		{
@@ -1989,7 +1996,7 @@ namespace elektron::drums
 		{
 			const float l1 = yb + 14.5f, l2 = yb + 19.5f;
 			_p.text(16, l1, "1:2", 2.8f, hue::y.c[4], 600);
-			_p.text(22, l1, "COND", 2.8f, colour::mid);
+			_p.text(16 + _p.textWidth("1:2", 2.8f, 600) + 1, l1, "COND", 2.8f, colour::mid);
 			for(int k = 0; k < 3; ++k)
 				_p.rect(34 + static_cast<float>(k) * 2.1f, l1 - 2.2f, 1.3f, 1.8f, hue::t.c[4], 0.3f);
 			_p.text(41, l1, "RAT", 2.8f, colour::mid);

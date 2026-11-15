@@ -121,3 +121,11 @@ selon la passe) :
 2026-11-13 tenait à la charge de la machine et aux voix accélérées depuis (ROM, SOPHIE). Critère 4 vert.
 
 Reste ouvert : les critères 2 et 9, à l'écoute et au regard de l'utilisateur.
+
+## Écoute et regard de l'utilisateur (2026-11-15)
+
+Critère 2 : sur la page d'écoute `C:\dev\elektron\elektron-work\listen-all\index.html`, hors dépôt, le master allumé, Deep Garage à 44,1 et 48 kHz jugé pareil ; quatorze kits d'usine
+validés (ticket 21), puis Boom Room au master, Night Shift et Crossroads : OK. Vert.
+
+Critère 9 : les neuf pages de l'éditeur en Barlow Semi Condensed (ticket 22), rendues par `edDrumsEditorTest`,
+jugées par l'utilisateur à côté de la maquette : OK. Vert.
