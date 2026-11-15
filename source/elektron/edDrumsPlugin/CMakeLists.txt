@@ -37,6 +37,14 @@ target_compile_definitions(edDrumsPlugin PRIVATE ED_DRUMS_NAME="${ED_DRUMS_NAME}
 target_link_libraries(edDrumsPlugin PRIVATE edDrums mdProtocol juce_plugin_modules)
 set_property(TARGET edDrumsPlugin PROPERTY FOLDER "Elektron")
 
+# The factory's 16 Kits and their patterns (ticket 21), made with the plug-in itself: the Bank's first Slots on the
+# first open, a new instance's A01-A16
+file(GLOB ED_DRUMS_FACTORY CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/resources/factory/*.edkit
+	${CMAKE_CURRENT_SOURCE_DIR}/resources/factory/*.edpattern)
+juce_add_binary_data(edDrumsFactoryAssets HEADER_NAME FactoryAssets.h NAMESPACE FactoryAssets SOURCES ${ED_DRUMS_FACTORY})
+set_property(TARGET edDrumsFactoryAssets PROPERTY FOLDER "Elektron")
+target_link_libraries(edDrumsPlugin PRIVATE edDrumsFactoryAssets)
+
 if(BUILD_TESTING)
 	# With no flash image, needing none (it clears what leads to one)
 	add_executable(edDrumsNoFlashTest edDrumsNoFlashTest.cpp)

@@ -28,3 +28,26 @@ Static Field, Open Circuit, Hyper Metal, Deep Garage, Breakline), puis Night Shi
 
 Reste : livrer la banque, chargée à la première ouverture ; les sons de piste ; les samples
 maison ou CC0 pour le Sampler (aucun kit du brouillon ne l'utilise) et la licence de chacun.
+
+## Banque livrée (2026-11-15)
+
+Décision de l'utilisateur : une nouvelle instance s'ouvre sur Boom Room avec les seize patterns.
+
+Les seize kits validés et leurs patterns (`.edkit`, `.edpattern`, 152 Ko, faits par le plug-in lui-même par l'outil du
+brouillon, rien d'Elektron) sont dans les données du plug-in (`edDrumsPlugin/resources/factory/`, cible
+`edDrumsFactoryAssets`). `Processor::factoryStart`, à la construction :
+
+- première ouverture, c'est-à-dire pas encore de dossier Kits dans le dossier de données : les seize kits remplissent
+  les emplacements 01 à 16 de la banque. Une ouverture suivante ne la remplit plus, même vidée ;
+- toute nouvelle instance : patterns A01 à A16 = ceux d'usine, chacun chargeant à son départ l'emplacement de même
+  numéro (où la première ouverture a mis son kit) ; le kit joué est Boom Room, lu dans les données du plug-in, son
+  emplacement 01 si la banque l'y tient encore. Un set restauré remplace le tout (`setStateInformation` vide les 128
+  patterns avant de lire les siens).
+
+`ED_DRUMS_BLANK_START`, que les tests posent (comme `GEARMULATOR_DATA_ROOT`), garde l'ancien départ : instance vide,
+banque laissée telle quelle ; `edDrumsProcessorTest`, `edDrumsEditorTest` et `edDrumsVst3HostTest` partent ainsi.
+`edDrumsProcessorTest` (`factory`, dans un dossier de données à lui, sans la variable) vérifie les seize noms en
+emplacements 1-16 et le 17 vide, Boom Room joué (piste 1 SOFT KICK, niveau 77) depuis l'emplacement 01, A01-A16 sur
+leurs emplacements, A17 sans kit ; puis, l'emplacement 4 vidé, qu'une instance suivante ne le remplit pas.
+
+Reste : les sons de piste ; les samples maison ou CC0 pour le Sampler et la licence de chacun.

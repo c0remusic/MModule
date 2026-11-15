@@ -8,6 +8,7 @@
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
+#include "FactoryAssets.h"
 #include "edDrumsEditor.h"
 #include "edDrumsNames.h"
 #include "edDrumsRate.h"
@@ -703,11 +704,17 @@ namespace elektron::drums
 			const auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter);
 			m_kitParameter.push_back(p && !global.contains(p->getParameterID()) && !isRelay(p->getParameterIndex()) ? 1 : 0);
 		}
+		// The first open on this computer: no Kits folder yet, the factory's Kits fill the Bank's first Slots
+		const bool firstOpen = !dataFolder().getChildFile("Kits").exists();
 		m_kits = std::make_unique<KitBank>(dataFolder().getChildFile("Kits"));
 		m_trackSounds = std::make_unique<TrackSounds>(dataFolder().getChildFile("TrackSounds"));
 		m_sampleLibrary = std::make_unique<SampleLibrary>(dataFolder());
 		m_sampleLibrary->adoptImported();
 		m_import = std::make_unique<LockerImport>(dataFolder());
+		// ED_DRUMS_BLANK_START, which tests set: a new instance with nothing in it and a Bank left as it is
+		const auto* blank = std::getenv("ED_DRUMS_BLANK_START");
+		if(!blank || !*blank)
+			factoryStart(firstOpen);
 		startTimerHz(20);
 	}
 
@@ -2688,6 +2695,75 @@ namespace elektron::drums
 		});
 		prepareKits(0);
 		return true;
+	}
+
+	// ---- the factory's Kits and patterns (ticket 21) ----
+
+	namespace
+	{
+		struct FactoryFile
+		{
+			juce::String name;
+			const char* data = nullptr;
+			int size = 0;
+		};
+
+		// The plug-in's factory files ending in _suffix, in their names' order: "01-boom-room" first
+		std::vector<FactoryFile> factoryFiles(const char* _suffix)
+		{
+			std::vector<FactoryFile> files;
+			for(int i = 0; i < FactoryAssets::namedResourceListSize; ++i)
+			{
+				const juce::String name = FactoryAssets::originalFilenames[i];
+				if(!name.endsWith(_suffix))
+					continue;
+				FactoryFile f{name};
+				f.data = FactoryAssets::getNamedResource(FactoryAssets::namedResourceList[i], f.size);
+				files.push_back(f);
+			}
+			std::sort(files.begin(), files.end(), [](const FactoryFile& _a, const FactoryFile& _b) { return _a.name < _b.name; });
+			return files;
+		}
+	}
+
+	void Processor::factoryStart(const bool _fillBank)
+	{
+		const auto kits = factoryFiles(".edkit"), patterns = factoryFiles(".edpattern");
+		std::unique_ptr<juce::XmlElement> first;
+		for(size_t i = 0; i < kits.size() && KitBank::valid(static_cast<int>(i)); ++i)
+		{
+			auto kit = KitBank::readData(kits[i].data, static_cast<size_t>(kits[i].size), KitBank::Tag);
+			jassert(kit);
+			if(kit && _fillBank)
+				m_kits->write(static_cast<int>(i), *kit);
+			if(i == 0)
+				first = std::move(kit);
+		}
+		followKits();
+		// Pattern n plays the Bank's Slot n at its start, where the first open put the factory's Kit n
+		editSequencer([&](Sequencer& _s)
+		{
+			for(size_t i = 0; i < patterns.size() && i < static_cast<size_t>(SeqPatterns); ++i)
+			{
+				const auto file = KitBank::readData(patterns[i].data, static_cast<size_t>(patterns[i].size), PatternTag);
+				const auto* xml = file ? file->getChildByName("pattern") : nullptr;
+				jassert(xml);
+				if(!xml)
+					continue;
+				auto& p = _s.pattern(static_cast<int>(i));
+				p = Pattern();
+				readPattern(p, *xml);
+				p.kit = static_cast<int>(i);
+			}
+		});
+		prepareKits(0);
+		// The first Kit played, from the plug-in's data whatever the Bank holds now; its Slot where the Bank keeps it
+		if(first)
+		{
+			readSound(*first, false);
+			m_kitSlot = m_kits->slot(0).name == first->getStringAttribute("name") ? 0 : -1;
+			rememberKit(first.get());
+		}
 	}
 
 	// ---- the Track sounds ----

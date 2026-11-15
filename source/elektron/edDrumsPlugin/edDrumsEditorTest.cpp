@@ -1853,6 +1853,8 @@ int main(const int _argc, char** _argv)
 	const auto root = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsEditorTestData");
 	root.deleteRecursively();
 	_putenv_s("GEARMULATOR_DATA_ROOT", root.getFullPathName().toRawUTF8());
+	// A new instance blank, its Bank empty: the factory start has its own test in edDrumsProcessorTest
+	_putenv_s("ED_DRUMS_BLANK_START", "1");
 	const juce::ScopedJuceInitialiser_GUI juce;
 	const auto folder = _argc > 1 ? juce::File(juce::String::fromUTF8(_argv[1]))
 		: juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsEditor");

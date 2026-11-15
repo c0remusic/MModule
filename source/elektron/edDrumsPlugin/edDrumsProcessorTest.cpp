@@ -1647,6 +1647,50 @@ namespace
 		void audioProcessorParameterChangeGestureEnd(juce::AudioProcessor*, int) override { ++edits; }
 	};
 
+	// The first open (ticket 21): the data folder has no Kits yet. The factory's 16 Kits fill Slots 1-16, a new instance
+	// plays Boom Room with the factory's patterns as A01-A16, each loading its Slot at its start; a later open does not
+	// fill the Bank again, though a new instance still starts so
+	void factory()
+	{
+		const juce::StringArray names{"Boom Room", "Steel Floor", "Night Shift", "Wire Funk", "Rust Belt", "Dust Tape",
+			"Glass Shards", "Wood And Skin", "Market Day", "Six Operators", "Static Field", "Open Circuit", "Hyper Metal",
+			"Deep Garage", "Breakline", "Crossroads"};
+		// A data folder of its own, a new instance as a host makes it: the other tests start blank in theirs
+		const auto* root = std::getenv("GEARMULATOR_DATA_ROOT");
+		const juce::File was(juce::String::fromUTF8(root ? root : "")), own = was.getChildFile("factory");
+		_putenv_s("GEARMULATOR_DATA_ROOT", own.getFullPathName().toRawUTF8());
+		_putenv_s("ED_DRUMS_BLANK_START", "");
+		const auto check = [&](Processor& _p, const int _emptied)
+		{
+			for(int i = 0; i < names.size(); ++i)
+				require(i == _emptied ? _p.kitSlot(i).empty() : _p.kitSlot(i).name == names[i],
+					"Slot " + std::to_string(i + 1) + " holds " + _p.kitSlot(i).name.toStdString());
+			require(_p.kitSlot(16).empty(), "Slot 17 empty");
+			// Boom Room's Track 1, a SOFT KICK (machine choice 71), its Level as saved
+			require(plain(find(_p, "t01_machine")) == 71 && plain(find(_p, "t01_level")) == 77, "Boom Room played");
+			int trigs = 0;
+			for(int t = 0; t < Tracks; ++t)
+				for(int s = 0; s < SeqSteps; ++s)
+					trigs += _p.sequencer().pattern(0).step(t, s).trig ? 1 : 0;
+			require(trigs > 0 && _p.patternKit(0) == 0 && _p.patternKit(15) == 15 && _p.patternKit(16) == -1,
+				"A01-A16 the factory's, each on its Slot");
+		};
+		{
+			Processor first;
+			check(first, -1);
+			require(first.currentKit() == 0 && !first.kitDiffers(), "Boom Room played from Slot 1");
+			require(first.clearKit(3), "Slot 4 cleared");
+		}
+		{
+			Processor later;
+			check(later, 3);
+		}
+		_putenv_s("GEARMULATOR_DATA_ROOT", was.getFullPathName().toRawUTF8());
+		_putenv_s("ED_DRUMS_BLANK_START", "1");
+		std::printf("PASS the first open fills Slots 1-16 with the factory's Kits, a new instance plays Boom Room and"
+			" A01-A16; a later open keeps the Bank as left\n");
+	}
+
 	// GEARMULATOR_DATA_ROOT names a folder of the test's own, empty at its start
 	void kits(const juce::File& _wav)
 	{
@@ -3392,8 +3436,11 @@ int main(const int _argc, char** _argv)
 	const auto root = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsProcessorTestData");
 	root.deleteRecursively();
 	_putenv_s("GEARMULATOR_DATA_ROOT", root.getFullPathName().toRawUTF8());
+	// A new instance blank, its Bank empty: the factory start has its own test in edDrumsProcessorTest
+	_putenv_s("ED_DRUMS_BLANK_START", "1");
 	try
 	{
+		factory();
 		units();
 		transport();
 		{

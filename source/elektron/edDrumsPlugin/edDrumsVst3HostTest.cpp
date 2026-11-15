@@ -77,6 +77,7 @@ namespace
 		{
 			std::filesystem::create_directories(m_path);
 			_putenv_s("GEARMULATOR_DATA_ROOT", m_path.string().c_str());
+			_putenv_s("ED_DRUMS_BLANK_START", "1");	// a new instance blank, as the scenarios expect
 		}
 		~DataRoot()
 		{

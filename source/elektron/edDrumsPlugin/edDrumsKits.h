@@ -51,8 +51,11 @@ namespace elektron::drums
 		// through a temporary file. Kits exported and imported, Track sounds and patterns are such files
 		static std::unique_ptr<juce::XmlElement> readFile(const juce::File& _file, const char* _tag);
 		static bool writeFile(const juce::File& _file, const juce::XmlElement& _xml);
+		// The same from memory: the factory's Kits and patterns in the plug-in's data
+		static std::unique_ptr<juce::XmlElement> readData(const void* _data, size_t _size, const char* _tag);
 
 	private:
+		static std::unique_ptr<juce::XmlElement> readStream(juce::InputStream& _in, const char* _tag);
 		juce::File file(int _slot) const;
 
 		juce::File m_folder;

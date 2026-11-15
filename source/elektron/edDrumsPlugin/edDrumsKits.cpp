@@ -52,7 +52,18 @@ namespace elektron::drums
 		juce::FileInputStream in(_file);
 		if(!in.openedOk())
 			return {};
-		juce::GZIPDecompressorInputStream gzip(in);
+		return readStream(in, _tag);
+	}
+
+	std::unique_ptr<juce::XmlElement> KitBank::readData(const void* _data, const size_t _size, const char* _tag)
+	{
+		juce::MemoryInputStream in(_data, _size, false);
+		return readStream(in, _tag);
+	}
+
+	std::unique_ptr<juce::XmlElement> KitBank::readStream(juce::InputStream& _in, const char* _tag)
+	{
+		juce::GZIPDecompressorInputStream gzip(_in);
 		// A Kit with 16 samples of the longest is a few MB: past 64 MB the file is not one, whatever it inflates to
 		constexpr size_t MostBytes = size_t{64} << 20;
 		juce::MemoryBlock text;

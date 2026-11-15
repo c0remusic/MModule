@@ -392,6 +392,9 @@ namespace elektron::drums
 		void sendAudition();
 		void readSound(const juce::XmlElement& _xml, bool _all);
 		void rememberKit(const juce::XmlElement* _kit);
+		// A new instance: the factory's Kits in the Bank's first Slots on the first open (_fillBank), its patterns as
+		// A01-A16, each playing its Slot at its start, and the first Kit played
+		void factoryStart(bool _fillBank);
 		std::vector<float> kitValuesOf(const juce::XmlElement& _kit) const;
 		void prepareKits(uint64_t _changed);
 		void takeKitSwitch();

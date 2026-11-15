@@ -1,7 +1,7 @@
 # Mesures d'acceptation de la v1
 
 Type: AFK
-Status: ready-for-agent
+Status: resolved
 Assignee: 
 Blocked by: 06, 07, 09, 16, 18, 21, 23, 24
 
@@ -129,3 +129,7 @@ validés (ticket 21), puis Boom Room au master, Night Shift et Crossroads : OK. 
 
 Critère 9 : les neuf pages de l'éditeur en Barlow Semi Condensed (ticket 22), rendues par `edDrumsEditorTest`,
 jugées par l'utilisateur à côté de la maquette : OK. Vert.
+
+Les douze critères sont verts : 1, 3, 5, 6, 8, 10, 11 depuis le 2026-11-13 ; 7 (« ce qui manque ») le 2026-11-13 ;
+4 au calme le 2026-11-14 ; 12, le garde-fou, vert sans saut à chaque passage depuis (72 sur 72, dernier le
+2026-11-15) ; 2 et 9 ce jour. Ticket résolu.
