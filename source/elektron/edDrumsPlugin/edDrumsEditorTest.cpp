@@ -1505,6 +1505,21 @@ namespace
 			machine->setValueNotifyingHost(was);
 			editor.tick();
 		}
+		{
+			// Drive 2 the Digitakt II's Overdrive at 96: its AMOUNT the master's DRIVE in dB
+			auto* drive = processor.parameter("t01_drv2_type");
+			auto* amount = processor.parameter("t01_drv2_amount");
+			const float driveWas = drive->getValue(), amountWas = amount->getValue();
+			drive->setValueNotifyingHost(drive->convertTo0to1(static_cast<float>(DriveType::Overdrive)));
+			amount->setValueNotifyingHost(amount->convertTo0to1(96.0f));
+			const auto text = amount->getText(amount->getValue(), 32);
+			check(drive->getText(drive->getValue(), 32) == "Overdrive" && text.endsWith("dB"),
+				"Drive 2 Overdrive, AMOUNT 96 reads " + text);
+			snapshot(editor, _folder.getChildFile("sound-overdrive.png"));
+			amount->setValueNotifyingHost(amountWas);
+			drive->setValueNotifyingHost(driveWas);
+			editor.tick();
+		}
 		editor.showLfo(1);
 		snapshot(editor, _folder.getChildFile("sound-lfo2.png"));
 		editor.showLfo(0);

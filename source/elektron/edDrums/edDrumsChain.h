@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "edDrumsMaster.h"
 #include "edDrumsOversampler.h"
 #include "edDrumsVintage.h"
 #include "elektronBlock.h"
@@ -32,6 +33,7 @@ namespace elektron::drums
 		MdDist,
 		MdSrr,
 		Dac,		// the vintage PCM DAC (edDrumsVintage.h), after the others: stored choices keep their numbers
+		Overdrive,	// the Digitakt II's, the master's saturator alone (edDrumsMaster.h)
 		Count
 	};
 
@@ -226,8 +228,8 @@ namespace elektron::drums
 	private:
 		enum Place { Pre0, Pre1, BandBefore, FilterPlace, BandAfter, Post0, Post1, Places };
 
-		// Off, then the stages of a place: the drives' four, the band's and the filter's three
-		static constexpr int Types = 5;
+		// Off, then the stages of a place: the drives' six, the band's and the filter's three
+		static constexpr int Types = 6;
 		static constexpr int8_t NoPending = -1;
 
 		struct DriveStages
@@ -237,6 +239,7 @@ namespace elektron::drums
 			md::fast::Dist dist;
 			md::fast::Srr srr;
 			vintage::Dac dac;
+			Overdrive overdrive;
 			std::array<Oversampler, Types> rates;		// by DriveType: a raised drive's history is its own
 		};
 

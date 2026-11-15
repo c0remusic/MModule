@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "edDrumsChain.h"
+#include "edDrumsMaster.h"
 #include "edDrumsTestSupport.h"
 #include "stFastBench.h"
 #include "stFastMetrics.h"
@@ -438,6 +439,32 @@ namespace
 		std::printf("  MIX: at 0 the half-bands alone within %.1f dB, at 64 between dry and wet within %.1f dB\n", decibels(worstDry),
 			decibels(worstHalf));
 		require(worstDry < 2e-6 && worstHalf < 0.02, "MIX");
+	}
+
+	// The Overdrive drive is the master's saturator (ticket 15): AMOUNT is the master's DRIVE, at 0 the Track dry
+	void overdrive()
+	{
+		const auto signal = [](const int64_t _n) { return 0.8 * std::sin(2 * Pi * 220.0 * static_cast<double>(_n) / 44100); };
+		double worst = 0;
+		for(const int amount : {0, 16, 64, 127})
+		{
+			ChainSettings s;
+			s.drive[0] = {DriveType::Overdrive, false, amount, 127};
+			Chain chain(44100.0, false);
+			chain.configure(0, s);
+			const auto y = through(chain, 4096, signal);
+			const double gain = masterDriveGain(static_cast<uint8_t>(amount)), mix = std::min(8 * amount / 127.0, 1.0);
+			for(size_t n = 0; n < y.size(); ++n)
+			{
+				const double x = static_cast<float>(signal(static_cast<int64_t>(n)));
+				worst = std::max(worst, std::abs(y[n] - (x + mix * (saturate(x, gain) - x))));
+			}
+			if(amount == 0)
+				for(size_t n = 0; n < y.size(); ++n)
+					require(y[n] == static_cast<float>(signal(static_cast<int64_t>(n))), "Overdrive at 0 is not the dry Track");
+		}
+		std::printf("  Overdrive: the master's saturator at AMOUNT 0, 16, 64, 127 within %.1f dB\n", decibels(worst));
+		require(worst < 1e-6, "Overdrive is not the master's saturator");
 	}
 
 	// ---- Q7 ----
@@ -1395,6 +1422,7 @@ int main()
 		order();
 		q6();
 		mix();
+		overdrive();
 		firstBlockMix();
 		q7();
 		q9();

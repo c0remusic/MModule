@@ -5,8 +5,10 @@
 // The settings take effect at the engine's blocks (32 samples at 44.1 kHz, as long elsewhere), where their ramps start.
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 
 #include "elektronBlock.h"
@@ -31,6 +33,28 @@ namespace elektron::drums
 	double masterMakeupDb(uint8_t _value);
 	double masterFilterHz(uint8_t _value);
 	double masterDriveGain(uint8_t _value);
+
+	// The overdrive's curve: _y x _gain clipped to +-1, then u (2 - |u|) three times, 1 - (1 - |u|)^8 signed
+	inline double saturate(const double _y, const double _gain)
+	{
+		double u = std::clamp(_gain * _y, -1.0, 1.0);
+		for(int pass = 0; pass < 3; ++pass)
+			u *= 2 - std::abs(u);
+		return u;
+	}
+
+	// The overdrive alone, a Track's drive in its Chain (ticket 15): AMOUNT is the master's DRIVE, its gain into the
+	// curve and its wet share, 0 the Track dry
+	class Overdrive
+	{
+	public:
+		void set(int _lane, int _amountWord);	// a Kit value << 7, an LFO's move in it
+		void process(Block& _buf, uint16_t _lanes = 0xffff) const;
+		void clear(int) {}
+
+	private:
+		double m_gain[Lanes]{}, m_mix[Lanes]{};
+	};
 
 	class Master
 	{

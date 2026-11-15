@@ -53,10 +53,34 @@ namespace elektron::drums
 
 	double masterFilterHz(const uint8_t _value) { return 20 * std::pow(1000.0, (_value % 64) / 63.0); }
 
-	double masterDriveGain(const uint8_t _value)
+	namespace
 	{
-		const double drive = fraction(_value);
-		return 0.8465 * drive * drive + 0.1534;
+		// DRIVE's gain into the curve and its wet share, by its fraction of 127
+		double driveGain(const double _drive) { return 0.8465 * _drive * _drive + 0.1534; }
+		double driveMix(const double _drive) { return std::min(8 * _drive, 1.0); }
+	}
+
+	double masterDriveGain(const uint8_t _value) { return driveGain(fraction(_value)); }
+
+	void Overdrive::set(const int _lane, const int _amountWord)
+	{
+		const double drive = _amountWord / (127.0 * 128);
+		m_gain[_lane] = driveGain(drive);
+		m_mix[_lane] = driveMix(drive);
+	}
+
+	void Overdrive::process(Block& _buf, const uint16_t _lanes) const
+	{
+		for(int l = 0; l < Lanes; ++l)
+		{
+			if(!(_lanes >> l & 1) || m_mix[l] == 0)
+				continue;
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				const double x = _buf.s[n][l];
+				_buf.s[n][l] = static_cast<float>(x + m_mix[l] * (saturate(x, m_gain[l]) - x));
+			}
+		}
 	}
 
 	Master::Master(const double _rate, const int _block)
@@ -121,7 +145,7 @@ namespace elektron::drums
 
 		const double drive = fraction(b[MasterDrive]);
 		m_satGain.next(masterDriveGain(b[MasterDrive]));
-		m_satMix.next(std::min(8 * drive, 1.0));
+		m_satMix.next(driveMix(drive));
 		const double volume = fraction(b[MasterVolume]);
 		m_volume.next(volume * volume);
 	}
@@ -153,11 +177,7 @@ namespace elektron::drums
 		{
 			const double wet = std::clamp(gain * x[c], -1.0, 1.0);
 			const double y = std::clamp(Lift * (m_wet * wet + m_dry * x[c]), -1.0, 1.0);
-			// u (2 - |u|) three times: 1 - (1 - |u|)^8, signed
-			double u = std::clamp(satGain * y, -1.0, 1.0);
-			for(int pass = 0; pass < 3; ++pass)
-				u *= 2 - std::abs(u);
-			*out[c] = static_cast<float>(volume * (y + satMix * (u - y)));
+			*out[c] = static_cast<float>(volume * (y + satMix * (saturate(y, satGain) - y)));
 		}
 		m_wet = m_wetTo + m_mixPole * (m_wet - m_wetTo);
 		m_dry = m_dryTo + m_mixPole * (m_dry - m_dryTo);

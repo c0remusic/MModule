@@ -1,7 +1,7 @@
 # Master : compresseur et overdrive du Digitakt II
 
 Type: AFK
-Status: ready-for-agent
+Status: resolved
 Assignee: 
 Blocked by: 03, 12
 
@@ -71,3 +71,22 @@ le même kit à 44,1 et 48 kHz, bascule en lecture au même instant. Deep Garage
 
 Critère « sonne pareil » rempli. Reste ouvert : le drive de piste « DT2 Overdrive » (le saturateur seul, que « Quoi » demande),
 jamais construit ; le second bus et les sources de sidechain autres que l'entrée, toujours pas construits.
+
+## Drive de piste Overdrive (2026-11-15)
+
+Les deux emplacements de drive ont un sixième type, « Overdrive » (`DriveType::Overdrive`, après DAC : les choix
+enregistrés gardent leur sens) : le saturateur du master seul, sans compresseur ni +10 dB. AMOUNT suit la loi de DRIVE
+du master, gain 0,8465 d² + 0,1534 dans la courbe et part mouillée min(8 d, 1), d = AMOUNT / 127 avec le mouvement d'un
+LFO ; à 0, la piste sort sèche, à l'échantillon près. Courbe et lois sont une seule fonction partagée avec le master
+(`saturate`, `driveGain`, `driveMix` dans `edDrumsMaster.*`). Le drive se suréchantillonne comme les autres (2x par
+défaut). Texte d'AMOUNT : OFF à 0, puis le gain en dB (−3,9 dB à 96).
+
+Hypothèse non revérifiée ici : que l'OVERDRIVE de piste du Digitakt II soit ce même saturateur, comme « Quoi » le dit.
+
+Vérifié : `edDrumsChainTest` (`overdrive`) compare la sortie de la chaîne à la courbe du master sur un sinus de 0,8 à
+AMOUNT 0, 16, 64 et 127, à −150,5 dB au pire, et exige la piste sèche à 0 ; `edDrumsEditorTest` lit le choix et le
+texte d'AMOUNT et rend `sound-overdrive.png` (OVERDRIVE tient sur la ligne de titre du drive).
+
+Critère de fin rempli (vecteurs, « sonne pareil », coût) et « Quoi » construit, sidechain compris tel que l'entrée le
+donne. Hors de ce ticket, non construits : le second bus (pistes hors compresseur) et les sources de sidechain autres
+que l'entrée. Ticket résolu.

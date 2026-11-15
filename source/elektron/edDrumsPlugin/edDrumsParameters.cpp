@@ -15,7 +15,7 @@ namespace elektron::drums::parameters
 {
 	namespace
 	{
-		constexpr const char* DriveTypes = "Off|Saturate|Distort|Downsample|DAC";
+		constexpr const char* DriveTypes = "Off|Saturate|Distort|Downsample|DAC|Overdrive";
 		constexpr const char* OutputNames = "Main|Out 01|Out 02|Out 03|Out 04|Out 05|Out 06|Out 07|Out 08|Out 09"
 			"|Out 10|Out 11|Out 12|Out 13|Out 14|Out 15";
 		constexpr const char* Targets = "None|Drive A|Drive B|EQ A|EQ B|Cutoff|Resonance|Width|Env Depth";
@@ -297,6 +297,8 @@ namespace elektron::drums::parameters
 				const auto s = vintage::driveSetting(_v, rate > 0 ? rate : 44100);
 				return std::to_string(s.bits) + " BIT " + hertz(s.clockHz);
 			}
+			// The master's DRIVE law (Overdrive::set): the gain into its curve, the Track dry at 0
+			case DriveType::Overdrive:	return _v == 0 ? "OFF" : gain(masterDriveGain(static_cast<uint8_t>(_v)));
 			default:					return std::to_string(_v);
 			}
 		}
@@ -508,11 +510,11 @@ namespace elektron::drums::parameters
 	}
 
 	const std::array<Spec, ChainValues> chainSpecs{{
-		{"drv1_type", "Drive 1 Type", 0, 4, DriveTypes},
+		{"drv1_type", "Drive 1 Type", 0, 5, DriveTypes},
 		{"drv1_post", "Drive 1 Place", 0, 1, nullptr, true},
 		{"drv1_amount", "Drive 1 Amount"},
 		{"drv1_mix", "Drive 1 Mix"},
-		{"drv2_type", "Drive 2 Type", 0, 4, DriveTypes},
+		{"drv2_type", "Drive 2 Type", 0, 5, DriveTypes},
 		{"drv2_post", "Drive 2 Place", 0, 1, nullptr, true},
 		{"drv2_amount", "Drive 2 Amount"},
 		{"drv2_mix", "Drive 2 Mix"},

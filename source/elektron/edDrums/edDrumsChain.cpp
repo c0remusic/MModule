@@ -272,7 +272,7 @@ namespace elektron::drums
 
 	Chain::DriveStages::DriveStages(const double _rate)
 		: srr(_rate), dac(_rate), rates{Oversampler(_rate), Oversampler(_rate), Oversampler(_rate), Oversampler(_rate),
-			Oversampler(_rate)}
+			Oversampler(_rate), Oversampler(_rate)}
 	{
 	}
 
@@ -354,6 +354,8 @@ namespace elektron::drums
 				_function(s.srr, MdSrrLevel);
 			else if(_type == static_cast<int>(DriveType::Dac))
 				_function(s.dac, StageLevel{1, 1});
+			else if(_type == static_cast<int>(DriveType::Overdrive))
+				_function(s.overdrive, StageLevel{1, 1});
 		}
 	}
 
@@ -428,6 +430,7 @@ namespace elektron::drums
 		case DriveType::MdDist:		s.dist.set(_lane, amount); break;
 		case DriveType::MdSrr:		s.srr.set(_lane, amount); break;
 		case DriveType::Dac:		s.dac.set(_lane, amount); break;
+		case DriveType::Overdrive:	s.overdrive.set(_lane, amount); break;
 		default:					break;
 		}
 		m_mix[_place][_lane] = static_cast<float>(_drive.mix) / 127.0f;
