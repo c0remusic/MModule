@@ -60,6 +60,9 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
   bits, 48 kHz, mono, TUNE, FINE, BR, SMP, STRT/END, LOOP, LEV), sommé à la voix avant overdrive et filtre analogiques,
   donc à la place du layering ; rendu sur le ColdFire principal [INFER], routine pas trouvée ; portable par vecteurs
   pour la traduction des paramètres, le reste approché par les étages de Lockstep.
+- [Où le Rytm rend sa couche sample](issues/10-lecteur-rytm-localise.md): sur le ColdFire, sommée en numérique
+  au bruit et au clic ; interpolation identique au DT2, BR différente (pas continu, dans la voix) : la BR du Rytm
+  devient un choix de la BR de la couche sample, pas un lecteur à part.
 
 ## Not yet specified
 
