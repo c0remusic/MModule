@@ -22,3 +22,6 @@ sample (il n'y en a pas).
 à côté de Syntakt et MD. _Éviter_ : machines Cycles du Syntakt.
 
 **Cycles dist** : le type de drive qui porte l'étage VOL+DIST du Model:Cycles, VOL en gain d'entrée de DIST.
+
+**Pire kit** : le kit qui coûte le plus de CPU à 16 pistes, sur lequel se juge le plafond de 15 % : machines les plus
+chères et distinctes, couches sample allumées, chaîne pleine au plus cher, envois et master au plus cher.
