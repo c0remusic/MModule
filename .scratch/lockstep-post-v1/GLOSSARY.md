@@ -13,3 +13,7 @@ _Éviter_ : machine DT2, famille DT2 (il n'y en a pas).
 **DRIVE analogique** : l'étage de saturation du bloc Analog FX du Syntakt ; dans Lockstep, l'option ANALOG ≈ du type
 « Syntakt drive » et de la saturation du master, approchée. _Éviter_ : overdrive du master (le Syntakt n'en a pas),
 bus Analog FX (pas dans Lockstep).
+
+**Lock de sample** : le lock d'un pas qui fait jouer à ce trig un autre sample du Locker que celui de la piste, au
+lecteur du Sampler (SAMP machine) ou à la couche sample (SAMP couche). _Éviter_ : pool, banque de samples, numéro de
+sample (il n'y en a pas).

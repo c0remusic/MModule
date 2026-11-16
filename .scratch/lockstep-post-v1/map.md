@@ -53,6 +53,9 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
 - [Analog FX du Syntakt dans Lockstep : place, modèle, réglages](issues/02-modele-overdrive-master.md): pas de bus
   Analog FX ; le DRIVE analogique devient l'option ANALOG ≈ du type « Syntakt drive » et de la saturation du master
   (DT2 par défaut), modèle approché jugé à l'oreille et par cinq tests mesurés, ~0,1 % par piste.
+- [Plusieurs samples par piste](issues/11-plusieurs-samples-par-piste.md): un lock de sample par pas, sur les
+  trois lecteurs et la couche sample, qui nomme un sample du Locker par empreinte ; chargés seuls, sans réserve ni
+  numéros ; ni LFO ni hôte ; sample absent : celui de la piste.
 - [La couche sample du Rytm dans son firmware](issues/08-couche-sample-rytm.md): seul le lecteur est numérique (16
   bits, 48 kHz, mono, TUNE, FINE, BR, SMP, STRT/END, LOOP, LEV), sommé à la voix avant overdrive et filtre analogiques,
   donc à la place du layering ; rendu sur le ColdFire principal [INFER], routine pas trouvée ; portable par vecteurs
