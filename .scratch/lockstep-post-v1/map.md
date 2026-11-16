@@ -66,6 +66,9 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
   sample suit la loi du Rytm, celle du type de chaîne BR la loi du DT2 ; pas de lecteur à part.
 - [OS du Model:Cycles](issues/06-os-model-cycles.md): déjà sur ce PC, 1.13 ; section 3 extraite hors dépôt
   (`elektron-work\model-cycles-1.13`), hachage et adresses du ticket 11 retrouvés.
+- [Oracle dynamique de la voix sampler du Digitakt II](issues/03-oracle-voix-dt2.md): l'oracle tourne hors dépôt
+  (ONESHOT et STRETCH, 21 vecteurs) ; ~3 600 instructions SHARC par voix et par bloc (STRETCH ~1 800) ; décimateur
+  équivalent à celui du Rytm, LEV = 2 × (LEV/128)².
 
 ## Not yet specified
 

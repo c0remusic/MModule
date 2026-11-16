@@ -43,3 +43,5 @@ banc oracle3 avec un eDMA émulé et des samples synthétiques, sous garde de du
   la place) ; le type de chaîne BR garde la loi du DT2, qui agit après la voix comme lui. Un son DT2 importé garde
   ainsi sa BR exacte dans la chaîne. À confirmer à l'oreille quand le lecteur tournera. La traduction à l'import garde
   ±24, LEV au carré et le fondu de fin. Si le décimateur du DT2 se révèle différent, celui du Rytm s'ajoute en variante.
+- **Suite (2026-11-16) :** « Oracle dynamique de la voix sampler du Digitakt II » a mesuré le décimateur du DT2 : la voix
+  suit celle du Rytm à 0,35 dB près jusqu'à 23 kHz, pas de variante. Sa loi de LEV diffère : 2 × (LEV/128)².
