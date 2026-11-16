@@ -75,10 +75,7 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
 
 ## Not yet specified
 
-- Machines du Model:Cycles dans Lockstep : leurs paramètres dans Machine 1-24, leur page, leur chaîne de famille, une
-  fois l'ordre des machines et un état réel de l'OS connus.
 - Effets du DT2 en envois : réglages exposés, ce que chacun partage avec les types actuels, ordre dans les choix.
-- Répartition du budget entre les jalons, une fois les coûts du DT2 et du Cycles mesurés.
 - Compagnon Push (Max for Live) : sa forme dépend du séquenceur tel qu'il sera ; à cadrer après les moteurs.
 - Rédaction de `spec-v2.md` et découpe en tickets de construction, à la fin.
 
