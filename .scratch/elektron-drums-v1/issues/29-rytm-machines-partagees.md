@@ -1,7 +1,7 @@
 # Rytm : les trente machines partagées avec le Syntakt
 
 Type: AFK
-Status: ready-for-agent
+Status: done
 Assignee: agent (session du 2026-11-16)
 Blocked by: 28
 
@@ -50,5 +50,7 @@ dans le port du Syntakt par un harnais hors dépôt.
 - Comptés, cause pas établie : les trois synthés (les plus gros écarts), SD CLASSIC, SD NATURAL, RS CLASSIC, BD SHARP,
   BD SILKY, SD HARD, le bloc de clic de trois métaux. Les lire demande chaque routine du Rytm contre sa jumelle du
   Syntakt, voix par voix.
-- **Décision de l'utilisateur en attente** : pour chacun des trois écarts audibles, garder la version du Syntakt ou
-  ajouter une variante Rytm.
+- **Décidé avec l'utilisateur le 2026-11-16 : la version du Syntakt pour les trois.** Dans Lockstep ces trente machines
+  restent celles du Syntakt ; pas de variante Rytm, rien à changer dans le code. Les écarts dont la cause n'est pas
+  établie ne sont donc pas poursuivis : ils décrivent le Rytm, que Lockstep ne joue pas pour ces machines. Ils
+  reviendraient avec une variante Rytm, si elle était un jour voulue (vecteurs et harnais gardés hors dépôt).
