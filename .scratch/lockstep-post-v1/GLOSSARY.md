@@ -25,3 +25,6 @@ sample (il n'y en a pas).
 
 **Pire kit** : le kit qui coûte le plus de CPU à 16 pistes, sur lequel se juge le plafond de 15 % : machines les plus
 chères et distinctes, couches sample allumées, chaîne pleine au plus cher, envois et master au plus cher.
+
+**Compagnon Push** : le device Max for Live qui fait de Push la façade du séquenceur interne de Lockstep (pas, pistes,
+locks). _Éviter_ : script Push, mode Push (ce n'est ni un script de surface ni un mode de Live).

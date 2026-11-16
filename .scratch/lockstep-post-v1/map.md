@@ -81,10 +81,12 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
 - [Les effets du Digitakt II en envois](issues/14-effets-dt2-en-envois.md): chorus DT2 en cinquième type ; delay et
   reverb DT2 aux réglages du Syntakt, nouveau type seulement si l'oracle montre un code différent ; jugés par
   l'oracle et les tests Q ; envois ≤ 1,2 %.
+- [Compagnon Push](issues/16-compagnon-push.md): device Max for Live, pads = 16 pas de la piste affichée et ses
+  16 pistes, pas tenu + encodeurs = lock ; Push 2 et 3 en contrôleur ; présentation par notes MIDI puis patterns
+  par UDP local ; rien sur l'écran, Live garde transport et automation.
 
 ## Not yet specified
 
-- Compagnon Push (Max for Live) : sa forme dépend du séquenceur tel qu'il sera ; à cadrer après les moteurs.
 - Rédaction de `spec-v2.md` et découpe en tickets de construction, à la fin.
 
 ## Out of scope
