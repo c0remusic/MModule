@@ -46,7 +46,10 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
   (GRAIN à trois valeurs, sets migrés), MODE à six machines, la couche le lit en ONESHOT ; mono, 48 kHz puis
   `fast::Host` ; BR, SRR et base-width en types de chaîne ; ordre : lecteur, layering, filtres, BR/SRR/base-width,
   WERP/SLICE/STRETCH, envois.
-
+- [Couche du Rytm et layering du DT2 : une couche par piste ou deux](issues/09-une-ou-deux-couches.md): une seule
+  couche sample sur toute piste, lecteur DT2 en ONESHOT, réglages du layering v1 plus un BR propre ; le Rytm entre
+  par traduction à l'import, son lecteur seulement comme choix de cette couche si « Où le Rytm rend sa couche
+  sample » le montre distinct.
 - [La couche sample du Rytm dans son firmware](issues/08-couche-sample-rytm.md): seul le lecteur est numérique (16
   bits, 48 kHz, mono, TUNE, FINE, BR, SMP, STRT/END, LOOP, LEV), sommé à la voix avant overdrive et filtre analogiques,
   donc à la place du layering ; rendu sur le ColdFire principal [INFER], routine pas trouvée ; portable par vecteurs
