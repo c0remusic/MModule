@@ -81,7 +81,6 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
 
 ## Not yet specified
 
-- Effets du DT2 en envois : réglages exposés, ce que chacun partage avec les types actuels, ordre dans les choix.
 - Compagnon Push (Max for Live) : sa forme dépend du séquenceur tel qu'il sera ; à cadrer après les moteurs.
 - Rédaction de `spec-v2.md` et découpe en tickets de construction, à la fin.
 
