@@ -17,3 +17,8 @@ bus Analog FX (pas dans Lockstep).
 **Lock de sample** : le lock d'un pas qui fait jouer à ce trig un autre sample du Locker que celui de la piste, au
 lecteur du Sampler (SAMP machine) ou à la couche sample (SAMP couche). _Éviter_ : pool, banque de samples, numéro de
 sample (il n'y en a pas).
+
+**Famille Cycles** : les six machines du Model:Cycles dans Lockstep (KICK, SNARE, METAL, PERC, TONE, CHORD), une famille
+à côté de Syntakt et MD. _Éviter_ : machines Cycles du Syntakt.
+
+**Cycles dist** : le type de drive qui porte l'étage VOL+DIST du Model:Cycles, VOL en gain d'entrée de DIST.

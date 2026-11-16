@@ -72,6 +72,9 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
 - [État réel de l'OS du Model:Cycles et ordre de ses machines](issues/07-etat-os-cycles.md): ordre KICK, SNARE,
   METAL, PERC, TONE, CHORD confirmé ; 108 vecteurs hors dépôt depuis le code de l'OS par morceaux (pas de boot
   complet) ; 5 300 à 8 300 instructions par voix et par bloc ; la vélocité agit après la voix.
+- [Les machines du Model:Cycles dans Lockstep](issues/12-machines-cycles-dans-lockstep.md): famille Cycles à six
+  machines, réglages dans Machine 1-8, chaîne par défaut « Cycles dist » (VOL+DIST) en post, vélocité en gain après
+  la voix et VEL DEST étendu aux réglages de la machine, LFO de Lockstep, port SIMD ≈ 0,1 % par piste.
 
 ## Not yet specified
 
@@ -80,6 +83,9 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
 - Rédaction de `spec-v2.md` et découpe en tickets de construction, à la fin.
 
 ## Out of scope
+
+- Import de sons et de kits Model:Cycles (`.mc-snd`) : hors de ce jalon, décidé avec « Les machines du Model:Cycles
+  dans Lockstep » ; les sons d'usine restent exclus.
 
 - Euclidien et aléatoire (notés « plus tard » dans la spec v1) : un effort à part.
 - Les synthés (Digitone, Analog Four, Monomachine) et le FM DRUM du Digitone II, comme en v1.
