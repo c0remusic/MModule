@@ -5,8 +5,8 @@ Label: wayfinder:map
 ## Destination
 
 Une spécification post-v1 (`spec-v2.md`) et une feuille de route ordonnée, sans décision ouverte, pour les jalons qui
-suivent la v1 de Lockstep, dans cet ordre : Analog FX du Syntakt (son DRIVE analogique, que la spec v1 appelait
-overdrive du master), Digitakt II (sampler, layering,
+suivent la v1 de Lockstep, dans cet ordre : DRIVE analogique du Syntakt (option ANALOG ≈ du drive Syntakt et de la saturation du
+master), Digitakt II (sampler, layering,
 6 filtres, SRR, BR, base-width, delay, reverb et chorus), Model:Cycles, couche sample du Rytm, compagnon Push. La
 construction se fait ensuite dans une carte de construction à part, comme `../elektron-drums-v1/`.
 
@@ -50,6 +50,9 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
   couche sample sur toute piste, lecteur DT2 en ONESHOT, réglages du layering v1 plus un BR propre ; le Rytm entre
   par traduction à l'import, son lecteur seulement comme choix de cette couche si « Où le Rytm rend sa couche
   sample » le montre distinct.
+- [Analog FX du Syntakt dans Lockstep : place, modèle, réglages](issues/02-modele-overdrive-master.md): pas de bus
+  Analog FX ; le DRIVE analogique devient l'option ANALOG ≈ du type « Syntakt drive » et de la saturation du master
+  (DT2 par défaut), modèle approché jugé à l'oreille et par cinq tests mesurés, ~0,1 % par piste.
 - [La couche sample du Rytm dans son firmware](issues/08-couche-sample-rytm.md): seul le lecteur est numérique (16
   bits, 48 kHz, mono, TUNE, FINE, BR, SMP, STRT/END, LOOP, LEV), sommé à la voix avant overdrive et filtre analogiques,
   donc à la place du layering ; rendu sur le ColdFire principal [INFER], routine pas trouvée ; portable par vecteurs

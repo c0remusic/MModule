@@ -7,3 +7,9 @@ Une par piste. _Éviter_ : layer, box SAMPLE (l'élément d'interface), layering
 _Éviter_ : machine DT2, famille DT2 (il n'y en a pas).
 
 **Lecteur** : la façon dont le Sampler et la couche sample lisent un sample (12-BIT, VINTAGE, DT2), choisie par GRAIN.
+
+**OVER** : l'overdrive numérique des pistes 1-8 du Syntakt, dans la voix ; l'option DIGITAL du type « Syntakt drive ».
+
+**DRIVE analogique** : l'étage de saturation du bloc Analog FX du Syntakt ; dans Lockstep, l'option ANALOG ≈ du type
+« Syntakt drive » et de la saturation du master, approchée. _Éviter_ : overdrive du master (le Syntakt n'en a pas),
+bus Analog FX (pas dans Lockstep).
