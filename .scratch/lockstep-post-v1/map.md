@@ -28,7 +28,8 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
 - Budget : 15 % d'un cœur au plus à 16 pistes pour l'instrument complet, DT2 et Cycles compris ; chaque décision dit
   son coût.
 - Firmwares sur ce PC : Digitakt II 1.17 et Analog Rytm MKII 1.74 (`Downloads`), vecteurs `vectors-dt2`,
-  `vectors-rytm`, `rytm-samples`. Model:Cycles : pas d'OS ici. Un téléchargement demande l'accord de l'utilisateur.
+  `vectors-rytm`, `rytm-samples`. Model:Cycles 1.13 dans `%APPDATA%\Elektron Emu`, sections
+  extraites dans `model-cycles-1.13`.
 - Skills : grilling et domain-modeling pour les tickets de conversation, research pour les recherches, prototype pour
   l'interface, karpathy-guidelines pour tout code. Tickets en français.
 
@@ -63,6 +64,8 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
 - [Où le Rytm rend sa couche sample](issues/10-lecteur-rytm-localise.md): sur le ColdFire, sommée en numérique
   au bruit et au clic ; interpolation identique au DT2, BR différente (pas continu, dans la voix) : la BR de la couche
   sample suit la loi du Rytm, celle du type de chaîne BR la loi du DT2 ; pas de lecteur à part.
+- [OS du Model:Cycles](issues/06-os-model-cycles.md): déjà sur ce PC, 1.13 ; section 3 extraite hors dépôt
+  (`elektron-work\model-cycles-1.13`), hachage et adresses du ticket 11 retrouvés.
 
 ## Not yet specified
 
