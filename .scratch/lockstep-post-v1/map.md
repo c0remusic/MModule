@@ -84,11 +84,12 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
 - [Compagnon Push](issues/16-compagnon-push.md): device Max for Live, pads = 16 pas de la piste affichée et ses
   16 pistes, pas tenu + encodeurs = lock ; Push 2 et 3 en contrôleur ; présentation par notes MIDI puis patterns
   par UDP local ; rien sur l'écran, Live garde transport et automation.
+- [Oracle des effets d'envoi du Digitakt II](issues/15-oracle-effets-envoi-dt2.md): l'oracle tourne, 29 vecteurs ;
+  delay du DT2 = celui du Syntakt (le type Syntakt gagne VOL) ; reverb du DT2 différente : type « DT2 reverb ».
 
 ## Not yet specified
 
-- `../elektron-drums/spec-v2.md` rédigée le 2026-11-16 ; reste à la finir quand « Oracle des effets d'envoi du
-  Digitakt II » aura tranché delay et reverb, puis à la découper en tickets de construction.
+- `../elektron-drums/spec-v2.md` complète le 2026-11-16 ; reste à la découper en tickets de construction.
 
 ## Out of scope
 

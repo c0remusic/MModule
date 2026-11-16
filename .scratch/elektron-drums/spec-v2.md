@@ -111,10 +111,14 @@ samples par piste », « Oracle dynamique de la voix sampler du Digitakt II », 
 - Chorus du DT2 : cinquième type de l'emplacement Chorus, après Bucket Brigade. Réglages DPTH, SPD, HPF, WDTH, VOL,
   sans synchro au tempo. Ses envois DEL et REV vont aux emplacements Delay et Reverb, quel que soit leur type, à 0 par
   défaut.
-- Delay et reverb du DT2 : leurs réglages sont ceux du Syntakt, plus un VOL. **En attente** de « Oracle des effets
-  d'envoi du Digitakt II » : s'ils ont le code du Syntakt, le type Syntakt gagne VOL ; sinon chacun devient un type de
-  son emplacement.
-- Jugés par l'oracle des envois et les tests Q, l'oreille pour le reste.
+- Delay du DT2 : celui du Syntakt (« Oracle des effets d'envoi du Digitakt II » : écart −97 à −128 dB, deux
+  constantes près). Pas de nouveau type : le type Syntakt gagne VOL ; un son DT2 importé prend aussi le retour × 0,5
+  et la loi de FDBK du DT2.
+- Reverb du DT2 : un autre algorithme que celle du Syntakt. Elle devient le type **DT2 reverb** de l'emplacement
+  Reverb, après les types actuels ; réglages PRE, DEC, FREQ, GAIN, HPF, LPF, VOL.
+- Jugés par l'oracle des envois (`elektron-work\tools\dt2\dt2_send_oracle.py`, 29 vecteurs dans
+  `vectors-dt2\sends`) et les tests Q, l'oreille pour le reste. Coût de l'original par bloc de 32 : chorus ~14 400,
+  reverb ~14 560 instructions SHARC.
 
 ## 6. J3 — Model:Cycles
 
@@ -179,14 +183,15 @@ Dans chaque jalon, oracle et vecteurs d'abord, puis le port, puis l'interface.
 2. J1 : option ANALOG ≈ du drive Syntakt, puis du master.
 3. J2, dans l'ordre de « Place du Digitakt II dans Lockstep » : lecteur DT2 (ONESHOT, GRID, REPITCH) ; couche sample
    et sa BR à la loi du Rytm ; locks de sample ; filtres du DT2 ; BR, SRR, base-width ; WERP, SLICE et son éditeur,
-   STRETCH ; envois du DT2, une fois « Oracle des effets d'envoi du Digitakt II » fait.
+   STRETCH ; VOL du delay Syntakt, chorus et reverb du DT2.
 4. J3 : famille Cycles, Cycles dist, VEL DEST étendu.
 5. J4 : import des sons Rytm dans la couche sample.
 6. J5 : compagnon Push, puis l'écoute UDP de Lockstep.
 
 ## 10. Points ouverts
 
-- Delay et reverb du DT2 : même code que ceux du Syntakt ou non (« Oracle des effets d'envoi du Digitakt II »).
+- Chorus et reverb du DT2 : où va le retour du chorus, lois de leurs réglages, longueurs du réseau de la reverb (à
+  relever à l'oracle avant leur port).
 - Les machines du DT2 non passées à l'oracle : WERP, REPITCH, GRID, SLICE ; la stéréo ; le lissage et les LFO du
   ColdFire.
 - Un état démarré du Model:Cycles avec son Kit d'usine (lèverait les hypothèses de ses vecteurs) : demande de

@@ -32,3 +32,8 @@ Décidé avec l'utilisateur le 2026-11-16 (grilling), sur les faits de [research
 - **Budget :** les envois mesuraient déjà 0,96 % au pire en v1, au-dessus du guide de 0,7 % que fixait « Répartition
   du budget CPU entre les jalons ». Corrigé : envois ≤ 1,2 % (chorus du DT2 compris), chaîne ramenée à ≤ 2,0 %, son
   guide de la v1, pour garder 15 % au total.
+- **Tranché le 2026-11-16** par « Oracle des effets d'envoi du Digitakt II », selon la règle ci-dessus : le delay du
+  DT2 est celui du Syntakt (écart −97 à −128 dB, deux constantes près) : pas de nouveau type, le type Syntakt gagne
+  VOL, avec le retour × 0,5 et la loi de FDBK du DT2 pour un son DT2 importé. La reverb du DT2 est un autre
+  algorithme : elle devient le type « DT2 reverb » de l'emplacement Reverb, après les types actuels, jugée contre les
+  vecteurs de l'oracle (coût de l'original ~14 560 instructions SHARC par bloc).
