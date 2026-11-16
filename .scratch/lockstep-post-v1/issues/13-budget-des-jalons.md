@@ -34,3 +34,5 @@ Décidé avec l'utilisateur le 2026-11-16 (grilling).
   commit. Pas de dégradation automatique de qualité.
 - **Mesure :** un banc `edDrumsWorstKitCost` joue le pire kit (minimum de 5 passes de 4 s), donne le pourcentage par
   bloc et au total, et entre au garde-fou comme test de temps (rejoué une fois s'il échoue seul).
+- **Corrigé le 2026-11-16** (« Les effets du Digitakt II en envois ») : le guide des envois était sous leur coût mesuré
+  en v1 (0,96 %). Envois ≤ 1,2 %, chaîne ≤ 2,0 % ; les autres guides ne changent pas, la somme reste 15 %.

@@ -76,8 +76,11 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
   machines, réglages dans Machine 1-8, chaîne par défaut « Cycles dist » (VOL+DIST) en post, vélocité en gain après
   la voix et VEL DEST étendu aux réglages de la machine, LFO de Lockstep, port SIMD ≈ 0,1 % par piste.
 - [Répartition du budget CPU entre les jalons](issues/13-budget-des-jalons.md): 15 % jugés sur le pire kit ;
-  guides moteurs 10, couche sample 1,5, chaîne 2,5, envois 0,7, master 0,3 % ; dépasser un guide se dit, dépasser
+  guides moteurs 10, couche sample 1,5, chaîne 2,0, envois 1,2, master 0,3 % (corrigés au 14) ; dépasser un guide se dit, dépasser
   le plafond s'optimise ; banc `edDrumsWorstKitCost` au garde-fou.
+- [Les effets du Digitakt II en envois](issues/14-effets-dt2-en-envois.md): chorus DT2 en cinquième type ; delay et
+  reverb DT2 aux réglages du Syntakt, nouveau type seulement si l'oracle montre un code différent ; jugés par
+  l'oracle et les tests Q ; envois ≤ 1,2 %.
 
 ## Not yet specified
 
