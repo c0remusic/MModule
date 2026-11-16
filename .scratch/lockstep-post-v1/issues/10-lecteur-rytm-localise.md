@@ -38,6 +38,8 @@ banc oracle3 avec un eDMA émulé et des samples synthétiques, sous garde de du
   comparer quand « Oracle de la voix du DT2 » tournera. La loi de LEV du DT2, la vélocité et le LFO n'ont pas été
   relevés.
 - **Conséquence pour « Couche du Rytm et layering du DT2 »** : la couche sample se porte sur le lecteur DT2 en ONESHOT.
-  Ce qui distingue le Rytm n'est pas un lecteur mais une loi de BR : la BR du Rytm devient un choix de la BR propre de
-  la couche, à côté de celle du DT2. La traduction à l'import garde ±24, LEV au carré et le fondu de fin. Si le
-  décimateur du DT2 se révèle différent, celui du Rytm s'ajoute en variante.
+  Ce qui distingue le Rytm n'est pas un lecteur mais une loi de BR. Décidé avec l'utilisateur le 2026-11-16 : la BR
+  propre de la couche suit **la loi du Rytm**, sans choix (pas continu, sur le sample seul avant LEV, comme le ticket 09
+  la place) ; le type de chaîne BR garde la loi du DT2, qui agit après la voix comme lui. Un son DT2 importé garde
+  ainsi sa BR exacte dans la chaîne. À confirmer à l'oreille quand le lecteur tournera. La traduction à l'import garde
+  ±24, LEV au carré et le fondu de fin. Si le décimateur du DT2 se révèle différent, celui du Rytm s'ajoute en variante.

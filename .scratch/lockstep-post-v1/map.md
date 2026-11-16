@@ -61,8 +61,8 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
   donc à la place du layering ; rendu sur le ColdFire principal [INFER], routine pas trouvée ; portable par vecteurs
   pour la traduction des paramètres, le reste approché par les étages de Lockstep.
 - [Où le Rytm rend sa couche sample](issues/10-lecteur-rytm-localise.md): sur le ColdFire, sommée en numérique
-  au bruit et au clic ; interpolation identique au DT2, BR différente (pas continu, dans la voix) : la BR du Rytm
-  devient un choix de la BR de la couche sample, pas un lecteur à part.
+  au bruit et au clic ; interpolation identique au DT2, BR différente (pas continu, dans la voix) : la BR de la couche
+  sample suit la loi du Rytm, celle du type de chaîne BR la loi du DT2 ; pas de lecteur à part.
 
 ## Not yet specified
 
