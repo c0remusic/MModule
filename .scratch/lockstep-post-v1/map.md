@@ -69,6 +69,9 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
 - [Oracle dynamique de la voix sampler du Digitakt II](issues/03-oracle-voix-dt2.md): l'oracle tourne hors dépôt
   (ONESHOT et STRETCH, 21 vecteurs) ; ~3 600 instructions SHARC par voix et par bloc (STRETCH ~1 800) ; décimateur
   équivalent à celui du Rytm, LEV = 2 × (LEV/128)².
+- [État réel de l'OS du Model:Cycles et ordre de ses machines](issues/07-etat-os-cycles.md): ordre KICK, SNARE,
+  METAL, PERC, TONE, CHORD confirmé ; 108 vecteurs hors dépôt depuis le code de l'OS par morceaux (pas de boot
+  complet) ; 5 300 à 8 300 instructions par voix et par bloc ; la vélocité agit après la voix.
 
 ## Not yet specified
 
