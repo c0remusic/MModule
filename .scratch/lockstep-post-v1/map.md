@@ -87,7 +87,8 @@ construction se fait ensuite dans une carte de construction à part, comme `../e
 
 ## Not yet specified
 
-- Rédaction de `spec-v2.md` et découpe en tickets de construction, à la fin.
+- `../elektron-drums/spec-v2.md` rédigée le 2026-11-16 ; reste à la finir quand « Oracle des effets d'envoi du
+  Digitakt II » aura tranché delay et reverb, puis à la découper en tickets de construction.
 
 ## Out of scope
 
