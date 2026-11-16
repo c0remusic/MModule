@@ -3141,6 +3141,28 @@ namespace
 			require(to.sampleName(6) == _wav.getFileName(), "the Track sound's sample");
 			requireSame(take, playHit(to, 6, 64 * Block), "a Track sound on Track 7 does not play as on Track 3: ");
 			require(to.auditionTrackSound(file) && to.auditioned() && !to.auditioned()->pcm.empty(), "the audition");
+			// Ticket 31: the audition is the Track played. The sound on Track 1 of a fresh instance, its Hit at the
+			// audition's velocity, gives on Main the audition's samples, within the 16 bits the audition keeps
+			{
+				const auto& heard = to.auditioned()->pcm;
+				Processor on1;
+				allOutputs(on1);
+				require(on1.loadTrackSound(0, file), "the Track sound not loaded on Track 1");
+				const int blocks = static_cast<int>((heard.size() + Block - 1) / Block);
+				const auto played = playHit(on1, 0, blocks * Block);
+				double worst = 0;
+				float peak = 0;
+				for(size_t n = 0; n < heard.size(); ++n)
+				{
+					const float mono = 0.5f * (played[0][n] + played[1][n]);
+					peak = std::max(peak, std::abs(mono));
+					worst = std::max(worst, std::abs(static_cast<double>(mono) * 32767.0 - heard[n]));
+				}
+				require(peak > 0.01f && worst <= 0.5 + 1e-3, "the audition is not the Track played: "
+					+ std::to_string(worst) + " LSB apart at worst, peak " + std::to_string(peak));
+				std::printf("  the audition of a Track sound is the Track played: %zu samples within %.3f LSB\n",
+					heard.size(), worst);
+			}
 			std::printf("  a Track sound saved from Track 3 plays the same on Track 7 of another instance\n");
 		}
 

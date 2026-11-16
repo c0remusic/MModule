@@ -814,34 +814,132 @@ namespace elektron::drums
 		return held(_watched.parameter) ? m_locks.value(_watched.parameter->getParameterIndex()) : _watched.value();
 	}
 
+	namespace
+	{
+		// A Track's chain and one of its LFOs, as _values reads them
+		template<typename Values, typename Chain>
+		parameters::ChainArray chainFrom(const Chain& _chain, const Values& _values)
+		{
+			parameters::ChainArray values{};
+			for(size_t i = 0; i < values.size(); ++i)
+				values[i] = juce::roundToInt(_values.value(_chain[i]));
+			return values;
+		}
+
+		template<typename Values, typename Lfo>
+		parameters::LfoArray lfoFrom(const Lfo& _lfo, const Values& _values)
+		{
+			parameters::LfoArray values{};
+			for(size_t i = 0; i < values.size(); ++i)
+				values[i] = _values.value(_lfo[i]);
+			return values;
+		}
+
+		// The chain whole, when it is not the one the engine holds (_held, if known): given again, the same chain is not
+		// quite a no-op (ulps of the plug-in's build against the engine's)
+		void giveChain(Engine& _engine, const int _track, const parameters::ChainArray& _values,
+			parameters::ChainArray* _held)
+		{
+			if(_held && *_held == _values)
+				return;
+			_engine.setChain(_track, parameters::chainOf(_values));
+			if(_held)
+				*_held = _values;
+		}
+	}
+
+	// The Track played: the host's values, a Lock's while it holds one; a watched value given once it moved, or once due
+	struct Processor::PlayedValues
+	{
+		const Processor& processor;
+
+		// Asked only of a value no Lock holds (giveTrack asks held first)
+		static float value(const juce::AudioParameterInt* _p) { return static_cast<float>(_p->get()); }
+		// The value changed() took, as the engine's watch remembers it
+		float value(const Watched& _w) const { return processor.lockOr(_w); }
+		bool held(const juce::RangedAudioParameter* _p) const { return processor.held(_p); }
+		static bool moved(Watched& _w) { return _w.changed(); }
+	};
+
+	// A Kit's values (normalised, by parameter index), every one given, no Lock
+	struct Processor::KitValues
+	{
+		const std::vector<float>& values;
+
+		float value(const juce::RangedAudioParameter* _p) const
+		{
+			return _p->convertFrom0to1(values[static_cast<size_t>(_p->getParameterIndex())]);
+		}
+		float value(const Watched& _w) const { return value(_w.parameter); }
+		static bool held(const juce::RangedAudioParameter*) { return false; }
+		static bool moved(const Watched&) { return true; }
+	};
+
 	parameters::ChainArray Processor::chainValues(const int _track) const
 	{
-		parameters::ChainArray values{};
-		const auto& p = m_tracks[static_cast<size_t>(_track)];
-		for(size_t i = 0; i < values.size(); ++i)
-			values[i] = juce::roundToInt(lockOr(p.chain[i]));
-		return values;
+		return chainFrom(m_tracks[static_cast<size_t>(_track)].chain, PlayedValues{*this});
 	}
 
 	parameters::LfoArray Processor::lfoValues(const int _track, const int _lfo) const
 	{
-		parameters::LfoArray values{};
-		const auto& lfo = m_tracks[static_cast<size_t>(_track)].lfo[static_cast<size_t>(_lfo)];
-		for(size_t i = 0; i < values.size(); ++i)
-			values[i] = lockOr(lfo[i]);
-		return values;
+		return lfoFrom(m_tracks[static_cast<size_t>(_track)].lfo[static_cast<size_t>(_lfo)], PlayedValues{*this});
 	}
 
-	// The chain whole, when it is not the one the engine holds: given again, the same chain is not quite a no-op (ulps
-	// of the plug-in's build against the engine's)
 	void Processor::setChainHeld(const int _track)
 	{
-		const auto values = chainValues(_track);
-		if(auto& chain = m_chainHeld[static_cast<size_t>(_track)]; values != chain)
+		giveChain(*m_engine, _track, chainValues(_track), &m_chainHeld[static_cast<size_t>(_track)]);
+	}
+
+	// _values tells, for a parameter of the Track: value(p), its plain value, and value(w) a watched one's as moved(w)
+	// took it; held(p), whether a Lock holds it, which then stays the Lock's until the Track's next Hit gives the host's
+	// value back; moved(w), whether a watched value moved since the engine took it. A parameter of the Track sound
+	// reaches an engine here alone, the played Track's and an audition's alike; a lockable one also names its Lock's
+	// kind (buildLockTargets, applyTarget), and where the Track sounds (output, chokes) is syncSound's
+	template<typename Values>
+	void Processor::giveTrack(Engine& _engine, const int _track, TrackParameters& _p, Values& _values,
+		parameters::ChainArray* _chainHeld)
+	{
+		auto& e = _engine;
+		const int t = _track;
+		const auto plain = [&](const auto& _q) { return juce::roundToInt(_values.value(_q)); };
+		for(int i = 0; i < MachineParameters; ++i)
 		{
-			m_engine->setChain(_track, parameters::chainOf(values));
-			chain = values;
+			const auto* q = _p.values[static_cast<size_t>(i)];
+			if(_values.held(q))
+				continue;
+			if(const int v = plain(q); v != e.parameter(t, i))
+				e.setParameter(t, i, static_cast<uint8_t>(v));
 		}
+		if(!_values.held(_p.note))
+			e.setNote(t, plain(_p.note));
+		if(!_values.held(_p.level))
+			e.setLevel(t, plain(_p.level));
+		if(!_values.held(_p.pan))
+			e.setPan(t, plain(_p.pan));
+
+		// The chain whole, and each LFO whole, when any of its values moved: every one asked, each remembering it was
+		bool chainMoved = false;
+		for(auto& w : _p.chain)
+			chainMoved |= _values.moved(w);
+		if(chainMoved)
+			giveChain(e, t, chainFrom(_p.chain, _values), _chainHeld);
+		for(size_t l = 0; l < _p.lfo.size(); ++l)
+		{
+			bool lfoMoved = false;
+			for(auto& w : _p.lfo[l])
+				lfoMoved |= _values.moved(w);
+			if(lfoMoved)
+				e.setLfo(t, static_cast<int>(l), parameters::lfoOf(lfoFrom(_p.lfo[l], _values)));
+		}
+		for(size_t s = 0; s < _p.sends.size(); ++s)
+			if(_values.moved(_p.sends[s]) && !_values.held(_p.sends[s].parameter))
+				e.setSend(t, static_cast<Send>(s), plain(_p.sends[s]));
+		if(_values.moved(_p.accent) && !_values.held(_p.accent.parameter))
+			e.setAccent(t, plain(_p.accent));
+		// Both read: a change of either gives the engine the pair
+		const bool repeatSync = _values.moved(_p.repeatSync);
+		if(_values.moved(_p.repeatNote) || repeatSync)
+			e.setRepeatNote(t, plain(_p.repeatSync) ? parameters::repeatNoteQuarters(plain(_p.repeatNote)) : 0.0);
 	}
 
 	// One parameter of a Track to the engine: the Lock's value while it holds one, else the host's
@@ -1623,45 +1721,11 @@ namespace elektron::drums
 					m_reread = true;
 				}
 			}
-			// What a Lock holds stays, until the Track's next Hit gives the host's value back
-			for(int i = 0; i < MachineParameters; ++i)
-			{
-				const int v = p.values[static_cast<size_t>(i)]->get();
-				if(v != e.parameter(t, i) && !held(p.values[static_cast<size_t>(i)]))
-					e.setParameter(t, i, static_cast<uint8_t>(v));
-			}
-			if(!held(p.note))
-				e.setNote(t, p.note->get());
-			if(!held(p.level))
-				e.setLevel(t, p.level->get());
-			if(!held(p.pan))
-				e.setPan(t, p.pan->get());
+			PlayedValues played{*this};
+			giveTrack(e, t, p, played, &m_chainHeld[static_cast<size_t>(t)]);
+			// Where the Track sounds and what it cuts: the Track's, not its sound's (soundSuffix)
 			e.setOutput(t, p.output->get());
 			e.setChokes(t, static_cast<uint32_t>(p.chokes->get()));
-
-			// The chain whole, when any of its values moved
-			bool chainMoved = false;
-			for(auto& w : p.chain)
-				chainMoved |= w.changed();
-			if(chainMoved)
-				setChainHeld(t);
-			for(size_t l = 0; l < p.lfo.size(); ++l)
-			{
-				bool lfoMoved = false;
-				for(auto& w : p.lfo[l])
-					lfoMoved |= w.changed();
-				if(lfoMoved)
-					e.setLfo(t, static_cast<int>(l), parameters::lfoOf(lfoValues(t, static_cast<int>(l))));
-			}
-			for(size_t s = 0; s < p.sends.size(); ++s)
-				if(p.sends[s].changed() && !held(p.sends[s].parameter))
-					e.setSend(t, static_cast<Send>(s), p.sends[s].integer());
-			if(p.accent.changed() && !held(p.accent.parameter))
-				e.setAccent(t, p.accent.integer());
-			// Both read: a change of either gives the engine the pair
-			const bool repeatSync = p.repeatSync.changed();
-			if(p.repeatNote.changed() || repeatSync)
-				e.setRepeatNote(t, p.repeatSync.integer() ? parameters::repeatNoteQuarters(p.repeatNote.integer()) : 0.0);
 		}
 		syncShared();
 	}
@@ -2788,35 +2852,14 @@ namespace elektron::drums
 		// On Track 1 of an engine of its own at its defaults, Main alone, one Hit at velocity 100: the Sampler's length
 		const auto kit = soundAsKit(*sound, 0);
 		const auto values = kitValuesOf(*kit);
-		const auto plain = [&](const juce::RangedAudioParameter* _p)
-		{
-			return juce::roundToInt(_p->convertFrom0to1(values[static_cast<size_t>(_p->getParameterIndex())]));
-		};
-		const auto& p = m_tracks[0];
+		// Track 1's parameters name where each value sits in the Kit; KitValues never touches what they watch
+		KitValues kitValues{values};
+		const auto plain = [&](const juce::RangedAudioParameter* _p) { return juce::roundToInt(kitValues.value(_p)); };
+		auto& p = m_tracks[0];
 		Engine e(*m_library);
 		e.setTempo(m_tempo->get());
 		e.setMachine(0, m_machines[static_cast<size_t>(plain(p.machine))]);
-		for(int i = 0; i < MachineParameters; ++i)
-			if(const int v = plain(p.values[static_cast<size_t>(i)]); v != e.parameter(0, i))
-				e.setParameter(0, i, static_cast<uint8_t>(v));
-		e.setNote(0, plain(p.note));
-		e.setLevel(0, plain(p.level));
-		e.setPan(0, plain(p.pan));
-		parameters::ChainArray chain{};
-		for(size_t i = 0; i < chain.size(); ++i)
-			chain[i] = plain(p.chain[i].parameter);
-		e.setChain(0, parameters::chainOf(chain));
-		for(size_t l = 0; l < p.lfo.size(); ++l)
-		{
-			parameters::LfoArray lfo{};
-			for(size_t i = 0; i < lfo.size(); ++i)
-				lfo[i] = p.lfo[l][i].parameter->convertFrom0to1(values[static_cast<size_t>(p.lfo[l][i].parameter->getParameterIndex())]);
-			e.setLfo(0, static_cast<int>(l), parameters::lfoOf(lfo));
-		}
-		for(size_t s = 0; s < p.sends.size(); ++s)
-			e.setSend(0, static_cast<Send>(s), plain(p.sends[s].parameter));
-		e.setAccent(0, plain(p.accent.parameter));
-		e.setRepeatNote(0, plain(p.repeatSync.parameter) ? parameters::repeatNoteQuarters(plain(p.repeatNote.parameter)) : 0.0);
+		giveTrack(e, 0, p, kitValues, nullptr);
 		std::unique_ptr<Sample> sample;
 		juce::String ref;
 		if(const auto* element = kit->getChildByName("sample"))

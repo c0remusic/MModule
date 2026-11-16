@@ -1,8 +1,8 @@
 # Une seule liaison d'une piste vers l'Engine
 
 Type: AFK
-Status: ready-for-agent
-Assignee: 
+Status: done
+Assignee: agent (session du 2026-11-16)
 Blocked by: 
 
 ## Quoi
@@ -33,3 +33,25 @@ Touche le chemin audio : décidé avec l'utilisateur d'en faire un ticket.
 
 Rapport de revue d'architecture du 2026-11-15. `edDrumsProcessor.cpp` : `syncSound`, `applyTarget`,
 `auditionTrackSound`, `syncShared`.
+
+## Réponse
+
+Fait le 2026-11-16.
+
+- `Processor::giveTrack` (`edDrumsProcessor.cpp`) est la seule liaison du son d'une piste vers un Engine : tout ce que
+  garde un son de piste sauf la machine (Machine 1-24, note, niveau, pan, chaîne, LFO, envois, accent, Gap Sync). Elle
+  lit les valeurs par un lecteur : `PlayedValues` (la piste jouée : valeurs de l'hôte, d'un Lock tant qu'il tient,
+  seulement ce qui a bougé ou qui est « dû ») ou `KitValues` (les valeurs d'un Kit, toutes). `syncSound` et
+  `auditionTrackSound` l'appellent ; `chainValues` et `lfoValues` lisent par les mêmes `chainFrom`/`lfoFrom`.
+- Restent hors d'elle, par choix : la machine (son changement précède la lecture des valeurs par défaut,
+  `syncSound`) ; la sortie et les chokes, qui ne sont pas du son (un son de piste les laisse, `soundSuffix`) ;
+  `applyTarget`, l'aiguillage d'un Lock par genre.
+- Exemple : un réglage de piste surveillé de plus (le niveau de la couche sample de la v2, disons) se déclare dans
+  `TrackParameters` et se donne d'une ligne dans `giveTrack` ; la piste jouée, l'audition, les Kits et les états le
+  suivent sans autre retouche. S'il est verrouillable, son genre de Lock existe déjà (`LockKind`) ou s'ajoute à
+  `applyTarget`.
+- Test : `edDrumsProcessorTest` (`kitFiles`) joue un son de piste sur la piste 1 d'une instance neuve et compare à
+  son audition : 57 088 échantillons à 0,5 LSB au plus, l'arrondi des 16 bits de l'audition. Une mutation (audition à
+  la vélocité 90) le fait échouer à 44,8 LSB.
+- Latence et gigue : la liaison ne touche ni le chemin du trig ni le rendu. `edDrumsVst3HostTest` vérifie toujours un
+  Hit `HitDelay` après sa note où qu'elle tombe, et `edDrumsEngineTest` une gigue nulle (garde-fou du commit).

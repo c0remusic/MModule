@@ -362,6 +362,14 @@ namespace elektron::drums
 		parameters::ChainArray chainValues(int _track) const;
 		parameters::LfoArray lfoValues(int _track, int _lfo) const;
 		void setChainHeld(int _track);
+		// The one binding of a Track's sound to an engine: every parameter of the Track sound but its machine, read
+		// through _values (the Track played, or a Kit's values; see the .cpp), given to Track _track of _engine.
+		// _chainHeld, the chain _engine holds, spares giving the same chain again; null gives it whenever it moved
+		struct PlayedValues;
+		struct KitValues;
+		template<typename Values>
+		static void giveTrack(Engine& _engine, int _track, TrackParameters& _p, Values& _values,
+			parameters::ChainArray* _chainHeld);
 		void applyTarget(int _parameter);
 		void releaseLocks(int _track) { m_locks.release(_track, *this); }
 		void applyEvent(const Event& _event, int64_t _at);
