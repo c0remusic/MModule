@@ -67,8 +67,31 @@ namespace elektron::drums
 	void Overdrive::set(const int _lane, const int _amountWord)
 	{
 		const double drive = _amountWord / (127.0 * 128);
-		m_gain[_lane] = driveGain(drive);
-		m_mix[_lane] = driveMix(drive);
+		set(_lane, driveGain(drive), driveMix(drive));
+	}
+
+	void Overdrive::set(const int _lane, const double _gain, const double _mix)
+	{
+		m_gain[_lane] = _gain;
+		m_mix[_lane] = _mix;
+	}
+
+	// The gain's law is b + (1 - b) t, t the OS's target of the word squared, 0.969 at 127; the OS's two words sum to 1
+	// (the Overdrive's 0.8465 and 0.1534 are a fit of them). The SNR edDrumsCyclesDistTest measures against the OS
+	// hangs on b: 137 dB with this one, 63 with 0.1536
+	double CyclesDist::gain(const double _value)
+	{
+		constexpr double b = 0.153487721;
+		const double v = std::max(_value - 64, 0.0) / 63;
+		return b + (1 - b) * (0.968994140625 * v * v);
+	}
+
+	double CyclesDist::mix(const double _value) { return std::clamp((_value - 60) / 8, 0.0, 1.0); }
+
+	void CyclesDist::set(const int _lane, const int _amountWord)
+	{
+		const double value = _amountWord / 128.0;
+		m_drive.set(_lane, gain(value), mix(value));
 	}
 
 	// saturate's arithmetic in SSE2 doubles, two lanes at a time, or in AVX four (edDrumsMasterAvx2.cpp) where the caller

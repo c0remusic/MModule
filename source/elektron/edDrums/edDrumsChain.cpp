@@ -249,6 +249,9 @@ namespace elektron::drums
 		{
 			for(auto& d : _s.drive)
 			{
+				// A type past the stages a place holds would index them out of their arrays
+				if(d.type >= DriveType::Count)
+					d.type = DriveType::Off;
 				d.amount = clampValue(d.amount);
 				d.mix = clampValue(d.mix);
 			}
@@ -272,9 +275,10 @@ namespace elektron::drums
 	}
 
 	Chain::DriveStages::DriveStages(const double _rate)
-		: dist(rate::fastFir()), srr(_rate), dac(_rate), overdrive(rate::fastFir()),
+		: dist(rate::fastFir()), srr(_rate), dac(_rate), overdrive(rate::fastFir()), cyclesDist(rate::fastFir()),
 		  rates{Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()),
-			Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir())}
+			Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()),
+			Oversampler(_rate, rate::fastFir())}
 	{
 	}
 
@@ -358,6 +362,8 @@ namespace elektron::drums
 				_function(s.dac, StageLevel{1, 1});
 			else if(_type == static_cast<int>(DriveType::Overdrive))
 				_function(s.overdrive, StageLevel{1, 1});
+			else if(_type == static_cast<int>(DriveType::CyclesDist))
+				_function(s.cyclesDist, StageLevel{1, 1});
 		}
 	}
 
@@ -433,6 +439,7 @@ namespace elektron::drums
 		case DriveType::MdSrr:		s.srr.set(_lane, amount); break;
 		case DriveType::Dac:		s.dac.set(_lane, amount); break;
 		case DriveType::Overdrive:	s.overdrive.set(_lane, amount); break;
+		case DriveType::CyclesDist:	s.cyclesDist.set(_lane, amount); break;
 		default:					break;
 		}
 		m_mix[_place][_lane] = static_cast<float>(_drive.mix) / 127.0f;
