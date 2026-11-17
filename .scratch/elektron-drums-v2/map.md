@@ -27,7 +27,7 @@ Ordre de la spécification (§9). `Blocked by:` en tête de chaque ticket.
 - [03 ANALOG ≈ au master](issues/03-analog-drive-master.md) — après 02
 - [04 Lecteur DT2 du Sampler en ONESHOT](issues/04-lecteur-dt2-oneshot.md) — après 01
 - [05 GRID et REPITCH du lecteur DT2](issues/05-grid-repitch.md) — après 04
-- [06 Couche sample par piste](issues/06-couche-sample.md) — après 04
+- [06 Couche sample par piste](issues/06-couche-sample.md) — après 04, 26
 - [07 Lock de sample sur le lecteur du Sampler](issues/07-lock-sample-lecteur.md) — après 04
 - [08 Lock de sample sur la couche, glisser sur un pas, nom court dans les lanes](issues/08-lock-sample-couche-glisser.md) — après 06, 07
 - [09 Les six filtres du DT2 en types de FILTER](issues/09-filtres-dt2.md) — après 01
@@ -47,3 +47,4 @@ Ordre de la spécification (§9). `Blocked by:` en tête de chaque ticket.
 - [23 Compagnon Push : pads des pistes et relais des encodeurs](issues/23-push-pistes-encodeurs.md) — après 22
 - [24 Compagnon Push : lock par pas tenu](issues/24-push-lock-pas-tenu.md) — après 23
 - [25 Compagnon Push : mode LIVE et choix de pattern](issues/25-push-live-pattern.md) — après 24
+- [26 La chaîne à 4x sous 4 % d'un cœur](issues/26-chaine-4x-sous-4.md) — après 01 ; ajouté le 2026-11-17, bloque 06

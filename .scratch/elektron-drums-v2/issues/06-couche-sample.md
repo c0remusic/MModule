@@ -3,7 +3,7 @@
 Type: AFK puis HITL (écoute)
 Status: ready-for-agent
 Assignee:
-Blocked by: 04
+Blocked by: 04, 26
 
 ## Quoi
 
