@@ -89,12 +89,17 @@ namespace md::fast
 	class Dist
 	{
 	public:
-		Dist();
+		// _avx2: groups of 4 lanes in AVX (mdFastTrackFxAvx2.cpp), the same samples; only where the caller found the CPU
+		// has it
+		explicit Dist(bool _avx2 = false);
 		void set(int _lane, int _dist);
 		void process(Block& _buf, uint16_t _lanes = 0xffff);
 		void clear(int _lane);
 
 	private:
+		void processAvx2(Block& _buf, int _l);
+
+		bool m_avx2;
 		alignas(16) double m_gain[Lanes], m_out[Lanes], m_outOld[Lanes]{};
 		alignas(16) double m_a[Lanes]{}, m_y1[Lanes]{}, m_c1[Lanes]{};
 	};

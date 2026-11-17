@@ -2,7 +2,7 @@
 
 Type: AFK
 Status: ready-for-agent
-Assignee:
+Assignee: Claude (session 2026-11-17)
 Blocked by: 01
 
 ## Quoi
@@ -25,6 +25,18 @@ qualité des drives, et l'écoute tranche s'ils bougent.
 - La chaîne du pire kit à 4x sous 4 % d'un cœur au garde-fou, le pire kit total sous 12 %.
 - Les tests de qualité des drives et de l'oversampling passent sans seuil relâché.
 - Gate vert.
+
+## Avancement (2026-11-17)
+
+Première étape commitée, critère pas encore atteint. Les drives suréchantillonnés ont maintenant des versions AVX2
+(suréchantillonneur par 8 pistes, Overdrive et Dist par 4 en doubles), choisies par `rate::fastFir()` et bâties en
+`/fp:precise` : `edDrumsChainTest` les compare aux versions SSE, échantillon pour échantillon (2 048 000 échantillons,
+égaux). Au banc : le suréchantillonneur 4x passe de 0,52 à 0,29 % d'un cœur par drive, la chaîne 4x avec Overdrive de
+2,04 à 1,09 %.
+
+Au garde-fou du 2026-11-17 (charge 2 à 5 cœurs, Max, Chrome) : chaîne 4,35 %, total 12,63 %. Encore au-dessus des
+cibles (4 % et 12 %). À remesurer sur machine calme avant d'ouvrir un autre levier ; les deux leviers de « Quoi »
+restent à essayer.
 
 ## Références
 

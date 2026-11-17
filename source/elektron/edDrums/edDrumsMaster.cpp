@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include <emmintrin.h>
+
 namespace elektron::drums
 {
 	namespace
@@ -69,16 +71,40 @@ namespace elektron::drums
 		m_mix[_lane] = driveMix(drive);
 	}
 
+	// saturate's arithmetic in SSE2 doubles, two lanes at a time, or in AVX four (edDrumsMasterAvx2.cpp) where the caller
+	// found the CPU has it: the same operations, so the same samples
 	void Overdrive::process(Block& _buf, const uint16_t _lanes) const
 	{
-		for(int l = 0; l < Lanes; ++l)
+		using D = __m128d;
+		const D one = _mm_set1_pd(1), minusOne = _mm_set1_pd(-1), two = _mm_set1_pd(2), sign = _mm_set1_pd(-0.0);
+		for(int l = 0; l < Lanes; l += 4)
 		{
-			if(!(_lanes >> l & 1) || m_mix[l] == 0)
+			// The lanes written: those asked for whose mix lets the drive through
+			const auto on = [&](const int _i) { return _lanes >> (l + _i) & 1 && m_mix[l + _i] != 0 ? -1 : 0; };
+			const __m128 written = _mm_castsi128_ps(_mm_set_epi32(on(3), on(2), on(1), on(0)));
+			if(!_mm_movemask_ps(written))
 				continue;
+			if(m_avx2)
+			{
+				processAvx2(_buf, l, written);
+				continue;
+			}
+			const D gain[2] = {_mm_loadu_pd(m_gain + l), _mm_loadu_pd(m_gain + l + 2)};
+			const D mix[2] = {_mm_loadu_pd(m_mix + l), _mm_loadu_pd(m_mix + l + 2)};
 			for(int n = 0; n < BlockSize; ++n)
 			{
-				const double x = _buf.s[n][l];
-				_buf.s[n][l] = static_cast<float>(x + m_mix[l] * (saturate(x, m_gain[l]) - x));
+				const __m128 in = _mm_loadu_ps(&_buf.s[n][l]);
+				D out[2];
+				for(int h = 0; h < 2; ++h)
+				{
+					const D x = _mm_cvtps_pd(h ? _mm_movehl_ps(in, in) : in);
+					D u = _mm_min_pd(_mm_max_pd(_mm_mul_pd(gain[h], x), minusOne), one);
+					for(int pass = 0; pass < 3; ++pass)
+						u = _mm_mul_pd(u, _mm_sub_pd(two, _mm_andnot_pd(sign, u)));
+					out[h] = _mm_add_pd(x, _mm_mul_pd(mix[h], _mm_sub_pd(u, x)));
+				}
+				const __m128 wet = _mm_movelh_ps(_mm_cvtpd_ps(out[0]), _mm_cvtpd_ps(out[1]));
+				_mm_storeu_ps(&_buf.s[n][l], _mm_or_ps(_mm_and_ps(written, wet), _mm_andnot_ps(written, in)));
 			}
 		}
 	}

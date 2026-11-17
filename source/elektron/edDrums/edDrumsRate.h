@@ -51,7 +51,8 @@ namespace elektron::drums
 	// The FIRs' kernels in AVX2 and FMA (edDrumsRateAvx2.cpp), away from 44.1 kHz, whose SSE they would not match bit for bit
 	namespace rate
 	{
-		// Whether the CPU runs them and its OS saves their registers; decided once
+		// Whether the CPU runs them and its OS saves their registers; decided once. The chain's AVX builds (the half-bands,
+		// Overdrive, DIST), which give the SSE builds' samples, run where it says so too: SYNTAKT_NO_AVX2 turns all off
 		bool fastFir();
 		// _n host samples of a ring of _mask + 1 samples (and a mirror of a window past it) read through _table's rows
 		// (_unit's where a half-band's phase is a sample alone) from its sample _i at phase _p, added to _out

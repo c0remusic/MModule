@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -26,6 +27,7 @@
 
 #include "edDrumsChain.h"
 #include "edDrumsMaster.h"
+#include "edDrumsRate.h"
 #include "edDrumsTestSupport.h"
 #include "stFastBench.h"
 #include "stFastMetrics.h"
@@ -469,6 +471,93 @@ namespace
 		}
 		std::printf("  Overdrive: the master's saturator at AMOUNT 0, 16, 64, 127 within %.1f dB\n", decibels(worst));
 		require(worst < 1e-6, "Overdrive is not the master's saturator");
+	}
+
+	// The AVX builds of the half-bands, Overdrive and DIST (ticket 26 of the v2 map) give the SSE builds' samples, bit for
+	// bit: random settings and blocks over lanes asked for in full, in halves and alone, where a group splits between the
+	// two builds
+	void avxKernels()
+	{
+		if(!rate::fastFir())
+		{
+			std::printf("  AVX kernels: no AVX2 on this CPU, nothing to compare\n");
+			return;
+		}
+		std::mt19937 random(26);
+		const auto noise = [&](Block& _b)
+		{
+			for(auto& row : _b.s)
+				for(auto& x : row)
+					x = static_cast<float>(static_cast<int>(random() % 4001) - 2000) / 1000.0f;
+		};
+		const uint16_t masks[] = {0xffff, 0x0ff0, 0x00f3, 0x8001, 0xf0f0};
+		int64_t compared = 0;
+		const auto same = [&](const Block& _a, const Block& _b, const char* _what)
+		{
+			for(int n = 0; n < BlockSize; ++n)
+				for(int l = 0; l < Lanes; ++l)
+					require(std::memcmp(&_a.s[n][l], &_b.s[n][l], sizeof(float)) == 0,
+						std::string(_what) + ": the AVX build's sample is not the SSE build's");
+			compared += BlockSize * Lanes;
+		};
+
+		for(const int factor : {2, 4})
+		{
+			Oversampler sse(44100, false), avx(44100, true);
+			for(int b = 0; b < 400; ++b)
+			{
+				const uint16_t lanes = masks[b / 8 % std::size(masks)];
+				Block in, upSse[4]{}, upAvx[4]{}, outSse{}, outAvx{};
+				noise(in);
+				sse.up(in, upSse, factor, lanes);
+				avx.up(in, upAvx, factor, lanes);
+				for(int k = 0; k < factor; ++k)
+					same(upSse[k], upAvx[k], "the half-bands up");
+				sse.down(upSse, outSse, factor, lanes);
+				avx.down(upAvx, outAvx, factor, lanes);
+				same(outSse, outAvx, "the half-bands down");
+			}
+		}
+
+		// Overdrive's SSE build against the master's curve, saturate, sample for sample: both builds are the formula's
+		Overdrive odSse(false), odAvx(true);
+		md::fast::Dist distSse(false), distAvx(true);
+		uint8_t drive[Lanes]{};
+		for(int b = 0; b < 400; ++b)
+		{
+			if(b % 20 == 0)
+				for(int l = 0; l < Lanes; ++l)
+				{
+					drive[l] = static_cast<uint8_t>(l % 5 == 0 ? 0 : random() % 128);
+					odSse.set(l, drive[l] << 7);
+					odAvx.set(l, drive[l] << 7);
+					const int dist = static_cast<int>(random() % (128 << 7));
+					distSse.set(l, dist);
+					distAvx.set(l, dist);
+				}
+			const uint16_t lanes = masks[b / 8 % std::size(masks)];
+			Block in, sse, avx;
+			noise(in);
+			sse = avx = in;
+			odSse.process(sse, lanes);
+			odAvx.process(avx, lanes);
+			same(sse, avx, "Overdrive");
+			for(int n = 0; n < BlockSize; ++n)
+				for(int l = 0; l < Lanes; ++l)
+				{
+					const double x = in.s[n][l], d = drive[l] / 127.0;
+					const float y = lanes >> l & 1 && drive[l]
+						? static_cast<float>(x + std::min(8 * d, 1.0) * (saturate(x, masterDriveGain(drive[l])) - x))
+						: in.s[n][l];
+					require(std::memcmp(&sse.s[n][l], &y, sizeof(float)) == 0, "Overdrive is not saturate's formula");
+				}
+			sse = avx = in;
+			distSse.process(sse, lanes);
+			distAvx.process(avx, lanes);
+			same(sse, avx, "DIST");
+		}
+		std::printf("  AVX kernels: the half-bands at 2x and 4x, Overdrive and DIST, %lld samples, all the SSE builds'\n",
+			static_cast<long long>(compared));
 	}
 
 	// ---- Q7 ----
@@ -1427,6 +1516,7 @@ int main()
 		q6();
 		mix();
 		overdrive();
+		avxKernels();
 		firstBlockMix();
 		q7();
 		q9();

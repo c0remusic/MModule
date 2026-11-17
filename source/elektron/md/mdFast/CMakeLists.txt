@@ -4,7 +4,14 @@ cmake_minimum_required(VERSION 3.15)
 # port is their reference, in the tests only: the tables are made by formula, but for the one spec 11.4 lets its owner
 # import, and nothing of the firmware is read.
 add_library(mdFast STATIC mdFastDsp.h mdFastTables.h mdFastTables.cpp mdFastTrackFx.h mdFastTrackFx.cpp mdFastEcho.h
-	mdFastEcho.cpp mdFastGateBox.h mdFastGateBox.cpp mdFastMasterWords.h mdFastMasterWords.cpp)
+	mdFastEcho.cpp mdFastGateBox.h mdFastGateBox.cpp mdFastMasterWords.h mdFastMasterWords.cpp mdFastTrackFxAvx2.cpp)
+# DIST in AVX, where the caller finds the CPU has it: its file alone built for it, and without fused multiply-adds, which
+# the SSE2 build cannot make (/fp:precise against the Release build's /fp:fast)
+if(MSVC AND CMAKE_CXX_COMPILER_ARCHITECTURE_ID MATCHES "x64")
+	set_source_files_properties(mdFastTrackFxAvx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2;/fp:precise")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+	set_source_files_properties(mdFastTrackFxAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-ffp-contract=off")
+endif()
 target_include_directories(mdFast PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(mdFast PUBLIC mdVoice stFast)
 # The chain's floor to a word rests on additions that fast math would cancel (base.cmake's -Ofast, outside MSVC)

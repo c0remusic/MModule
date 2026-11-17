@@ -4,6 +4,7 @@
 #include "mdFastTables.h"
 
 #include <algorithm>
+#include <initializer_list>
 #include <emmintrin.h>
 
 namespace md::fast
@@ -494,7 +495,7 @@ namespace md::fast
 
 	// ---- DIST ----
 
-	Dist::Dist()
+	Dist::Dist(const bool _avx2) : m_avx2(_avx2)
 	{
 		for(int l = 0; l < Lanes; ++l)
 			set(l, 0);
@@ -530,17 +531,26 @@ namespace md::fast
 			_mm_store_pd(m_c1 + _l, _c.c1);
 			_mm_store_pd(m_outOld + _l, _c.out);
 		};
-		for(int l = 0; l < _buf.lanes; l += 2)
+		for(int l = 0; l < _buf.lanes; l += 4)
 		{
-			if(!(_lanes >> l & 3))
+			// Both pairs of a group of 4 in AVX: a pair left out keeps its state
+			if(m_avx2 && (_lanes >> l & 3) && (_lanes >> (l + 2) & 3))
+			{
+				processAvx2(_buf, l);
 				continue;
-			D x[BlockSize];
-			load(_buf, l, x);
-			Clipper pair = clipper(l);
-			for(auto& sample : x)
-				sample = pair.next(sample);
-			keep(pair, l);
-			store(_buf, l, x);
+			}
+			for(const int p : {l, l + 2})
+			{
+				if(!(_lanes >> p & 3))
+					continue;
+				D x[BlockSize];
+				load(_buf, p, x);
+				Clipper pair = clipper(p);
+				for(auto& sample : x)
+					sample = pair.next(sample);
+				keep(pair, p);
+				store(_buf, p, x);
+			}
 		}
 	}
 }

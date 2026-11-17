@@ -1,4 +1,5 @@
 #include "edDrumsChain.h"
+#include "edDrumsRate.h"
 
 #include <algorithm>
 #include <cmath>
@@ -271,8 +272,9 @@ namespace elektron::drums
 	}
 
 	Chain::DriveStages::DriveStages(const double _rate)
-		: srr(_rate), dac(_rate), rates{Oversampler(_rate), Oversampler(_rate), Oversampler(_rate), Oversampler(_rate),
-			Oversampler(_rate), Oversampler(_rate)}
+		: dist(rate::fastFir()), srr(_rate), dac(_rate), overdrive(rate::fastFir()),
+		  rates{Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()),
+			Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir())}
 	{
 	}
 

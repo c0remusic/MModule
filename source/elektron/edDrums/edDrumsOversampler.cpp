@@ -1,4 +1,5 @@
 #include "edDrumsOversampler.h"
+#include "edDrumsOversamplerKernel.h"
 
 #include <cmath>
 #include <initializer_list>
@@ -7,54 +8,15 @@
 
 namespace elektron::drums
 {
+	using namespace oversampling;
+
 	namespace
 	{
-		using V = __m128;
-
 		constexpr double Pi = 3.14159265358979323846;
 
 		constexpr int FullBand = 8, UpperBand = 4;		// HIIR's sections at 2x, and for the second octave of 4x
 		constexpr double PassBand = 20200;				// Hz, where the first half-band still holds
 		constexpr double SecondPass = 22050;
-
-		// One band of a polyphase pair: _in's samples through its two all-pass chains, the coefficients taken in turn
-		struct Sections
-		{
-			V x[HalfBand::MaxCoefficients], y[HalfBand::MaxCoefficients], c[HalfBand::MaxCoefficients];
-			int count;
-
-			Sections(const HalfBand& _band, const float (*_x)[Lanes], const float (*_y)[Lanes], const int _l) : count(_band.count())
-			{
-				for(int i = 0; i < count; ++i)
-				{
-					x[i] = _mm_load_ps(_x[i] + _l);
-					y[i] = _mm_load_ps(_y[i] + _l);
-					c[i] = _mm_set1_ps(_band.coefficients()[i]);
-				}
-			}
-
-			void keep(float (*_x)[Lanes], float (*_y)[Lanes], const int _l) const
-			{
-				for(int i = 0; i < count; ++i)
-				{
-					_mm_store_ps(_x[i] + _l, x[i]);
-					_mm_store_ps(_y[i] + _l, y[i]);
-				}
-			}
-
-			void run(V& _even, V& _odd)
-			{
-				for(int i = 0; i < count; i += 2)
-				{
-					const V even = _mm_add_ps(_mm_mul_ps(_mm_sub_ps(_even, y[i]), c[i]), x[i]);
-					const V odd = _mm_add_ps(_mm_mul_ps(_mm_sub_ps(_odd, y[i + 1]), c[i + 1]), x[i + 1]);
-					x[i] = _even;
-					x[i + 1] = _odd;
-					y[i] = _even = even;
-					y[i + 1] = _odd = odd;
-				}
-			}
-		};
 
 		// HIIR's PolyphaseIir2Designer
 		double numerator(const double _q, const int _order, const int _c)
@@ -105,8 +67,9 @@ namespace elektron::drums
 		}
 	}
 
-	Oversampler::Oversampler(const double _rate)
-		: m_first(FullBand, 0.25 - PassBand / (2 * _rate)), m_second(UpperBand, 0.25 - SecondPass / (4 * _rate))
+	Oversampler::Oversampler(const double _rate, const bool _avx2)
+		: m_first(FullBand, 0.25 - PassBand / (2 * _rate)), m_second(UpperBand, 0.25 - SecondPass / (4 * _rate)),
+		  m_avx2(_avx2)
 	{
 	}
 
@@ -118,75 +81,55 @@ namespace elektron::drums
 					stages[s].x[i][_lane] = stages[s].y[i][_lane] = 0;
 	}
 
+	namespace
+	{
+		struct Sse
+		{
+			using V = __m128;
+			static V load(const float* _p) { return _mm_load_ps(_p); }
+			static void store(float* _p, const V _v) { _mm_store_ps(_p, _v); }
+			static V set1(const float _f) { return _mm_set1_ps(_f); }
+			static V add(const V _a, const V _b) { return _mm_add_ps(_a, _b); }
+			static V sub(const V _a, const V _b) { return _mm_sub_ps(_a, _b); }
+			static V mul(const V _a, const V _b) { return _mm_mul_ps(_a, _b); }
+		};
+
+		// In AVX, where the caller found the CPU has it, the groups of 8 lanes whose two halves both run: a half left out
+		// keeps its history
+		bool both(const uint16_t _lanes, const int _l) { return (_lanes >> _l & 15) && (_lanes >> (_l + 4) & 15); }
+	}
+
 	void Oversampler::up(const Block& _in, Block* _out, const int _factor, const uint16_t _lanes)
 	{
-		for(int l = 0; l < Lanes; l += 4)
+		const Band first{m_first.coefficients(), m_first.count(), m_up[0].x, m_up[0].y};
+		const Band second{m_second.coefficients(), m_second.count(), m_up[1].x, m_up[1].y};
+		for(int l = 0; l < Lanes; l += 8)
 		{
-			if(!(_lanes >> l & 15))
-				continue;
-			alignas(16) V two[2 * BlockSize];
-			Sections first(m_first, m_up[0].x, m_up[0].y, l);
-			for(int n = 0; n < BlockSize; ++n)
+			if(m_avx2 && both(_lanes, l))
 			{
-				V even = _mm_load_ps(&_in.s[n][l]), odd = even;
-				first.run(even, odd);
-				two[2 * n] = even;
-				two[2 * n + 1] = odd;
-			}
-			first.keep(m_up[0].x, m_up[0].y, l);
-			if(_factor == 2)
-			{
-				for(int n = 0; n < 2 * BlockSize; ++n)
-					_mm_store_ps(&_out[n / BlockSize].s[n % BlockSize][l], two[n]);
+				upAvx2(first, second, _in, _out, _factor, l);
 				continue;
 			}
-			Sections second(m_second, m_up[1].x, m_up[1].y, l);
-			for(int n = 0; n < 2 * BlockSize; ++n)
-			{
-				V even = two[n], odd = even;
-				second.run(even, odd);
-				const int at = 2 * n;
-				_mm_store_ps(&_out[at / BlockSize].s[at % BlockSize][l], even);
-				_mm_store_ps(&_out[(at + 1) / BlockSize].s[(at + 1) % BlockSize][l], odd);
-			}
-			second.keep(m_up[1].x, m_up[1].y, l);
+			for(const int g : {l, l + 4})
+				if(_lanes >> g & 15)
+					upGroup<Sse>(first, second, _in, _out, _factor, g);
 		}
 	}
 
 	void Oversampler::down(const Block* _in, Block& _out, const int _factor, const uint16_t _lanes)
 	{
-		const V half = _mm_set1_ps(0.5f);
-		for(int l = 0; l < Lanes; l += 4)
+		const Band first{m_first.coefficients(), m_first.count(), m_down[0].x, m_down[0].y};
+		const Band second{m_second.coefficients(), m_second.count(), m_down[1].x, m_down[1].y};
+		for(int l = 0; l < Lanes; l += 8)
 		{
-			if(!(_lanes >> l & 15))
+			if(m_avx2 && both(_lanes, l))
+			{
+				downAvx2(first, second, _in, _out, _factor, l);
 				continue;
-			alignas(16) V two[2 * BlockSize];
-			if(_factor == 2)
-			{
-				for(int n = 0; n < 2 * BlockSize; ++n)
-					two[n] = _mm_load_ps(&_in[n / BlockSize].s[n % BlockSize][l]);
 			}
-			else
-			{
-				Sections second(m_second, m_down[1].x, m_down[1].y, l);
-				for(int n = 0; n < 2 * BlockSize; ++n)
-				{
-					const int at = 2 * n;
-					V even = _mm_load_ps(&_in[(at + 1) / BlockSize].s[(at + 1) % BlockSize][l]);
-					V odd = _mm_load_ps(&_in[at / BlockSize].s[at % BlockSize][l]);
-					second.run(even, odd);
-					two[n] = _mm_mul_ps(_mm_add_ps(even, odd), half);
-				}
-				second.keep(m_down[1].x, m_down[1].y, l);
-			}
-			Sections first(m_first, m_down[0].x, m_down[0].y, l);
-			for(int n = 0; n < BlockSize; ++n)
-			{
-				V even = two[2 * n + 1], odd = two[2 * n];
-				first.run(even, odd);
-				_mm_store_ps(&_out.s[n][l], _mm_mul_ps(_mm_add_ps(even, odd), half));
-			}
-			first.keep(m_down[0].x, m_down[0].y, l);
+			for(const int g : {l, l + 4})
+				if(_lanes >> g & 15)
+					downGroup<Sse>(first, second, _in, _out, _factor, g);
 		}
 	}
 }

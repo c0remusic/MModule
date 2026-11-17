@@ -11,6 +11,8 @@
 #include <cmath>
 #include <cstdint>
 
+#include <emmintrin.h>
+
 #include "elektronBlock.h"
 
 namespace elektron::drums
@@ -48,12 +50,18 @@ namespace elektron::drums
 	class Overdrive
 	{
 	public:
+		// _avx2: groups of 4 lanes in AVX doubles, the same samples; only where the caller found the CPU has it
+		explicit Overdrive(const bool _avx2 = false) : m_avx2(_avx2) {}
 		void set(int _lane, int _amountWord);	// a Kit value << 7, an LFO's move in it
 		void process(Block& _buf, uint16_t _lanes = 0xffff) const;
 		void clear(int) {}
 
 	private:
+		// The 4 lanes from _l, those of _written all ones written, in AVX (edDrumsMasterAvx2.cpp)
+		void processAvx2(Block& _buf, int _l, __m128 _written) const;
+
 		double m_gain[Lanes]{}, m_mix[Lanes]{};
+		bool m_avx2;
 	};
 
 	class Master

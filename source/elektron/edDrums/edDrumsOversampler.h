@@ -4,7 +4,8 @@
 
 #include "elektronBlock.h"
 
-// A drive's rate raised: HIIR's half-bands (Laurent de Soras), recomputed by its formula, in SSE over 16 lanes
+// A drive's rate raised: HIIR's half-bands (Laurent de Soras), recomputed by its formula, in SSE over 16 lanes, or
+// AVX where the CPU has it
 namespace elektron::drums
 {
 	// _coefficients sections of a polyphase pair of all-passes (Valenzuela-Constantinides), of the band left below
@@ -24,11 +25,13 @@ namespace elektron::drums
 		int m_count;
 	};
 
-	// 2x or 4x, up and down by the same filters, 16 lanes in groups of 4
+	// 2x or 4x, up and down by the same filters, 16 lanes in groups of 4, or of 8 in AVX
 	class Oversampler
 	{
 	public:
-		explicit Oversampler(double _rate);
+		// _avx2: the groups of 8 lanes whose halves both run in AVX (edDrumsOversamplerAvx2.cpp), the same samples; only
+		// where the caller found the CPU has it (rate::fastFir)
+		explicit Oversampler(double _rate, bool _avx2 = false);
 
 		void clear(int _lane);
 
@@ -47,5 +50,6 @@ namespace elektron::drums
 
 		HalfBand m_first, m_second;
 		Stage m_up[2], m_down[2];
+		bool m_avx2;
 	};
 }

@@ -10,6 +10,7 @@ add_library(edDrums STATIC edDrumsAnalog.h edDrumsAnalogPort.h edDrumsAnalogShar
 	edDrumsChain.h edDrumsChain.cpp
 	edDrumsEngine.h edDrumsEngine.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
 	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
+	edDrumsOversamplerKernel.h edDrumsOversamplerAvx2.cpp edDrumsMasterAvx2.cpp
 	edDrumsMaster.h edDrumsMaster.cpp edDrumsRate.h edDrumsRate.cpp edDrumsRateAvx2.cpp edDrumsSamples.h edDrumsSamples.cpp
 	edDrumsSendFx.h edDrumsSendFx.cpp edDrumsSends.h edDrumsSends.cpp
 	edDrumsSequencer.h edDrumsSequencer.cpp edDrumsVintage.h edDrumsVintage.cpp)
@@ -18,8 +19,13 @@ target_include_directories(edDrums PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # for it, as stEngine's stSimdAvx2.cpp
 if(MSVC AND CMAKE_CXX_COMPILER_ARCHITECTURE_ID MATCHES "x64")
 	set_source_files_properties(edDrumsRateAvx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+	# /fp:precise: under the Release build's /fp:fast, AVX2 lets the compiler fuse a multiply and an add that the SSE build
+	# keeps apart, and the samples would differ
+	set_source_files_properties(edDrumsOversamplerAvx2.cpp edDrumsMasterAvx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2;/fp:precise")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
 	set_source_files_properties(edDrumsRateAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma")
+	# AVX without FMA, so that nothing fuses a multiply and an add the SSE build keeps apart
+	set_source_files_properties(edDrumsOversamplerAvx2.cpp edDrumsMasterAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-ffp-contract=off")
 endif()
 target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast sophie PRIVATE mdEngine opendrum)
 set_property(TARGET edDrums PROPERTY FOLDER "Elektron")
