@@ -46,13 +46,14 @@ namespace elektron::drums
 	}
 
 	// The overdrive alone, a Track's drive in its Chain (ticket 15): AMOUNT is the master's DRIVE, its gain into the
-	// curve and its wet share, 0 the Track dry
+	// curve and its wet share, 0 the Track dry; or, given its gain and share, another law's stage (CyclesDist)
 	class Overdrive
 	{
 	public:
 		// _avx2: groups of 4 lanes in AVX doubles, the same samples; only where the caller found the CPU has it
 		explicit Overdrive(const bool _avx2 = false) : m_avx2(_avx2) {}
 		void set(int _lane, int _amountWord);	// a Kit value << 7, an LFO's move in it
+		void set(int _lane, double _gain, double _mix);		// the gain into the curve and the wet share themselves
 		void process(Block& _buf, uint16_t _lanes = 0xffff) const;
 		void clear(int) {}
 
@@ -62,6 +63,29 @@ namespace elektron::drums
 
 		double m_gain[Lanes]{}, m_mix[Lanes]{};
 		bool m_avx2;
+	};
+
+	// The Model:Cycles' VOL+DIST stage (OS 1.13's 0x40056f58, ticket 17 of .scratch/elektron-drums-v2): the same curve
+	// as the Overdrive, saturate, under its own laws of its one knob. AMOUNT is the Cycles' VOL+DIST value: up to 60
+	// the Track passes dry (the knob's lower half is a level in the Cycles' mix, which Lockstep's Level stands for);
+	// from 60 to 68 the wet share rises linearly to 1; the gain into the curve is 0.1535 + 0.8465 x 0.969 v^2,
+	// v = (AMOUNT - 64) / 63 from 64 (0.1535 under 64), 0.974 at 127. The Cycles ramps its gain and its shares over
+	// each block from the last block's; a Chain's move is an LFO's or a knob's, so the stage settles on set
+	class CyclesDist
+	{
+	public:
+		explicit CyclesDist(const bool _avx2 = false) : m_drive(_avx2) {}
+
+		// The gain into the curve and the wet share of a VOL+DIST value, which may be fractional (an LFO's move)
+		static double gain(double _value);
+		static double mix(double _value);
+
+		void set(int _lane, int _amountWord);	// a Kit value << 7, an LFO's move in it
+		void process(Block& _buf, uint16_t _lanes = 0xffff) const { m_drive.process(_buf, _lanes); }
+		void clear(int) {}
+
+	private:
+		Overdrive m_drive;
 	};
 
 	class Master

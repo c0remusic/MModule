@@ -56,6 +56,14 @@ if(BUILD_TESTING)
 	add_test(NAME edDrumsChainTest COMMAND edDrumsChainTest)
 	set_tests_properties(edDrumsChainTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
 
+	# The Cycles dist drive against the Model:Cycles' VOL+DIST stage run in its OS (CYCLES_DIST_VECTORS: exit 77 without
+	# them), its 16 lanes against 1, 44.1 against 48 kHz
+	add_executable(edDrumsCyclesDistTest edDrumsCyclesDistTest.cpp)
+	target_link_libraries(edDrumsCyclesDistTest PRIVATE edDrums)
+	set_property(TARGET edDrumsCyclesDistTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsCyclesDistTest COMMAND edDrumsCyclesDistTest)
+	set_tests_properties(edDrumsCyclesDistTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
+
 	# Two LFOs a Track on the transport, aimed at any Track; their laws against syntakt::main's and mdDrums::Lfo
 	# (GEARMULATOR_MD_FIRMWARE_BIN: exit 77 without it)
 	add_executable(edDrumsLfoTest edDrumsLfoTest.cpp ../md/mdDrums/mdDrumsLfo.cpp)
