@@ -58,6 +58,16 @@ mesure de 2,2 à 5,4 % d'une passe à l'autre, et le pire kit choisit des types 
 dépasse encore 4 %, le seul gros poste restant est le calcul de DIST à 4x (récurrence série par piste, déjà en AVX
 sur 4 pistes).
 
+### Au garde-fou lancé sur machine calme (2026-11-17, 23:08)
+
+Lancé après 139 min d'attente sous 1,5 cœur (0,5 cœur au départ : Live 12 ouvert, rien d'autre). `GATE GREEN`,
+74 tests, 2 225 s. Pire kit (le moins de 5 passes de 4 s) : moteurs 8,47 %, **chaîne 3,35 %** (sous les 4 % visés),
+envois 0,61 %, master 1,24 %, **total 13,67 %** (au-dessus des 12 % visés, sous le plafond de 15). Mais le banc a vu
+jusqu'à 15,1 cœurs pris ailleurs pendant ses passes : Blender (l'application de l'utilisateur) a repris son rendu
+entre le départ du garde-fou et le test ; au même moment le master mesure 1,24 % contre 0,3 de guide, signe d'une
+mesure dérangée. Le critère « chaîne sous 4 % » tient ; « total sous 12 % » reste à juger sur une passe de
+`edDrumsWorstKitCost` sans autre charge, qui n'a pas encore eu lieu. Aucun code changé depuis 9934ffd9.
+
 ## Références
 
 Ticket 01 (`01-pire-kit-au-garde-fou.md`, sa réponse) ; spécification v2, §3.
