@@ -38,6 +38,26 @@ Au garde-fou du 2026-11-17 (charge 2 à 5 cœurs, Max, Chrome) : chaîne 4,35 %,
 cibles (4 % et 12 %). À remesurer sur machine calme avant d'ouvrir un autre levier ; les deux leviers de « Quoi »
 restent à essayer.
 
+### Les deux leviers mesurés (2026-11-17, plus tard)
+
+La chaîne du pire kit, seule sur 16 pistes à 4x (DIST avant, drive Syntakt après, trois bandes, filtre Machinedrum,
+priorité haute) : 2,0 % d'un cœur. Dont les deux suréchantillonnages 0,61, le calcul de DIST à 4x 0,75, celui du drive
+Syntakt 0,40, bandes et filtre 0,6.
+
+- **Moins de sections au second étage du 4x** : 2 au lieu de 4 tiennent Q6 (-83,9 et -82,2 dB, seuil -80 ; -86,4 et
+  -83,3 avant) et Q7, le retard mesuré passe de 3,56 à 3,04 échantillons (4 annoncés). Gain : 0,292 à 0,279 % par
+  drive, deux mesures alternées chacune, soit 0,03 point sur la chaîne. Rejeté : rien à gagner contre 2,5 dB d'alias.
+  Avec 3 sections, `edDrumsChainTest` échoue (« a raised lane hears the type beside it ») : le noyau suppose un nombre
+  pair de sections, sans conséquence tant que les deux étages en ont 8 et 4.
+- **Un seul suréchantillonnage par segment** : ne s'applique pas au pire kit, dont les deux drives sont séparés par la
+  bande et le filtre. Le rendre commun suréchantillonnerait aussi bande et filtre, et changerait le son.
+
+Au banc dans le moteur (`edDrumsWorstKitCost` et une sonde à chaîne fixe), avec Blender à 3,5 cœurs : la chaîne à 4x
+mesure de 2,2 à 5,4 % d'une passe à l'autre, et le pire kit choisit des types différents à chaque passe. Le critère
+« sous 4 % au garde-fou » ne se juge pas sur cette machine chargée. Reste à faire : remesurer au calme ; si la chaîne
+dépasse encore 4 %, le seul gros poste restant est le calcul de DIST à 4x (récurrence série par piste, déjà en AVX
+sur 4 pistes).
+
 ## Références
 
 Ticket 01 (`01-pire-kit-au-garde-fou.md`, sa réponse) ; spécification v2, §3.
