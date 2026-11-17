@@ -30,13 +30,13 @@ $targets = @(
     "mdDrumsBankTest", "mdDrumsHitPreviewTest", "mdDrumsFirstHitTest", "mdDrumsVst3HostTest", "mdDrumsUpdateTest",
     "mdX20OsTest", "mdX20BuiltinsTest", "mdX20PortTest", "synthLibResamplerTimingTest", "synthLibOutputChannelsTest",
     "mdProtocolKitTest", "stEngineOracleTest", "stVoiceCpuTest", "stMainOracleTest", "stSyntaktTest", "stSyntakt16Test",
-    "stSimdTest", "stDrumsFirmwareTest", "stDrumsVst3HostTest", "mdVoicePortTest", "mdVoiceCoefficientsTest", "mdVoiceRomFiltersTest", "stFastBdModernTest", "stFastTablesTest", "stFastSdBasicTest", "stFastResampleTest", "stFastCyAlloyTest", "stFastPcCarbonTest", "stFastSdVintageTest", "stFastCpVintageTest", "stFastSyToyTest", "stFastSyBitsTest", "stFastSpTwinshotTest", "stFastSendFxTest", "stFastLanesTest", "mdFastSendsTest", "mdFastTrackFxTest", "stFastTrackTest", "edDrumsChainTest", "edDrumsEngineTest", "edDrumsLfoTest", "edDrumsSequencerTest", "edDrumsLocksTest", "edDrumsEditorTest", "edDrumsProcessorTest", "edDrumsNoFlashTest", "edDrumsVst3HostTest", "edDrumsOpenDrumTest", "sophieTest", "edDrumsSampleLibraryTest", "edDrumsSophieTest", "edDrumsAmpTest", "edDrumsVintageTest", "edDrumsSyntaktSlotsTest", "edDrumsRateTest", "edDrumsAnalogControlTest", "edDrumsAnalogTest", "edDrumsRytmControlTest")
+    "stSimdTest", "stDrumsFirmwareTest", "stDrumsVst3HostTest", "mdVoicePortTest", "mdVoiceCoefficientsTest", "mdVoiceRomFiltersTest", "stFastBdModernTest", "stFastTablesTest", "stFastSdBasicTest", "stFastResampleTest", "stFastCyAlloyTest", "stFastPcCarbonTest", "stFastSdVintageTest", "stFastCpVintageTest", "stFastSyToyTest", "stFastSyBitsTest", "stFastSpTwinshotTest", "stFastSendFxTest", "stFastLanesTest", "mdFastSendsTest", "mdFastTrackFxTest", "stFastTrackTest", "edDrumsChainTest", "edDrumsEngineTest", "edDrumsLfoTest", "edDrumsSequencerTest", "edDrumsLocksTest", "edDrumsEditorTest", "edDrumsProcessorTest", "edDrumsNoFlashTest", "edDrumsVst3HostTest", "edDrumsOpenDrumTest", "sophieTest", "edDrumsSampleLibraryTest", "edDrumsSophieTest", "edDrumsAmpTest", "edDrumsVintageTest", "edDrumsSyntaktSlotsTest", "edDrumsRateTest", "edDrumsAnalogControlTest", "edDrumsAnalogTest", "edDrumsRytmControlTest", "edDrumsWorstKitCost")
 # The Syntakt's two oracle tests run a second time with the AVX2 kernels off (SYNTAKT_NO_AVX2, set by ctest)
 $tests = $targets + @("mdSlideFirmwareTest", "stEngineOracleTestScalar", "stMainOracleTestScalar") |
     Where-Object { $_ -ne "mdTrigLatencyFirmwareTest" }
 # Tests that compare the audio thread's wall-clock time with a bound
 $timingTests = @("mdDrumsVst3HostTest", "mdDrumsEngineTest", "stDrumsVst3HostTest", "mdFastTrackFxTest", "mdFastSendsTest",
-    "stFastSendFxTest", "edDrumsEngineTest", "edDrumsVst3HostTest", "edDrumsRateTest")
+    "stFastSendFxTest", "edDrumsEngineTest", "edDrumsVst3HostTest", "edDrumsRateTest", "edDrumsWorstKitCost")
 
 $rom = "$env:LOCALAPPDATA\Programs\Gearmulator-Elektron"
 $env:GEARMULATOR_MD_FIRMWARE_BIN = "$rom\elektron_sps1-1uw_os1.63.bin"
@@ -140,6 +140,13 @@ try
     $ctestExit = $LASTEXITCODE
     $out | Out-File -FilePath "$Log.ctest.txt" -Encoding utf8
     $out | Select-String -Pattern "Test +#|tests passed|tests failed|Total Test time" | ForEach-Object { Say $_.Line }
+    # The worst kit's cost (edDrumsWorstKitCost), which ctest keeps only in its own log when the test passes
+    $last = "Testing\Temporary\LastTest.log"
+    if(Test-Path $last)
+    {
+        Select-String -Path $last -Pattern "^(worst kit|dearest chain|  (engines|layer|chain|sends|master|total) )" |
+            ForEach-Object { Say $_.Line }
+    }
     $failed = @($out | Select-String -Pattern "^\s*\d+ - (\S+) \((?!Skipped)" | ForEach-Object { $_.Matches[0].Groups[1].Value })
     # The failing tests' own lines, the ones a reader needs (the whole output is in <log>.ctest.txt)
     if($failed.Count -gt 0)

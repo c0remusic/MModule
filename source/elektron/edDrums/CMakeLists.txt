@@ -129,6 +129,13 @@ if(BUILD_TESTING)
 	target_link_libraries(edDrumsCost PRIVATE edDrums)
 	set_property(TARGET edDrumsCost PROPERTY FOLDER "Elektron/test")
 
+	# The worst kit's cost at the gate (spec v2, section 3): red over 15 % of a core
+	add_executable(edDrumsWorstKitCost edDrumsWorstKitCost.cpp)
+	target_link_libraries(edDrumsWorstKitCost PRIVATE edDrums)
+	set_property(TARGET edDrumsWorstKitCost PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsWorstKitCost COMMAND edDrumsWorstKitCost)
+	set_tests_properties(edDrumsWorstKitCost PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 600)
+
 	# The machines made here against the flash image's, for listening, by hand, not a test
 	add_executable(edDrumsHouseListen edDrumsHouseListen.cpp)
 	target_link_libraries(edDrumsHouseListen PRIVATE edDrums)

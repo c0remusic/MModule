@@ -197,7 +197,8 @@ namespace elektron::drums
 		giveLfoRates();
 		static constexpr SendSource Types[] = {SendSource::Classic, SendSource::Vibrato, SendSource::Air,
 			SendSource::Vintage, SendSource::Hyper};
-		setSource(Send::Chorus, Types[std::min<int>(b[ChorusType], 4)]);
+		static_assert(std::size(Types) == SendTypes[static_cast<size_t>(Send::Chorus)]);
+		setSource(Send::Chorus, Types[std::min<int>(b[ChorusType], std::size(Types) - 1)]);
 	}
 
 	void Sends::setPhaser(const int _byte, const uint8_t _value)
@@ -212,7 +213,8 @@ namespace elektron::drums
 			b[PhaserDp4SampleHold]});
 		giveLfoRates();
 		static constexpr SendSource Modes[] = {SendSource::Phaser, SendSource::Flanger, SendSource::Dp4};
-		setSource(Send::Phaser, Modes[std::min<int>(b[PhaserMode], 2)]);
+		static_assert(std::size(Modes) == SendTypes[static_cast<size_t>(Send::Phaser)]);
+		setSource(Send::Phaser, Modes[std::min<int>(b[PhaserMode], std::size(Modes) - 1)]);
 	}
 
 	template<typename Effect>

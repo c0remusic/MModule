@@ -20,7 +20,10 @@ namespace elektron::drums
 {
 	enum class Send : uint8_t { Delay, Reverb, Chorus, Phaser };
 	constexpr int SendCount = 4;
-	// The delay's and the reverb's two, the Phaser send's three, the Chorus send's five
+	// How many types each effect offers: the delay's and the reverb's sources, the Chorus send's Types, the Phaser send's
+	// Modes, in Send's order
+	constexpr std::array<int, SendCount> SendTypes{2, 2, 5, 3};
+	// Each effect's types (SendTypes)
 	enum class SendSource : uint8_t
 	{
 		Machinedrum, Syntakt, Dp4, Vintage, Hyper, Phaser = Machinedrum, Flanger = Syntakt, Classic = Machinedrum,
