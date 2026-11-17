@@ -7,8 +7,10 @@
 #   display that went to sleep.
 # - The machine's load is measured before the tests and written at the top of the log: the tests that time the audio
 #   thread against a wall clock (TimingTests below) fail when other programs take the processor (Ableton Live playing,
-#   another session's build or survey). Such a test that fails is run once more: green on the second run, the gate says
-#   so and names the load ("timing test failed under load, passed on its second run"); red twice, the gate is red.
+#   another session's build or survey). Each asks for High priority itself (elektronTimingTest.h: a process does not
+#   inherit it from ctest), which takes the preemptions off, not the clock and caches it shares. Such a test that fails
+#   is run once more: green on the second run, the gate says so and names the load ("timing test failed under load,
+#   passed on its second run"); red twice, the gate is red.
 # - Every other test's failure is red at once.
 # - A test that skips (exit 77: its firmware, OS or vectors not found) is red too: ctest counts it as passed, and a
 #   skipped test proves nothing. The log names each one, and the Syntakt variables the gate could not set; any data

@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+#include "elektronTimingTest.h"
 #include "Firmware.h"
 #include "TrackFx.h"
 #include "edDrumsEngine.h"
@@ -2883,6 +2884,7 @@ namespace
 int main()
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
+	elektron::raiseTimingTestPriority();
 	const auto flash = Library::findFlashImage({});
 	if(flash.empty())
 	{

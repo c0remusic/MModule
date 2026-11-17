@@ -813,6 +813,8 @@ namespace
 int main(const int _argc, char* _argv[])
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
+	// High priority, as elektronTimingTest.h says
+	juce::Process::setPriority(juce::Process::HighPriority);
 	if(_argc < 2)
 	{
 		std::cerr << "usage: stDrumsVst3HostTest <ST Drums.vst3>\n";

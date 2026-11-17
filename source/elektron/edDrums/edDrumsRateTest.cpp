@@ -37,6 +37,7 @@
 #include <variant>
 #include <vector>
 
+#include "elektronTimingTest.h"
 #include "edDrumsEngine.h"
 #include "edDrumsOversampler.h"
 #include "edDrumsRate.h"
@@ -1246,6 +1247,7 @@ namespace
 int main(const int _argc, char** _argv)
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
+	elektron::raiseTimingTestPriority();
 	const auto flash = Library::findFlashImage({});
 	if(flash.empty())
 	{

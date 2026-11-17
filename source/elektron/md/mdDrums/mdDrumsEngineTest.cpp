@@ -4,6 +4,7 @@
 // and runs the master effects as the engine's own mixer and mixer DSP do, retriggers without a click of its own, and
 // plays Links, Chokes, Mute and slides as the Machinedrum does, and User Machines as MDX X.20 does.
 
+#include "elektron/elektronTimingTest.h"
 #include "mdDrumsEngine.h"
 #include "mdDrumsHitPreview.h"
 #include "mdDrumsMessages.h"
@@ -1539,6 +1540,7 @@ namespace
 
 int main()
 {
+	elektron::raiseTimingTestPriority();
 	return mdDrums::test::run("mdDrumsEngineTest", [](const std::vector<uint8_t>& _flash)
 	{
 		mdDrums::Engine engine(_flash);

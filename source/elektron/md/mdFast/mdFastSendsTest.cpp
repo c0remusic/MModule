@@ -16,6 +16,7 @@
 // image; exit 77 without it.
 // usage: mdFastSendsTest
 
+#include "elektronTimingTest.h"
 #include "mdDrumsAllocationCounter.h"
 
 #include "mdFastEcho.h"
@@ -774,6 +775,7 @@ namespace
 int main()
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
+	elektron::raiseTimingTestPriority();
 	const char* path = std::getenv("GEARMULATOR_MD_FIRMWARE_BIN");
 	if(!path || !*path)
 	{

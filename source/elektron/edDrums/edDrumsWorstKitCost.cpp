@@ -20,6 +20,7 @@
 #include <memory>
 #include <vector>
 
+#include "elektronTimingTest.h"
 #include "edDrumsCostBench.h"
 
 namespace
@@ -236,6 +237,7 @@ namespace
 int main(const int _argc, char** _argv)
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
+	elektron::raiseTimingTestPriority();
 	const int runs = _argc > 1 ? std::max(1, std::atoi(_argv[1])) : 5;
 	const double seconds = _argc > 2 ? std::atof(_argv[2]) : 4;
 	const auto image = Library::findFlashImage({});

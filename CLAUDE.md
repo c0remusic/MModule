@@ -80,7 +80,11 @@ that take the processor make them fail: on 2026-10-21, with Ableton Live playing
 survey on six processes, `mdDrumsVst3HostTest` failed 5 runs of 10 on "a block stalled the audio thread" (worst blocks
 12 to 63 ms against the 10 ms bound). The gate writes the load it measured; a timing test that fails alone runs once
 more, and passing then, the gate is green and says "timing test failed under load, passed on its second run". Any other
-failure, or a timing test failing twice, is red. Gate on a quiet machine whenever possible.
+failure, or a timing test failing twice, is red. Gate on a quiet machine whenever possible. Each timing test runs
+at High priority (`elektronTimingTest.h`, `juce::Process::setPriority` in the VST3 tests): on 2026-11-17, under ten
+busy processes, `mdDrumsEngineTest` took 31 to 34 % of a core at High against 32 to 48 % at Normal (22 % quiet), and
+pinning it to one L3 (CPUs 8-15) added nothing at High and made Normal worse (68 %). No process setting gives back the
+clock, caches and SMT siblings that the load shares.
 
 Green is 58 passed out of 58: `stEngineOracleTestScalar` and `stMainOracleTestScalar` run the Syntakt's two oracle tests again with the AVX2 kernels off (`SYNTAKT_NO_AVX2=1`), and ctest adds the 4 fixture tests `mdEngineFirmwareTest` requires (`mdEngineFirmwareHits`, `mdEngineFirmwareRomBank`, `mdEngineFirmwareGroups` and `mdEngineFirmwareMaster` boot the firmware to record the hits, the voice DSP's UW bank, the Link and Choke scenarios and the master effect scenarios with the mixer DSP's memory, which `mdEngineFirmwareTest` compares the engine with).
 

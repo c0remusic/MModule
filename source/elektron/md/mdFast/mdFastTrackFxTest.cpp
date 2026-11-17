@@ -8,6 +8,7 @@
 // GEARMULATOR_MD_FIRMWARE_BIN names the flash image; exit 77 without it.
 // usage: mdFastTrackFxTest
 
+#include "elektronTimingTest.h"
 #include "mdFastTables.h"
 #include "mdFastTrackFx.h"
 
@@ -809,6 +810,7 @@ namespace
 int main()
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
+	elektron::raiseTimingTestPriority();
 	const char* path = std::getenv("GEARMULATOR_MD_FIRMWARE_BIN");
 	if(!path || !*path)
 	{

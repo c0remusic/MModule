@@ -8,6 +8,7 @@
 //
 // SYNTAKT_SECTION3 and SYNTAKT_SECTION7 name the user's firmware; exit 77 without them.
 
+#include "elektronTimingTest.h"
 #include "mdDrumsAllocationCounter.h"
 
 #include <algorithm>
@@ -837,6 +838,7 @@ namespace
 int main()
 {
 	setvbuf(stdout, nullptr, _IONBF, 0);
+	elektron::raiseTimingTestPriority();
 	const char* section3 = std::getenv("SYNTAKT_SECTION3");
 	const char* section7 = std::getenv("SYNTAKT_SECTION7");
 	if(!section3 || !*section3 || !section7 || !*section7)
