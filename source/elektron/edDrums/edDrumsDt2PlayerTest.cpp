@@ -71,6 +71,10 @@ namespace
 		const char* name;
 		double snrBound;		// dB against the oracle's voice column
 		bool sine;				// its pitch checked
+		// A reversed read from a start inside the sample: its last block, faded, reads below that start something the
+		// oracle's probes have not identified (under the fade a near constant ~0.11, neither the sample, nor zeros, nor
+		// the slice's end): judged up to that block, its length checked
+		bool openLastBlock = false;
 	};
 
 	// The ONESHOT cases: what each exercises is in vectors-dt2's README. The lev and vel cases play the unison Hit
@@ -80,13 +84,21 @@ namespace
 		{"os_hit_lev127", 45, false}, {"os_hit_vel64_lin", 45, false},
 		{"os_sine1k_unison", 45, true}, {"os_sine1k_up12", 45, true}, {"os_sine1k_down12", 45, true},
 		{"os_noise_tune_frac", 27, false}, {"os_impulse_unison", 27, false},
+		// REPITCH (ticket 05): the portion over 2^BARS bars at the tempo, TUNE and the note not read
+		{"rp_hit_ratio1", 45, false}, {"rp_hit_ratio05", 45, false}, {"rp_hit_bars1", 45, false},
+		{"rp_hit_strt30_len60", 45, false}, {"rp_hit_tune76", 45, false}, {"rp_hit_note72", 45, false}, {"rp_hit_reverse_len30", 45, false},
+		// GRID (ticket 05): 4 << G slices, the slice played and the ones after it
+		{"gr_hit_g4_i1_l0", 45, false}, {"gr_hit_g4_i2_l0", 45, false}, {"gr_hit_g4_i4_l0", 45, false}, {"gr_hit_g4_i2_l1", 45, false},
+		{"gr_hit_g4_i1_l3", 45, false}, {"gr_hit_g16_i5_up12", 45, false}, {"gr_hit_g16_i5_l0", 45, false},
+		{"gr_hit_g4_i2_rev", 45, false, true}, {"gr_hit_g4_i3_rev", 45, false, true}, {"gr_hit_g16_i9_rev", 45, false, true},
+		{"gr_hit_g4_i2_rev_up12", 45, false, true}, {"os_hit_strt30_rev", 45, false, true},
 	};
 
 	struct Settings
 	{
-		double tune = 64, note = 60, strt = 0, len = 120, loopPos = 0;
+		double tune = 64, note = 60, strt = 0, len = 120, loopPos = 0, bpm = 120;
 		bool reverse = false, loop = false;
-		int blocks = 0;
+		int blocks = 0, selector = 0, bars = 0;	// selector 0 ONESHOT, 3 REPITCH, 4 GRID; bars BARS, or GRID's G
 	};
 
 	Settings settingsOf(const std::string& _json)
@@ -100,7 +112,10 @@ namespace
 		s.reverse = number(_json, "reverse") != 0;
 		s.loop = number(_json, "loop") != 0;
 		s.blocks = static_cast<int>(number(_json, "blocks"));
-		require(number(_json, "selector") == 0, "not an ONESHOT case");
+		s.selector = static_cast<int>(number(_json, "selector"));
+		s.bars = static_cast<int>(number(_json, "bars"));
+		s.bpm = number(_json, "bpm");
+		require(s.selector == 0 || s.selector == 3 || s.selector == 4, "not an ONESHOT, REPITCH or GRID case");
 		return s;
 	}
 
@@ -117,13 +132,34 @@ namespace
 		const auto value = static_cast<int>(std::floor(tune));
 		_p.setParameter(_lane, Dt2Player::Tune, static_cast<uint8_t>(value), static_cast<uint8_t>(std::lround((tune - value) * 256)));
 		_p.setNote(_lane, static_cast<int>(_s.note));
-		setFraction(_p, _lane, Dt2Player::Start, _s.strt);
-		setFraction(_p, _lane, Dt2Player::Length, _s.len);
-		setFraction(_p, _lane, Dt2Player::Loop, _s.loopPos);
+		_p.setTempo(_s.bpm);
 		const int play = _s.reverse ? (_s.loop ? Dt2Player::ReverseLoop : Dt2Player::Reverse)
 			: (_s.loop ? Dt2Player::ForwardLoop : Dt2Player::Forward);
 		_p.setParameter(_lane, Dt2Player::Play, static_cast<uint8_t>(play * 32), 0);
-		_p.setParameter(_lane, Dt2Player::Mode, 0, 0);
+		// MODE a sixth of the range each (Dt2Player::modeOf): ONESHOT 0, GRID 1, REPITCH 2
+		const int mode = _s.selector == 3 ? Dt2Player::Repitch : _s.selector == 4 ? Dt2Player::Grid : Dt2Player::OneShot;
+		_p.setParameter(_lane, Dt2Player::Mode, static_cast<uint8_t>(mode * 128 / 6 + 10), 0);
+		if(_s.selector == 4)
+		{
+			// The oracle's strt is the slice (1-based), len the slices after it, bars G: 4 << G slices
+			const int slices = 4 << _s.bars;
+			require(Dt2Player::gridOf(_s.bars * 26) == slices, "the test's GRID value does not give the case's slices");
+			_p.setParameter(_lane, Dt2Player::Loop, static_cast<uint8_t>(_s.bars * 26), 0);
+			_p.setParameter(_lane, Dt2Player::Start, static_cast<uint8_t>((static_cast<int>(_s.strt) - 1) * 128 / slices + 1), 0);
+			_p.setParameter(_lane, Dt2Player::Length, static_cast<uint8_t>(static_cast<int>(_s.len) * 128 / slices + 1), 0);
+			return;
+		}
+		setFraction(_p, _lane, Dt2Player::Start, _s.strt);
+		setFraction(_p, _lane, Dt2Player::Length, _s.len);
+		if(_s.selector == 3)
+		{
+			// BARS: Dt2Player::barsOf, a fifth of the range each
+			const auto value = static_cast<uint8_t>(_s.bars * 26);
+			require(Dt2Player::barsOf(value) == _s.bars, "the test's BARS value does not give the case's bars");
+			_p.setParameter(_lane, Dt2Player::Loop, value, 0);
+			return;
+		}
+		setFraction(_p, _lane, Dt2Player::Loop, _s.loopPos);
 	}
 
 	// _blocks of lane _lane after the trig's block, at the oracle's gain
@@ -188,13 +224,42 @@ namespace
 			p->setSamples(&l.samples);
 			apply(*p, 0, l.settings);
 			p->trig(0);
-			const auto y = render(*p, 0, l.settings.blocks);
-			const double snr = snrOf(l.voice, y);
-			const double env = bench::envelopeDiff(bench::envelope(l.voice, 48000), bench::envelope(y, 48000));
+			auto y = render(*p, 0, l.settings.blocks);
+			auto voice = l.voice;
+			if(c.openLastBlock)
+			{
+				// Both as long, then both cut before the oracle's last sounding block
+				int last = -1;
+				for(size_t i = 0; i < voice.size(); ++i)
+					if(std::abs(voice[i]) > 1e-6)
+						last = static_cast<int>(i);
+				int lastY = -1;
+				for(size_t i = 0; i < y.size(); ++i)
+					if(std::abs(y[i]) > 1e-6)
+						lastY = static_cast<int>(i);
+				require(last / BlockSize == lastY / BlockSize, std::string(c.name) + ": the reversed read stops elsewhere");
+				const auto keep = static_cast<size_t>(last / BlockSize * BlockSize);
+				voice.resize(keep);
+				y.resize(keep);
+			}
+			const double snr = snrOf(voice, y);
+			const double env = bench::envelopeDiff(bench::envelope(voice, 48000), bench::envelope(y, 48000));
 			double cents = 0;
 			if(c.sine)
-				cents = 1200 * std::log2(bench::peakHz(y, 48000) / bench::peakHz(l.voice, 48000));
+				cents = 1200 * std::log2(bench::peakHz(y, 48000) / bench::peakHz(voice, 48000));
 			std::printf("  %-22s %6.1f (%2.0f)  %6.3f  %6.2f\n", c.name, snr, c.snrBound, env, cents);
+			if(snr < c.snrBound)
+			{
+				const auto lastOf = [](const std::vector<double>& _v)
+				{
+					int last = -1;
+					for(size_t i = 0; i < _v.size(); ++i)
+						if(std::abs(_v[i]) > 1e-6)
+							last = static_cast<int>(i);
+					return last;
+				};
+				std::printf("    last output above -120 dB: oracle %d, player %d\n", lastOf(voice), lastOf(y));
+			}
 			require(snr >= c.snrBound, std::string(c.name) + ": SNR against the oracle under its bound");
 			require(env <= 0.1, std::string(c.name) + ": envelope off by more than 0.1 dB");
 			require(std::abs(cents) <= 1, std::string(c.name) + ": pitch off by more than a cent");

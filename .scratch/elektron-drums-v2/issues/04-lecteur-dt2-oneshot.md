@@ -67,9 +67,9 @@ du firmware recopié) :
   (ajusté sur la réponse en amplitude seule) donnait la même amplitude mais 35 dB dans le temps : faux. La branche
   impaire sort la paire d'il y a 4 (`z⁻⁷` = 3 paires et demie) ; une voix arrêtée écrit des zéros, la queue du
   décimateur ne sonne pas.
-- **Fin.** Le bloc dont la position plus **64 échantillons source** (quel que soit le pas : relevé à 0,5 et à 1)
-  atteint la fin est le dernier : rendu avec un fondu linéaire (63 − m)/63 sur ses 64 sorties, puis la voix
-  s'arrête. La recherche 03 lisait « pos + 64 × pas » : c'est 64 sans le pas.
+- **Fin.** Le dernier bloc qui sonne est rendu avec un fondu linéaire (63 − m)/63 sur ses 64 sorties, puis la voix
+  s'arrête. Corrigé par le ticket 05 : un bloc sonne tant que sa dernière sortie plus un échantillon (le pas s'il est
+  plus grand) reste dans la fin ; le « 64 échantillons quel que soit le pas » écrit ici ne tenait qu'au pas 0,5.
 - **Envers.** Première lecture à `fin − 6` (relevé 4796,06 pour 4800), le pas négatif, le même noyau.
 - **Modèle entier** (noyau, positions, fin, décimateur, en Python, `dt2_model2.py`) face à la colonne `voice` des 17
   cas ONESHOT : Hits 50 à 64 dB (unisson 55,6, −12 55,2, STRT 30 64,1, envers 59,7, boucle 50,7, niveaux 50,2),

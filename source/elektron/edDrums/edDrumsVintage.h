@@ -62,6 +62,13 @@ namespace elektron::drums::vintage
 	constexpr std::array<uint8_t, 3> GrainValues{21, 64, 106};
 	inline bool isVintage(const int _grain) { return grainOf(_grain) == Grain::Vintage; }
 	inline bool isDt2(const int _grain) { return grainOf(_grain) == Grain::Dt2; }
+
+	// What the Sampler's page follows besides the Sampler itself, the Track's own values: its grain (Machine 9) and, on
+	// the CLEAN grain, its MODE (Machine 3) and GRID (Machine 4), which name and scale Machine 4 to 6 (edDrumsDt2Player.h)
+	struct SamplerPage
+	{
+		int grain = 0, mode = 0, grid = 0;
+	};
 	inline bool companding(const int _value) { return _value >= 64; }
 	// BITS: 6 to 12, about 18 values each
 	inline int bitsOf(const int _value) { return MinBits + (_value < 0 ? 0 : _value > 127 ? 127 : _value) * 7 / 128; }

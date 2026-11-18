@@ -412,11 +412,12 @@ namespace elektron::drums
 			const auto* choice = m_tracks[static_cast<size_t>(_track)].machine;
 			return choice ? m_machines[static_cast<size_t>(choice->getIndex())] : Machine{};
 		};
-		// The Sampler's page follows its GRAIN, Machine 9
+		// The Sampler's page follows its GRAIN, Machine 9, and on CLEAN its MODE and GRID, Machine 3 and 4
 		const auto grain = [this, _track]
 		{
-			const auto* g = m_tracks[static_cast<size_t>(_track)].values[vintage::GrainSlot];
-			return g ? g->get() : 0;
+			const auto& values = m_tracks[static_cast<size_t>(_track)].values;
+			const auto at = [&](const int _i) { return values[static_cast<size_t>(_i)] ? values[static_cast<size_t>(_i)]->get() : 0; };
+			return vintage::SamplerPage{at(vintage::GrainSlot), at(Dt2Player::Mode), at(Dt2Player::Loop)};
 		};
 		return juce::AudioParameterIntAttributes()
 			.withStringFromValueFunction([machine, grain, _index](const int _v, int)

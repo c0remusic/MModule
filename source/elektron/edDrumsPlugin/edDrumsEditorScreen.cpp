@@ -141,7 +141,7 @@ namespace elektron::drums
 
 		// Machine 1-8 of _page 0, 9-16 of 1, 17-24 of 2, as _machine names them (edDrumsNames.h): empty for one it does
 		// not use, and past Machine 8 for a machine of 8 (a Syntakt machine's Machine 9, HOLD, is on no page)
-		std::array<juce::String, 8> machineLabels(const Machine& _machine, const int _page, const int _grain)
+		std::array<juce::String, 8> machineLabels(const Machine& _machine, const int _page, const vintage::SamplerPage& _sampler)
 		{
 			std::array<juce::String, 8> labels;
 			for(size_t i = 0; i < 8; ++i)
@@ -149,7 +149,7 @@ namespace elektron::drums
 				const int index = _page * 8 + static_cast<int>(i);
 				if(index >= machineParameters(_machine))
 					break;
-				if(const char* name = names::control(_machine, index, _grain))
+				if(const char* name = names::control(_machine, index, _sampler))
 					labels[i] = name;
 			}
 			return labels;
@@ -157,13 +157,13 @@ namespace elektron::drums
 
 		// What an LFO's TARGET lists: Machine 1-24 as _machine names them (the Sampler's by its _grain), "MACHINE n" where
 		// it uses none, the rest as the host names them
-		juce::StringArray targetLabels(const juce::AudioParameterChoice& _target, const Machine& _machine, const int _grain)
+		juce::StringArray targetLabels(const juce::AudioParameterChoice& _target, const Machine& _machine, const vintage::SamplerPage& _sampler)
 		{
 			juce::StringArray labels;
 			for(int i = 0; i < _target.choices.size(); ++i)
 			{
 				const int slot = machineOf(static_cast<LfoTarget>(i));
-				const char* name = slot >= 0 ? names::control(_machine, slot, _grain) : nullptr;
+				const char* name = slot >= 0 ? names::control(_machine, slot, _sampler) : nullptr;
 				labels.add(name ? juce::String(name) : _target.choices[i].toUpperCase());
 			}
 			return labels;
@@ -727,7 +727,7 @@ namespace elektron::drums
 			addCell(chokes);
 			const int choice = choiceOf(*t("machine"));
 			m_machinePage = std::min(m_machinePage, machinePages() - 1);
-			const auto labels = machineLabels(trackMachine(m_track), m_machinePage, trackGrain(m_track));
+			const auto labels = machineLabels(trackMachine(m_track), m_machinePage, samplerPage(m_track));
 			for(int i = 0; i < 8; ++i)
 			{
 				const auto& l = labels[static_cast<size_t>(i)];
@@ -776,7 +776,12 @@ namespace elektron::drums
 					grain.click = [this, i]
 					{
 						auto& g = *trackParameter("m9");
+						const bool toClean = i == 2 && !vintage::isDt2(trackGrain(m_track));
 						setNormalised(g, g.convertTo0to1(static_cast<float>(vintage::GrainValues[static_cast<size_t>(i)])));
+						// CLEAN from another grain starts in ONESHOT: Machine 3 was the ROM player's HOLD, which a set may hold
+						// above 0, where it would read as another MODE
+						if(toClean)
+							setNormalised(*trackParameter("m3"), 0);
 						// A Sampler saved before the grains holds 0 there: 6 bits, linear, 100 Hz. VINTAGE takes the new
 						// Sampler's values instead, in the same click
 						const char* own[]{"m10", "m11", "m12"};
@@ -993,7 +998,7 @@ namespace elektron::drums
 				target.section = "";
 				const int aimed = choiceOf(trackParameter(pre + "track")->getParameterID()) - 1;
 				target.labels = targetLabels(*dynamic_cast<const juce::AudioParameterChoice*>(target.parameter),
-					trackMachine(aimed < 0 ? m_track : aimed), trackGrain(aimed < 0 ? m_track : aimed));
+					trackMachine(aimed < 0 ? m_track : aimed), samplerPage(aimed < 0 ? m_track : aimed));
 				addCell(target);
 				Cell syncCell = cellOf(trackParameter(pre + "sync"), "SYNC", x + w - 32, LfoY + 1.8f, 28, hl, "");
 				syncCell.look = Look::Segments;
@@ -1243,7 +1248,7 @@ namespace elektron::drums
 				const bool active = target->getIndex() != 0;
 				const int aimed = choiceOf(trackParameter(pi + "track")->getParameterID()) - 1;
 				const auto aim = targetLabels(*target, trackMachine(aimed < 0 ? m_track : aimed),
-					trackGrain(aimed < 0 ? m_track : aimed))[target->getIndex()];
+					samplerPage(aimed < 0 ? m_track : aimed))[target->getIndex()];
 				const auto* d = trackParameter(pi + "depth");
 				_p.rect(c.getX(), c.getY(), c.getWidth(), c.getHeight(), shown ? hi.c[2] : colour::cellBack, 1);
 				_p.frame(c.getX(), c.getY(), c.getWidth(), c.getHeight(), shown ? hi.c[0] : hi.c[1], 1, shown ? 0.5f : 0.3f);

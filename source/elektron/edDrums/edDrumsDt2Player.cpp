@@ -26,10 +26,14 @@ namespace elektron::drums
 
 		// The oracle's start bound: STRT never nearer the end than this
 		constexpr uint32_t StartMargin = 141;
-		// Where a reversed read starts, from the end
-		constexpr double ReverseFrom = 6;
-		// The last block: the one whose position plus this many source samples reaches the end, faded out
-		constexpr double EndAhead = 64;
+		// Where a reversed read starts, from the end; how far below its start it may read
+		constexpr double ReverseFrom = 6, ReverseBelow = 32;
+		// A block sounds while its last output's position plus a sample (the step where it is more) lies within the end;
+		// the last that sounds is faded out (probe_end2.py at the oracle, steps 0.25 to 2, and GRID's slice ends)
+		bool sounds(const double _lastRead, const double _step, const double _end)
+		{
+			return _lastRead + std::max(_step, 1.0) <= _end;
+		}
 
 		double bspline3(const double _u)
 		{
@@ -125,17 +129,36 @@ namespace elektron::drums
 		v.playing = v.length != 0;
 		if(!v.playing)
 			return;
-		// STRT, LEN, LOOP and PLAY as they stand at the trig; TUNE and the note follow block by block (render96)
+		// MODE, STRT, LEN, LOOP and PLAY as they stand at the trig; TUNE, the note and the tempo follow block by block
+		// (render96)
 		const auto word = [this, _l](const int _i) { return m_controls.words[_i][_l]; };
-		const double startOf = fraction(word(Start)), loopOf = fraction(word(Loop));
 		const PlayMode play = playModeOf(word(Play) >> 8);
+		const PlayerMode mode = modeOf(word(Mode) >> 8);
 		v.rate = slot->rate / 48000.0;
 		const auto length = static_cast<double>(v.length);
 		const double bound = v.length > StartMargin ? static_cast<double>(v.length - StartMargin) : 0.0;
-		v.start = std::min(std::floor(startOf * length), bound);
-		v.end = std::min(startOf + fraction(word(Length)), 1.0) * length;
-		const double loopAt = std::floor(loopOf * length);
-		v.loopAt = loopOf > 0 && loopAt > v.start && loopAt < v.end ? loopAt : v.start;
+		v.repitch = mode == Repitch;
+		if(mode == Grid)
+		{
+			// Machine 4 the slices the sample is cut into, 5 the one played (1-based), 6 how many more follow: the OS's own
+			// positions (probe_grid2.py), slice k of n from (k - 1) n-ths of the sample to (k + more) n-ths
+			const int grid = gridOf(word(Loop) >> 8);
+			const int slice = sliceOf(word(Start) >> 8, grid);
+			const int more = moreSlicesOf(word(Length) >> 8, grid);
+			v.start = std::floor((slice - 1) * length / grid);
+			v.end = std::min(std::floor((slice + more) * length / grid), length);
+			v.loopAt = v.start;
+		}
+		else
+		{
+			const double startOf = fraction(word(Start)), loopOf = fraction(word(Loop));
+			v.start = std::min(std::floor(startOf * length), bound);
+			v.end = std::min(startOf + fraction(word(Length)), 1.0) * length;
+			// REPITCH has BARS where ONESHOT has LOOP
+			const double loopAt = std::floor(loopOf * length);
+			v.loopAt = !v.repitch && loopOf > 0 && loopAt > v.start && loopAt < v.end ? loopAt : v.start;
+			v.bars = std::exp2(barsOf(word(Loop) >> 8));
+		}
 		v.reverse = play == Reverse || play == ReverseLoop;
 		v.loop = play == ForwardLoop || play == ReverseLoop;
 		v.position = v.reverse ? v.end - ReverseFrom : v.start;
@@ -156,13 +179,17 @@ namespace elektron::drums
 			v.pcm = slot.pcm;
 			v.length = slot.pcm ? slot.length : 0;
 		}
-		const double step = m_stepOf[_l] * v.rate;
+		// REPITCH: the portion over 2^BARS bars of four beats at the tempo, in outputs at 96 kHz, whatever TUNE and the note
+		const double step = v.repitch ? (v.end - v.start) / (v.bars * 4 * 60 / m_bpm * 96000) : m_stepOf[_l] * v.rate;
 		// The block that reaches the end is the last: faded out linearly, the voice over after it
 		bool fade = false;
 		if(!v.loop)
 		{
-			const double ahead = v.reverse ? v.position - EndAhead : v.position + EndAhead;
-			fade = v.reverse ? ahead < v.start : ahead >= v.end;
+			// The next block's last read, 127 steps on: if that block would not sound, this one is the last. A reversed read
+			// goes on below its start by up to ReverseBelow, never below the sample's first (five reversed cases at the
+			// oracle: 26.5 to 54.5 samples below a start inside the sample, none below 0)
+			fade = v.reverse ? !sounds(-(v.position - 127 * step), step, -std::max(v.start - ReverseBelow, 0.0))
+				: !sounds(v.position + 127 * step, step, v.end);
 		}
 		const auto length = static_cast<int64_t>(v.length);
 		for(int m = 0; m < Work; ++m)

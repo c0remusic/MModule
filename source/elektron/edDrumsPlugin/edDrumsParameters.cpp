@@ -434,20 +434,35 @@ namespace elektron::drums::parameters
 		return std::to_string(_v);
 	}
 
-	std::string samplerText(const int _index, const int _value, const int _grain)
+	std::string samplerText(const int _index, const int _value, const vintage::SamplerPage& _page)
 	{
-		if(vintage::isDt2(_grain) && _index < vintage::GrainSlot)
+		if(vintage::isDt2(_page.grain) && _index < vintage::GrainSlot)
 		{
-			// The CLEAN grain's page (Dt2Player::Slot)
+			// The CLEAN grain's page (Dt2Player::Slot), as its MODE lays it out
 			static constexpr const char* Play[]{"FWD", "REV", "FWD LOOP", "REV LOOP"};
+			// WERP, SLICE and STRETCH play as ONESHOT until their tickets (11, 12, 13), and say so
+			static constexpr const char* Modes[]{"ONESHOT", "GRID", "REPITCH", "ONESHOT", "ONESHOT", "ONESHOT"};
+			const auto mode = Dt2Player::modeOf(_page.mode);
+			const int slices = Dt2Player::gridOf(_page.grid);
 			switch(_index)
 			{
 			case Dt2Player::Tune:	return semitones(_value - 64);
 			case Dt2Player::Play:	return Play[Dt2Player::playModeOf(_value)];
-			case Dt2Player::Mode:	return "ONESHOT";
+			case Dt2Player::Mode:	return Modes[Dt2Player::modeOf(_value)];
 			case Dt2Player::Loop:
+				if(mode == Dt2Player::Grid)
+					return std::to_string(Dt2Player::gridOf(_value));
+				if(mode == Dt2Player::Repitch)
+				{
+					const int bars = Dt2Player::barsOf(_value);
+					return std::to_string(1 << bars) + (bars ? " BARS" : " BAR");
+				}
+				return withUnit(100.0 * _value / 127, "%");
 			case Dt2Player::Start:
-			case Dt2Player::Length:	return withUnit(100.0 * _value / 127, "%");
+				return mode == Dt2Player::Grid ? std::to_string(Dt2Player::sliceOf(_value, slices)) : withUnit(100.0 * _value / 127, "%");
+			case Dt2Player::Length:
+				return mode == Dt2Player::Grid ? std::to_string(1 + Dt2Player::moreSlicesOf(_value, slices))
+					: withUnit(100.0 * _value / 127, "%");
 			default:				return std::to_string(_value);
 			}
 		}
@@ -488,7 +503,7 @@ namespace elektron::drums::parameters
 		return found ? x : 0;
 	}
 
-	std::string machineText(const Machine& _machine, const int _index, const int _value, const int _grain)
+	std::string machineText(const Machine& _machine, const int _index, const int _value, const vintage::SamplerPage& _page)
 	{
 		const int v = std::clamp(_value, 0, 127);
 		switch(_machine.family)
@@ -515,16 +530,17 @@ namespace elektron::drums::parameters
 		case Family::Sophie:
 			return sophieText(_index, v);
 		case Family::Machinedrum:
-			return _machine == Sampler ? samplerText(_index, v, _grain) : std::to_string(v);
+			return _machine == Sampler ? samplerText(_index, v, _page) : std::to_string(v);
 		case Family::Off:
 			break;
 		}
 		return std::to_string(v);
 	}
 
-	int machineValueOf(const Machine& _machine, const int _index, const std::string& _text, const int _own, const int _grain)
+	int machineValueOf(const Machine& _machine, const int _index, const std::string& _text, const int _own,
+		const vintage::SamplerPage& _page)
 	{
-		return nearestValue(_text, 0, 127, _own, [&](const int _v) { return machineText(_machine, _index, _v, _grain); });
+		return nearestValue(_text, 0, 127, _own, [&](const int _v) { return machineText(_machine, _index, _v, _page); });
 	}
 
 	const std::array<Spec, ChainValues> chainSpecs{{

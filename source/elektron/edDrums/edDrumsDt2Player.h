@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
@@ -48,6 +49,24 @@ namespace elektron::drums
 			Tune = 0, Mode = 2, Loop = 3, Start = 4, Length = 5, Play = 6
 		};
 		static constexpr bool usesSlot(const int _slot) { return _slot == Tune || (_slot >= Mode && _slot <= Play); }
+		// MODE, a sixth of the range each, in the Digitakt II's order: ONESHOT; GRID (the sample in 4, 8, 16, 32 or 64
+		// equal slices, Machine 4; Machine 5 the slice played, 6 how many more follow it; as its OS plays it, probed at
+		// the oracle: ticket 05); REPITCH (STRT and LEN over 2^BARS bars at the tempo, Machine 4 BARS, the pitch
+		// following, TUNE and the note not read; ticket 05); WERP, SLICE and STRETCH play as ONESHOT until their tickets
+		// (11, 12, 13)
+		enum PlayerMode : int
+		{
+			OneShot, Grid, Repitch, Werp, SliceMode, Stretch
+		};
+		static PlayerMode modeOf(const int _value) { return static_cast<PlayerMode>(_value * 6 / 128); }
+		// BARS: 2^bars bars, bars 0 to 4 (1 to 16 bars), a fifth of the range each, as the OS's own BARS, a whole number
+		// (2^BARS by a shift); 0, the ROM player's BRR default, is 1 bar
+		static int barsOf(const int _value) { return _value * 5 / 128; }
+		// GRID: 4 << g slices, g 0 to 4 (4 to 64), a fifth of the range each
+		static int gridOf(const int _value) { return 4 << (_value * 5 / 128); }
+		// SLICE: which of _slices plays, 1 to _slices; LEN: how many more follow it, 0 to _slices - 1
+		static int sliceOf(const int _value, const int _slices) { return 1 + std::min(_value * _slices / 128, _slices - 1); }
+		static int moreSlicesOf(const int _value, const int _slices) { return std::min(_value * _slices / 128, _slices - 1); }
 		enum PlayMode : int
 		{
 			Forward, Reverse, ForwardLoop, ReverseLoop
@@ -58,6 +77,8 @@ namespace elektron::drums
 
 		// The samples it plays from the next block (nullptr: none, every lane silent)
 		void setSamples(const Dt2Samples* _samples) { m_samples = _samples; }
+		// The tempo REPITCH plays at, from the next block (120 at construction)
+		void setTempo(const double _bpm) { m_bpm = _bpm; }
 
 		// _track 0-15 (a lane). The note in semitones, 60 the sample's own pitch at TUNE 64
 		void setNote(int _track, int _note);
@@ -89,6 +110,8 @@ namespace elektron::drums
 			const int16_t* pcm = nullptr;	// read again from the slot each block: the sample may change under a fading voice
 			uint32_t length = 0;
 			bool playing = false, reverse = false, loop = false;
+			bool repitch = false;	// the step from the portion's length and the bars, not from TUNE
+			double bars = 1;		// REPITCH: 2^BARS, the bars the portion takes
 			double x[4]{}, y[4]{};	// the half-band's all-pass state, newest first
 			float oddTail[4]{};		// the last block's last four odd samples at 96 kHz, the odd branch's delay
 		};
@@ -103,6 +126,7 @@ namespace elektron::drums
 		static const Kernel& kernel();
 		const Kernel& m_kernel;
 		const Dt2Samples* m_samples = nullptr;
+		double m_bpm = 120;
 		syntakt::fast::Controls m_controls;
 		int m_lanes = Lanes;
 		std::array<Lane, Lanes> m_lane{};

@@ -273,8 +273,9 @@ namespace elektron::drums
 		virtual void trig(int _lane) = 0;
 		virtual void gateOff(int _lane) = 0;
 		virtual const Block& renderBlock() = 0;
-		// The sample lane _lane plays, on the DT2 player; nothing on a machine
+		// The sample lane _lane plays, and the tempo, on the DT2 player; nothing on a machine
 		virtual void setSample(int, const Dt2Samples::Slot&) {}
+		virtual void setTempo(double) {}
 
 		// The widest group a voice holds: the lowest free lane is the one a Hit takes, so the groups above empty
 		void fitWidth()
@@ -320,6 +321,13 @@ namespace elektron::drums
 					m_dt2.slots[static_cast<size_t>(_lane)] = _slot;
 				else
 					(void)_lane, (void)_slot;
+			}
+			void setTempo(const double _bpm) override
+			{
+				if constexpr(Dt2)
+					m.setTempo(_bpm);
+				else
+					(void)_bpm;
 			}
 
 			void setLanes(const int _lanes) override { m.setLanes(_lanes); }
@@ -827,6 +835,8 @@ namespace elektron::drums
 		}
 		m_sends->setTempo(m_tempo);
 		m_sends->setBpm(std::clamp(_bpm, 1.0, 1000.0));
+		if(!m_sources.empty())
+			m_sources[static_cast<size_t>(Dt2Source)]->setTempo(std::clamp(_bpm, 1.0, 1000.0));
 		const double perSample = std::clamp(_bpm, 1.0, 1000.0) / 60 / m_rate;
 		if(perSample == m_quartersPerSample)
 			return;

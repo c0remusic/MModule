@@ -114,8 +114,13 @@ namespace elektron::drums::names
 		// The ROM player's eight, then the grain's four (edDrumsVintage.h)
 		constexpr std::array<const char*, vintage::SamplerParameters> samplerControls{"TUNE", "DECAY", "HOLD", "BIT CRUSH",
 			"START", "END", "REPEATS", "REPEAT GAP", "GRAIN", "BITS", "COMPANDING", "OUTPUT LPF"};
-		// The CLEAN grain's six (Dt2Player::Slot), on the ROM player's slots whose defaults suit them, then GRAIN
+		// The CLEAN grain's controls (Dt2Player::Slot), on the ROM player's slots whose defaults suit them, then GRAIN; by
+		// MODE: ONESHOT (and the modes not ported yet), GRID, REPITCH (which reads no TUNE)
 		constexpr std::array<const char*, vintage::SamplerParameters> dt2Controls{"TUNE", nullptr, "MODE", "LOOP",
+			"START", "LENGTH", "PLAY", nullptr, "GRAIN", nullptr, nullptr, nullptr};
+		constexpr std::array<const char*, vintage::SamplerParameters> dt2GridControls{"TUNE", nullptr, "MODE", "GRID",
+			"SLICE", "LENGTH", "PLAY", nullptr, "GRAIN", nullptr, nullptr, nullptr};
+		constexpr std::array<const char*, vintage::SamplerParameters> dt2RepitchControls{nullptr, nullptr, "MODE", "BARS",
 			"START", "LENGTH", "PLAY", nullptr, "GRAIN", nullptr, nullptr, nullptr};
 
 		// VA DRUMS, by id (edDrumsEngine.h, OpenDrumMachines), their controls in openDrum.c's
@@ -245,10 +250,16 @@ namespace elektron::drums::names
 		return nullptr;
 	}
 
-	const char* control(const Machine& _machine, const int _index, const int _grain)
+	const char* control(const Machine& _machine, const int _index, const vintage::SamplerPage& _page)
 	{
-		if(_machine == Sampler && vintage::isDt2(_grain))
-			return _index >= 0 && _index < vintage::SamplerParameters ? dt2Controls[static_cast<size_t>(_index)] : nullptr;
+		if(_machine == Sampler && vintage::isDt2(_page.grain))
+		{
+			if(_index < 0 || _index >= vintage::SamplerParameters)
+				return nullptr;
+			const auto mode = Dt2Player::modeOf(_page.mode);
+			const auto& controls = mode == Dt2Player::Grid ? dt2GridControls : mode == Dt2Player::Repitch ? dt2RepitchControls : dt2Controls;
+			return controls[static_cast<size_t>(_index)];
+		}
 		return control(_machine, _index);
 	}
 
