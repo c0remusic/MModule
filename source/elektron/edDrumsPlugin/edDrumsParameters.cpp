@@ -186,6 +186,9 @@ namespace elektron::drums::parameters
 			return text;
 		}
 
+		// The DT2 player's PLAY modes (Dt2Player::playModeOf), as its page and the sample layer show them
+		constexpr const char* PlayNames[]{"FWD", "REV", "FWD LOOP", "REV LOOP"};
+
 		std::string cents(const double _cents)
 		{
 			char text[40];
@@ -345,6 +348,29 @@ namespace elektron::drums::parameters
 		if(is("amp_sustain"))
 			return gain(_v / 128.0);
 
+		// The sample layer (SampleLayers): TUNE in semitones, FINE a half semitone either way in cents, PLAY as the DT2
+		// player's, BR the bits it keeps, the envelope's times, OFFSET up to 100 ms
+		if(is("layer_tune"))
+			return semitones(_v - 64);
+		if(is("layer_fine"))
+			return cents((_v - 64) * 200.0 / 256);
+		if(is("layer_play"))
+			return PlayNames[Dt2Player::playModeOf(_v)];
+		if(is("layer_start") || is("layer_length") || is("layer_loop"))
+			return withUnit(100.0 * _v / 127, "%");
+		if(is("layer_level"))
+			return squared(_v);
+		if(is("layer_br"))
+			return _v == 0 ? "OFF" : withUnit(16 - std::log2(SampleLayers::reductionStep(_v)), "bit");
+		if(is("layer_attack"))
+			return seconds(SampleLayers::attackSeconds(_v));
+		if(is("layer_hold"))
+			return seconds(vintage::holdSeconds(_v));
+		if(is("layer_decay"))
+			return seconds(vintage::decaySeconds(_v));
+		if(is("layer_offset"))
+			return seconds(0.1 * _v / 127);
+
 		// The Echo (md::fast::echoWords: TIME in 128ths of 4 beats, 127 a whole; FB doubled in the loop) and the Gate Box
 		// (Y:$18C / 2 frames of pre-delay, DEC's row of reverberation times, mdFastGateBox.cpp)
 		if(is("echo_time"))
@@ -439,7 +465,6 @@ namespace elektron::drums::parameters
 		if(vintage::isDt2(_page.grain) && _index < vintage::GrainSlot)
 		{
 			// The CLEAN grain's page (Dt2Player::Slot), as its MODE lays it out
-			static constexpr const char* Play[]{"FWD", "REV", "FWD LOOP", "REV LOOP"};
 			// WERP, SLICE and STRETCH play as ONESHOT until their tickets (11, 12, 13), and say so
 			static constexpr const char* Modes[]{"ONESHOT", "GRID", "REPITCH", "ONESHOT", "ONESHOT", "ONESHOT"};
 			const auto mode = Dt2Player::modeOf(_page.mode);
@@ -447,7 +472,7 @@ namespace elektron::drums::parameters
 			switch(_index)
 			{
 			case Dt2Player::Tune:	return semitones(_value - 64);
-			case Dt2Player::Play:	return Play[Dt2Player::playModeOf(_value)];
+			case Dt2Player::Play:	return PlayNames[Dt2Player::playModeOf(_value)];
 			case Dt2Player::Mode:	return Modes[Dt2Player::modeOf(_value)];
 			case Dt2Player::Loop:
 				if(mode == Dt2Player::Grid)
@@ -684,6 +709,47 @@ namespace elektron::drums::parameters
 		if(_choice <= 1)
 			return _choice == 0 ? 1.0 / 16 : 1.0 / 12;
 		return delayNoteQuarters(_choice - 2);
+	}
+
+	const std::array<Spec, LayerValues> layerSpecs{{
+		{"layer_on", "Layer On", 0, 1, nullptr, true},
+		{"layer_tune", "Lyr Tune"}, {"layer_fine", "Lyr Fine"}, {"layer_play", "Lyr Play"},
+		{"layer_start", "Lyr Start"}, {"layer_length", "Lyr Length"}, {"layer_loop", "Lyr Loop"},
+		{"layer_level", "Lyr Level"}, {"layer_br", "Lyr BR"}, {"layer_attack", "Lyr Attack"},
+		{"layer_hold", "Lyr Hold"}, {"layer_decay", "Lyr Decay"}, {"layer_offset", "Lyr Offset"},
+		{"layer_note", "Lyr Key", 0, 1, nullptr, true},
+	}};
+
+	LayerArray valuesOf(const LayerSettings& _s)
+	{
+		return {_s.on, _s.tune, _s.fine, _s.play, _s.start, _s.length, _s.loop, _s.level, _s.bitReduction, _s.attack,
+			_s.hold, _s.decay, _s.offset, _s.noteTrack};
+	}
+
+	const LayerArray& layerDefaults()
+	{
+		static const LayerArray defaults = valuesOf(LayerSettings{});
+		return defaults;
+	}
+
+	LayerSettings layerOf(const LayerArray& _v)
+	{
+		LayerSettings s;
+		s.on = _v[LayerOn] != 0;
+		s.tune = _v[LayerTune];
+		s.fine = _v[LayerFine];
+		s.play = _v[LayerPlay];
+		s.start = _v[LayerStart];
+		s.length = _v[LayerLength];
+		s.loop = _v[LayerLoop];
+		s.level = _v[LayerLevel];
+		s.bitReduction = _v[LayerBr];
+		s.attack = _v[LayerAttack];
+		s.hold = _v[LayerHold];
+		s.decay = _v[LayerDecay];
+		s.offset = _v[LayerOffset];
+		s.noteTrack = _v[LayerNoteTrack] != 0;
+		return s;
 	}
 
 	double lfoNoteQuarters(const int _choice)

@@ -283,6 +283,7 @@ namespace elektron::drums
 			std::vector<juce::Colour> _swatches = {});
 		// The colours' list for Track _track, opened at _x, _y as openSelector's
 		void chooseColour(int _track, float _x, float _y);
+		// _track a sample slot, as Processor's: a Track's, or its layer's (Processor::layerSlot)
 		void loadSample(int _track, const juce::File& _file);
 		void loadSample(int _track, const SampleLibrary::Entry& _entry);
 		void sampleLoaded(int _track);

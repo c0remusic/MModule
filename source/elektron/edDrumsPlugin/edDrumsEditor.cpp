@@ -218,7 +218,7 @@ namespace elektron::drums
 			<< choiceOf(*shown.ampMode) << "/" << choiceOf(*shown.lfo1Sync) << "/" << choiceOf(*shown.lfo2Sync) << "/"
 			<< choiceOf("delay_source") << "/" << choiceOf("reverb_source") << "/" << choiceOf("delay_sync")
 			<< choiceOf("chorus_sync") << choiceOf("phaser_sync") << choiceOf(*shown.gapSync) << choiceOf("chorus_type") << "/"
-			<< m_processor.sampleName(m_track) << "/";
+			<< m_processor.sampleName(m_track) << "/" << m_processor.sampleName(Processor::layerSlot(m_track)) << "/";
 		// The LFOs' TARGET lists name Machine 1-24 by the machine of the Track each aims at
 		key << choiceOf(*shown.lfo1Track) << "," << choiceOf(*shown.lfo2Track) << ",";
 		for(const auto& t : m_keyChoices)
@@ -1066,6 +1066,9 @@ namespace elektron::drums
 		// The Amp block's envelope, while AMP is off
 		if(_section == "ae")
 			return trackParameter("amp_on")->getValue() < 0.5f;
+		// The sample layer's values, while LAYER is off
+		if(_section == "le")
+			return trackParameter("layer_on")->getValue() < 0.5f;
 		return false;
 	}
 
@@ -1165,6 +1168,9 @@ namespace elektron::drums
 			}
 		if(m_page == Page::Sound && juce::Rectangle<float>(cx(0) - 2, 23, 16 * Col + 2, 70).contains(mm))
 			loadSample(m_track, juce::File(file));
+		// On the SAMPLE LAYER block (edDrumsEditorScreen.cpp's SrcX, LowY, SrcW), the layer's own
+		else if(m_page == Page::Sound && juce::Rectangle<float>(cx(0) - 2, 185, 9 * Col + 2, 53.5f).contains(mm))
+			loadSample(Processor::layerSlot(m_track), juce::File(file));
 	}
 
 	void Editor::loadSample(const int _track, const juce::File& _file)
@@ -1197,12 +1203,17 @@ namespace elektron::drums
 
 	void Editor::sampleLoaded(const int _track)
 	{
-		// A sample loaded puts the Track on the Sampler
-		auto* machine = trackParameter("machine", _track);
-		const float sampler = machine->convertTo0to1(static_cast<float>(m_processor.samplerChoice()));
-		if(machine->getValue() != sampler)
-			setNormalised(*machine, sampler);
-		toast(m_processor.sampleName(_track) + " on Track " + juce::String(_track + 1));
+		// A sample loaded puts the Track on the Sampler; a layer's leaves the machine as it is
+		const bool layer = Processor::isLayerSlot(_track);
+		if(!layer)
+		{
+			auto* machine = trackParameter("machine", _track);
+			const float sampler = machine->convertTo0to1(static_cast<float>(m_processor.samplerChoice()));
+			if(machine->getValue() != sampler)
+				setNormalised(*machine, sampler);
+		}
+		toast(m_processor.sampleName(_track) + " on Track " + juce::String(Processor::trackOfSlot(_track) + 1)
+			+ (layer ? "'s layer" : ""));
 		layout();
 		repaint();
 	}

@@ -448,7 +448,7 @@ namespace elektron::drums
 	void Editor::drawBlockTitle(Painter& _p, const Block& _b)
 	{
 		const bool focus = _b.section == m_focus;
-		const bool off = sectionOff(_b.section) || _b.section == "x";
+		const bool off = sectionOff(_b.section);
 		// Rank 1, the page's first block: a full rule, its name at 4.0 mm; rank 2, a block that matters less: a thin rule,
 		// its name at 2.8 in grey (u.js blockTitle)
 		const float rule = focus ? 1.0f : _b.rank == 1 ? 0.8f : _b.rank == 2 ? 0.25f : 0.4f;
@@ -827,26 +827,37 @@ namespace elektron::drums
 			});
 		}
 
-		// SAMPLE LAYER: LOAD, the Sampler's file and CLEAR on the title line; the layer's values arrive with J2, greyed,
-		// all on one page, MIX M/S a cell of the second row
+		// SAMPLE LAYER (ticket 06 of the v2 map): LOAD, the layer's own sample and CLEAR on the title line; its 14
+		// values on two rows of seven, ON first of the second, the others greyed ("le") while it is off
 		{
 			const float x = SrcX, w = SrcW;
-			block(x, LowY, w, "x", "SAMPLE LAYER", hue::g, 53.5f);
+			const int slot = Processor::layerSlot(m_track);
+			block(x, LowY, w, "ly", "SAMPLE LAYER", hue::g, 53.5f);
 			Hit load;
 			load.r = {sampleLoadX(x), LowY + 1.4f, 19, 6};
-			load.click = [this] { chooseSample(m_track); };
+			load.click = [this, slot] { chooseSample(slot); };
 			addHit(std::move(load));
-			const char* first[]{"START", "END", "LOOP", "TUNE", "LEVEL"};
-			for(int i = 0; i < 5; ++i)
-				m_cells[static_cast<size_t>(put(x, LowY + 9.2f, w, 5, i, nullptr, first[i], hue::g, "x"))].off = true;
-			const char* second[]{"PLAY", "NOTE", "MIX M/S"};
-			for(int i = 0; i < 3; ++i)
-				m_cells[static_cast<size_t>(put(x, LowY + 31, w, 3, i, nullptr, second[i], hue::g, "x"))].off = true;
-			if(m_processor.sampleName(m_track).isNotEmpty())
+			struct Value
+			{
+				const char* id;
+				const char* name;
+			};
+			const Value first[]{{"layer_tune", "TUNE"}, {"layer_fine", "FINE"}, {"layer_play", "PLAY"},
+				{"layer_start", "START"}, {"layer_length", "LENGTH"}, {"layer_loop", "LOOP"},
+				{"layer_note", "KEY TRACK"}};
+			const Value second[]{{"layer_on", "LAYER"}, {"layer_level", "LEVEL"}, {"layer_br", "BR"},
+				{"layer_attack", "ATTACK"}, {"layer_hold", "HOLD"}, {"layer_decay", "DECAY"},
+				{"layer_offset", "OFFSET"}};
+			for(int i = 0; i < 7; ++i)
+			{
+				put(x, LowY + 9.2f, w, 7, i, t(first[i].id), first[i].name, hue::g, "le");
+				put(x, LowY + 31, w, 7, i, t(second[i].id), second[i].name, hue::g, i ? "le" : "ly");
+			}
+			if(m_processor.sampleName(slot).isNotEmpty())
 			{
 				Hit clear;
 				clear.r = {x + w - 24, LowY + 1.4f, 20, 6};
-				clear.click = [this] { m_processor.clearSample(m_track); layout(); repaint(); };
+				clear.click = [this, slot] { m_processor.clearSample(slot); layout(); repaint(); };
 				addHit(std::move(clear));
 			}
 		}
@@ -1144,13 +1155,12 @@ namespace elektron::drums
 		{
 			const float x = SrcX, w = SrcW;
 			const float load = sampleLoadX(x), file = load + 22;
+			const int slot = Processor::layerSlot(m_track);
 			drawButton(_p, load, LowY + 1.4f, 19, 6, "LOAD", false);
-			_p.text(x + w - 26, LowY + 6.2f, "GRAIN J2", 2.8f, colour::dim, 500, Align::Right);
-			const auto name = fitted(_p, m_processor.sampleName(m_track).toUpperCase(), 2.8f,
-				x + w - 26 - _p.textWidth("GRAIN J2", 2.8f) - 4 - file, 600);
+			const auto name = fitted(_p, m_processor.sampleName(slot).toUpperCase(), 2.8f, x + w - 26 - 4 - file, 600);
 			_p.text(file, LowY + 6.2f, name.isEmpty() ? "NO SAMPLE" : name, 2.8f, name.isEmpty() ? colour::dim
 				: hue::g.c[4], 600);
-			if(m_processor.sampleName(m_track).isNotEmpty())
+			if(m_processor.sampleName(slot).isNotEmpty())
 				drawButton(_p, x + w - 24, LowY + 1.4f, 20, 6, "CLEAR", false);
 		}
 		// Filter: its response from FREQ and RESO; ENVELOPE's rule and name, its picture

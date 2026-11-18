@@ -83,6 +83,20 @@ namespace elektron::drums::parameters
 	constexpr int DefaultRepeatNote = 5;		// 1/16
 	double repeatNoteQuarters(int _choice);
 
+	// A Track's sample layer (ticket 06 of .scratch/elektron-drums-v2), appended after Bucket Brigade's X-Over:
+	// LayerSettings' fields in its order, each Track's 14 together, its defaults LayerSettings' own, so that a set
+	// without them sounds as before
+	enum LayerValue
+	{
+		LayerOn, LayerTune, LayerFine, LayerPlay, LayerStart, LayerLength, LayerLoop, LayerLevel, LayerBr, LayerAttack,
+		LayerHold, LayerDecay, LayerOffset, LayerNoteTrack, LayerValues
+	};
+	extern const std::array<Spec, LayerValues> layerSpecs;
+	using LayerArray = std::array<int, LayerValues>;
+	LayerArray valuesOf(const LayerSettings& _settings);
+	LayerSettings layerOf(const LayerArray& _values);
+	const LayerArray& layerDefaults();		// valuesOf(LayerSettings{})
+
 	// The relays for Push (ticket 18, as MoDule's: docs/md-drums-push2.md): 64 host parameters in Push's banks of 8, each
 	// the parameter of the Track the editor shows whose ID ends in its target ("t05_" + target for Track 5), the first
 	// the Track shown itself (target nullptr). Their IDs are "push_" + target ("push_track" for the first), appended to

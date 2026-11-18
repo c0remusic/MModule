@@ -1626,9 +1626,10 @@ namespace
 			const int used = machineParameters(processor.machines()[static_cast<size_t>(machine->getIndex())]);
 			for(const auto& id : processor.trackIds(0))
 			{
-				// REPEAT GAP's two neither: the Processor plays no Lock of them
+				// REPEAT GAP's two neither: the Processor plays no Lock of them; nor of the sample layer's yet, whose
+				// Locks come with the third slice of ticket 06 of the v2 map
 				if(id.endsWith("_machine") || id.endsWith("_output") || id.endsWith("_chokes") || id.endsWith("_gap_sync")
-					|| id.endsWith("_gap_note"))
+					|| id.endsWith("_gap_note") || id.substring(4).startsWith("layer_"))
 				{
 					check(editor.lockMenuArea(index(id)).isEmpty(), id + " is not in the menu");
 					continue;

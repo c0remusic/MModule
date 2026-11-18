@@ -270,6 +270,9 @@ namespace
 			afterRelays.addArray(juce::StringArray{juce::String::formatted("t%02d_gap_sync", t + 1),
 				juce::String::formatted("t%02d_gap_note", t + 1)});
 		afterRelays.add("chorus_xover");
+		for(int t = 0; t < Tracks; ++t)
+			for(const auto& spec : parameters::layerSpecs)
+				afterRelays.add(juce::String::formatted("t%02d_", t + 1) + spec.id);
 		const auto& relays = _processor.ids(Processor::Section::Relays);
 		require(relays.size() == parameters::RelayCount
 			&& ids.indexOf(relays[0]) == ids.size() - parameters::RelayCount - afterRelays.size(),
@@ -294,7 +297,8 @@ namespace
 		}
 		std::printf("  %d parameters, %d per Track, %d shared; the IDs are the frozen list's\n", ids.size(),
 			_processor.trackIds(0).size(), ids.size() - Tracks * _processor.trackIds(0).size());
-		require(_processor.trackIds(0).size() == 75 + 16 + 2, "93 a Track: 75, Machine 9-24 and REPEAT GAP's Sync and Note");
+		require(_processor.trackIds(0).size() == 75 + 16 + 2 + parameters::LayerValues,
+			"107 a Track: 75, Machine 9-24, REPEAT GAP's Sync and Note and the sample layer's 14");
 		std::printf("PASS: the IDs are frozen\n");
 	}
 
@@ -309,6 +313,13 @@ namespace
 		bool masterOn = false;
 		std::array<bool, Tracks> gapSync{};		// REPEAT GAP's Sync and Note, one engine call for the pair
 		std::array<int, Tracks> gapNote{};
+		// The sample layer's 14, one engine call for them all
+		std::array<parameters::LayerArray, Tracks> layer = []
+		{
+			std::array<parameters::LayerArray, Tracks> l;
+			l.fill(parameters::layerDefaults());
+			return l;
+		}();
 	};
 
 	using TrackSetter = std::function<void(Engine&, Expected&, int, double)>;
@@ -395,6 +406,11 @@ namespace
 			m["accent"] = [](Engine& _e, Expected&, const int _t, const double _v) { _e.setAccent(_t, whole(_v)); };
 			m["gap_sync"] = [](Engine&, Expected& _x, const int _t, const double _v) { _x.gapSync[static_cast<size_t>(_t)] = _v != 0; };
 			m["gap_note"] = [](Engine&, Expected& _x, const int _t, const double _v) { _x.gapNote[static_cast<size_t>(_t)] = whole(_v); };
+			for(size_t v = 0; v < parameters::layerSpecs.size(); ++v)
+				m[parameters::layerSpecs[v].id] = [v](Engine&, Expected& _x, const int _t, const double _v)
+				{
+					_x.layer[static_cast<size_t>(_t)][v] = whole(_v);
+				};
 			for(int i = 8; i < MachineParameters; ++i)
 				m["m" + std::to_string(i + 1)] = [i](Engine& _e, Expected&, const int _t, const double _v)
 				{
@@ -532,6 +548,7 @@ namespace
 				e->setLfo(t, l, x.lfo[static_cast<size_t>(t)][static_cast<size_t>(l)]);
 			e->setRepeatNote(t, x.gapSync[static_cast<size_t>(t)]
 				? parameters::repeatNoteQuarters(x.gapNote[static_cast<size_t>(t)]) : 0.0);
+			e->setLayer(t, parameters::layerOf(x.layer[static_cast<size_t>(t)]));
 		}
 		e->setMasterOn(x.masterOn);
 		return e;
@@ -888,6 +905,9 @@ namespace
 		expected.push_back("gap_note");
 		// X-Over plays on Bucket Brigade alone, which neither sound chooses: edDrumsEngineTest's sends hears it
 		expected.push_back("chorus_xover");
+		// The sample layer plays a sample of its own, which neither sound holds: layer() hears it
+		for(const auto& spec : parameters::layerSpecs)
+			expected.push_back(spec.id);
 		require(unheard == expected, "a setting the processor gives is not heard");
 		std::printf("PASS: every parameter reaches the engine\n");
 	}
@@ -1497,6 +1517,61 @@ namespace
 		text.deleteFile();
 		std::printf("PASS: a WAV loaded plays on the Sampler, peak %.2f; the state keeps it; cleared, silence\n",
 			peakOf(loaded, 0));
+	}
+
+	// The sample layer (ticket 06 of the v2 map): its 14 parameters reach the engine; its own sample, beside the
+	// Track's, plays once the layer is on and is silent off; the state, a Track sound and clearing it keep each sample
+	// in its slot
+	void layer(const juce::File& _wav)
+	{
+		Processor processor;
+		allOutputs(processor);
+		set(find(processor, "t03_machine"), processor.samplerChoice());
+		const std::vector<Hit> hits{{1000, 2, 100}, {30000, 2, 60}};
+		constexpr int Length = 469 * Block;
+		const int slot = Processor::layerSlot(2);
+		juce::String error;
+		require(processor.loadSample(slot, _wav, error), "the layer's WAV refused: " + error.toStdString());
+		require(processor.sampleName(slot) == _wav.getFileName() && processor.sampleName(2).isEmpty(),
+			"the layer's sample in the Track's slot");
+		require(peakOf(play(processor, hits, Length), 0) < Engine::Silence, "a layer off sounds");
+		set(find(processor, "t03_layer_on"), 1);
+		const auto on = play(processor, hits, Length);
+		require(peakOf(on, 0) > 0.05f, "the layer on does not sound");
+		set(find(processor, "t03_layer_level"), 0);
+		require(peakOf(play(processor, hits, Length), 0) < Engine::Silence, "LEVEL 0 sounds");
+		set(find(processor, "t03_layer_level"), 100);
+
+		juce::MemoryBlock state;
+		processor.getStateInformation(state);
+		Processor other;
+		allOutputs(other);
+		other.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+		require(other.sampleName(slot) == _wav.getFileName() && other.sampleName(2).isEmpty(),
+			"the layer's sample in the state");
+		require(same(play(other, hits, Length), on), "the layer restored does not play the same");
+
+		// A Track sound carries it to another Track
+		const auto file = processor.saveTrackSound(2, "Layered");
+		require(other.loadTrackSound(6, file), "the Track sound not loaded");
+		require(other.sampleName(Processor::layerSlot(6)) == _wav.getFileName() && other.sampleName(6).isEmpty(),
+			"the Track sound's layer sample");
+		file.deleteFile();
+		// ... and a Kit, which tells it differs once the layer's sample goes
+		require(processor.saveKit(20), "the Kit not saved");
+		Processor third;
+		require(third.loadKit(20) && third.sampleName(slot) == _wav.getFileName() && !third.kitDiffers(),
+			"the Kit's layer sample");
+		third.clearSample(slot);
+		require(third.kitDiffers(), "the layer's sample cleared, the Kit does not differ");
+		require(processor.clearKit(20), "the Kit not cleared");
+
+		processor.clearSample(slot);
+		require(processor.sampleName(slot).isEmpty() && peakOf(play(processor, hits, Length), 0) < Engine::Silence,
+			"a layer's sample cleared sounds");
+		std::printf("PASS: the sample layer: silent off, peak %.2f on, its sample kept by the state, a Track sound and "
+			"a Kit\n",
+			peakOf(on, 0));
 	}
 
 	// ---- the samples' Library ----
@@ -3558,6 +3633,7 @@ int main(const int _argc, char** _argv)
 		machinePages();
 		const auto wav = writeWav(juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsSample.wav"));
 		samples(wav);
+		layer(wav);
 		kits(wav);
 		kitFiles(library, wav);
 		machineKits();

@@ -82,6 +82,11 @@ if(BUILD_TESTING)
 	target_link_libraries(edDrumsProcessorTest PRIVATE edDrumsPlugin edDrums opendrum mdProtocol juce_plugin_modules)
 	target_compile_definitions(edDrumsProcessorTest PRIVATE JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 ED_DRUMS_NAME="${ED_DRUMS_NAME}"
 		ED_DRUMS_PARAMETER_IDS="${CMAKE_CURRENT_SOURCE_DIR}/edDrumsParameterIds.txt")
+	# Its tests hold several Processors (88 KB each) on the stack at once, which a host never does: 1 MB overflowed once
+	# the sample layer's parameters came (ticket 06 of the v2 map)
+	if(MSVC)
+		target_link_options(edDrumsProcessorTest PRIVATE /STACK:8388608)
+	endif()
 	add_test(NAME edDrumsProcessorTest COMMAND edDrumsProcessorTest)
 	set_tests_properties(edDrumsProcessorTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
 	set_property(TARGET edDrumsProcessorTest PROPERTY FOLDER "Elektron/test")

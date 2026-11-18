@@ -155,8 +155,16 @@ namespace elektron::drums
 		void setSophieSound(int _track, int _sound);
 		int sophieSound(int _track) const;
 
+		// A Track holds two samples: its machine's, which the Sampler plays, at slot _track, and its sample layer's
+		// (ticket 06 of the v2 map) at layerSlot(_track). The sample functions below take either slot as _track
+		static constexpr int SampleSlots = 2 * Tracks;
+		static constexpr int layerSlot(const int _track) { return Tracks + _track; }
+		static constexpr bool isLayerSlot(const int _slot) { return _slot >= Tracks; }
+		static constexpr int trackOfSlot(const int _slot) { return _slot % Tracks; }
+
 		// Message thread. A Track's sample from a WAV, AIFF or FLAC file (readSampleFile): false and why in _error when
-		// it cannot be read; the Track plays it on the Sampler from the next block. Its name, empty for none
+		// it cannot be read; the Track plays it on the Sampler, or its layer, from the next block. Its name, empty for
+		// none
 		bool loadSample(int _track, const juce::File& _file, juce::String& _error);
 		juce::String sampleName(int _track) const;
 		void clearSample(int _track);
@@ -326,6 +334,7 @@ namespace elektron::drums
 			std::array<Watched, SendCount> sends{};
 			Watched accent;
 			Watched repeatSync, repeatNote;		// the Sampler's REPEAT GAP in note values
+			std::array<Watched, parameters::LayerValues> layer{};	// the sample layer's
 		};
 
 		// A sample on its way to the audio thread, numbered in the order published
@@ -345,9 +354,9 @@ namespace elektron::drums
 			juce::Time written;
 			int64_t size = -1;
 			std::vector<float> values;
-			std::array<std::unique_ptr<Sample>, Tracks> samples;
-			std::array<uint64_t, Tracks> sampleHash{};
-			std::array<juce::String, Tracks> refs;
+			std::array<std::unique_ptr<Sample>, SampleSlots> samples;
+			std::array<uint64_t, SampleSlots> sampleHash{};
+			std::array<juce::String, SampleSlots> refs;
 			std::unique_ptr<juce::XmlElement> xml;
 		};
 
@@ -467,21 +476,21 @@ namespace elektron::drums
 
 		// Each Track's sample, the message thread's; the mail the audio thread takes at its next block, and the serial of
 		// the last it gave the engine; what the message thread published that the audio thread may still read
-		std::array<std::unique_ptr<Sample>, Tracks> m_samples;
-		std::array<std::atomic<SampleMail*>, Tracks> m_sampleMail{};
-		std::array<std::atomic<uint32_t>, Tracks> m_sampleDone{};
-		std::array<std::vector<std::unique_ptr<SampleMail>>, Tracks> m_sampleFlight;
+		std::array<std::unique_ptr<Sample>, SampleSlots> m_samples;
+		std::array<std::atomic<SampleMail*>, SampleSlots> m_sampleMail{};
+		std::array<std::atomic<uint32_t>, SampleSlots> m_sampleDone{};
+		std::array<std::vector<std::unique_ptr<SampleMail>>, SampleSlots> m_sampleFlight;
 		uint32_t m_sampleSerial = 0;
-		std::array<juce::String, Tracks> m_sampleRefs;	// the fingerprints
+		std::array<juce::String, SampleSlots> m_sampleRefs;	// the fingerprints
 		// The values the engine's VINTAGE grain reads where they lie (Sample::source): the message thread holds every one it
 		// may be given (a mail's, a prepared Kit's, the Tracks') and drops one once nothing else holds it; the audio thread
 		// holds those it gave the engine and lets go of one there, which never frees it
 		std::vector<std::shared_ptr<const std::vector<int16_t>>> m_heldSources;
-		std::array<std::shared_ptr<const std::vector<int16_t>>, Tracks> m_engineSources;
+		std::array<std::shared_ptr<const std::vector<int16_t>>, SampleSlots> m_engineSources;
 		void holdSource(const Sample* _sample);
 		void giveSample(int _track, const Sample* _sample);
-		// The first Track whose sample has _fingerprint, -1 for none
-		int trackHolding(const juce::String& _fingerprint) const;
+		// The first sample slot whose sample has _fingerprint, -1 for none
+		int slotHolding(const juce::String& _fingerprint) const;
 		std::unique_ptr<SampleLibrary> m_sampleLibrary;
 		// FACTORY's entries as the bank holds them, and dressed as the Locker's generation last given; IN THIS SET's, and
 		// what they were made of (the Tracks' references and the Locker's generation)
@@ -568,8 +577,8 @@ namespace elektron::drums
 		std::array<uint8_t, Tracks> m_colours{};
 		bool m_kitHeld = false;		// m_kitValues and m_kitSamples hold the Slot's Kit: false for an empty Slot
 		std::vector<float> m_kitValues;
-		std::array<std::unique_ptr<Sample>, Tracks> m_kitSamples;
-		std::array<juce::String, Tracks> m_kitRefs;		// their references, as m_sampleRefs
+		std::array<std::unique_ptr<Sample>, SampleSlots> m_kitSamples;
+		std::array<juce::String, SampleSlots> m_kitRefs;		// their references, as m_sampleRefs
 
 		// takeNotices's, and every one given, so that a Kit read again does not give its own twice
 		mutable juce::StringArray m_notices, m_noticesGiven;
@@ -583,7 +592,7 @@ namespace elektron::drums
 		std::vector<std::pair<std::unique_ptr<PreparedKit>, uint64_t>> m_preparedRetired;
 		std::atomic<PreparedKit*> m_kitSwitched{nullptr};
 		std::atomic<uint64_t> m_blocksDone{0};
-		std::array<uint64_t, Tracks> m_engineSampleHash{};	// the audio thread's: the samples it gave the engine
+		std::array<uint64_t, SampleSlots> m_engineSampleHash{};	// the audio thread's: the samples it gave the engine
 
 		std::unique_ptr<TrackSounds> m_trackSounds;
 

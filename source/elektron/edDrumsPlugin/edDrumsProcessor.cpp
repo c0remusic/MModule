@@ -120,6 +120,18 @@ namespace elektron::drums
 			return FactoryRef + juce::String(_slot);
 		}
 
+		// The sample elements of a state or Kit by sample slot (Processor::writeSound): a Track's "sample", then its
+		// layer's "layerSample"; nullptr where it holds none
+		std::array<const juce::XmlElement*, Processor::SampleSlots> sampleElements(const juce::XmlElement& _xml)
+		{
+			std::array<const juce::XmlElement*, Processor::SampleSlots> elements{};
+			for(const auto layer : {false, true})
+				for(const auto* element : _xml.getChildWithTagNameIterator(layer ? "layerSample" : "sample"))
+					if(const int t = element->getIntAttribute("track", -1); t >= 0 && t < Tracks)
+						elements[static_cast<size_t>(layer ? Processor::layerSlot(t) : t)] = element;
+			return elements;
+		}
+
 		// Ticket 27's house name (edDrumsNames.h); a machine without one, by its id alone, no code of an old machine
 		juce::String machineName(const Machine& _machine)
 		{
@@ -691,6 +703,18 @@ namespace elektron::drums
 		}
 		// ... then Bucket Brigade's X-Over
 		shared(m_chorusXOver, chorusXOverSpec, 0, Section::Effects);
+		// ... then each Track's sample layer, its 14 together
+		for(int t = 0; t < Tracks; ++t)
+		{
+			const auto id = juce::String::formatted("t%02d_", t + 1);
+			const auto name = juce::String::formatted("T%02d ", t + 1);
+			auto& p = m_tracks[static_cast<size_t>(t)];
+			for(size_t v = 0; v < layerSpecs.size(); ++v)
+			{
+				const auto& spec = layerSpecs[v];
+				watch(p.layer[v], spec, id + spec.id, name + spec.name, layerDefaults()[v], Section::Machine, t);
+			}
+		}
 
 		m_edited = std::make_unique<Sequencer>();
 		for(auto& s : m_sequencers)
@@ -948,6 +972,17 @@ namespace elektron::drums
 		const bool repeatSync = _values.moved(_p.repeatSync);
 		if(_values.moved(_p.repeatNote) || repeatSync)
 			e.setRepeatNote(t, plain(_p.repeatSync) ? parameters::repeatNoteQuarters(plain(_p.repeatNote)) : 0.0);
+		// The layer whole when any of its values moved, as the chain
+		bool layerMoved = false;
+		for(auto& w : _p.layer)
+			layerMoved |= _values.moved(w);
+		if(layerMoved)
+		{
+			parameters::LayerArray layer{};
+			for(size_t v = 0; v < layer.size(); ++v)
+				layer[v] = plain(_p.layer[v]);
+			e.setLayer(t, parameters::layerOf(layer));
+		}
 	}
 
 	// One parameter of a Track to the engine: the Lock's value while it holds one, else the host's
@@ -1206,7 +1241,7 @@ namespace elektron::drums
 		if(const auto* entry = m_sampleLibrary->find(_fingerprint))
 			return loadSample(_track, entry->file, _error);
 		// IN THIS SET: another Track's copy
-		if(const int from = trackHolding(_fingerprint); from >= 0)
+		if(const int from = slotHolding(_fingerprint); from >= 0)
 		{
 			if(from != _track)
 			{
@@ -1220,7 +1255,7 @@ namespace elektron::drums
 		return false;
 	}
 
-	int Processor::trackHolding(const juce::String& _fingerprint) const
+	int Processor::slotHolding(const juce::String& _fingerprint) const
 	{
 		for(size_t t = 0; t < m_samples.size(); ++t)
 			if(m_samples[t] && _fingerprint.isNotEmpty() && m_sampleRefs[t] == _fingerprint)
@@ -1317,7 +1352,7 @@ namespace elektron::drums
 
 	bool Processor::auditionSetSample(const juce::String& _fingerprint, juce::String& _error)
 	{
-		const int t = trackHolding(_fingerprint);
+		const int t = slotHolding(_fingerprint);
 		if(t < 0)
 		{
 			_error = "No Track holds that sample any more";
@@ -1330,7 +1365,7 @@ namespace elektron::drums
 
 	bool Processor::keepInLocker(const juce::String& _fingerprint, juce::String& _error)
 	{
-		const int t = trackHolding(_fingerprint);
+		const int t = slotHolding(_fingerprint);
 		if(t < 0)
 		{
 			_error = "No Track holds that sample any more";
@@ -1444,7 +1479,10 @@ namespace elektron::drums
 	// one it replaces the message thread holds too, so that letting it go here frees nothing
 	void Processor::giveSample(const int _track, const Sample* _sample)
 	{
-		m_engine->setSample(_track, _sample);
+		if(!isLayerSlot(_track))
+			m_engine->setSample(_track, _sample);
+		else
+			m_engine->setLayerSample(trackOfSlot(_track), _sample);
 		m_engineSources[static_cast<size_t>(_track)] = _sample ? _sample->source : nullptr;
 	}
 
@@ -1676,7 +1714,7 @@ namespace elektron::drums
 		m_locks.forgetAll();
 		m_now = 0;
 		if(m_engine)
-			for(int t = 0; t < Tracks; ++t)
+			for(int t = 0; t < SampleSlots; ++t)
 			{
 				const auto* sample = m_samples[static_cast<size_t>(t)].get();
 				holdSource(sample);
@@ -1684,7 +1722,7 @@ namespace elektron::drums
 			}
 		else
 			m_engineSources.fill(nullptr);
-		for(int t = 0; t < Tracks; ++t)
+		for(int t = 0; t < SampleSlots; ++t)
 			m_engineSampleHash[static_cast<size_t>(t)] = sampleHash(m_samples[static_cast<size_t>(t)].get());
 	}
 
@@ -2049,27 +2087,29 @@ namespace elektron::drums
 			if(auto* p = dynamic_cast<juce::RangedAudioParameter*>(parameter))
 				if((_all && !isRelay(p->getParameterIndex())) || isKitParameter(p->getParameterIndex()))
 					_xml.setAttribute(p->getParameterID(), p->convertFrom0to1(p->getValue()));
-		for(int t = 0; t < Tracks; ++t)
+		for(int t = 0; t < SampleSlots; ++t)
 			if(auto* element = writeSample(_xml, t))
-				element->setAttribute("track", t);
+				element->setAttribute("track", trackOfSlot(t));
 	}
 
 	// The Track's sample as a child of _xml: its copy, which file of the Library it is beside it; a factory sample only
-	// its slot, so that no factory audio is written, and kept without the image that plays it. nullptr for none
+	// its slot, so that no factory audio is written, and kept without the image that plays it. nullptr for none. A
+	// layer's sample is a "layerSample" element, which a state or Kit made before it does not have
 	juce::XmlElement* Processor::writeSample(juce::XmlElement& _xml, const int _track) const
 	{
 		const auto t = static_cast<size_t>(_track);
 		const auto& sample = m_samples[t];
+		const char* tag = isLayerSlot(_track) ? "layerSample" : "sample";
 		if(const int slot = factorySlotOf(m_sampleRefs[t]))
 		{
-			auto* element = _xml.createNewChildElement("sample");
+			auto* element = _xml.createNewChildElement(tag);
 			element->setAttribute("factory", slot);
 			return element;
 		}
 		if(!sample)
 			return nullptr;
 		const auto bytes = sampleToBytes(*sample);
-		auto* element = _xml.createNewChildElement("sample");
+		auto* element = _xml.createNewChildElement(tag);
 		element->setAttribute("name", juce::String::fromUTF8(sample->name.c_str()));
 		if(m_sampleRefs[t].isNotEmpty())
 			element->setAttribute("fingerprint", m_sampleRefs[t]);
@@ -2345,6 +2385,7 @@ namespace elektron::drums
 			send.due = true;
 		p.accent.due = true;
 		p.repeatSync.due = true;
+		p.layer[0].due = true;
 	}
 
 	void Processor::readSound(const juce::XmlElement& _xml, const bool _all)
@@ -2361,11 +2402,8 @@ namespace elektron::drums
 				parameter->setValue(values[static_cast<size_t>(i)]);
 
 		// The samples the state holds, none else
-		std::array<const juce::XmlElement*, Tracks> samples{};
-		for(const auto* element : _xml.getChildWithTagNameIterator("sample"))
-			if(const int t = element->getIntAttribute("track", -1); t >= 0 && t < Tracks)
-				samples[static_cast<size_t>(t)] = element;
-		for(int t = 0; t < Tracks; ++t)
+		const auto samples = sampleElements(_xml);
+		for(int t = 0; t < Processor::SampleSlots; ++t)
 		{
 			auto& sample = m_samples[static_cast<size_t>(t)];
 			sample.reset();
@@ -2445,12 +2483,10 @@ namespace elektron::drums
 		if(!_kit)
 			return;
 		m_kitValues = kitValuesOf(*_kit);
-		for(const auto* element : _kit->getChildWithTagNameIterator("sample"))
-		{
-			const int t = element->getIntAttribute("track", -1);
-			if(t >= 0 && t < Tracks)
-				m_kitSamples[static_cast<size_t>(t)] = readSample(*element, m_kitRefs[static_cast<size_t>(t)]);
-		}
+		const auto samples = sampleElements(*_kit);
+		for(size_t t = 0; t < samples.size(); ++t)
+			if(samples[t])
+				m_kitSamples[t] = readSample(*samples[t], m_kitRefs[t]);
 	}
 
 	// A Slot's Kit as it plays: a Kit of a version before 3 on a ROM machine plays the Sampler (takeRoms)
@@ -2565,12 +2601,12 @@ namespace elektron::drums
 					kit = std::make_unique<PreparedKit>();
 					kit->slot = s;
 					kit->values = kitValuesOf(*xml);
-					for(const auto* element : xml->getChildWithTagNameIterator("sample"))
+					const auto samples = sampleElements(*xml);
+					for(size_t t = 0; t < samples.size(); ++t)
 					{
-						const auto t = static_cast<size_t>(element->getIntAttribute("track", -1));
-						if(t >= Tracks)
+						if(!samples[t])
 							continue;
-						kit->samples[t] = readSample(*element, kit->refs[t]);
+						kit->samples[t] = readSample(*samples[t], kit->refs[t]);
 						kit->sampleHash[t] = sampleHash(kit->samples[t].get());
 						holdSource(kit->samples[t].get());
 					}
@@ -2596,7 +2632,7 @@ namespace elektron::drums
 		const auto* kit = m_kitSwitched.exchange(nullptr, std::memory_order_acq_rel);
 		if(!kit)
 			return;
-		for(size_t t = 0; t < Tracks; ++t)
+		for(size_t t = 0; t < SampleSlots; ++t)
 		{
 			m_samples[t] = kit->samples[t] ? std::make_unique<Sample>(*kit->samples[t]) : nullptr;
 			m_sampleRefs[t] = kit->refs[t];
@@ -2615,8 +2651,9 @@ namespace elektron::drums
 				all[static_cast<int>(i)]->setValue(_kit.values[i]);
 		syncSound(true);
 		for(int t = 0; t < Tracks; ++t)
-		{
 			releaseLocks(t);
+		for(int t = 0; t < SampleSlots; ++t)
+		{
 			auto& hash = m_engineSampleHash[static_cast<size_t>(t)];
 			if(hash == _kit.sampleHash[static_cast<size_t>(t)])
 				continue;
@@ -2803,6 +2840,7 @@ namespace elektron::drums
 			xml->setAttribute(suffix, p->convertFrom0to1(p->getValue()));
 		}
 		writeSample(*xml, _track);
+		writeSample(*xml, layerSlot(_track));
 		return xml;
 	}
 
@@ -2816,12 +2854,13 @@ namespace elektron::drums
 		for(int i = 0; i < _sound.getNumAttributes(); ++i)
 			if(const auto name = _sound.getAttributeName(i); parameter(prefix + name) && soundSuffix(name))
 				kit->setAttribute(prefix + name, _sound.getAttributeValue(i));
-		if(const auto* sample = _sound.getChildByName("sample"))
-		{
-			auto* element = new juce::XmlElement(*sample);
-			element->setAttribute("track", _track);
-			kit->addChildElement(element);
-		}
+		for(const auto* tag : {"sample", "layerSample"})
+			if(const auto* sample = _sound.getChildByName(tag))
+			{
+				auto* element = new juce::XmlElement(*sample);
+				element->setAttribute("track", _track);
+				kit->addChildElement(element);
+			}
 		takeRoms(*kit, false);
 		takePageOrder(*kit, false, _track);
 		takeGrain(*kit, false, _track);
@@ -2864,12 +2903,16 @@ namespace elektron::drums
 				auto* q = parameter(id);
 				static_cast<juce::AudioProcessorParameter*>(q)->setValue(values[static_cast<size_t>(q->getParameterIndex())]);
 			}
-		auto& sample = m_samples[static_cast<size_t>(_track)];
-		sample.reset();
-		m_sampleRefs[static_cast<size_t>(_track)].clear();
-		if(const auto* element = kit->getChildByName("sample"))
-			sample = readSample(*element, m_sampleRefs[static_cast<size_t>(_track)]);
-		publishSample(_track);
+		const auto samples = sampleElements(*kit);
+		for(const int s : {_track, layerSlot(_track)})
+		{
+			auto& sample = m_samples[static_cast<size_t>(s)];
+			sample.reset();
+			m_sampleRefs[static_cast<size_t>(s)].clear();
+			if(const auto* element = samples[static_cast<size_t>(s)])
+				sample = readSample(*element, m_sampleRefs[static_cast<size_t>(s)]);
+			publishSample(s);
+		}
 		m_stateSerial.fetch_add(1, std::memory_order_acq_rel);
 		suspendProcessing(false);
 		tellHostAll();
@@ -2892,11 +2935,15 @@ namespace elektron::drums
 		e.setTempo(m_tempo->get());
 		e.setMachine(0, m_machines[static_cast<size_t>(plain(p.machine))]);
 		giveTrack(e, 0, p, kitValues, nullptr);
-		std::unique_ptr<Sample> sample;
+		std::unique_ptr<Sample> sample, layer;
 		juce::String ref;
-		if(const auto* element = kit->getChildByName("sample"))
+		const auto samples = sampleElements(*kit);
+		if(const auto* element = samples[0])
 			sample = readSample(*element, ref);
+		if(const auto* element = samples[static_cast<size_t>(layerSlot(0))])
+			layer = readSample(*element, ref);
 		e.setSample(0, sample.get());
+		e.setLayerSample(0, layer.get());
 		e.noteOn(0, 100);
 		// The ROM player's 1.29 s; on VINTAGE the sample at its pitch and a little tail, at most what a Sample holds
 		size_t length = Sample::MaxLength;
