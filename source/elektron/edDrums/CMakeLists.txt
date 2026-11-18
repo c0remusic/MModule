@@ -7,7 +7,7 @@ add_library(edDrums STATIC edDrumsAnalog.h edDrumsAnalogPort.h edDrumsAnalogShar
 	edDrumsAnalogSynth.cpp edDrumsAnalogSynthVoice.cpp edDrumsAnalogUtility.cpp edDrumsAnalogUtilityVoice.cpp
 	edDrumsAnalogRates.h edDrumsAnalogRates.cpp edDrumsAnalogMetal.cpp edDrumsAnalogMetalVoice.cpp
 	edDrumsRytm.h edDrumsRytmControl.cpp edDrumsRytmVoice.h edDrumsRytmVoice.cpp
-	edDrumsChain.h edDrumsChain.cpp edDrumsDt2Player.h edDrumsDt2Player.cpp
+	edDrumsChain.h edDrumsChain.cpp edDrumsDt2Player.h edDrumsDt2Player.cpp edDrumsLayer.h edDrumsLayer.cpp
 	edDrumsEngine.h edDrumsEngine.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
 	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
 	edDrumsOversamplerKernel.h edDrumsOversamplerAvx2.cpp edDrumsMasterAvx2.cpp
@@ -71,6 +71,14 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsDt2PlayerTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsDt2PlayerTest COMMAND edDrumsDt2PlayerTest)
 	set_tests_properties(edDrumsDt2PlayerTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# The sample layer: off silent, its Hit at HitDelay on both paths, its retrig, BR, envelope, 44.1 against 48 kHz,
+	# its cost; neither flash image nor vectors
+	add_executable(edDrumsLayerTest edDrumsLayerTest.cpp)
+	target_link_libraries(edDrumsLayerTest PRIVATE edDrums)
+	set_property(TARGET edDrumsLayerTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsLayerTest COMMAND edDrumsLayerTest)
+	set_tests_properties(edDrumsLayerTest PROPERTIES TIMEOUT 120)
 
 	# Two LFOs a Track on the transport, aimed at any Track; their laws against syntakt::main's and mdDrums::Lfo
 	# (GEARMULATOR_MD_FIRMWARE_BIN: exit 77 without it)

@@ -105,6 +105,16 @@ namespace elektron::drums
 			return std::clamp(1.0f - static_cast<float>(_n + 1) / static_cast<float>(Engine::CutSamples), 0.0f, 1.0f);
 		}
 
+		// A Sample's 16-bit values where they lie, as the VINTAGE grain and the DT2 player read them: none for no Sample
+		Dt2Samples::Slot slotOf(const Sample* _sample)
+		{
+			const auto* source = _sample ? _sample->source.get() : nullptr;
+			if(!source || source->empty())
+				return {nullptr, 0, _sample ? _sample->rate : SampleRate};
+			return {source->data(), static_cast<uint32_t>(std::min<size_t>(source->size(), Sample::MaxSourceLength)),
+				_sample->rate};
+		}
+
 		float gainOf(const float _value)
 		{
 			const float g = _value / 127.0f;
@@ -403,6 +413,14 @@ namespace elektron::drums
 		return peak;
 	}
 
+	void Engine::Ring::hold(const int64_t _to)
+	{
+		const float last = at(m_end - 1);
+		for(int64_t p = m_end; p < _to; ++p)
+			put(p, last);
+		m_end = std::max(m_end, _to);
+	}
+
 	void Engine::Ring::fade(const int64_t _at)
 	{
 		for(int64_t p = _at; p < m_end; ++p)
@@ -491,7 +509,9 @@ namespace elektron::drums
 	Engine::Engine(const Library& _library, const double _rate)
 		: m_library(_library), m_rate(_rate), m_hitDelay(hitDelay(_rate)), m_hostBlock(hostBlockOf(_rate)), m_shared(std::make_unique<md::voice::Shared>()),
 		m_mdChain(std::make_unique<Chain>(SampleRate, false)), m_mdIn(std::make_unique<Block>()),
-		m_stChain(std::make_unique<Chain>(syntakt::fast::MachineRate, true)), m_stIn(std::make_unique<Block>())
+		m_stChain(std::make_unique<Chain>(syntakt::fast::MachineRate, true)), m_stIn(std::make_unique<Block>()),
+		m_mdLayers(std::make_unique<SampleLayers>(SampleRate)),
+		m_stLayers(std::make_unique<SampleLayers>(syntakt::fast::MachineRate))
 	{
 		static_assert(HitDelay == BlockSize - 1 + LatestStart + Chain::MaxDelay,
 			"a Machinedrum Hit waits its block, the latest voice and its chain");
@@ -589,6 +609,7 @@ namespace elektron::drums
 		for(int target = static_cast<int>(LfoTarget::DriveA); target <= static_cast<int>(LfoTarget::EnvelopeDepth); ++target)
 			chainOf(t).modulate(_track, chainTarget(static_cast<LfoTarget>(target)), 0);
 		chainOf(t).clear(_track);
+		layersOf(t).stop(_track);
 		t.stChain = _syntakt;
 		chainOf(t).setNote(_track, t.note);
 		chainOf(t).configure(_track, settings);
@@ -622,6 +643,8 @@ namespace elektron::drums
 		if(t.machine == _machine || !playable(_machine))
 			return;
 		cut(_track);
+		m_mdLayers->stop(_track);
+		m_stLayers->stop(_track);
 		t.machine = _machine;
 		t.pendingLocks = t.lockedNow = 0;
 		t.params = allDefaults(_machine);
@@ -725,19 +748,31 @@ namespace elektron::drums
 
 		// The VINTAGE grain's, its values whole where they lie: the cut voice's tail is rendered, nothing reads the old ones
 		const auto t = static_cast<size_t>(_track);
-		const auto* source = _sample ? _sample->source.get() : nullptr;
-		m_vtSource[t] = source && !source->empty() ? source->data() : nullptr;
-		m_vtLength[t] = m_vtSource[t] ? static_cast<uint32_t>(std::min<size_t>(source->size(), Sample::MaxSourceLength)) : 0;
-		m_vtRate[t] = _sample ? _sample->rate : SampleRate;
 		// The DT2 player's, the same values at the same rate. The cut above freed the lane, whose voice fades over the
 		// next blocks: it reads this slot from its next block, the old sample's memory being the caller's to free
-		m_dt2Slot[t] = {m_vtSource[t], m_vtLength[t], m_vtRate[t]};
+		m_dt2Slot[t] = slotOf(_sample);
+		m_vtSource[t] = m_dt2Slot[t].pcm;
+		m_vtLength[t] = m_dt2Slot[t].length;
+		m_vtRate[t] = m_dt2Slot[t].rate;
 		if(m_sources.empty())
 			return;	// the constructor's, before the sources exist
 		auto& dt2 = *m_sources[static_cast<size_t>(Dt2Source)];
 		for(int l = 0; l < Lanes; ++l)
 			if(dt2.lanes[static_cast<size_t>(l)].track == _track)
 				dt2.setSample(l, m_dt2Slot[t]);
+	}
+
+	void Engine::setLayer(const int _track, const LayerSettings& _settings)
+	{
+		m_mdLayers->setSettings(_track, _settings);
+		m_stLayers->setSettings(_track, _settings);
+	}
+
+	void Engine::setLayerSample(const int _track, const Sample* _sample)
+	{
+		const auto slot = slotOf(_sample);
+		m_mdLayers->setSample(_track, slot);
+		m_stLayers->setSample(_track, slot);
 	}
 
 	void Engine::setParameter(const int _track, const int _index, const uint8_t _value)
@@ -771,6 +806,8 @@ namespace elektron::drums
 		t.note = _note;
 		if(t.lane >= 0)
 			sourceOf(t).setNote(t.lane, _note);
+		m_mdLayers->setNote(_track, _note);
+		m_stLayers->setNote(_track, _note);
 		chainOf(t).setNote(_track, _note);
 	}
 
@@ -1104,6 +1141,14 @@ namespace elektron::drums
 			t.mdFade = phaseFade(t.mdPhaseAt);
 		}
 		t.mdHitSkip = m_mdChain->pureDelay(_track);
+		// The layer's first sample where the voice's is, its offset after. What sounds of it fades in the ring's new run,
+		// which starts up to a block before or after the old one's end (-24 to 7 samples at 44.1 kHz): over what the old
+		// one wrote, it goes on from that end; after it, the samples between hold the old run's last, not 0, as the
+		// layer goes on from there
+		const int moved = m_mdLive >> _track & 1 ? static_cast<int>(t.md.at - at) : 0;
+		if(moved < 0 && m_mdLayers->sounding(_track))
+			t.mdRing.hold(at);
+		m_mdLayers->hit(_track, start, moved);
 		const float tail = tailGain(t.md.velocity, _gain);
 		t.md.start(at, _gain, t.level);
 
@@ -1192,6 +1237,10 @@ namespace elektron::drums
 			if(changed >> i & 1)
 				playSyntakt(_track, i);
 		source.trig(t.lane);
+		// The voice sounds from the block after the one that sees its trig: the layer's first sample there, its offset after.
+		// What sounds of it fades in the trig's block, the old run's last, as the machine's voice does
+		m_stLayers->cut(_track);
+		m_stLayers->hit(_track, BlockSize);
 
 		// The block that sees the trig, the next that sounds it: the voice's first sample out of its chain must be what the
 		// FIR places at output sample m_now + HitDelay, read - FirDelay = 147 (position of that sample in the ring)
@@ -1231,7 +1280,12 @@ namespace elektron::drums
 			t.mdFadeAt = fadeAt;
 			int blocks = 0;
 			for(int64_t p = t.md.at; p < fadeAt + CutSamples && blocks < TailBlocks; p += BlockSize)
-				renderVoice(_track, t.mdTail[blocks++]);
+			{
+				renderVoice(_track, t.mdTail[blocks]);
+				m_mdLayers->render(_track, t.mdTail[blocks++]);
+			}
+			// The ring ramps over what the layer has rendered ahead, as over the voice
+			m_mdLayers->stop(_track);
 			t.mdTailBlocks = std::max(t.mdTailBlocks, blocks);
 			// The rest of an OPEN DRUM block lies past the ramp: the voice's next Hit starts a block of its own
 			t.odPending = false;
@@ -1267,6 +1321,7 @@ namespace elektron::drums
 			}
 			t.lane = -1;
 		}
+		m_stLayers->cut(_track);
 	}
 
 	void Engine::playOpenDrum(const int _track, const int _index)
@@ -1460,6 +1515,7 @@ namespace elektron::drums
 			float x[BlockSize]{};
 			if(m_mdLive >> track & 1)
 				renderVoice(static_cast<int>(track), x);
+			m_mdLayers->render(static_cast<int>(track), x);
 			if(t.mdTailBlocks)
 			{
 				for(int n = 0; n < BlockSize; ++n)
@@ -1490,7 +1546,8 @@ namespace elektron::drums
 			const uint32_t bit = 1u << track;
 			// An OPEN DRUM voice rounds a quiet tail to silence for longer than that: it is over once its envelope is too
 			// and a SOPHIE voice once it has stopped
-			if(t.machine.family == Family::OpenDrum ? t.md.quiet >= OpenDrumQuietBlocks && !openDrum_sounding(t.od)
+			if(!m_mdLayers->sounding(static_cast<int>(track))
+				&& (t.machine.family == Family::OpenDrum ? t.md.quiet >= OpenDrumQuietBlocks && !openDrum_sounding(t.od)
 				: t.machine.family == Family::Sophie ? t.md.quiet >= OpenDrumQuietBlocks && !t.spTrig
 					&& !sophie_active(&m_sophie->v[track])
 				: t.machine.family == Family::SyntaktAnalog ? t.md.quiet >= OpenDrumQuietBlocks && !t.anTrig
@@ -1498,7 +1555,7 @@ namespace elektron::drums
 				: t.machine.family == Family::RytmAnalog ? t.md.quiet >= OpenDrumQuietBlocks && !t.anTrig
 					&& !m_analog->r[track].active()
 				: vintageGrain(t) ? t.md.quiet >= OpenDrumQuietBlocks && !t.vtTrig && !t.vt.playing()
-				: t.md.quiet >= MachinedrumQuietBlocks)
+				: t.md.quiet >= MachinedrumQuietBlocks))
 				m_mdLive &= ~bit;
 			if(!t.mdTailBlocks)
 				m_mdTails &= ~bit;
@@ -1574,6 +1631,17 @@ namespace elektron::drums
 				}
 			}
 		}
+		// The sample layers, summed with their voices before the chain
+		for(uint32_t bits = m_stLayers->soundingTracks(), track = 0; bits; bits >>= 1, ++track)
+		{
+			if(!(bits & 1))
+				continue;
+			compute(track);
+			float x[BlockSize]{};
+			m_stLayers->render(static_cast<int>(track), x);
+			for(int n = 0; n < BlockSize; ++n)
+				in.s[n][track] += x[n];
+		}
 		for(size_t track = 0; track < Tracks; ++track)
 			if(m_tracks[track].stNext >= 0)
 			{
@@ -1622,7 +1690,8 @@ namespace elektron::drums
 				if(lane.track < 0)
 					continue;
 				const auto& t = m_tracks[static_cast<size_t>(lane.track)];
-				if(lane.fadeAt != Never ? t.st.at >= lane.fadeAt + CutSamples : t.st.quiet >= SyntaktQuietBlocks)
+				if((lane.fadeAt != Never ? t.st.at >= lane.fadeAt + CutSamples : t.st.quiet >= SyntaktQuietBlocks)
+					&& !m_stLayers->sounding(lane.track))
 					freeLane(static_cast<int>(s), l);
 			}
 		}

@@ -79,6 +79,10 @@ namespace elektron::drums
 		void setSamples(const Dt2Samples* _samples) { m_samples = _samples; }
 		// The tempo REPITCH plays at, from the next block (120 at construction)
 		void setTempo(const double _bpm) { m_bpm = _bpm; }
+		// The rate it renders at (48 kHz at construction, the Syntakt family's), set before its voices start: a voice's
+		// step is taken at its start, REPITCH's at each block. The sample layer's player renders at its chain's, 44.1 kHz
+		// on the Machinedrum family's path. Its 96 kHz stage is twice it
+		void setOutputRate(const double _rate) { m_outRate = _rate; }
 
 		// _track 0-15 (a lane). The note in semitones, 60 the sample's own pitch at TUNE 64
 		void setNote(int _track, int _note);
@@ -96,6 +100,15 @@ namespace elektron::drums
 		// One 48 kHz block of the 16 lanes
 		const syntakt::fast::Block& renderBlock();
 
+		// A lane on its own, the trigs left out (the sample layer's, edDrumsLayer.h): its voice starts at once, from the
+		// words as they stand, and sounds from the first sample of the next renderLane
+		void start(const int _lane) { startVoice(_lane); }
+		bool playing(const int _lane) const { return m_lane[static_cast<size_t>(_lane)].playing; }
+		void stop(const int _lane) { m_lane[static_cast<size_t>(_lane)].playing = false; }
+		// The lane's next block into _out (BlockSize samples), silence when it does not play; _fadeOut ramps the block to
+		// silence and ends the voice
+		void renderLane(int _lane, float* _out, bool _fadeOut);
+
 		// The kernel's value at _t source samples from the read position (|_t| < 3), the formula the table is made of
 		static double kernelAt(double _t);
 		// The half-band's four all-pass coefficients, for the tests
@@ -105,7 +118,7 @@ namespace elektron::drums
 		struct Lane
 		{
 			double position = 0;	// in source samples, of the sample's first
-			double rate = 1;		// the sample's rate over 48 kHz: the step follows TUNE and the note block by block
+			double rate = 1;		// the sample's rate over the output's: the step follows TUNE and the note block by block
 			double start = 0, end = 0, loopAt = 0;
 			const int16_t* pcm = nullptr;	// read again from the slot each block: the sample may change under a fading voice
 			uint32_t length = 0;
@@ -119,18 +132,20 @@ namespace elektron::drums
 		void convert(int _track);
 		void startVoice(int _l);
 		void render96(int _l, float* _work);
-		// ... to 32 at 48 kHz into m_out; _fadeOut ramps the block to silence (a trig's block)
-		void decimate(int _l, const float* _work, bool _fadeOut);
+		// ... to 32 at the output rate into _out; _fadeOut ramps the block to silence (a trig's block)
+		void decimate(int _l, const float* _work, bool _fadeOut, float* _out);
 
 		using Kernel = std::array<std::array<float, Taps>, Phases>;
 		static const Kernel& kernel();
 		const Kernel& m_kernel;
 		const Dt2Samples* m_samples = nullptr;
 		double m_bpm = 120;
+		double m_outRate = 48000;
 		syntakt::fast::Controls m_controls;
 		int m_lanes = Lanes;
 		std::array<Lane, Lanes> m_lane{};
-		// What TUNE and the note convert to (convert): source samples an output at 96 kHz, at a 48 kHz sample
+		// What TUNE and the note convert to (convert): source samples an output at twice the output rate, at a
+		// sample of the output's rate
 		double m_stepOf[Lanes]{};
 		syntakt::fast::Block m_out;
 	};

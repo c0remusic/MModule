@@ -134,7 +134,7 @@ namespace elektron::drums
 		const auto word = [this, _l](const int _i) { return m_controls.words[_i][_l]; };
 		const PlayMode play = playModeOf(word(Play) >> 8);
 		const PlayerMode mode = modeOf(word(Mode) >> 8);
-		v.rate = slot->rate / 48000.0;
+		v.rate = slot->rate / m_outRate;
 		const auto length = static_cast<double>(v.length);
 		const double bound = v.length > StartMargin ? static_cast<double>(v.length - StartMargin) : 0.0;
 		v.repitch = mode == Repitch;
@@ -179,8 +179,10 @@ namespace elektron::drums
 			v.pcm = slot.pcm;
 			v.length = slot.pcm ? slot.length : 0;
 		}
-		// REPITCH: the portion over 2^BARS bars of four beats at the tempo, in outputs at 96 kHz, whatever TUNE and the note
-		const double step = v.repitch ? (v.end - v.start) / (v.bars * 4 * 60 / m_bpm * 96000) : m_stepOf[_l] * v.rate;
+		// REPITCH: the portion over 2^BARS bars of four beats at the tempo, in outputs at twice the output rate, whatever
+		// TUNE and the note
+		const double step = v.repitch ? (v.end - v.start) / (v.bars * 4 * 60 / m_bpm * 2 * m_outRate)
+			: m_stepOf[_l] * v.rate;
 		// The block that reaches the end is the last: faded out linearly, the voice over after it
 		bool fade = false;
 		if(!v.loop)
@@ -200,11 +202,22 @@ namespace elektron::drums
 			const auto phase = std::min(static_cast<int>((v.position - base) * Phases + 0.5), Phases - 1);
 			const float* k = m_kernel[static_cast<size_t>(phase)].data();
 			float acc = 0;
-			for(int t = 0; t < Taps; ++t)
+			if(first >= 0 && first + Taps <= length)
 			{
-				const int64_t i = first + t;
-				if(i >= 0 && i < length)
-					acc += k[t] * static_cast<float>(v.pcm[i]);
+				// Inside the sample, as nearly every output is: the same sum without the bounds, its six taps unrolled
+				// (a loop bounded per output runs half as fast again)
+				const int16_t* x = v.pcm + first;
+				for(int t = 0; t < Taps; ++t)
+					acc += k[t] * static_cast<float>(x[t]);
+			}
+			else
+			{
+				for(int t = 0; t < Taps; ++t)
+				{
+					const int64_t i = first + t;
+					if(i >= 0 && i < length)
+						acc += k[t] * static_cast<float>(v.pcm[i]);
+				}
 			}
 			_work[m] = fade ? acc * static_cast<float>(Work - 1 - m) / (Work - 1) : acc;
 			v.position += v.reverse ? -step : step;
@@ -221,7 +234,7 @@ namespace elektron::drums
 			v.playing = false;
 	}
 
-	void Dt2Player::decimate(const int _l, const float* _work, const bool _fadeOut)
+	void Dt2Player::decimate(const int _l, const float* _work, const bool _fadeOut, float* _out)
 	{
 		Lane& v = m_lane[static_cast<size_t>(_l)];
 		const auto& a = HalfBand;
@@ -237,7 +250,7 @@ namespace elektron::drums
 			// The odd branch, the pair OddDelay back: the last block's for the first pairs
 			const double o = n >= OddDelay ? _work[2 * (n - OddDelay) + 1] : v.oddTail[n];
 			const float gain = _fadeOut ? 1 - static_cast<float>(n) / BlockSize : 1.0f;
-			m_out.s[n][_l] = static_cast<float>(0.5 * (y0 + o)) * gain;
+			_out[n] = static_cast<float>(0.5 * (y0 + o)) * gain;
 		}
 		v.x[0] = x0; v.x[1] = x1; v.x[2] = x2; v.x[3] = x3;
 		v.y[0] = y0; v.y[1] = y1; v.y[2] = y2; v.y[3] = y3;
@@ -245,29 +258,35 @@ namespace elektron::drums
 			v.oddTail[d] = _work[2 * (BlockSize - OddDelay + d) + 1];
 	}
 
+	void Dt2Player::renderLane(const int _lane, float* _out, const bool _fadeOut)
+	{
+		Lane& v = m_lane[static_cast<size_t>(_lane)];
+		if(!v.playing)
+		{
+			std::fill_n(_out, BlockSize, 0.0f);
+			return;
+		}
+		alignas(16) float work[Work];
+		render96(_lane, work);
+		decimate(_lane, work, _fadeOut, _out);
+		if(_fadeOut)
+			v.playing = false;
+	}
+
 	const Block& Dt2Player::renderBlock()
 	{
 		const FlushDenormals ftz;
 		m_controls.trigs.start();
-		alignas(16) float work[Work];
 		for(int l = 0; l < m_lanes; ++l)
 		{
 			auto& trigs = m_controls.trigs;
-			Lane& v = m_lane[static_cast<size_t>(l)];
 			if(trigs.now[l])
 				startVoice(l);
-			if(!v.playing)
-			{
-				for(int n = 0; n < BlockSize; ++n)
-					m_out.s[n][l] = 0;
-				continue;
-			}
-			render96(l, work);
 			// A trig seen in this block: the voice fades out over it, the Hit sounds from the next
-			const bool pending = trigs.pending[l];
-			decimate(l, work, pending);
-			if(pending)
-				v.playing = false;
+			float out[BlockSize];
+			renderLane(l, out, trigs.pending[l]);
+			for(int n = 0; n < BlockSize; ++n)
+				m_out.s[n][l] = out[n];
 		}
 		m_controls.trigs.end();
 		return m_out;

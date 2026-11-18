@@ -11,6 +11,7 @@
 #include "edDrumsRytmVoice.h"
 #include "edDrumsChain.h"
 #include "edDrumsDt2Player.h"
+#include "edDrumsLayer.h"
 #include "edDrumsLfo.h"
 #include "edDrumsLibrary.h"
 #include "edDrumsMaster.h"
@@ -235,6 +236,12 @@ namespace elektron::drums
 		// Tracks' go on
 		void setSample(int _track, const Sample* _sample);
 
+		// The Track's sample layer (edDrumsLayer.h), on whichever path it plays: its settings from the next Hit, TUNE, FINE
+		// and LEVEL at once; its sample, nullptr none, _sample->source read where it lies as setSample's. What sounds of it
+		// fades out
+		void setLayer(int _track, const LayerSettings& _settings);
+		void setLayerSample(int _track, const Sample* _sample);
+
 		uint8_t parameter(const int _track, const int _index) const
 		{
 			return m_tracks[static_cast<size_t>(_track)].params[static_cast<size_t>(_index)];
@@ -330,6 +337,8 @@ namespace elektron::drums
 			float write(int64_t _at, const float* _x, float _from, float _to, int64_t _fadeAt);
 			// The ramp of a cut at _at on what is already written
 			void fade(int64_t _at);
+			// The last sample written held up to _to, which a run starting there leaves unwritten
+			void hold(int64_t _to);
 			// Silence for a window after the last write, a voice over
 			void close();
 			int64_t end() const { return m_end; }
@@ -458,6 +467,7 @@ namespace elektron::drums
 		void releaseVoice(int _track);
 		Source& sourceOf(const Track& _track);
 		Chain& chainOf(const Track& _track) { return _track.stChain ? *m_stChain : *m_mdChain; }
+		SampleLayers& layersOf(const Track& _track) { return _track.stChain ? *m_stLayers : *m_mdLayers; }
 		// The Sampler on its DT2 grain, which plays on the Syntakt family's path; and whether the Track plays there
 		static bool dt2Grain(const Track& _track);
 		static bool syntaktPath(const Track& _track) { return _track.machine.family == Family::Syntakt || dt2Grain(_track); }
@@ -588,6 +598,8 @@ namespace elektron::drums
 		int64_t m_stNext = 0;			// the host sample whose reading first needs block m_stBlock
 		std::unique_ptr<Chain> m_stChain;
 		std::unique_ptr<Block> m_stIn;
+		// The sample layers, at each path's rate: a Track's plays on the one its chain is on
+		std::unique_ptr<SampleLayers> m_mdLayers, m_stLayers;
 		// OVERDRIVE, the drive stage after a Syntakt voice: the Tracks whose word is above 0, and those it runs on
 		std::unique_ptr<syntakt::fast::TrackDrive> m_stOver;
 		uint32_t m_overOn = 0, m_overRun = 0;
