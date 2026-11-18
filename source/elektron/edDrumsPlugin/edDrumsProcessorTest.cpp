@@ -1260,7 +1260,7 @@ namespace
 				require(element->getIntAttribute("track") == 2 && element->getIntAttribute("factory") == 5
 					&& element->getAllSubText().isEmpty(), "the state holds factory audio, or another sample");
 			}
-			require(back->getIntAttribute("version") == 6 && samples == 1, "the state saved again: no factory slot");
+			require(back->getIntAttribute("version") == 7 && samples == 1, "the state saved again: no factory slot");
 			Processor q;
 			q.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
 			played(q, "a state of version 5");
@@ -1310,6 +1310,50 @@ namespace
 			}
 			require(samples == 1, "the Kit saved again: no factory slot");
 			require(bank.clear(41), "Slot 42 cleared");
+		}
+		// A state of version 6 or a Kit of version 4 held the Sampler's GRAIN in two halves, 100 VINTAGE and 10 the 12-bit
+		// grain: read now, each sits in its grain's third (takeGrain, vintage::GrainValues); a state of version 7 keeps 100,
+		// the DT2 grain
+		{
+			const auto grains = [](const int _version, const bool _state, const char* _what)
+			{
+				Processor p;
+				juce::XmlElement xml(_state ? "ElektronDrums" : KitBank::Tag);
+				xml.setAttribute("version", _version);
+				for(int t = 0; t < 3; ++t)
+					xml.setAttribute(juce::String::formatted("t%02d_machine", t + 1), p.samplerChoice());
+				xml.setAttribute("t01_m9", 100);
+				xml.setAttribute("t02_m9", 10);
+				xml.setAttribute("t03_m9", 64);
+				// A Syntakt Track beside them, already in page order: no migration may touch its Machine 1-8 again
+				xml.setAttribute("t04_machine", 1);
+				for(int i = 1; i <= 8; ++i)
+					xml.setAttribute("t04_m" + juce::String(i), 10 * i);
+				if(_state)
+				{
+					juce::MemoryBlock state;
+					juce::AudioProcessor::copyXmlToBinary(xml, state);
+					p.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+				}
+				else
+				{
+					KitBank bank(Processor::dataFolder().getChildFile("Kits"));
+					require(bank.write(41, xml), "Slot 42 written");
+					require(p.loadKit(41), "the Kit not loaded");
+					require(bank.clear(41), "Slot 42 cleared");
+				}
+				for(int i = 1; i <= 8; ++i)
+					require(whole(plain(find(p, ("t04_m" + std::to_string(i)).c_str()))) == 10 * i,
+						std::string(_what) + ": the Syntakt Track's Machine " + std::to_string(i) + " moved");
+				return std::array<int, 3>{whole(plain(find(p, "t01_m9"))), whole(plain(find(p, "t02_m9"))),
+					whole(plain(find(p, "t03_m9")))};
+			};
+			const auto old = grains(6, true, "a state of version 6");
+			require(old[0] == 64 && old[1] == 21 && old[2] == 64, "a state of version 6: GRAIN not moved to its third");
+			const auto kit = grains(4, false, "a Kit of version 4");
+			require(kit[0] == 64 && kit[1] == 21 && kit[2] == 64, "a Kit of version 4: GRAIN not moved to its third");
+			const auto now = grains(7, true, "a state of version 7");
+			require(now[0] == 100 && now[1] == 10 && now[2] == 64, "a state of version 7: GRAIN changed");
 		}
 		std::printf("PASS: Machine's %zu choices (%zu before, %zu with the ROM machines), the Sampler where ROM-33 stood, OPEN"
 			" DRUM's 4 after it, no INP, CTR, MID, RAM or ROM; a state of version 2 or 3 and a Kit of version 1 load TRX-BD,"
@@ -3380,10 +3424,10 @@ namespace
 		juce::MemoryBlock saved;
 		_p.getStateInformation(saved);
 		const auto xml = Processor::readState(saved.getData(), static_cast<int>(saved.getSize()));
-		require(xml != nullptr && xml->getIntAttribute("version") == 6, std::string(_what) + ": the state's XML");
+		require(xml != nullptr && xml->getIntAttribute("version") == 7, std::string(_what) + ": the state's XML");
 		juce::MemoryBlock old;
 		juce::AudioProcessor::copyXmlToBinary(*xml, old);
-		std::printf("  %s: %zu bytes as version 6 wrote it, %zu compressed (%.1f %%)\n", _what, old.getSize(),
+		std::printf("  %s: %zu bytes as version 7 wrote it, %zu compressed (%.1f %%)\n", _what, old.getSize(),
 			saved.getSize(), 100.0 * static_cast<double>(saved.getSize()) / static_cast<double>(old.getSize()));
 		return saved;
 	}

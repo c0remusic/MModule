@@ -23,7 +23,8 @@ namespace elektron::drums
 		constexpr int FirstNote = 36;	// notes 36-51: Tracks 1-16
 		constexpr int DefaultLevel = 100, DefaultNote = 60, Centre = 64;
 
-		constexpr int StateVersion = 6;
+		// 7: the Sampler's GRAIN in thirds (takeGrain)
+		constexpr int StateVersion = 7;
 		// The compressed state's header (getStateInformation): "LKSZ", the container's format, the XML's size in bytes
 		constexpr int StateMagic = 0x5a534b4c;
 		constexpr int StateFormat = 1;
@@ -411,16 +412,22 @@ namespace elektron::drums
 			const auto* choice = m_tracks[static_cast<size_t>(_track)].machine;
 			return choice ? m_machines[static_cast<size_t>(choice->getIndex())] : Machine{};
 		};
+		// The Sampler's page follows its GRAIN, Machine 9
+		const auto grain = [this, _track]
+		{
+			const auto* g = m_tracks[static_cast<size_t>(_track)].values[vintage::GrainSlot];
+			return g ? g->get() : 0;
+		};
 		return juce::AudioParameterIntAttributes()
-			.withStringFromValueFunction([machine, _index](const int _v, int)
+			.withStringFromValueFunction([machine, grain, _index](const int _v, int)
 			{
-				return juce::String(parameters::machineText(machine(), _index, _v));
+				return juce::String(parameters::machineText(machine(), _index, _v, grain()));
 			})
-			.withValueFromStringFunction([this, machine, _track, _index](const juce::String& _text)
+			.withValueFromStringFunction([this, machine, grain, _track, _index](const juce::String& _text)
 			{
 				const auto* own = m_tracks[static_cast<size_t>(_track)].values[static_cast<size_t>(_index)];
 				const int value = own ? own->get() : 0;
-				return parameters::machineValueOf(machine(), _index, _text.toStdString(), value);
+				return parameters::machineValueOf(machine(), _index, _text.toStdString(), value, grain());
 			});
 	}
 
@@ -2151,8 +2158,9 @@ namespace elektron::drums
 	// sound's Kit (_sound its Track) holds that Track alone: an LFO aimed at another follows the machine the set plays there
 	void Processor::takePageOrder(juce::XmlElement& _xml, const bool _state, const int _sound) const
 	{
+		// The versions that brought page order, as takeRoms names its own: a later version must not run this again
 		const int version = _xml.getIntAttribute("version");
-		if(_state ? version >= StateVersion : version >= KitBank::Version)
+		if(_state ? version >= 6 : version >= 4)
 			return;
 		std::array<bool, Tracks> syntakt{};
 		for(int t = 0; t < Tracks; ++t)
@@ -2196,6 +2204,26 @@ namespace elektron::drums
 			return;
 		for(auto* pattern : _xml.getChildWithTagNameIterator("pattern"))
 			takePageOrderLocks(*pattern, [&](const int _track) { return syntakt[static_cast<size_t>(_track)]; });
+	}
+
+	void Processor::takeGrain(juce::XmlElement& _xml, const bool _state, const int _sound) const
+	{
+		// The versions that brought the thirds, as literals: a later version must not run this again
+		const int version = _xml.getIntAttribute("version");
+		if(_state ? version >= 7 : version >= 5)
+			return;
+		for(int t = 0; t < Tracks; ++t)
+		{
+			if(_sound >= 0 && t != _sound)
+				continue;
+			if(!(machineIn(_xml, t, _state) == Sampler))
+				continue;
+			const auto id = juce::String::formatted("t%02d_m9", t + 1);
+			if(!_xml.hasAttribute(id))
+				continue;
+			const bool vintage = _xml.getIntAttribute(id) >= 64;
+			_xml.setAttribute(id, static_cast<int>(vintage::GrainValues[vintage ? 1 : 0]));
+		}
 	}
 
 	// The machine _xml (a state's if _state, else a Kit's) puts Track _track on, as readSound reads it: one it lacks the
@@ -2355,6 +2383,7 @@ namespace elektron::drums
 			return;
 		takeRoms(*xml, true);
 		takePageOrder(*xml, true);
+		takeGrain(*xml, true);
 		// No block meanwhile: the audio thread sees the state whole
 		suspendProcessing(true);
 		readSound(*xml, true);
@@ -2431,6 +2460,7 @@ namespace elektron::drums
 		{
 			takeRoms(*kit, false);
 			takePageOrder(*kit, false);
+			takeGrain(*kit, false);
 		}
 		return kit;
 	}
@@ -2793,6 +2823,7 @@ namespace elektron::drums
 		}
 		takeRoms(*kit, false);
 		takePageOrder(*kit, false, _track);
+		takeGrain(*kit, false, _track);
 		return kit;
 	}
 

@@ -10,6 +10,7 @@
 #include "edDrumsAnalogVoice.h"
 #include "edDrumsRytmVoice.h"
 #include "edDrumsChain.h"
+#include "edDrumsDt2Player.h"
 #include "edDrumsLfo.h"
 #include "edDrumsLibrary.h"
 #include "edDrumsMaster.h"
@@ -103,10 +104,14 @@ namespace elektron::drums
 	// The Sampler, of the Machinedrum's family: the Track's own sample (Engine::setSample) through the ROM machines'
 	// player, SYN1-8 theirs (PTCH, DEC, HOLD, BRR, STRT, END, RTRG, RTIM). Track t plays it as ROM-33 + t, at that
 	// entry of the bank, so that ROM-33 to -48 are not machines of their own here. An id no Machinedrum machine has.
-	// Machine 9 is its grain (edDrumsVintage.h): under 64 the ROM player's, from 64 VINTAGE, which plays the whole sample
-	// (Sample::MaxSourceLength) by PTCH, DEC, HOLD, STRT and END through Machine 10-12, BITS, COMPANDING and OUTPUT
-	// FILTER, the Kit's values: no lock reaches Machine 9-12
+	// Machine 9 is its grain, in thirds (edDrumsVintage.h): to 42 the ROM player's; to 85 VINTAGE, which plays the whole
+	// sample (Sample::MaxSourceLength) by PTCH, DEC, HOLD, STRT and END through Machine 10-12, BITS, COMPANDING and OUTPUT
+	// FILTER, the Kit's values (no lock reaches Machine 9-12); from 86 CLEAN, the DT2 player (edDrumsDt2Player.h), on
+	// which the Track plays on the Syntakt family's path, a lane of the player, its chain at 48 kHz, as a Syntakt machine
+	// does (ticket 04 of .scratch/elektron-drums-v2)
 	constexpr Machine Sampler{Family::Machinedrum, 192};
+	// The DT2 player's place among the Syntakt sources, after the nine machines
+	constexpr int Dt2Source = SyntaktMachines;
 
 	// OPEN DRUM (ticket 26): four voices of a drum engine published under the GPL v3 (source/elektron/opendrum), a voice
 	// per Track on the Machinedrum's blocks, rings and chain, at the 44.1 kHz host rate. The firmware steps its envelopes
@@ -380,7 +385,8 @@ namespace elektron::drums
 			uint32_t chokes = 0;
 			int accent = 0;
 			double repeatQuarters = 0;		// setRepeatNote's
-			Family chainFamily = Family::Off;	// the Chain that holds its settings
+			Family chainFamily = Family::Off;	// the family whose default chain it last took
+			bool stChain = false;			// the Syntakt's Chain (48 kHz) holds its settings, else the Machinedrum's
 			bool held = false;				// its chain's amp holds its voice (Chain::holdsVoice)
 			std::array<int, static_cast<size_t>(LfoTarget::Count)> taken{};	// what the LFOs aimed here add up to, as far as its slope has got
 
@@ -451,7 +457,14 @@ namespace elektron::drums
 		void freeLane(int _source, int _lane);
 		void releaseVoice(int _track);
 		Source& sourceOf(const Track& _track);
-		Chain& chainOf(const Track& _track) { return _track.chainFamily == Family::Syntakt ? *m_stChain : *m_mdChain; }
+		Chain& chainOf(const Track& _track) { return _track.stChain ? *m_stChain : *m_mdChain; }
+		// The Sampler on its DT2 grain, which plays on the Syntakt family's path; and whether the Track plays there
+		static bool dt2Grain(const Track& _track);
+		static bool syntaktPath(const Track& _track) { return _track.machine.family == Family::Syntakt || dt2Grain(_track); }
+		// The Track's chain settings from one family's Chain to the other's (_syntakt: the Syntakt's), its LFO moves with them
+		void moveChain(int _track, bool _syntakt);
+		// Machine 9 of the Sampler to _value: another grain cuts the voice, the DT2 grain moves the Track between the paths
+		void switchGrain(int _track, uint8_t _value);
 		void renderMachinedrum();
 		void renderVoice(int _track, float* _x);
 		void playOpenDrum(int _track, int _index);
@@ -567,6 +580,7 @@ namespace elektron::drums
 		std::array<const int16_t*, Tracks> m_vtSource{};
 		std::array<uint32_t, Tracks> m_vtLength{};
 		std::array<double, Tracks> m_vtRate{};
+		std::array<Dt2Samples::Slot, Tracks> m_dt2Slot{};	// the same sample as the DT2 player reads it, per Track
 
 		// Syntakt
 		std::vector<std::unique_ptr<Source>> m_sources;

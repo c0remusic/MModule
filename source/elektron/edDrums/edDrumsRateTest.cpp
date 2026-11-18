@@ -299,9 +299,15 @@ namespace
 		bool tuned = false;		// its pitch a note's
 	};
 
+	// Whether the voice plays on the Syntakt family's path: its machines, and the Sampler's CLEAN grain (Engine::syntaktPath)
+	bool onSyntaktPath(const Voice& _v)
+	{
+		return _v.machine.family == Family::Syntakt || (_v.machine == Sampler && _v.grain >= 0 && vintage::isDt2(_v.grain));
+	}
+
 	double familyRate(const Voice& _v)
 	{
-		return _v.machine.family == Family::Syntakt ? syntakt::fast::MachineRate : 44100.0;
+		return onSyntaktPath(_v) ? syntakt::fast::MachineRate : 44100.0;
 	}
 
 	std::unique_ptr<Engine> engineFor(const Library& _library, const Voice& _v, const double _rate)
@@ -349,7 +355,8 @@ namespace
 			v.push_back({"OPEN DRUM " + std::to_string(id), {Family::OpenDrum, static_cast<uint8_t>(id)}, nullptr, -1, id == 0});
 		v.push_back({"SOPHIE", {Family::Sophie, 0}, nullptr, -1, true});
 		v.push_back({"Sampler, ROM grain, 440 Hz", Sampler, &_sine, 0, true});
-		v.push_back({"Sampler, VINTAGE, 440 Hz", Sampler, &_sine, 100, true});
+		v.push_back({"Sampler, VINTAGE, 440 Hz", Sampler, &_sine, vintage::GrainValues[1], true});
+		v.push_back({"Sampler, CLEAN, 440 Hz", Sampler, &_sine, vintage::GrainValues[2], true});
 		return v;
 	}
 
@@ -381,7 +388,7 @@ namespace
 			_e.setMachine(15, Sampler);
 			_e.setSample(14, &sample);
 			_e.setSample(15, &sample);
-			_e.setParameter(15, vintage::GrainSlot, 100);		// VINTAGE
+			_e.setParameter(15, vintage::GrainSlot, vintage::GrainValues[1]);		// VINTAGE
 			for(int t = 0; t < Tracks; ++t)
 			{
 				_e.setLevel(t, 90 + t);
@@ -640,13 +647,15 @@ namespace
 				const double cents = std::isfinite(hz) && std::isfinite(hzAt) ? 1200 * std::log2(hzAt / hz) : 0;
 				// The Syntakt at 44.1 kHz: Resample48To44's, as before, its minimum phase moving where a band sounds: within each
 				// machine's own Q15 bound, its stFast test's (judgeVoice), where it sounds not judged
-				if(v.machine.family == Family::Syntakt && rate == 44100)
+				if(onSyntaktPath(v) && rate == 44100)
 				{
+					// ... the Sampler's CLEAN grain within its own test's (edDrumsDt2PlayerTest's Q15, 0.07 dB on 10 ms envelopes)
 					constexpr std::array<double, SyntaktMachines> Envelope{0.63, 2.24, 3.89, 1.18, 0.83, 4.24, 0.85, 7.25, 1.02};
-					const double spectrum = v.machine.id == SyntaktTwinshot ? 1.19 : SpectrumDb;
-					const bool good = q.envelope <= Envelope[v.machine.id] && q.spectrum <= spectrum && std::abs(cents) <= Cents;
+					const double envelope = v.machine == Sampler ? 0.5 : Envelope[v.machine.id];
+					const double spectrum = v.machine.family == Family::Syntakt && v.machine.id == SyntaktTwinshot ? 1.19 : SpectrumDb;
+					const bool good = q.envelope <= envelope && q.spectrum <= spectrum && std::abs(cents) <= Cents;
 					std::printf(" | 44.1: %.3f %.3f %.3f %+.3f %+.2fc (Resample48To44: bound %.2f)", q.envelope, q.envelope10,
-						q.spectrum, q.lag, cents, Envelope[v.machine.id]);
+						q.spectrum, q.lag, cents, envelope);
 					if(!good)
 						failed += " " + v.name + " at 44.1 kHz,";
 					ok = ok && good;
@@ -672,7 +681,7 @@ namespace
 		require(ok, "Q15 or pitch out of bounds:" + failed);
 
 		// The sine's own pitch at every rate, both grains
-		for(const int grain : {0, 100})
+		for(const int grain : {0, static_cast<int>(vintage::GrainValues[1])})
 			for(const double rate : Rates)
 			{
 				const Voice v{"sine", Sampler, &_sine, grain, true};
@@ -699,7 +708,8 @@ namespace
 			all.push_back({"OPEN DRUM " + std::to_string(id), {Family::OpenDrum, static_cast<uint8_t>(id)}});
 		all.push_back({"SOPHIE", {Family::Sophie, 0}});
 		all.push_back({"Sampler ROM", Sampler, &_sine, 0});
-		all.push_back({"Sampler VINTAGE", Sampler, &_sine, 100});
+		all.push_back({"Sampler VINTAGE", Sampler, &_sine, vintage::GrainValues[1]});
+		all.push_back({"Sampler CLEAN", Sampler, &_sine, vintage::GrainValues[2]});
 		constexpr std::array<int, 6> Positions{1, 31, 33, 152, 1021, 4703};
 		for(const double rate : Rates)
 		{
@@ -741,7 +751,7 @@ namespace
 	void retrigger(const Library& _library)
 	{
 		const Sample tone = sine(1000, 1.0);
-		const Voice v{"sine", Sampler, &tone, 100, true};
+		const Voice v{"sine", Sampler, &tone, vintage::GrainValues[1], true};
 		for(const double rate : Rates)
 		{
 			if(rate == 44100)
@@ -873,7 +883,7 @@ namespace
 			{
 				_e.setMachine(0, Sampler);
 				_e.setSample(0, &_sine);
-				_e.setParameter(0, vintage::GrainSlot, 100);
+				_e.setParameter(0, vintage::GrainSlot, vintage::GrainValues[1]);
 				_e.setLevel(0, 127);
 				_e.setOutput(0, 1);
 				_e.setSend(0, _send, 127);
@@ -937,7 +947,7 @@ namespace
 				{
 					_e.setMachine(0, Sampler);
 					_e.setSample(0, &_sine);
-					_e.setParameter(0, vintage::GrainSlot, 100);
+					_e.setParameter(0, vintage::GrainSlot, vintage::GrainValues[1]);
 					_e.setLevel(0, 110);
 					_e.setTempo(123);
 					LfoSettings lfo;

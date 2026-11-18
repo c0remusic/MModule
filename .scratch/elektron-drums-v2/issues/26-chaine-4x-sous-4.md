@@ -68,6 +68,10 @@ entre le départ du garde-fou et le test ; au même moment le master mesure 1,24
 mesure dérangée. Le critère « chaîne sous 4 % » tient ; « total sous 12 % » reste à juger sur une passe de
 `edDrumsWorstKitCost` sans autre charge, qui n'a pas encore eu lieu. Aucun code changé depuis 9934ffd9.
 
+Garde-fous suivants, toujours sous Blender : arbre fusionné du ticket 17 (00:21, 8,7 cœurs pris ailleurs) : chaîne
+3,81 %, total 12,20 % ; ticket 04 (10:56, 10,5 cœurs) : chaîne 4,01 %, total 11,80 %. Le total passe sous 12 une fois
+sur deux, la chaîne oscille autour de 4 : rien de tranché sans machine calme.
+
 ## Références
 
 Ticket 01 (`01-pire-kit-au-garde-fou.md`, sa réponse) ; spécification v2, §3.

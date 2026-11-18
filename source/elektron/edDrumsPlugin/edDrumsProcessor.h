@@ -394,6 +394,9 @@ namespace elektron::drums
 		void takeRoms(juce::XmlElement& _xml, bool _state) const;
 		void notice(const juce::String& _text, const juce::String& _detail) const;
 		void takePageOrder(juce::XmlElement& _xml, bool _state, int _sound = -1) const;
+		// A state of a version before 7 or a Kit before 5 (_state false) held a Sampler Track's GRAIN in two halves:
+		// its value goes to the middle of its grain's third (vintage::GrainValues), so that the set sounds as it did
+		void takeGrain(juce::XmlElement& _xml, bool _state, int _sound = -1) const;
 		void takePageOrderLocks(juce::XmlElement& _pattern, const std::function<bool(int)>& _syntakt) const;
 		Machine machineIn(const juce::XmlElement& _xml, int _track, bool _state) const;
 		std::unique_ptr<juce::XmlElement> readKit(int _slot) const;

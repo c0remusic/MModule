@@ -246,6 +246,8 @@ namespace elektron::drums
 		static int choiceOf(const juce::RangedAudioParameter& _p) { return juce::roundToInt(_p.convertFrom0to1(_p.getValue())); }
 		// The machine _track's Machine parameter chooses
 		const Machine& trackMachine(int _track) const;
+		// _track's Machine 9, the Sampler's GRAIN (edDrumsVintage.h)
+		int trackGrain(int _track) const;
 		float valueOf(const juce::String& _id) const;
 		void setNormalised(juce::RangedAudioParameter& _p, float _value);
 		void cellSet(const ui::Cell& _cell, float _normalised);

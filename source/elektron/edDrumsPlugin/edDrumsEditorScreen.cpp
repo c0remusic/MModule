@@ -132,8 +132,8 @@ namespace elektron::drums
 			return {SrcX + SrcW - 61 + 7 * static_cast<float>(_page), SoundY + 1.8f, 7, 6};
 		}
 
-		// The Sampler's GRAIN in VOICE's head: two segments from 46 mm in, its name at 34 (t.js); 22 mm, not the mockup's
-		// 14, which hold MD and DT2 but not 12-BIT and VINTAGE, and still end before the page selector
+		// The Sampler's GRAIN in VOICE's head: three segments from 46 mm in, its name at 34 (t.js); 22 mm each, not the
+		// mockup's 14, which hold MD and DT2 but not 12-BIT and VINTAGE, and still end before the page selector
 		juce::Rectangle<float> grainBox(const int _i)
 		{
 			return {SrcX + 46 + 22 * static_cast<float>(_i), SoundY + 1.8f, 22, 6};
@@ -141,7 +141,7 @@ namespace elektron::drums
 
 		// Machine 1-8 of _page 0, 9-16 of 1, 17-24 of 2, as _machine names them (edDrumsNames.h): empty for one it does
 		// not use, and past Machine 8 for a machine of 8 (a Syntakt machine's Machine 9, HOLD, is on no page)
-		std::array<juce::String, 8> machineLabels(const Machine& _machine, const int _page)
+		std::array<juce::String, 8> machineLabels(const Machine& _machine, const int _page, const int _grain)
 		{
 			std::array<juce::String, 8> labels;
 			for(size_t i = 0; i < 8; ++i)
@@ -149,21 +149,21 @@ namespace elektron::drums
 				const int index = _page * 8 + static_cast<int>(i);
 				if(index >= machineParameters(_machine))
 					break;
-				if(const char* name = names::control(_machine, index))
+				if(const char* name = names::control(_machine, index, _grain))
 					labels[i] = name;
 			}
 			return labels;
 		}
 
-		// What an LFO's TARGET lists: Machine 1-24 as _machine names them, "MACHINE n" where it uses none, the rest as the
-		// host names them
-		juce::StringArray targetLabels(const juce::AudioParameterChoice& _target, const Machine& _machine)
+		// What an LFO's TARGET lists: Machine 1-24 as _machine names them (the Sampler's by its _grain), "MACHINE n" where
+		// it uses none, the rest as the host names them
+		juce::StringArray targetLabels(const juce::AudioParameterChoice& _target, const Machine& _machine, const int _grain)
 		{
 			juce::StringArray labels;
 			for(int i = 0; i < _target.choices.size(); ++i)
 			{
 				const int slot = machineOf(static_cast<LfoTarget>(i));
-				const char* name = slot >= 0 ? names::control(_machine, slot) : nullptr;
+				const char* name = slot >= 0 ? names::control(_machine, slot, _grain) : nullptr;
 				labels.add(name ? juce::String(name) : _target.choices[i].toUpperCase());
 			}
 			return labels;
@@ -727,7 +727,7 @@ namespace elektron::drums
 			addCell(chokes);
 			const int choice = choiceOf(*t("machine"));
 			m_machinePage = std::min(m_machinePage, machinePages() - 1);
-			const auto labels = machineLabels(trackMachine(m_track), m_machinePage);
+			const auto labels = machineLabels(trackMachine(m_track), m_machinePage, trackGrain(m_track));
 			for(int i = 0; i < 8; ++i)
 			{
 				const auto& l = labels[static_cast<size_t>(i)];
@@ -766,23 +766,24 @@ namespace elektron::drums
 				page.click = [this, i] { showMachinePage(i); };
 				addHit(std::move(page));
 			}
-			// The Sampler: GRAIN's two segments in the head (t.js, sound()), Machine 9 at 0 or 127
+			// The Sampler: GRAIN's three segments in the head (t.js, sound()), Machine 9 in the middle of each third
 			if(choice == m_processor.samplerChoice())
 			{
-				for(int i = 0; i < 2; ++i)
+				for(int i = 0; i < 3; ++i)
 				{
 					Hit grain;
 					grain.r = grainBox(i);
 					grain.click = [this, i]
 					{
-						setNormalised(*trackParameter("m9"), i ? 1.0f : 0.0f);
+						auto& g = *trackParameter("m9");
+						setNormalised(g, g.convertTo0to1(static_cast<float>(vintage::GrainValues[static_cast<size_t>(i)])));
 						// A Sampler saved before the grains holds 0 there: 6 bits, linear, 100 Hz. VINTAGE takes the new
 						// Sampler's values instead, in the same click
 						const char* own[]{"m10", "m11", "m12"};
 						bool unset = true;
 						for(const char* id : own)
 							unset = unset && trackParameter(id)->getValue() == 0.0f;
-						if(i && unset)
+						if(i == 1 && unset)
 						{
 							const auto d = allDefaults(Sampler);
 							for(int k = 0; k < 3; ++k)
@@ -795,7 +796,7 @@ namespace elektron::drums
 					};
 					addHit(std::move(grain));
 				}
-				watch(grainBox(0).getUnion(grainBox(1)), [this] { return hashOf({trackParameter("m9")}); });
+				watch(grainBox(0).getUnion(grainBox(2)), [this] { return hashOf({trackParameter("m9")}); });
 			}
 			// SOPHIE: its 16 factory sounds in the block's picture, a click lists them (Machine 1-20 as each sets them)
 			if(choice == m_processor.sophieChoice())
@@ -992,7 +993,7 @@ namespace elektron::drums
 				target.section = "";
 				const int aimed = choiceOf(trackParameter(pre + "track")->getParameterID()) - 1;
 				target.labels = targetLabels(*dynamic_cast<const juce::AudioParameterChoice*>(target.parameter),
-					trackMachine(aimed < 0 ? m_track : aimed));
+					trackMachine(aimed < 0 ? m_track : aimed), trackGrain(aimed < 0 ? m_track : aimed));
 				addCell(target);
 				Cell syncCell = cellOf(trackParameter(pre + "sync"), "SYNC", x + w - 32, LfoY + 1.8f, 28, hl, "");
 				syncCell.look = Look::Segments;
@@ -1120,8 +1121,8 @@ namespace elektron::drums
 			{
 				const auto grain = grainBox(0);
 				_p.text(SrcX + 34, SoundY + 5.2f, "GRAIN", 2.8f, colour::mid);
-				const bool vintage = vintage::isVintage(juce::roundToInt(trackParameter("m9")->convertFrom0to1(v("m9"))));
-				drawSegments(_p, grain.getX(), grain.getY(), grain.getWidth(), {"12-BIT", "VINTAGE"}, vintage ? 1 : 0, &hue::k);
+				drawSegments(_p, grain.getX(), grain.getY(), grain.getWidth(), {"12-BIT", "VINTAGE", "CLEAN"},
+					static_cast<int>(vintage::grainOf(trackGrain(m_track))), &hue::k);
 				const auto name = m_processor.sampleName(m_track);
 				_p.text(r.getCentreX(), r.getCentreY() + 1.6f, name.isEmpty() ? "NO SAMPLE" : name.toUpperCase(), 3.2f,
 					name.isEmpty() ? colour::mid : hue::k.c[4], 500, Align::Centre);
@@ -1241,7 +1242,8 @@ namespace elektron::drums
 				auto* target = dynamic_cast<const juce::AudioParameterChoice*>(trackParameter(pi + "target"));
 				const bool active = target->getIndex() != 0;
 				const int aimed = choiceOf(trackParameter(pi + "track")->getParameterID()) - 1;
-				const auto aim = targetLabels(*target, trackMachine(aimed < 0 ? m_track : aimed))[target->getIndex()];
+				const auto aim = targetLabels(*target, trackMachine(aimed < 0 ? m_track : aimed),
+					trackGrain(aimed < 0 ? m_track : aimed))[target->getIndex()];
 				const auto* d = trackParameter(pi + "depth");
 				_p.rect(c.getX(), c.getY(), c.getWidth(), c.getHeight(), shown ? hi.c[2] : colour::cellBack, 1);
 				_p.frame(c.getX(), c.getY(), c.getWidth(), c.getHeight(), shown ? hi.c[0] : hi.c[1], 1, shown ? 0.5f : 0.3f);

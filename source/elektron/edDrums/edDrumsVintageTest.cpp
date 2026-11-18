@@ -215,7 +215,7 @@ namespace
 	{
 		auto v = allDefaults(Sampler);
 		v[0] = static_cast<uint8_t>(_ptch);
-		v[vt::GrainSlot] = 127;
+		v[vt::GrainSlot] = vt::GrainValues[1];
 		v[vt::FilterSlot] = 72;		// 2 kHz: the hold's images well under the tone
 		return v;
 	}
@@ -365,7 +365,7 @@ namespace
 			{
 				e.setMachine(t, Sampler);
 				e.setSample(t, &s);
-				e.setParameter(t, vt::GrainSlot, 127);
+				e.setParameter(t, vt::GrainSlot, vt::GrainValues[1]);
 				e.setParameter(t, vt::BitsSlot, 30);
 				e.setParameter(t, vt::FilterSlot, 90);
 				e.setChain(t, dac);
@@ -562,7 +562,7 @@ namespace
 				e.setMachine(t, Sampler);
 				e.setSample(t, &s);
 				e.setChain(t, chain);
-				e.setParameter(t, vt::GrainSlot, _vintage ? 127 : 0);
+				e.setParameter(t, vt::GrainSlot, _vintage ? vt::GrainValues[1] : uint8_t{0});
 			}
 			const auto start = Clock::now();
 			for(int b = 0; b < Blocks; ++b)

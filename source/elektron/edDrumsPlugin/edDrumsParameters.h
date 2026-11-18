@@ -144,13 +144,14 @@ namespace elektron::drums::parameters
 
 	// What the Sampler's Machine _index (0-23) shows of _value: GRAIN, BITS, COMPANDING and OUTPUT FILTER in their units
 	// (edDrumsVintage.h), the number for the others
-	std::string samplerText(int _index, int _value);
+	// (edDrumsVintage.h), the number for the others; on the DT2 grain (_grain, the Track's Machine 9) its player's page
+	std::string samplerText(int _index, int _value, int _grain = 0);
 
 	// What _machine's Machine _index + 1 (_index 0-23) shows of _value, in the unit its engine's law gives: TUNE in
 	// semitones from 64 on the Syntakt's machines and the ANALOG kicks, the note and cents of VA DRUMS' TUNE and FINE,
 	// every HYPER FM control in sophie::machineValue's units, the Sampler's as samplerText; else the number, as the
 	// machines' own pages show it (the Machinedrum's are 0-127, their laws per machine in the voice DSP's code)
-	std::string machineText(const Machine& _machine, int _index, int _value);
+	std::string machineText(const Machine& _machine, int _index, int _value, int _grain = 0);
 
 	// A MIDI note's name, C4 for 60 as the editor's NOTE lists name it
 	std::string noteName(int _note);
@@ -163,5 +164,5 @@ namespace elektron::drums::parameters
 	// else the one whose text's number is nearest to the number _text starts with
 	int valueOf(const std::string& _id, const std::string& _text, int _min, int _max, const Other& _other);
 	// The same for _machine's Machine _index + 1, its own value _own
-	int machineValueOf(const Machine& _machine, int _index, const std::string& _text, int _own);
+	int machineValueOf(const Machine& _machine, int _index, const std::string& _text, int _own, int _grain = 0);
 }

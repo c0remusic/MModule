@@ -2610,6 +2610,61 @@ namespace
 				"a sample at its own rate plays otherwise");
 		}
 
+		// The DT2 grain (ticket 04 of elektron-drums-v2): the Sampler on the Syntakt family's path, through the DT2 player
+		// and Resample48To44. Its Hit sounds at HitDelay plus the player's own onset (its kernel and half-band, under 8
+		// samples), at the sample's pitch and length; the Track's chain keeps its settings across the grain change
+		{
+			auto e = engineWith(_library, Sampler);
+			e->setChain(0, Bare);
+			e->setParameter(0, vintage::GrainSlot, vintage::GrainValues[2]);
+			e->setParameter(0, Dt2Player::Play, 0);
+			e->setSample(0, &a);
+			const int samples = Note + Engine::HitDelay + Length + 4000;
+			Take take(samples);
+			take.render(*e, 0, Note);
+			e->noteOn(0, 127);
+			take.render(*e, Note, samples - Note);
+			const auto m = measure(take.channel(0));
+			std::printf("  Sampler, DT2 grain: onset %d after its note, %d samples long, %.2f Hz for 1000\n", m.onset - Note,
+				m.end - m.onset + 1, m.hz);
+			require(m.onset - Note >= Engine::HitDelay && m.onset - Note <= Engine::HitDelay + 8,
+				"the DT2 grain's Hit is not at HitDelay");
+			require(std::abs(m.end - m.onset + 1 - Length) <= 96, "the DT2 grain plays another length");
+			require(std::abs(m.hz - 1000) < 1, "the DT2 grain plays another pitch");
+			// Back on the 12-bit grain, the Track plays as before
+			e->setParameter(0, vintage::GrainSlot, 0);
+			Take again(samples);
+			again.render(*e, 0, Note);
+			e->noteOn(0, 127);
+			again.render(*e, Note, samples - Note);
+			const auto r = measure(again.channel(0));
+			require(r.onset - Note >= Engine::HitDelay && r.onset - Note <= Engine::HitDelay + 3 && std::abs(r.hz - 1000) < 1,
+				"back on the 12-bit grain, the Sampler plays otherwise");
+
+			// The chain goes with the Track across the grain change (Engine::moveChain): a drive set before the change to
+			// DT2 plays as one set after it, and differs from no drive
+			ChainSettings driven = Bare;
+			driven.drive[0] = {DriveType::MdDist, true, 127, 127};
+			const auto hit = [&](const bool _driveFirst)
+			{
+				auto d = engineWith(_library, Sampler);
+				d->setChain(0, _driveFirst ? driven : Bare);
+				d->setSample(0, &a);
+				d->setParameter(0, Dt2Player::Play, 0);
+				d->setParameter(0, vintage::GrainSlot, vintage::GrainValues[2]);
+				if(!_driveFirst)
+					d->setChain(0, driven);
+				Take t(samples);
+				t.render(*d, 0, Note);
+				d->noteOn(0, 127);
+				t.render(*d, Note, samples - Note);
+				return t.channel(0);
+			};
+			const auto before = hit(true), after = hit(false);
+			require(before == after, "a chain set before the change to the DT2 grain plays otherwise than one set after it");
+			require(before != take.channel(0), "the drive carried to the DT2 grain changes nothing");
+		}
+
 		// REPEAT GAP follows the host's tempo, as RTIM does on the Machinedrum (mdVoice's retriggerTime): a short burst
 		// repeated, the repeats' starts measured at 120 and 60 BPM for a few gaps
 		{

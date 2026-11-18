@@ -1,0 +1,113 @@
+#pragma once
+
+#include <array>
+#include <cstdint>
+
+#include "stFastStages.h"
+
+// The Digitakt II's sample voice in ONESHOT (ticket 04 of .scratch/elektron-drums-v2), the Sampler's third player, a
+// machine of syntakt::fast: 16 lanes, blocks of 32 at 48 kHz, rendered 64 at 96 kHz through a 6-tap kernel of 256
+// phases, then decimated 2:1 by a half-band. Its laws are those measured at the oracle (research 03 of lockstep-post-v1,
+// the ticket's "Décisions et relevés"); nothing of the firmware is read: the kernel is our own even cubic B-spline whose
+// 14 coefficients were fitted to the oracle's output, the half-band our own all-pass whose 4 coefficients were fitted
+// to its response. Mono, the sample as its owner holds it (int16 at its own rate). Level and velocity are not here:
+// Lockstep's come after the chain. Unity gain: a full-scale sample plays at full scale (the oracle's kernel has a DC
+// gain of 0.4045, which the test puts back to compare).
+namespace elektron::drums
+{
+	// The samples the player reads, one per lane: nullptr or a length of 0 plays silence. Kept by the caller while it
+	// renders, changed between blocks; a lane reads its slot again at each block: a sample replaced under a fading voice
+	// is read from the next block, at the voice's position, the old one being the caller's to free
+	struct Dt2Samples
+	{
+		struct Slot
+		{
+			const int16_t* pcm = nullptr;
+			uint32_t length = 0;
+			double rate = 48000.0;
+		};
+		std::array<Slot, Lanes> slots{};
+	};
+
+	class Dt2Player
+	{
+	public:
+		static constexpr int Parameters = syntakt::fast::Controls::Parameters;
+		static constexpr int Units = 1;		// none: a bench's nudges move fields it does not read
+		static constexpr int Phases = 256, Taps = 6;
+		static constexpr int Work = 2 * BlockSize;	// the 96 kHz block
+		static constexpr double DcGain = 0.4045;	// the oracle's kernel's, which ours is scaled up from
+
+		// Machine 1-8 as the Sampler's page lays them out on this grain (edDrumsNames.cpp), on the slots whose ROM player
+		// defaults give this player its own (the Sampler's values stay across a grain change): TUNE (value - 64 semitones,
+		// the fine part 1/256 of one; PTCH's 64), MODE (ONESHOT alone here; HOLD's 0), LOOP, STRT, LEN (fractions of the
+		// sample, word / (127 << 8); BRR 0, STRT 0, END 127), PLAY (its four modes in the manual's order; REPEATS' 0,
+		// forward). Machine 2 and 8, DECAY 127 and REPEAT GAP 64, are left out
+		enum Slot : int
+		{
+			Tune = 0, Mode = 2, Loop = 3, Start = 4, Length = 5, Play = 6
+		};
+		static constexpr bool usesSlot(const int _slot) { return _slot == Tune || (_slot >= Mode && _slot <= Play); }
+		enum PlayMode : int
+		{
+			Forward, Reverse, ForwardLoop, ReverseLoop
+		};
+		static PlayMode playModeOf(const int _value) { return static_cast<PlayMode>(_value * 4 / 128); }
+
+		Dt2Player();
+
+		// The samples it plays from the next block (nullptr: none, every lane silent)
+		void setSamples(const Dt2Samples* _samples) { m_samples = _samples; }
+
+		// _track 0-15 (a lane). The note in semitones, 60 the sample's own pitch at TUNE 64
+		void setNote(int _track, int _note);
+		void setParameter(int _track, int _index, uint8_t _value, uint8_t _fine);
+
+		// For the next block rendered only, which sees the trig (the lane fades out) and sounds it from the one after
+		void trig(const int _track) { m_controls.trig(_track); }
+		void gateOff(const int _track) { m_controls.gateOff(_track); }
+
+		// Only lanes 0 to _lanes - 1 rendered from the next block (a multiple of 4; 16 at construction)
+		void setLanes(int _lanes);
+
+		void testWithoutChaos() {}
+
+		// One 48 kHz block of the 16 lanes
+		const syntakt::fast::Block& renderBlock();
+
+		// The kernel's value at _t source samples from the read position (|_t| < 3), the formula the table is made of
+		static double kernelAt(double _t);
+		// The half-band's four all-pass coefficients, for the tests
+		static const std::array<double, 4>& halfBand();
+
+	private:
+		struct Lane
+		{
+			double position = 0;	// in source samples, of the sample's first
+			double rate = 1;		// the sample's rate over 48 kHz: the step follows TUNE and the note block by block
+			double start = 0, end = 0, loopAt = 0;
+			const int16_t* pcm = nullptr;	// read again from the slot each block: the sample may change under a fading voice
+			uint32_t length = 0;
+			bool playing = false, reverse = false, loop = false;
+			double x[4]{}, y[4]{};	// the half-band's all-pass state, newest first
+			float oddTail[4]{};		// the last block's last four odd samples at 96 kHz, the odd branch's delay
+		};
+
+		void convert(int _track);
+		void startVoice(int _l);
+		void render96(int _l, float* _work);
+		// ... to 32 at 48 kHz into m_out; _fadeOut ramps the block to silence (a trig's block)
+		void decimate(int _l, const float* _work, bool _fadeOut);
+
+		using Kernel = std::array<std::array<float, Taps>, Phases>;
+		static const Kernel& kernel();
+		const Kernel& m_kernel;
+		const Dt2Samples* m_samples = nullptr;
+		syntakt::fast::Controls m_controls;
+		int m_lanes = Lanes;
+		std::array<Lane, Lanes> m_lane{};
+		// What TUNE and the note convert to (convert): source samples an output at 96 kHz, at a 48 kHz sample
+		double m_stepOf[Lanes]{};
+		syntakt::fast::Block m_out;
+	};
+}

@@ -434,12 +434,28 @@ namespace elektron::drums::parameters
 		return std::to_string(_v);
 	}
 
-	std::string samplerText(const int _index, const int _value)
+	std::string samplerText(const int _index, const int _value, const int _grain)
 	{
+		if(vintage::isDt2(_grain) && _index < vintage::GrainSlot)
+		{
+			// The CLEAN grain's page (Dt2Player::Slot)
+			static constexpr const char* Play[]{"FWD", "REV", "FWD LOOP", "REV LOOP"};
+			switch(_index)
+			{
+			case Dt2Player::Tune:	return semitones(_value - 64);
+			case Dt2Player::Play:	return Play[Dt2Player::playModeOf(_value)];
+			case Dt2Player::Mode:	return "ONESHOT";
+			case Dt2Player::Loop:
+			case Dt2Player::Start:
+			case Dt2Player::Length:	return withUnit(100.0 * _value / 127, "%");
+			default:				return std::to_string(_value);
+			}
+		}
 		switch(_index)
 		{
-		// The ROM player's grain by what it is, its 12-bit companded words; no machine's name
-		case vintage::GrainSlot:		return vintage::isVintage(_value) ? "VINTAGE" : "12-BIT";
+		// The grain by what it does: the ROM player's 12-bit companded words, VINTAGE, the clean 6-tap player (no
+		// machine's name, as every name here)
+		case vintage::GrainSlot:		return vintage::isDt2(_value) ? "CLEAN" : vintage::isVintage(_value) ? "VINTAGE" : "12-BIT";
 		case vintage::BitsSlot:			return std::to_string(vintage::bitsOf(_value)) + " BIT";
 		case vintage::CompandingSlot:	return vintage::companding(_value) ? "ON" : "OFF";
 		case vintage::FilterSlot:		return hertz(vintage::filterHz(_value));
@@ -472,7 +488,7 @@ namespace elektron::drums::parameters
 		return found ? x : 0;
 	}
 
-	std::string machineText(const Machine& _machine, const int _index, const int _value)
+	std::string machineText(const Machine& _machine, const int _index, const int _value, const int _grain)
 	{
 		const int v = std::clamp(_value, 0, 127);
 		switch(_machine.family)
@@ -499,16 +515,16 @@ namespace elektron::drums::parameters
 		case Family::Sophie:
 			return sophieText(_index, v);
 		case Family::Machinedrum:
-			return _machine == Sampler ? samplerText(_index, v) : std::to_string(v);
+			return _machine == Sampler ? samplerText(_index, v, _grain) : std::to_string(v);
 		case Family::Off:
 			break;
 		}
 		return std::to_string(v);
 	}
 
-	int machineValueOf(const Machine& _machine, const int _index, const std::string& _text, const int _own)
+	int machineValueOf(const Machine& _machine, const int _index, const std::string& _text, const int _own, const int _grain)
 	{
-		return nearestValue(_text, 0, 127, _own, [&](const int _v) { return machineText(_machine, _index, _v); });
+		return nearestValue(_text, 0, 127, _own, [&](const int _v) { return machineText(_machine, _index, _v, _grain); });
 	}
 
 	const std::array<Spec, ChainValues> chainSpecs{{

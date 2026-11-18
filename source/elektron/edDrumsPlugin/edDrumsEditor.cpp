@@ -209,6 +209,8 @@ namespace elektron::drums
 		for(const int s : m_lockSteps)
 			key << s << ",";
 		const auto& shown = m_keyChoices[static_cast<size_t>(m_track)];
+		// The Sampler's grain: its page's controls follow it (names::control)
+		key << "/" << static_cast<int>(vintage::grainOf(trackGrain(m_track)));
 		key << "/" << choiceOf(*shown.machine) << "/" << choiceOf(*shown.fltType) << "/" << choiceOf(*shown.bandType) << "/"
 			<< choiceOf(*shown.ampMode) << "/" << choiceOf(*shown.lfo1Sync) << "/" << choiceOf(*shown.lfo2Sync) << "/"
 			<< choiceOf("delay_source") << "/" << choiceOf("reverb_source") << "/" << choiceOf("delay_sync")
@@ -1028,11 +1030,17 @@ namespace elektron::drums
 		return p ? p->getCurrentChoiceName().toUpperCase() : juce::String();
 	}
 
+	int Editor::trackGrain(const int _track) const
+	{
+		const auto* g = trackParameter("m9", _track);
+		return g ? juce::roundToInt(g->convertFrom0to1(g->getValue())) : 0;
+	}
+
 	juce::String Editor::lockName(const juce::RangedAudioParameter& _parameter) const
 	{
 		const auto& target = m_processor.lockTarget(_parameter.getParameterIndex());
 		if(target.kind == Processor::LockKind::Machine)
-			if(const char* name = names::control(trackMachine(target.track), target.a))
+			if(const char* name = names::control(trackMachine(target.track), target.a, trackGrain(target.track)))
 				return name;
 		return _parameter.getName(32).fromFirstOccurrenceOf(" ", false, false).toUpperCase();
 	}

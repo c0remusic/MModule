@@ -17,4 +17,7 @@ namespace elektron::drums::names
 	// What the editor names _machine's Machine _index + 1 (_index 0-23), 12 characters at most; nullptr for one it does
 	// not use. The host keeps "T01 Machine 1" to "T01 Machine 24", which cannot follow the machine chosen
 	const char* control(const Machine& _machine, int _index);
+	// The same for a Track whose Machine 9 is _grain: the Sampler's page follows its grain (edDrumsVintage.h), its
+	// DT2 player's six controls, nothing of the other grains'
+	const char* control(const Machine& _machine, int _index, int _grain);
 }

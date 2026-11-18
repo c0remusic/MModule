@@ -7,7 +7,7 @@ add_library(edDrums STATIC edDrumsAnalog.h edDrumsAnalogPort.h edDrumsAnalogShar
 	edDrumsAnalogSynth.cpp edDrumsAnalogSynthVoice.cpp edDrumsAnalogUtility.cpp edDrumsAnalogUtilityVoice.cpp
 	edDrumsAnalogRates.h edDrumsAnalogRates.cpp edDrumsAnalogMetal.cpp edDrumsAnalogMetalVoice.cpp
 	edDrumsRytm.h edDrumsRytmControl.cpp edDrumsRytmVoice.h edDrumsRytmVoice.cpp
-	edDrumsChain.h edDrumsChain.cpp
+	edDrumsChain.h edDrumsChain.cpp edDrumsDt2Player.h edDrumsDt2Player.cpp
 	edDrumsEngine.h edDrumsEngine.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
 	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
 	edDrumsOversamplerKernel.h edDrumsOversamplerAvx2.cpp edDrumsMasterAvx2.cpp
@@ -63,6 +63,14 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsCyclesDistTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsCyclesDistTest COMMAND edDrumsCyclesDistTest)
 	set_tests_properties(edDrumsCyclesDistTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
+
+	# The Sampler's DT2 player in ONESHOT against the Digitakt II's voice run in its OS (DT2_VECTORS, vectors-dt2: exit 77
+	# without them), its 16 lanes against 1, 44.1 against 48 kHz, its cost
+	add_executable(edDrumsDt2PlayerTest edDrumsDt2PlayerTest.cpp)
+	target_link_libraries(edDrumsDt2PlayerTest PRIVATE edDrums)
+	set_property(TARGET edDrumsDt2PlayerTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsDt2PlayerTest COMMAND edDrumsDt2PlayerTest)
+	set_tests_properties(edDrumsDt2PlayerTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 	# Two LFOs a Track on the transport, aimed at any Track; their laws against syntakt::main's and mdDrums::Lfo
 	# (GEARMULATOR_MD_FIRMWARE_BIN: exit 77 without it)

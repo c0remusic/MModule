@@ -184,12 +184,19 @@ namespace
 		check(_editor.machinePages() == 2 && nameOf("t01_m9") == "GRAIN" && nameOf("t01_m12") == "OUTPUT LPF"
 			&& nameOf("t01_m13") == "off", "the Sampler: Machine 9 GRAIN, 12 OUTPUT LPF, 13 greyed");
 		auto* grain = _processor.parameter("t01_m9");
+		const auto grainIs = [&](const int _value) { return juce::roundToInt(grain->convertFrom0to1(grain->getValue())) == _value; };
 		click(_editor, _editor.grainArea(1).getCentre());
-		check(juce::roundToInt(grain->convertFrom0to1(grain->getValue())) == 127 && grain->getCurrentValueAsText() == "VINTAGE",
-			"a click on VINTAGE sets Machine 9 to 127");
+		check(grainIs(vintage::GrainValues[1]) && grain->getCurrentValueAsText() == "VINTAGE",
+			"a click on VINTAGE sets Machine 9 to its third's middle");
+		click(_editor, _editor.grainArea(2).getCentre());
+		check(grainIs(vintage::GrainValues[2]) && grain->getCurrentValueAsText() == "CLEAN",
+			"a click on CLEAN sets Machine 9 to its third's middle");
+		click(_editor, _editor.machinePageArea(0).getCentre());	// Machine 1-8's page
+		check(nameOf("t01_m7") == "PLAY", "on CLEAN, Machine 7 is PLAY (" + nameOf("t01_m7").toStdString() + ")");
+		check(nameOf("t01_m2") == "off", "on CLEAN, Machine 2 is greyed (" + nameOf("t01_m2").toStdString() + ")");
 		click(_editor, _editor.grainArea(0).getCentre());
-		check(juce::roundToInt(grain->convertFrom0to1(grain->getValue())) == 0 && grain->getCurrentValueAsText() == "12-BIT",
-			"a click on 12-BIT sets it back to 0");
+		check(grainIs(vintage::GrainValues[0]) && grain->getCurrentValueAsText() == "12-BIT",
+			"a click on 12-BIT sets it to its third's middle");
 		put(choiceOf({Family::OpenDrum, 0}));
 		click(_editor, _editor.machinePageArea(1).getCentre());
 	}
@@ -1494,7 +1501,7 @@ namespace
 				amountWas = amount->getValue();
 			machine->setValueNotifyingHost(machine->convertTo0to1(static_cast<float>(processor.samplerChoice())));
 			editor.tick();
-			grain->setValueNotifyingHost(1.0f);
+			grain->setValueNotifyingHost(grain->convertTo0to1(static_cast<float>(vintage::GrainValues[1])));
 			drive->setValueNotifyingHost(drive->convertTo0to1(static_cast<float>(DriveType::Dac)));
 			amount->setValueNotifyingHost(amount->convertTo0to1(64.0f));
 			editor.showMachinePage(1);

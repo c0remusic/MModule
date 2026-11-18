@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 
 #include "elektronBlock.h"
@@ -47,11 +48,20 @@ namespace elektron::drums::vintage
 		float m_a1 = 0, m_a2 = 0, m_a3 = 0, m_ic1 = 0, m_ic2 = 0;
 	};
 
-	// The Sampler's grain, Machine 9 of the Sampler: under 64 the ROM player's (MD), from 64 VINTAGE. Machine 10 BITS,
-	// 11 COMPANDING (on from 64), 12 OUTPUT FILTER
+	// The Sampler's grain, Machine 9 of the Sampler, a third each: to 42 the ROM player's (12-BIT), to 85 VINTAGE, from
+	// 86 the Digitakt II's player (DT2, edDrumsDt2Player.h; two halves before state version 7 and Kit version 5, which
+	// the Processor migrates). Machine 10 BITS, 11 COMPANDING (on from 64), 12 OUTPUT FILTER, the VINTAGE grain's
 	constexpr int GrainSlot = 8, BitsSlot = 9, CompandingSlot = 10, FilterSlot = 11;
 	constexpr int SamplerParameters = 12;
-	inline bool isVintage(const int _grain) { return _grain >= 64; }
+	enum class Grain : uint8_t
+	{
+		TwelveBit, Vintage, Dt2
+	};
+	inline Grain grainOf(const int _value) { return _value < 43 ? Grain::TwelveBit : _value < 86 ? Grain::Vintage : Grain::Dt2; }
+	// A value in the middle of each grain's third
+	constexpr std::array<uint8_t, 3> GrainValues{21, 64, 106};
+	inline bool isVintage(const int _grain) { return grainOf(_grain) == Grain::Vintage; }
+	inline bool isDt2(const int _grain) { return grainOf(_grain) == Grain::Dt2; }
 	inline bool companding(const int _value) { return _value >= 64; }
 	// BITS: 6 to 12, about 18 values each
 	inline int bitsOf(const int _value) { return MinBits + (_value < 0 ? 0 : _value > 127 ? 127 : _value) * 7 / 128; }

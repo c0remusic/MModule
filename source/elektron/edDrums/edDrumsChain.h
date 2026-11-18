@@ -186,6 +186,8 @@ namespace elektron::drums
 		// Track _lane's chain from the next block, the Chain's own copy, inside the Kit's values; a stage that changes
 		// crossfades over FadeSamples while the Track sounds, one that changes during that once it ends
 		void configure(int _lane, const ChainSettings& _settings);
+		// What configure last gave _lane
+		const ChainSettings& settings(const int _lane) const { return m_settings[static_cast<size_t>(_lane)]; }
 
 		// An LFO's move of _target on _lane from the next block, in 1/128 of a value, inside the value's range there
 		void modulate(int _lane, VelocityTarget _target, int _offset);
