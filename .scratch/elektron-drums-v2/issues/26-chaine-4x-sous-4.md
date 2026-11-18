@@ -1,7 +1,7 @@
 # La chaîne à 4x sous 4 % d'un cœur
 
 Type: AFK
-Status: ready-for-agent
+Status: done
 Assignee: Claude (session 2026-11-17)
 Blocked by: 01
 
@@ -71,6 +71,16 @@ mesure dérangée. Le critère « chaîne sous 4 % » tient ; « total sous 12 %
 Garde-fous suivants, toujours sous Blender : arbre fusionné du ticket 17 (00:21, 8,7 cœurs pris ailleurs) : chaîne
 3,81 %, total 12,20 % ; ticket 04 (10:56, 10,5 cœurs) : chaîne 4,01 %, total 11,80 %. Le total passe sous 12 une fois
 sur deux, la chaîne oscille autour de 4 : rien de tranché sans machine calme.
+
+## Réponse (2026-11-18)
+
+Critère atteint au garde-fou du ticket 05 (04f93cb0), le premier sur machine presque calme (1,1 cœur pris ailleurs au
+départ, 2,6 au plus pendant le banc) : **chaîne 3,54 %** (sous 4), **pire kit total 11,33 %** (sous 12) ; moteurs 7,29,
+envois 0,02, master 0,48. Gate vert, 76 tests, les tests de qualité des drives et de l'oversampling sans seuil relâché.
+Le seul levier qui a porté est celui de la première étape : les drives suréchantillonnés en AVX2 aux mêmes échantillons
+(9934ffd9). Les deux leviers de « Quoi » ont été mesurés et rejetés. La chaîne reste au-dessus de son guide de 2,0 %
+(3,54), ce que la spécification v2, §3 admet tant que le pire kit tient : il reste 3,67 points sous le plafond de 15,
+dont la couche sample du ticket 06 (guide 1,5).
 
 ## Références
 
