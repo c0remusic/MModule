@@ -369,6 +369,7 @@ namespace elektron::drums
 		}
 		float lockOr(const Watched& _watched) const;
 		parameters::ChainArray chainValues(int _track) const;
+		parameters::LayerArray layerValues(int _track) const;
 		parameters::LfoArray lfoValues(int _track, int _lfo) const;
 		void setChainHeld(int _track);
 		// The one binding of a Track's sound to an engine: every parameter of the Track sound but its machine, read

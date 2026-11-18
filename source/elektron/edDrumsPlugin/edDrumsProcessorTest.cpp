@@ -1569,8 +1569,30 @@ namespace
 		processor.clearSample(slot);
 		require(processor.sampleName(slot).isEmpty() && peakOf(play(processor, hits, Length), 0) < Engine::Silence,
 			"a layer's sample cleared sounds");
+
+		// A step's Lock of LEVEL 0: its Hit plays no layer, the next step's at the host's LEVEL
+		Processor locked;
+		allOutputs(locked);
+		set(find(locked, "t03_machine"), locked.samplerChoice());
+		require(locked.loadSample(slot, _wav, error), "the layer's WAV refused: " + error.toStdString());
+		set(find(locked, "t03_layer_on"), 1);
+		const int level = indexOf(locked, "t03_layer_level");
+		locked.editSequencer([&](Sequencer& _s)
+		{
+			auto& p = _s.pattern(0);
+			p.setTrig(2, 0, true);
+			p.setLock(2, 0, level, 0);
+			p.setTrig(2, 4, true);
+		});
+		const auto take = playSequenced(locked, 300 * Block, {});
+		const auto step4 = static_cast<size_t>(stepSample(1.0));
+		float before = 0, after = 0;
+		for(size_t n = 0; n < take[0].size(); ++n)
+			(n < step4 ? before : after) = std::max(n < step4 ? before : after, std::abs(take[0][n]));
+		require(before < Engine::Silence && after > 0.05f, "a Lock of the layer's LEVEL: peak " + std::to_string(before)
+			+ " on its step, " + std::to_string(after) + " on the next");
 		std::printf("PASS: the sample layer: silent off, peak %.2f on, its sample kept by the state, a Track sound and "
-			"a Kit\n",
+			"a Kit, a Lock of its LEVEL heard on its step alone\n",
 			peakOf(on, 0));
 	}
 

@@ -71,6 +71,17 @@ namespace elektron::drums
 	}
 	static_assert(static_cast<int>(LfoTarget::Machine9) - static_cast<int>(LfoTarget::EnvelopeDepth) == 1,
 		"Machine 9-24 follow the chain's targets");
+	// The sample layer's value an LFO target is, LayerMove::Count for one that is not
+	constexpr LayerMove layerMove(const LfoTarget _target)
+	{
+		if(_target < LfoTarget::LayerTune || _target > LfoTarget::LayerOffset)
+			return LayerMove::Count;
+		return static_cast<LayerMove>(static_cast<int>(_target) - static_cast<int>(LfoTarget::LayerTune));
+	}
+	static_assert(layerMove(LfoTarget::LayerBr) == LayerMove::BitReduction
+		&& static_cast<int>(LfoTarget::LayerOffset) - static_cast<int>(LfoTarget::LayerTune) + 1
+		== static_cast<int>(LayerMove::Count), "an LFO's layer targets are LayerMove's, in its order");
+	static_assert(static_cast<int>(LfoTarget::Count) <= 64, "a Track's targets that wait are the bits of a uint64_t");
 
 	constexpr int Tracks = Lanes;
 	static_assert(LfoBank::Tracks == Tracks, "an LFO bank is the engine's");

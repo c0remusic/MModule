@@ -4,6 +4,7 @@
 #include <cmath>
 #include <utility>
 
+#include "edDrumsChain.h"
 #include "edDrumsVintage.h"
 
 namespace elektron::drums
@@ -15,13 +16,13 @@ namespace elektron::drums
 		constexpr double MaxOffsetSeconds = 0.1;
 	}
 
-	double SampleLayers::reductionStep(const int _br)
+	double SampleLayers::reductionStep(const double _br)
 	{
 		// The Analog Rytm's BR, measured (lockstep-post-v1, decision 11): a continuous step of 2^(6.06 + 0.0729 BR) LSB of
 		// the 16-bit input, truncated, about 9.9 - 0.073 BR bits kept; BR 0 leaves the input whole
 		if(_br <= 0)
 			return 1;
-		return std::exp2(6.06 + 0.0729 * std::min(_br, 127));
+		return std::exp2(6.06 + 0.0729 * std::min(_br, 127.0));
 	}
 
 	double SampleLayers::attackSeconds(const int _attack)
@@ -39,28 +40,50 @@ namespace elektron::drums
 			m_players[static_cast<size_t>(v)].setSamples(&m_samples);
 		}
 		for(int t = 0; t < Lanes; ++t)
+		{
+			for(auto& player : m_players)
+				player.setParameter(t, Dt2Player::Mode, 0, 0);
 			apply(t);
+		}
 	}
 
+	double SampleLayers::moved(const int _track, const LayerMove _move, const int _base) const
+	{
+		return wordOf(_base, m_moves[static_cast<size_t>(_track)][static_cast<size_t>(_move)]) / 128.0;
+	}
+
+	int SampleLayers::whole(const int _track, const LayerMove _move, const int _base) const
+	{
+		return static_cast<int>(std::lround(moved(_track, _move, _base)));
+	}
+
+	// What the voices sounding follow; the rest is the Hit's (hit)
 	void SampleLayers::apply(const int _track)
 	{
 		const auto i = static_cast<size_t>(_track);
 		const LayerSettings& s = m_settings[i];
 		// TUNE in semitones, FINE the 1/256 of one the player's fine part counts, a half semitone either way
-		const int tune = std::clamp(s.tune * 256 + (s.fine - 64) * 2, 0, 127 * 256 + 255);
+		const auto tune = std::clamp(static_cast<int>(std::lround(moved(_track, LayerMove::Tune, s.tune) * 256
+			+ (moved(_track, LayerMove::Fine, s.fine) - 64) * 2)), 0, 127 * 256 + 255);
 		for(auto& player : m_players)
 		{
 			player.setParameter(_track, Dt2Player::Tune, static_cast<uint8_t>(tune >> 8), static_cast<uint8_t>(tune & 255));
-			player.setParameter(_track, Dt2Player::Mode, 0, 0);
-			player.setParameter(_track, Dt2Player::Loop, static_cast<uint8_t>(s.loop), 0);
-			player.setParameter(_track, Dt2Player::Start, static_cast<uint8_t>(s.start), 0);
-			player.setParameter(_track, Dt2Player::Length, static_cast<uint8_t>(s.length), 0);
-			player.setParameter(_track, Dt2Player::Play, static_cast<uint8_t>(s.play), 0);
 			player.setNote(_track, s.noteTrack ? m_note[i] : 60);
 		}
-		const float level = static_cast<float>(std::clamp(s.level, 0, 127)) / 127.0f;
+		const auto level = static_cast<float>(moved(_track, LayerMove::Level, s.level) / 127);
 		m_level[i] = level * level;
-		m_step[i] = s.bitReduction > 0 ? static_cast<float>(reductionStep(s.bitReduction) / 32768) : 0.0f;
+		const double br = moved(_track, LayerMove::BitReduction, s.bitReduction);
+		m_step[i] = br > 0 ? static_cast<float>(reductionStep(br) / 32768) : 0.0f;
+	}
+
+	void SampleLayers::modulate(const int _track, const LayerMove _move, const int _offset)
+	{
+		m_moves[static_cast<size_t>(_track)][static_cast<size_t>(_move)] = _offset;
+		// The others wait for the next Hit, which reads them; off, setSettings applies them when it turns on
+		const bool live = _move == LayerMove::Tune || _move == LayerMove::Fine || _move == LayerMove::Level
+			|| _move == LayerMove::BitReduction;
+		if(live && m_settings[static_cast<size_t>(_track)].on)
+			apply(_track);
 	}
 
 	void SampleLayers::setSample(const int _track, const Dt2Samples::Slot& _slot)
@@ -102,13 +125,28 @@ namespace elektron::drums
 		const LayerSettings& s = m_settings[i];
 		if(!s.on || !m_samples.slots[i].pcm)
 			return;
-		const auto offset = static_cast<int>(std::lround(std::clamp(s.offset, 0, 127) / 127.0 * MaxOffsetSeconds * m_rate));
+		const auto offset = static_cast<int>(std::lround(moved(_track, LayerMove::Offset, s.offset) / 127
+			* MaxOffsetSeconds * m_rate));
 		// A Hit before the last one's voice has started takes its place; otherwise the other voice, the last one fading
 		// under it when it starts
 		int v = m_current[i];
 		if(m_voices[static_cast<size_t>(v)][i].wait < 0)
 			v = 1 - v;
-		m_voices[static_cast<size_t>(v)][i].wait = _startIn + offset;
+		Voice& voice = m_voices[static_cast<size_t>(v)][i];
+		voice.wait = _startIn + offset;
+		voice.attack = whole(_track, LayerMove::Attack, s.attack);
+		voice.hold = whole(_track, LayerMove::Hold, s.hold);
+		voice.decay = whole(_track, LayerMove::Decay, s.decay);
+		// The player takes them as they stand when the voice starts, and a voice sounding on it has taken its own
+		auto& player = m_players[static_cast<size_t>(v)];
+		const auto give = [&](const int _index, const LayerMove _move, const int _base)
+		{
+			player.setParameter(_track, _index, static_cast<uint8_t>(whole(_track, _move, _base)), 0);
+		};
+		give(Dt2Player::Play, LayerMove::Play, s.play);
+		give(Dt2Player::Start, LayerMove::Start, s.start);
+		give(Dt2Player::Length, LayerMove::Length, s.length);
+		give(Dt2Player::Loop, LayerMove::Loop, s.loop);
 		m_current[i] = v;
 		m_sounding |= 1u << _track;
 	}
@@ -140,7 +178,6 @@ namespace elektron::drums
 	void SampleLayers::startVoice(const int _track, const int _voice)
 	{
 		const auto i = static_cast<size_t>(_track);
-		const LayerSettings& s = m_settings[i];
 		auto& player = m_players[static_cast<size_t>(_voice)];
 		Voice& voice = m_voices[static_cast<size_t>(_voice)][i];
 		player.start(_track);
@@ -150,12 +187,12 @@ namespace elektron::drums
 		voice.wait = -1;
 		voice.live = player.playing(_track);
 		voice.fade = voice.tail = false;
-		const double attack = attackSeconds(s.attack);
+		const double attack = attackSeconds(voice.attack);
 		voice.attacking = attack > 0;
 		voice.gain = voice.attacking ? 0.0f : 1.0f;
 		voice.attackStep = voice.attacking ? static_cast<float>(1 / (attack * m_rate)) : 1.0f;
-		voice.holdLeft = std::lround(vintage::holdSeconds(s.hold) * m_rate);
-		const double decay = vintage::decaySeconds(s.decay);
+		voice.holdLeft = std::lround(vintage::holdSeconds(voice.hold) * m_rate);
+		const double decay = vintage::decaySeconds(voice.decay);
 		voice.fall = std::isfinite(decay) ? static_cast<float>(std::pow(10.0, -3 / (decay * m_rate))) : 1.0f;
 	}
 

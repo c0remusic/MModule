@@ -985,6 +985,12 @@ namespace elektron::drums
 			{
 				setPan(_track, t.panValue);
 			}
+			else if(const auto move = layerMove(target); move != LayerMove::Count)
+			{
+				// Both paths' layers, as setLayer gives both: a Track that changes path keeps its moves
+				m_mdLayers->modulate(_track, move, offset);
+				m_stLayers->modulate(_track, move, offset);
+			}
 			else
 			{
 				chainOf(t).modulate(_track, chainTarget(target), offset);

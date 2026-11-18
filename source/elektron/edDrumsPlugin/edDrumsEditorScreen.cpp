@@ -88,7 +88,8 @@ namespace elektron::drums
 				{"_flt", {&hue::s, "FILTER", 4}}, {"_fenv", {&hue::s, "FILTER", 4}}, {"_band", {&hue::b, "EQ", 5}},
 				{"_amp", {&hue::p, "AMP", 6}}, {"_vel", {&hue::p, "AMP", 6}}, {"_level", {&hue::p, "AMP", 6}},
 				{"_pan", {&hue::p, "AMP", 6}}, {"_accent", {&hue::p, "AMP", 6}}, {"_lfo1", {&hue::y, "LFO 1", 7}},
-				{"_lfo2", {&hue::m, "LFO 2", 8}}, {"_send", {&hue::w, "SENDS", 9}}};
+				{"_lfo2", {&hue::m, "LFO 2", 8}}, {"_send", {&hue::w, "SENDS", 9}},
+				{"_layer", {&hue::g, "SAMPLE LAYER", 2}}};
 			LaneSection found{&hue::t, "", 0};
 			for(const auto& s : sections)
 				if(_id.contains(s.first))
@@ -663,6 +664,10 @@ namespace elektron::drums
 		for(const auto& [suffix, target] : fixed)
 			if(s == suffix)
 				return target;
+		// The layer's values but ON and KEY TRACK, in LayerValue's order from TUNE
+		for(int v = parameters::LayerTune; v <= parameters::LayerOffset; ++v)
+			if(s == parameters::layerSpecs[static_cast<size_t>(v)].id)
+				return static_cast<LfoTarget>(static_cast<int>(LfoTarget::LayerTune) + v - parameters::LayerTune);
 		// The band's A and B as Chain::setBand reads them: BASE and WIDTH, EQF and EQG, 3 BAND's low and middle gains
 		const int type = choiceOf(*trackParameter("band_type", track));
 		const bool threeBand = type == static_cast<int>(BandType::ThreeBand);
@@ -1804,23 +1809,40 @@ namespace elektron::drums
 		std::vector<MenuEntry> entries;
 		std::array<int, 10> rows{};
 		const float cw = (ScreenW - 8) / 10;
+		const auto add = [&](const juce::RangedAudioParameter& _p, const LaneSection& _section, const int _column,
+			const int _row, const bool _heads)
+		{
+			const int index = _p.getParameterIndex();
+			entries.push_back({index, {ScreenX + 4 + static_cast<float>(_column) * cw, MenuY + 10
+				+ static_cast<float>(_row) * MenuRow, cw - 2, MenuRow - 1}, _section.hue, _heads
+				? juce::String(_section.name) : juce::String(), lockName(_p),
+				std::find(lines.begin(), lines.end(), index) != lines.end()});
+		};
+		std::vector<const juce::RangedAudioParameter*> layer;
 		for(const auto& id : m_processor.trackIds(m_track))
 		{
 			auto* p = m_processor.parameter(id);
 			const int index = p->getParameterIndex();
 			if(!m_processor.locks().lockable(index, m_track))
 				continue;
-			if(const auto& target = m_processor.lockTarget(index); target.kind == Processor::LockKind::Machine
-				&& target.a >= used)
+			const auto& target = m_processor.lockTarget(index);
+			if(target.kind == Processor::LockKind::Machine && target.a >= used)
 				continue;
+			if(target.kind == Processor::LockKind::Layer)
+			{
+				layer.push_back(p);
+				continue;
+			}
 			const auto section = laneSection(id);
 			// VOICE runs on into the column after its own
 			const int column = section.column == 0 && rows[0] >= MenuRows ? 1 : section.column;
 			const int row = rows[static_cast<size_t>(column)]++;
-			entries.push_back({index, {ScreenX + 4 + static_cast<float>(column) * cw, MenuY + 10 + static_cast<float>(row)
-				* MenuRow, cw - 2, MenuRow - 1}, section.hue, column == 1 ? juce::String() : juce::String(section.name),
-				lockName(*p), std::find(lines.begin(), lines.end(), index) != lines.end()});
+			add(*p, section, column, row, row == 0 && column != 1);
 		}
+		// SAMPLE LAYER under the two drives, seven a column below a row for its name
+		const int below = std::max(rows[2], rows[3]) + 1;
+		for(size_t i = 0; i < layer.size(); ++i)
+			add(*layer[i], laneSection("_layer"), 2 + static_cast<int>(i) / 7, below + static_cast<int>(i) % 7, i == 0);
 		return entries;
 	}
 
@@ -2157,8 +2179,8 @@ namespace elektron::drums
 			_p.frame(ScreenX + 3, MenuY, ScreenW - 6, bottom + 2 - MenuY, colour::panelLine, 1, 0.3f);
 			for(const auto& e : entries)
 			{
-				if(e.r.getY() < MenuY + 10.5f && e.section.isNotEmpty())
-					_p.text(e.r.getX(), MenuY + 6.5f, e.section, 2.8f, e.hue->c[4], 600);
+				if(e.section.isNotEmpty())
+					_p.text(e.r.getX(), e.r.getY() - 3.5f, e.section, 2.8f, e.hue->c[4], 600);
 				_p.rect(e.r.getX(), e.r.getY(), e.r.getWidth(), e.r.getHeight(), e.taken ? juce::Colour(0xff1D1F21)
 					: colour::cellBack, 0.6f);
 				_p.text(e.r.getX() + 2, e.r.getY() + 5.2f, fitted(_p, e.name, 2.8f, e.r.getWidth() - 4), 2.8f, e.taken

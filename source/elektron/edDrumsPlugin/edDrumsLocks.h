@@ -14,12 +14,12 @@
 namespace elektron::drums
 {
 	// What a host parameter is to a Lock of the sequencer's: whose Track, and which of its values
-	enum class LockKind : uint8_t { None, Machine, Note, Level, Pan, Chain, Lfo, Send, Accent };
+	enum class LockKind : uint8_t { None, Machine, Note, Level, Pan, Chain, Lfo, Send, Accent, Layer };
 	struct LockTarget
 	{
 		int track = -1;
 		LockKind kind = LockKind::None;
-		int a = 0, b = 0;	// Machine 1-24's, the chain's or the send's index; the LFO and its value's
+		int a = 0, b = 0;	// Machine 1-24's, the chain's, the send's or the layer's index; the LFO and its value's
 	};
 
 	// _parameter's Lock at _track's step _step in _p, nullptr for none

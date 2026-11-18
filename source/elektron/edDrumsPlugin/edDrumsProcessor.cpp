@@ -837,6 +837,8 @@ namespace elektron::drums
 			for(size_t i = 0; i < p.sends.size(); ++i)
 				target(p.sends[i].parameter, t, LockKind::Send, static_cast<int>(i));
 			target(p.accent.parameter, t, LockKind::Accent);
+			for(size_t i = 0; i < p.layer.size(); ++i)
+				target(p.layer[i].parameter, t, LockKind::Layer, static_cast<int>(i));
 		}
 		m_locks.setTargets(std::move(targets));
 	}
@@ -848,13 +850,13 @@ namespace elektron::drums
 
 	namespace
 	{
-		// A Track's chain and one of its LFOs, as _values reads them
-		template<typename Values, typename Chain>
-		parameters::ChainArray chainFrom(const Chain& _chain, const Values& _values)
+		// A Track's chain or its layer, and one of its LFOs, as _values reads them
+		template<typename Array, typename Values, typename Watched>
+		Array wholeFrom(const Watched& _watched, const Values& _values)
 		{
-			parameters::ChainArray values{};
+			Array values{};
 			for(size_t i = 0; i < values.size(); ++i)
-				values[i] = juce::roundToInt(_values.value(_chain[i]));
+				values[i] = juce::roundToInt(_values.value(_watched[i]));
 			return values;
 		}
 
@@ -909,7 +911,12 @@ namespace elektron::drums
 
 	parameters::ChainArray Processor::chainValues(const int _track) const
 	{
-		return chainFrom(m_tracks[static_cast<size_t>(_track)].chain, PlayedValues{*this});
+		return wholeFrom<parameters::ChainArray>(m_tracks[static_cast<size_t>(_track)].chain, PlayedValues{*this});
+	}
+
+	parameters::LayerArray Processor::layerValues(const int _track) const
+	{
+		return wholeFrom<parameters::LayerArray>(m_tracks[static_cast<size_t>(_track)].layer, PlayedValues{*this});
 	}
 
 	parameters::LfoArray Processor::lfoValues(const int _track, const int _lfo) const
@@ -954,7 +961,7 @@ namespace elektron::drums
 		for(auto& w : _p.chain)
 			chainMoved |= _values.moved(w);
 		if(chainMoved)
-			giveChain(e, t, chainFrom(_p.chain, _values), _chainHeld);
+			giveChain(e, t, wholeFrom<parameters::ChainArray>(_p.chain, _values), _chainHeld);
 		for(size_t l = 0; l < _p.lfo.size(); ++l)
 		{
 			bool lfoMoved = false;
@@ -977,12 +984,7 @@ namespace elektron::drums
 		for(auto& w : _p.layer)
 			layerMoved |= _values.moved(w);
 		if(layerMoved)
-		{
-			parameters::LayerArray layer{};
-			for(size_t v = 0; v < layer.size(); ++v)
-				layer[v] = plain(_p.layer[v]);
-			e.setLayer(t, parameters::layerOf(layer));
-		}
+			e.setLayer(t, parameters::layerOf(wholeFrom<parameters::LayerArray>(_p.layer, _values)));
 	}
 
 	// One parameter of a Track to the engine: the Lock's value while it holds one, else the host's
@@ -1004,6 +1006,7 @@ namespace elektron::drums
 		case LockKind::Level:	e.setLevel(t, v); break;
 		case LockKind::Pan:		e.setPan(t, v); break;
 		case LockKind::Chain:	setChainHeld(t); break;
+		case LockKind::Layer:	e.setLayer(t, parameters::layerOf(layerValues(t))); break;
 		case LockKind::Lfo:		e.setLfo(t, target.a, parameters::lfoOf(lfoValues(t, target.a))); break;
 		case LockKind::Send:	e.setSend(t, static_cast<Send>(target.a), v); break;
 		case LockKind::Accent:	e.setAccent(t, v); break;

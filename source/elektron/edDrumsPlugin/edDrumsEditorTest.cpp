@@ -1624,12 +1624,12 @@ namespace
 			int listed = 0, expected = 0;
 			const auto* machine = dynamic_cast<juce::AudioParameterChoice*>(processor.parameter("t01_machine"));
 			const int used = machineParameters(processor.machines()[static_cast<size_t>(machine->getIndex())]);
+			std::vector<juce::Rectangle<int>> areas;
 			for(const auto& id : processor.trackIds(0))
 			{
-				// REPEAT GAP's two neither: the Processor plays no Lock of them; nor of the sample layer's yet, whose
-				// Locks come with the third slice of ticket 06 of the v2 map
+				// REPEAT GAP's two neither: the Processor plays no Lock of them
 				if(id.endsWith("_machine") || id.endsWith("_output") || id.endsWith("_chokes") || id.endsWith("_gap_sync")
-					|| id.endsWith("_gap_note") || id.substring(4).startsWith("layer_"))
+					|| id.endsWith("_gap_note"))
 				{
 					check(editor.lockMenuArea(index(id)).isEmpty(), id + " is not in the menu");
 					continue;
@@ -1639,10 +1639,17 @@ namespace
 					&& suffix.substring(1).getIntValue() > used)
 					continue;
 				++expected;
-				listed += editor.lockMenuArea(index(id)).isEmpty() ? 0 : 1;
+				const auto area = editor.lockMenuArea(index(id));
+				if(area.isEmpty())
+					continue;
+				++listed;
+				for(const auto& other : areas)
+					check(!area.intersects(other), id + "'s entry lies over another");
+				areas.push_back(area);
 			}
 			check(listed == expected && expected > 50, "the menu lists " + juce::String(listed) + " of the Track's "
-				+ juce::String(expected) + " parameters that take a Lock");
+				+ juce::String(expected) + " parameters that take a Lock, the sample layer's 14 among them, none over "
+				"another");
 			snapshot(editor, _folder.getChildFile("seq-lock-menu.png"));
 			click(editor, editor.lockMenuArea(index("t01_flt_res")).getCentre());
 			check(editor.lockLanes() == 1 && !editor.lockMenuOpen(), "an entry adds its lane and shuts the menu");

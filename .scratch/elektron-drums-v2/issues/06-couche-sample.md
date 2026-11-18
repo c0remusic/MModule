@@ -100,6 +100,42 @@ Mis de côté après revue :
 Reste pour la tranche 3 : les locks, les cibles des LFO, l'écoute de BR, et des réglages pris au Hit plutôt qu'au départ
 de la voix.
 
+## Avancement (2026-11-18) : tranche 3, locks, LFO, réglages au Hit
+
+**Réglages pris au Hit.** PLAY, START, LENGTH, LOOP, l'enveloppe et OFFSET sont pris au Hit, tels que ses Locks et ses
+LFO les laissent. Le Hit les écrit dans le lecteur de sa voix et dans la voix elle-même. Ce qui bouge avant le départ de
+la voix, jusqu'à 100 ms d'OFFSET plus tard, ne la change plus. TUNE, FINE, LEVEL et BR suivent la voix qui sonne.
+
+**Locks.** Les 14 paramètres de la couche prennent un Lock de pas (`LockKind::Layer`). Le Processor donne alors au
+moteur la couche entière, Locks compris, comme pour la chaîne. Le menu + LOCK range SAMPLE LAYER sous DRIVE 1 et
+DRIVE 2, sept par colonne, sous une ligne qui porte son nom.
+
+**LFO.** Douze cibles ajoutées en fin de liste, donc les cibles enregistrées gardent leur numéro : toutes les valeurs de
+la couche sauf ON et KEY TRACK (« Lyr Tune » à « Lyr Offset »). Un déplacement va aux couches des deux chemins, comme
+`setLayer`, donc une piste qui change de chemin le garde. ASSIGN sur une cellule de la couche la vise.
+
+**Tests.**
+- `edDrumsLayerTest` : `atHit` vérifie qu'un réglage ou un déplacement de LFO des valeurs du Hit, entre le Hit et le
+  départ de la voix, laisse les échantillons identiques. TUNE, FINE, LEVEL et BR changent la voix qui sonne.
+- `edDrumsLayerTest` : `lfoTargets` vérifie que chacune des 12 cibles change ce que joue la piste.
+- `edDrumsProcessorTest` : un Lock de LEVEL 0 tait la couche sur son pas seul.
+- `edDrumsEditorTest` : le menu liste les 14, sans qu'aucune entrée en recouvre une autre.
+
+Coût : 16 couches jouées, 1,25 à 1,29 % d'un cœur à 44,1 kHz (guide 1,5 %).
+
+Mis de côté après revue :
+- Ajouter des choix à la cible des LFO décale la valeur normalisée, donc une automation hôte de la cible enregistrée
+  avant vise une autre cible. Les états, Kits et sons de piste gardent des valeurs simples ; Machine 9-24 avaient été
+  ajoutées de la même façon.
+- Un Lock relâché donne la couche entière autant de fois que la couche a de Locks.
+- ASSIGN sur une cellule grisée, couche éteinte, dit qu'elle n'est pas une cible (comme l'enveloppe de l'AMP).
+- L'ordre des valeurs de la couche se répète dans `LayerMove`, `LfoTarget`, `LayerValue` et la liste des noms de cible ;
+  trois `static_assert` le tiennent.
+- `apply` recalcule TUNE, LEVEL et BR ensemble pour un seul déplacement, et le menu + LOCK se reconstruit à chaque
+  image tant qu'il est ouvert.
+
+Reste : l'écoute de contrôle de la BR face à celle du DT2 (HITL).
+
 ## Références
 
 Spécification v2, §7 (`../elektron-drums/spec-v2.md`) ; ses tickets de décision dans `../lockstep-post-v1/issues/`.

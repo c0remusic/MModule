@@ -617,7 +617,8 @@ namespace elektron::drums::parameters
 		{"target", "Target", 0, static_cast<int>(LfoTarget::Count) - 1, "None|Machine 1|Machine 2|Machine 3|Machine 4"
 			"|Machine 5|Machine 6|Machine 7|Machine 8|Level|Pan|Drive A|Drive B|EQ A|EQ B|Cutoff|Resonance|Width"
 			"|Env Depth|Machine 9|Machine 10|Machine 11|Machine 12|Machine 13|Machine 14|Machine 15|Machine 16|Machine 17"
-			"|Machine 18|Machine 19|Machine 20|Machine 21|Machine 22|Machine 23|Machine 24"},
+			"|Machine 18|Machine 19|Machine 20|Machine 21|Machine 22|Machine 23|Machine 24|Lyr Tune|Lyr Fine|Lyr Play"
+			"|Lyr Start|Lyr Length|Lyr Loop|Lyr Level|Lyr BR|Lyr Attack|Lyr Hold|Lyr Decay|Lyr Offset"},
 	}};
 
 	const std::array<Spec, SendCount> sendSpecs{{
@@ -711,6 +712,8 @@ namespace elektron::drums::parameters
 		return delayNoteQuarters(_choice - 2);
 	}
 
+	static_assert(LayerOffset - LayerTune + 1 == static_cast<int>(LayerMove::Count) && LayerBr - LayerTune
+		== static_cast<int>(LayerMove::BitReduction), "the layer's LFO targets are its values from TUNE to OFFSET");
 	const std::array<Spec, LayerValues> layerSpecs{{
 		{"layer_on", "Layer On", 0, 1, nullptr, true},
 		{"layer_tune", "Lyr Tune"}, {"layer_fine", "Lyr Fine"}, {"layer_play", "Lyr Play"},

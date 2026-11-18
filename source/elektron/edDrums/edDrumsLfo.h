@@ -54,6 +54,9 @@ namespace elektron::drums
 		// SOPHIE's, the Sampler's VINTAGE BITS, COMPANDING and OUTPUT FILTER, a Syntakt machine's HOLD in Machine 9)
 		Machine9, Machine10, Machine11, Machine12, Machine13, Machine14, Machine15, Machine16,
 		Machine17, Machine18, Machine19, Machine20, Machine21, Machine22, Machine23, Machine24,
+		// Appended: the sample layer's values but ON and KEY TRACK, in LayerMove's order (edDrumsLayer.h)
+		LayerTune, LayerFine, LayerPlay, LayerStart, LayerLength, LayerLoop, LayerLevel, LayerBr, LayerAttack,
+		LayerHold, LayerDecay, LayerOffset,
 		Count
 	};
 

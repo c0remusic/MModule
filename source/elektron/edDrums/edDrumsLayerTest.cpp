@@ -6,6 +6,8 @@
 //   - a Hit over a sounding layer crossfades, no step larger than the sine's own;
 //   - BR: the bits a ramp keeps within 0.5 bit of the Analog Rytm's law; BR 0 the ramp whole;
 //   - the envelope: the attack's half-way point and the decay's -60 dB where their laws put them;
+//   - PLAY, START, LENGTH, LOOP, the envelope and OFFSET taken at the Hit, TUNE following the voice; each of the
+//     layer's 12 LFO targets moving what the Track plays;
 //   - Q15: the same Hits at 44.1 and 48 kHz, 10 ms envelopes within 0.2 dB, third octaves within 0.5 dB;
 //   - the cost of 16 Tracks' layers playing at 44.1 kHz, 1.5 % of a core at most (spec v2, §3).
 
@@ -96,7 +98,8 @@ namespace
 	// Track 0 on the Sampler without a sample (silence), on the 12-BIT grain or CLEAN, its layer _layer playing _sample;
 	// Hits at _notes, Main rendered
 	std::vector<float> layerHits(const Library& _library, const Path _path, const LayerSettings& _layer,
-		const Sample* _sample, const std::vector<int>& _notes, const int _samples, const int _note = 60)
+		const Sample* _sample, const std::vector<int>& _notes, const int _samples, const int _note = 60,
+		const LfoSettings& _lfo = {})
 	{
 		auto e = std::make_unique<Engine>(_library);
 		e->setMachine(0, Sampler);
@@ -107,6 +110,7 @@ namespace
 		e->setNote(0, _note);
 		e->setLayerSample(0, _sample);
 		e->setLayer(0, _layer);
+		e->setLfo(0, 0, _lfo);
 		Take take(_samples);
 		int at = 0;
 		for(const int note : _notes)
@@ -369,6 +373,93 @@ namespace
 		require(std::abs(level + 60) < 1, "the decay reaches -60 dB elsewhere");
 	}
 
+	// What a Hit takes: PLAY, START, LENGTH, LOOP, the envelope and OFFSET as they stand at the Hit, whatever moves
+	// before its voice starts, 100 ms of OFFSET later; TUNE moves the voice while it sounds
+	void atHit()
+	{
+		const auto s = sine(441, 44100, 44100);
+		LayerSettings a;
+		a.on = true;
+		a.level = 127;
+		a.offset = 127;
+		a.start = 10;
+		a.length = 100;
+		a.attack = 20;
+		a.hold = 30;
+		a.decay = 50;
+		LayerSettings b = a;
+		b.offset = 0;
+		b.play = 64;
+		b.start = 90;
+		b.length = 20;
+		b.loop = 64;
+		b.attack = 0;
+		b.hold = 0;
+		b.decay = 10;
+		const auto render = [&](const LayerSettings& _then, const LayerMove _move = LayerMove::Count)
+		{
+			SampleLayers layers(44100);
+			layers.setSample(0, {s.source->data(), static_cast<uint32_t>(s.source->size()), s.rate});
+			layers.setSettings(0, a);
+			layers.hit(0, 0);
+			std::vector<float> y;
+			for(int block = 0; block < 600; ++block)
+			{
+				if(block == 1)
+					layers.setSettings(0, _then);
+				if(block == 1 && _move != LayerMove::Count)
+					layers.modulate(0, _move, (_move == LayerMove::Level ? -40 : 40) * 128);	// LEVEL is at its top
+				float x[BlockSize]{};
+				layers.render(0, x);
+				y.insert(y.end(), x, x + BlockSize);
+			}
+			return y;
+		};
+		const auto kept = render(a);
+		require(render(b) == kept, "a value taken at the Hit moved before its voice started");
+		LayerSettings c = a;
+		c.tune = 76;
+		require(render(c) != kept, "TUNE does not reach a voice sounding");
+		// An LFO's move the same way: those of the Hit wait for the next, TUNE's, LEVEL's and BR's reach the voice
+		for(const auto move : {LayerMove::Play, LayerMove::Start, LayerMove::Length, LayerMove::Loop, LayerMove::Attack,
+			LayerMove::Hold, LayerMove::Decay, LayerMove::Offset})
+			require(render(a, move) == kept, "an LFO's move of a value taken at the Hit moved its voice");
+		for(const auto move : {LayerMove::Tune, LayerMove::Fine, LayerMove::Level, LayerMove::BitReduction})
+			require(render(a, move) != kept, "an LFO's move of TUNE, FINE, LEVEL or BR does not reach a voice "
+				"sounding");
+		std::printf("  PLAY, START, LENGTH, LOOP, the envelope and OFFSET taken at the Hit; TUNE follows the voice\n");
+	}
+
+	// Each of the layer's LFO targets moves what a Track plays: Hits every 100 ms for a second, an 8 Hz sine of depth
+	// 60, against the same Hits without it; the layer on a loop, so that LOOP is heard, and decaying, so that HOLD is
+	void lfoTargets(const Library& _library)
+	{
+		const auto s = sine(441, 44100, 2000);
+		LayerSettings on;
+		on.on = true;
+		on.level = 100;
+		on.play = 64;
+		on.decay = 60;
+		std::vector<int> notes;
+		for(int n = 0; n < 10; ++n)
+			notes.push_back(n * 4410);
+		const auto play = [&](const LfoTarget _target)
+		{
+			LfoSettings lfo;
+			lfo.rate.sync = false;
+			lfo.rate.hz = 8;
+			lfo.shape = LfoShape::Sine;
+			lfo.depth = 60;
+			lfo.target = _target;
+			return layerHits(_library, Path::Machinedrum, on, &s, notes, 44100, 60, lfo);
+		};
+		const auto plain = play(LfoTarget::None);
+		for(int t = static_cast<int>(LfoTarget::LayerTune); t <= static_cast<int>(LfoTarget::LayerOffset); ++t)
+			require(play(static_cast<LfoTarget>(t)) != plain, "LFO target " + std::to_string(t) + " moves nothing");
+		std::printf("  the layer's %d LFO targets each move what the Track plays\n",
+			static_cast<int>(LayerMove::Count));
+	}
+
 	void q15()
 	{
 		// A Hit: a decaying mix of a falling sine and noise, at 44.1 kHz, through each path's layer
@@ -461,6 +552,8 @@ int main()
 		ends();
 		bitReduction();
 		envelope();
+		atHit();
+		lfoTargets(none);
 		q15();
 		cost();
 	}
