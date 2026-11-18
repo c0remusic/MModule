@@ -46,7 +46,9 @@ namespace md::fast
 	class Filter
 	{
 	public:
-		explicit Filter(double _rate = 44100);
+		// _avx2: groups of 4 lanes in AVX (mdFastTrackFxAvx2.cpp), the same samples; only where the caller found the
+		// CPU has it
+		explicit Filter(double _rate = 44100, bool _avx2 = false);
 		void set(int _lane, int _fltf, int _fltw, int _fltq);
 		void process(Block& _buf, uint16_t _lanes = 0xffff);
 		void clear(int _lane);
@@ -57,6 +59,11 @@ namespace md::fast
 		enum { LowC, LowR, LowH, HighC, HighR, HighH, HighE, WordCount };
 
 		template<typename Words> void render(Block& _buf, int _l, const Words& _w);
+		// The 4 lanes from _l in AVX, the words as render reads them by word, sample and lane, 32-byte aligned: not
+		// _moving, the block's first sample's for all of it
+		void renderAvx2(Block& _buf, int _l, const double (*_words)[BlockSize][4], bool _moving);
+
+		bool m_avx2;
 
 		alignas(16) double m_word[WordCount][Lanes]{};		// as a block reads them, at the start of a move
 		alignas(16) double m_to[WordCount][Lanes]{};		// where a move heads, before the limiter

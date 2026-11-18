@@ -60,6 +60,18 @@ namespace elektron::drums
 		// DRIVE's gain into the curve and its wet share, by its fraction of 127
 		double driveGain(const double _drive) { return 0.8465 * _drive * _drive + 0.1534; }
 		double driveMix(const double _drive) { return std::min(8 * _drive, 1.0); }
+
+		__m128d clampPair(const __m128d _v) { return _mm_min_pd(_mm_max_pd(_v, _mm_set1_pd(-1)), _mm_set1_pd(1)); }
+
+		// saturate on two doubles at once, its operations in their order: _y x _gain clipped to +-1, then three passes
+		__m128d saturatePair(const __m128d _y, const __m128d _gain)
+		{
+			const __m128d two = _mm_set1_pd(2), sign = _mm_set1_pd(-0.0);
+			__m128d u = clampPair(_mm_mul_pd(_gain, _y));
+			for(int pass = 0; pass < 3; ++pass)
+				u = _mm_mul_pd(u, _mm_sub_pd(two, _mm_andnot_pd(sign, u)));
+			return u;
+		}
 	}
 
 	double masterDriveGain(const uint8_t _value) { return driveGain(fraction(_value)); }
@@ -99,7 +111,6 @@ namespace elektron::drums
 	void Overdrive::process(Block& _buf, const uint16_t _lanes) const
 	{
 		using D = __m128d;
-		const D one = _mm_set1_pd(1), minusOne = _mm_set1_pd(-1), two = _mm_set1_pd(2), sign = _mm_set1_pd(-0.0);
 		for(int l = 0; l < Lanes; l += 4)
 		{
 			// The lanes written: those asked for whose mix lets the drive through
@@ -121,9 +132,7 @@ namespace elektron::drums
 				for(int h = 0; h < 2; ++h)
 				{
 					const D x = _mm_cvtps_pd(h ? _mm_movehl_ps(in, in) : in);
-					D u = _mm_min_pd(_mm_max_pd(_mm_mul_pd(gain[h], x), minusOne), one);
-					for(int pass = 0; pass < 3; ++pass)
-						u = _mm_mul_pd(u, _mm_sub_pd(two, _mm_andnot_pd(sign, u)));
+					const D u = saturatePair(x, gain[h]);
 					out[h] = _mm_add_pd(x, _mm_mul_pd(mix[h], _mm_sub_pd(u, x)));
 				}
 				const __m128 wet = _mm_movelh_ps(_mm_cvtpd_ps(out[0]), _mm_cvtpd_ps(out[1]));
@@ -221,13 +230,17 @@ namespace elektron::drums
 		const double gain = 16 * std::exp(DbToLog * (m_attackDb + m_makeup.at(_n, m_block)));
 
 		const double satGain = m_satGain.at(_n, m_block), satMix = m_satMix.at(_n, m_block), volume = m_volume.at(_n, m_block);
-		float* const out[2] = {&_left, &_right};
-		for(int c = 0; c < 2; ++c)
-		{
-			const double wet = std::clamp(gain * x[c], -1.0, 1.0);
-			const double y = std::clamp(Lift * (m_wet * wet + m_dry * x[c]), -1.0, 1.0);
-			*out[c] = static_cast<float>(volume * (y + satMix * (saturate(y, satGain) - y)));
-		}
+		// Both channels at once, each through saturate's and the clamps' operations in their order
+		using D = __m128d;
+		const D in = _mm_set_pd(x[1], x[0]);
+		const D wet = clampPair(_mm_mul_pd(_mm_set1_pd(gain), in));
+		const D y = clampPair(_mm_mul_pd(_mm_set1_pd(Lift), _mm_add_pd(_mm_mul_pd(_mm_set1_pd(m_wet), wet),
+			_mm_mul_pd(_mm_set1_pd(m_dry), in))));
+		const D u = saturatePair(y, _mm_set1_pd(satGain));
+		const D out = _mm_mul_pd(_mm_set1_pd(volume), _mm_add_pd(y, _mm_mul_pd(_mm_set1_pd(satMix), _mm_sub_pd(u, y))));
+		const __m128 out32 = _mm_cvtpd_ps(out);
+		_left = _mm_cvtss_f32(out32);
+		_right = _mm_cvtss_f32(_mm_shuffle_ps(out32, out32, 1));
 		m_wet = m_wetTo + m_mixPole * (m_wet - m_wetTo);
 		m_dry = m_dryTo + m_mixPole * (m_dry - m_dryTo);
 	}

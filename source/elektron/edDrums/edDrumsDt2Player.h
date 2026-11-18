@@ -135,7 +135,9 @@ namespace elektron::drums
 		// ... to 32 at the output rate into _out; _fadeOut ramps the block to silence (a trig's block)
 		void decimate(int _l, const float* _work, bool _fadeOut, float* _out);
 
-		using Kernel = std::array<std::array<float, Taps>, Phases>;
+		// A phase's taps, then zeros to 8: two SSE loads a phase
+		static constexpr int RowTaps = 8;
+		using Kernel = std::array<std::array<float, RowTaps>, Phases>;
 		static const Kernel& kernel();
 		const Kernel& m_kernel;
 		const Dt2Samples* m_samples = nullptr;

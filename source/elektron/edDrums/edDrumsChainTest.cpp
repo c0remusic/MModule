@@ -473,9 +473,9 @@ namespace
 		require(worst < 1e-6, "Overdrive is not the master's saturator");
 	}
 
-	// The AVX builds of the half-bands, Overdrive and DIST (ticket 26 of the v2 map) give the SSE builds' samples, bit for
-	// bit: random settings and blocks over lanes asked for in full, in halves and alone, where a group splits between the
-	// two builds
+	// The AVX builds of the half-bands, Overdrive and DIST (ticket 26 of the v2 map) and of the Machinedrum's filter
+	// (ticket 27) give the SSE builds' samples, bit for bit: random settings and blocks over lanes asked for in full,
+	// in halves and alone, where a group splits between the two builds
 	void avxKernels()
 	{
 		if(!rate::fastFir())
@@ -556,8 +556,38 @@ namespace
 			distAvx.process(avx, lanes);
 			same(sse, avx, "DIST");
 		}
-		std::printf("  AVX kernels: the half-bands at 2x and 4x, Overdrive and DIST, %lld samples, all the SSE builds'\n",
-			static_cast<long long>(compared));
+
+		// The Machinedrum's filter at both chains' rates, its words kept and ramping, a group's pairs each way: all of
+		// them moved now and then, one lane alone more often
+		for(const double rate : {44100.0, 48000.0})
+		{
+			md::fast::Filter filterSse(rate, false), filterAvx(rate, true);
+			const auto setFilter = [&](const int _l)
+			{
+				const int fltf = static_cast<int>(random() % (128 << 7));
+				const int fltw = static_cast<int>(random() % (128 << 7));
+				const int fltq = static_cast<int>(random() % (128 << 7));
+				filterSse.set(_l, fltf, fltw, fltq);
+				filterAvx.set(_l, fltf, fltw, fltq);
+			};
+			for(int b = 0; b < 400; ++b)
+			{
+				if(b % 20 == 0)
+					for(int l = 0; l < Lanes; ++l)
+						setFilter(l);
+				else if(b % 3 == 0)
+					setFilter(static_cast<int>(random() % Lanes));
+				const uint16_t lanes = masks[b / 8 % std::size(masks)];
+				Block in, sse, avx;
+				noise(in);
+				sse = avx = in;
+				filterSse.process(sse, lanes);
+				filterAvx.process(avx, lanes);
+				same(sse, avx, "the Machinedrum's filter");
+			}
+		}
+		std::printf("  AVX kernels: the half-bands at 2x and 4x, Overdrive, DIST and the Machinedrum's filter, %lld "
+			"samples, all the SSE builds'\n", static_cast<long long>(compared));
 	}
 
 	// ---- Q7 ----

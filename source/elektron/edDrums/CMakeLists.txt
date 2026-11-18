@@ -159,6 +159,12 @@ if(BUILD_TESTING)
 	target_link_libraries(edDrumsCost PRIVATE edDrums)
 	set_property(TARGET edDrumsCost PROPERTY FOLDER "Elektron/test")
 
+	# What the chain, the sample layer and the master cost alone, and a hash of their samples, by hand, not a test:
+	# edDrumsStageCost [RUNS] [SECONDS] [STAGE]
+	add_executable(edDrumsStageCost edDrumsStageCost.cpp)
+	target_link_libraries(edDrumsStageCost PRIVATE edDrums)
+	set_property(TARGET edDrumsStageCost PROPERTY FOLDER "Elektron/test")
+
 	# The worst kit's cost at the gate (spec v2, section 3): red over 15 % of a core
 	add_executable(edDrumsWorstKitCost edDrumsWorstKitCost.cpp)
 	target_link_libraries(edDrumsWorstKitCost PRIVATE edDrums)

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <initializer_list>
+#include <type_traits>
 #include <emmintrin.h>
 
 namespace md::fast
@@ -296,7 +297,7 @@ namespace md::fast
 
 	// ---- filter ----
 
-	Filter::Filter(const double _rate) : m_t(tables::tables(_rate))
+	Filter::Filter(const double _rate, const bool _avx2) : m_avx2(_avx2), m_t(tables::tables(_rate))
 	{
 		for(int l = 0; l < Lanes; ++l)
 		{
@@ -400,46 +401,96 @@ namespace md::fast
 	void Filter::process(Block& _buf, const uint16_t _lanes)
 	{
 		const auto word = [](const double _word) { return std::clamp(_word, -1.0, LastWord); };
-		for(int l = 0; l < _buf.lanes; l += 2)
+		// A pair's words over the block, as render reads them: those it keeps, or ramping to where they head
+		const auto kept = [&](const int _l, SectionWords<1>& _w)
 		{
-			if(!(_lanes >> l & 3))
-				continue;
-			if(!m_moving[l / 2])
-			{
-				SectionWords<1> w;
-				const auto kept = [&](const int _word) { return _mm_load_pd(m_word[_word] + l); };
-				w.lowC[0] = kept(LowC);
-				w.lowR[0] = kept(LowR);
-				w.lowH[0] = kept(LowH);
-				w.highC[0] = _mm_add_pd(kept(HighC), kept(HighC));
-				w.highR[0] = kept(HighR);
-				w.highH[0] = kept(HighH);
-				w.highE[0] = kept(HighE);
-				render(_buf, l, w);
-				continue;
-			}
-
+			const auto at = [&](const int _word) { return _mm_load_pd(m_word[_word] + _l); };
+			_w.lowC[0] = at(LowC);
+			_w.lowR[0] = at(LowR);
+			_w.lowH[0] = at(LowH);
+			_w.highC[0] = _mm_add_pd(at(HighC), at(HighC));
+			_w.highR[0] = at(HighR);
+			_w.highH[0] = at(HighH);
+			_w.highE[0] = at(HighE);
+		};
+		const auto ramping = [&](const int _l, SectionWords<BlockSize>& _w)
+		{
 			// -2 h ramps by its own move, so rounds on its own
-			for(int i = l; i < l + 2; ++i)
+			for(int i = _l; i < _l + 2; ++i)
 				m_to[HighE][i] = m_word[HighE][i] + word(-2 * (m_to[HighH][i] - m_word[HighH][i]));
-
-			SectionWords<BlockSize> w;
-			ramp(w.lowC, m_word[LowC] + l, m_to[LowC] + l);
-			ramp(w.lowR, m_word[LowR] + l, m_to[LowR] + l);
-			ramp(w.lowH, m_word[LowH] + l, m_to[LowH] + l);
-			ramp(w.highC, m_word[HighC] + l, m_to[HighC] + l, 2);
-			ramp(w.highR, m_word[HighR] + l, m_to[HighR] + l);
-			ramp(w.highH, m_word[HighH] + l, m_to[HighH] + l);
-			ramp(w.highE, m_word[HighE] + l, m_to[HighE] + l);
-			render(_buf, l, w);
-
-			m_moving[l / 2] = false;
-			for(int i = l; i < l + 2; ++i)
+			ramp(_w.lowC, m_word[LowC] + _l, m_to[LowC] + _l);
+			ramp(_w.lowR, m_word[LowR] + _l, m_to[LowR] + _l);
+			ramp(_w.lowH, m_word[LowH] + _l, m_to[LowH] + _l);
+			ramp(_w.highC, m_word[HighC] + _l, m_to[HighC] + _l, 2);
+			ramp(_w.highR, m_word[HighR] + _l, m_to[HighR] + _l);
+			ramp(_w.highH, m_word[HighH] + _l, m_to[HighH] + _l);
+			ramp(_w.highE, m_word[HighE] + _l, m_to[HighE] + _l);
+		};
+		// After a ramp, the words where it went
+		const auto arrive = [&](const int _l)
+		{
+			m_moving[_l / 2] = false;
+			for(int i = _l; i < _l + 2; ++i)
 			{
 				for(int k = LowC; k <= HighH; ++k)
 					m_word[k][i] = word(m_to[k][i]);
 				m_word[HighE][i] = word(-2 * m_word[HighH][i]);
 			}
+		};
+		// A pair's words into the AVX layout, the pair _half of its group
+		const auto spread = [](const auto& _w, const int _count, const int _half, double (*_out)[BlockSize][4])
+		{
+			using Words = std::decay_t<decltype(_w)>;
+			const D* words[WordCount] = {_w.lowC, _w.lowR, _w.lowH, _w.highC, _w.highR, _w.highH, _w.highE};
+			for(int k = 0; k < WordCount; ++k)
+				for(int n = 0; n < _count; ++n)
+					_mm_store_pd(&_out[k][n][2 * _half], words[k][n & Words::Mask]);
+		};
+
+		for(int l = 0; l < _buf.lanes; l += 2)
+		{
+			if(!(_lanes >> l & 3))
+				continue;
+			// Both pairs of a group of 4 in AVX, each reading its words as below: a pair left out keeps its state
+			if(m_avx2 && l % 4 == 0 && (_lanes >> (l + 2) & 3))
+			{
+				const bool moving = m_moving[l / 2] || m_moving[l / 2 + 1];
+				const int count = moving ? BlockSize : 1;
+				alignas(32) double words[WordCount][BlockSize][4];
+				for(int half = 0; half < 2; ++half)
+				{
+					const int p = l + 2 * half;
+					if(m_moving[p / 2])
+					{
+						SectionWords<BlockSize> w;
+						ramping(p, w);
+						spread(w, count, half, words);
+					}
+					else
+					{
+						SectionWords<1> w;
+						kept(p, w);
+						spread(w, count, half, words);
+					}
+				}
+				renderAvx2(_buf, l, words, moving);
+				for(const int p : {l, l + 2})
+					if(m_moving[p / 2])
+						arrive(p);
+				l += 2;
+				continue;
+			}
+			if(!m_moving[l / 2])
+			{
+				SectionWords<1> w;
+				kept(l, w);
+				render(_buf, l, w);
+				continue;
+			}
+			SectionWords<BlockSize> w;
+			ramping(l, w);
+			render(_buf, l, w);
+			arrive(l);
 		}
 	}
 

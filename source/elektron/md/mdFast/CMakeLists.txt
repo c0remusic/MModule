@@ -5,8 +5,8 @@ cmake_minimum_required(VERSION 3.15)
 # import, and nothing of the firmware is read.
 add_library(mdFast STATIC mdFastDsp.h mdFastTables.h mdFastTables.cpp mdFastTrackFx.h mdFastTrackFx.cpp mdFastEcho.h
 	mdFastEcho.cpp mdFastGateBox.h mdFastGateBox.cpp mdFastMasterWords.h mdFastMasterWords.cpp mdFastTrackFxAvx2.cpp)
-# DIST in AVX, where the caller finds the CPU has it: its file alone built for it, and without fused multiply-adds, which
-# the SSE2 build cannot make (/fp:precise against the Release build's /fp:fast)
+# DIST and the filter in AVX, where the caller finds the CPU has it: its file alone built for it, and without fused
+# multiply-adds, which the SSE2 build cannot make (/fp:precise against the Release build's /fp:fast)
 if(MSVC AND CMAKE_CXX_COMPILER_ARCHITECTURE_ID MATCHES "x64")
 	set_source_files_properties(mdFastTrackFxAvx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2;/fp:precise")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")

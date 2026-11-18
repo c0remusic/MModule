@@ -207,30 +207,41 @@ namespace elektron::drums
 		{
 			if(!(_lanes >> l & 15))
 				continue;
+			// The three bands in one pass over the block, each sample through all three: three recurrences in flight at
+			// once rather than one, the same operations on each lane
+			V now[Bands][WordCount], step[Bands][WordCount], ic1[Bands], ic2[Bands];
 			for(int b = 0; b < Bands; ++b)
 			{
-				V now[WordCount], step[WordCount];
 				for(int w = 0; w < WordCount; ++w)
 				{
-					now[w] = _mm_load_ps(m_now[b][w] + l);
-					step[w] = _mm_mul_ps(_mm_sub_ps(_mm_load_ps(m_to[b][w] + l), now[w]), _mm_set1_ps(1.0f / BlockSize));
+					now[b][w] = _mm_load_ps(m_now[b][w] + l);
+					const V to = _mm_load_ps(m_to[b][w] + l);
+					step[b][w] = _mm_mul_ps(_mm_sub_ps(to, now[b][w]), _mm_set1_ps(1.0f / BlockSize));
 				}
-				V ic1 = _mm_load_ps(m_ic1[b] + l), ic2 = _mm_load_ps(m_ic2[b] + l);
-				for(int n = 0; n < BlockSize; ++n)
+				ic1[b] = _mm_load_ps(m_ic1[b] + l);
+				ic2[b] = _mm_load_ps(m_ic2[b] + l);
+			}
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				V x = _mm_load_ps(&_buf.s[n][l]);
+				for(int b = 0; b < Bands; ++b)
 				{
-					const V x = _mm_load_ps(&_buf.s[n][l]);
-					const V v3 = _mm_sub_ps(x, ic2);
-					const V v1 = _mm_add_ps(_mm_mul_ps(now[A1], ic1), _mm_mul_ps(now[A2], v3));
-					const V v2 = _mm_add_ps(ic2, _mm_add_ps(_mm_mul_ps(now[A2], ic1), _mm_mul_ps(now[A3], v3)));
-					ic1 = _mm_sub_ps(_mm_add_ps(v1, v1), ic1);
-					ic2 = _mm_sub_ps(_mm_add_ps(v2, v2), ic2);
-					const V y = _mm_add_ps(_mm_mul_ps(now[M0], x), _mm_add_ps(_mm_mul_ps(now[M1], v1), _mm_mul_ps(now[M2], v2)));
-					_mm_store_ps(&_buf.s[n][l], y);
-					for(int w = 0; w < WordCount; ++w)
-						now[w] = _mm_add_ps(now[w], step[w]);
+					const V* w = now[b];
+					const V v3 = _mm_sub_ps(x, ic2[b]);
+					const V v1 = _mm_add_ps(_mm_mul_ps(w[A1], ic1[b]), _mm_mul_ps(w[A2], v3));
+					const V v2 = _mm_add_ps(ic2[b], _mm_add_ps(_mm_mul_ps(w[A2], ic1[b]), _mm_mul_ps(w[A3], v3)));
+					ic1[b] = _mm_sub_ps(_mm_add_ps(v1, v1), ic1[b]);
+					ic2[b] = _mm_sub_ps(_mm_add_ps(v2, v2), ic2[b]);
+					x = _mm_add_ps(_mm_mul_ps(w[M0], x), _mm_add_ps(_mm_mul_ps(w[M1], v1), _mm_mul_ps(w[M2], v2)));
+					for(int k = 0; k < WordCount; ++k)
+						now[b][k] = _mm_add_ps(now[b][k], step[b][k]);
 				}
-				_mm_store_ps(m_ic1[b] + l, ic1);
-				_mm_store_ps(m_ic2[b] + l, ic2);
+				_mm_store_ps(&_buf.s[n][l], x);
+			}
+			for(int b = 0; b < Bands; ++b)
+			{
+				_mm_store_ps(m_ic1[b] + l, ic1[b]);
+				_mm_store_ps(m_ic2[b] + l, ic2[b]);
 				for(int w = 0; w < WordCount; ++w)
 					_mm_store_ps(m_now[b][w] + l, _mm_load_ps(m_to[b][w] + l));
 			}
@@ -283,7 +294,10 @@ namespace elektron::drums
 	}
 
 	Chain::BandStages::BandStages(const double _rate) : baseWidth(_rate), eq(_rate) {}
-	Chain::FilterStages::FilterStages(const double _rate) : syntakt(_rate), syntaktOther(_rate), machinedrum(_rate) {}
+	Chain::FilterStages::FilterStages(const double _rate)
+		: syntakt(_rate), syntaktOther(_rate), machinedrum(_rate, rate::fastFir())
+	{
+	}
 
 	Chain::Chain(const double _rate, const bool _syntakt)
 		: m_rate(_rate), m_syntakt(_syntakt), m_drives{DriveStages(_rate), DriveStages(_rate), DriveStages(_rate), DriveStages(_rate)},

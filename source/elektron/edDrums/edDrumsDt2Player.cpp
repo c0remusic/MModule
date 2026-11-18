@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstring>
 
+#include <emmintrin.h>
+
 namespace elektron::drums
 {
 	using syntakt::fast::Block;
@@ -194,21 +196,36 @@ namespace elektron::drums
 				: !sounds(v.position + 127 * step, step, v.end);
 		}
 		const auto length = static_cast<int64_t>(v.length);
+		// In locals for the block: the compiler cannot tell that _work's stores leave the lane alone, and would carry
+		// the position through memory from one output to the next
+		const int16_t* const pcm = v.pcm;
+		const auto& kernel = m_kernel;
+		const bool reverse = v.reverse, loop = v.loop;
+		const double move = reverse ? -step : step, end = v.end, loopAt = v.loopAt, span = end - loopAt;
+		double position = v.position;
 		for(int m = 0; m < Work; ++m)
 		{
 			// The six taps read the position's sample and the five after it, the kernel centred on the third
-			const double base = std::floor(v.position);
+			const double base = std::floor(position);
 			const auto first = static_cast<int64_t>(base);
-			const auto phase = std::min(static_cast<int>((v.position - base) * Phases + 0.5), Phases - 1);
-			const float* k = m_kernel[static_cast<size_t>(phase)].data();
+			const auto phase = std::min(static_cast<int>((position - base) * Phases + 0.5), Phases - 1);
+			const float* k = kernel[static_cast<size_t>(phase)].data();
 			float acc = 0;
-			if(first >= 0 && first + Taps <= length)
+			if(first >= 0 && first + RowTaps <= length)
 			{
-				// Inside the sample, as nearly every output is: the same sum without the bounds, its six taps unrolled
-				// (a loop bounded per output runs half as fast again)
-				const int16_t* x = v.pcm + first;
-				for(int t = 0; t < Taps; ++t)
-					acc += k[t] * static_cast<float>(x[t]);
+				// Inside the sample, as nearly every output is: the six products at once from eight samples read,
+				// then summed one after the other in the taps' order, the same sum as below without the bounds (a
+				// loop bounded per output runs half as fast again)
+				const __m128i x = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pcm + first));
+				const __m128 lo = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpacklo_epi16(x, x), 16));
+				const __m128 hi = _mm_cvtepi32_ps(_mm_srai_epi32(_mm_unpackhi_epi16(x, x), 16));
+				const __m128 p = _mm_mul_ps(_mm_loadu_ps(k), lo), q = _mm_mul_ps(_mm_loadu_ps(k + 4), hi);
+				__m128 s = _mm_add_ss(p, _mm_shuffle_ps(p, p, 1));
+				s = _mm_add_ss(s, _mm_movehl_ps(p, p));
+				s = _mm_add_ss(s, _mm_shuffle_ps(p, p, 3));
+				s = _mm_add_ss(s, q);
+				s = _mm_add_ss(s, _mm_shuffle_ps(q, q, 1));
+				acc = _mm_cvtss_f32(s);
 			}
 			else
 			{
@@ -216,20 +233,20 @@ namespace elektron::drums
 				{
 					const int64_t i = first + t;
 					if(i >= 0 && i < length)
-						acc += k[t] * static_cast<float>(v.pcm[i]);
+						acc += k[t] * static_cast<float>(pcm[i]);
 				}
 			}
 			_work[m] = fade ? acc * static_cast<float>(Work - 1 - m) / (Work - 1) : acc;
-			v.position += v.reverse ? -step : step;
-			if(v.loop)
+			position += move;
+			if(loop)
 			{
-				const double span = v.end - v.loopAt;
-				if(!v.reverse && v.position >= v.end)
-					v.position -= span;
-				else if(v.reverse && v.position < v.loopAt)
-					v.position += span;
+				if(!reverse && position >= end)
+					position -= span;
+				else if(reverse && position < loopAt)
+					position += span;
 			}
 		}
+		v.position = position;
 		if(fade)
 			v.playing = false;
 	}
