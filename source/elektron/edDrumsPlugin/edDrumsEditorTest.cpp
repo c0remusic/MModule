@@ -1425,6 +1425,82 @@ namespace
 				click(editor, editor.laneDeleteArea(lanes - 1 - editor.lockScroll()).getCentre());
 				editor.tick();
 				check(editor.lockLanes() == lanes - 1, "the lane's X takes SAMPLE's lane off");
+				// Ticket 08: LAYER SAMPLE, the sample layer's, on the same step as the Sampler's
+				click(editor, editor.seqButtonArea(SB::AddLock).getCentre());
+				editor.tick();
+				click(editor, editor.lockMenuArea(SampleLock).getCentre());
+				click(editor, editor.seqButtonArea(SB::AddLock).getCentre());
+				editor.tick();
+				check(!editor.lockMenuArea(SampleLayerLock).isEmpty(), "+ LOCK lists LAYER SAMPLE");
+				click(editor, editor.lockMenuArea(SampleLayerLock).getCentre());
+				editor.tick();
+				const auto laneOf = [&](const int _row, const int _step)
+				{
+					const auto lane = editor.laneArea(_row - editor.lockScroll());
+					return juce::Point<int>(lane.getX() + lane.getWidth() * (2 * _step + 1) / 32, lane.getCentreY());
+				};
+				const int layerRow = editor.lockLanes() - 1;
+				click(editor, laneOf(layerRow - 1, 6));
+				editor.tick();
+				doubleClick(editor, editor.browseRowArea(0).getCentre());
+				editor.tick();
+				click(editor, laneOf(layerRow, 6));
+				editor.tick();
+				doubleClick(editor, editor.browseRowArea(1).getCentre());
+				editor.tick();
+				const auto& pattern = processor.sequencer().pattern(processor.currentPattern());
+				const auto* machineLock = lockAt(pattern, 0, 6, SampleLock);
+				const auto* layerLock = lockAt(pattern, 0, 6, SampleLayerLock);
+				check(machineLock && layerLock && machineLock->sample != layerLock->sample
+					&& editor.laneSteps(SampleLayerLock)[6].locked, "step 7 locks the Sampler's sample and its "
+					"layer's, each from its own lane");
+				snapshot(editor, _folder.getChildFile("seq-sample-layer-lane.png"));
+				processor.editSequencer([](Sequencer& _s)
+				{
+					auto& p = _s.pattern(_s.currentPattern());
+					p.removeLock(0, 6, SampleLock);
+					p.removeLock(0, 6, SampleLayerLock);
+				});
+				editor.tick();
+				for(int k = 0; k < 2; ++k)
+				{
+					click(editor, editor.laneDeleteArea(editor.lockLanes() - 1 - editor.lockScroll()).getCentre());
+					editor.tick();
+				}
+				check(editor.lockLanes() == lanes - 1, "their X take both lanes off");
+
+				// A Browse row dropped on step 10's strip: the Sampler's sample on Track 1, the layer's on Track 2,
+				// which another machine plays
+				const float mm = static_cast<float>(editor.getWidth()) / ui::UnitWidth;
+				const auto strip = [&](const int _step)
+				{
+					return juce::Point<int>(editor.stepKeyArea(_step).getCentreX(),
+						juce::roundToInt((ui::StripY + ui::StripH / 2) * mm));
+				};
+				editor.showPage(Editor::Page::Browse);
+				editor.tick();
+				drag(editor, editor.browseRowArea(0).getCentre(), strip(9) - editor.browseRowArea(0).getCentre());
+				editor.tick();
+				check(sampleLock(9) && editor.page() == Editor::Page::Browse,
+					"a row dropped on step 10's strip locks the Sampler's sample there");
+				editor.showTrack(1);
+				auto* machine2 = processor.parameter("t02_machine");
+				check(!(processor.machines()[static_cast<size_t>(juce::roundToInt(machine2->convertFrom0to1(
+					machine2->getValue())))] == Sampler), "Track 2 is no Sampler");
+				editor.showPage(Editor::Page::Browse);
+				editor.tick();
+				drag(editor, editor.browseRowArea(1).getCentre(), strip(9) - editor.browseRowArea(1).getCentre());
+				editor.tick();
+				const auto& dropped = processor.sequencer().pattern(processor.currentPattern());
+				check(lockAt(dropped, 1, 9, SampleLayerLock) && !lockAt(dropped, 1, 9, SampleLock),
+					"on Track 2, it locks the layer's");
+				processor.editSequencer([](Sequencer& _s)
+				{
+					auto& p = _s.pattern(_s.currentPattern());
+					p.removeLock(0, 9, SampleLock);
+					p.removeLock(1, 9, SampleLayerLock);
+				});
+				editor.showTrack(0);
 				editor.showPage(Editor::Page::Browse);
 				editor.tick();
 			}
@@ -1721,10 +1797,15 @@ namespace
 					check(!area.intersects(other), id + "'s entry lies over another");
 				areas.push_back(area);
 			}
-			// The Sampler's SAMPLE, a Lock of no parameter
-			if(const auto area = editor.lockMenuArea(SampleLock); !area.isEmpty())
-				for(const auto& other : areas)
-					check(!area.intersects(other), "SAMPLE's entry lies over another");
+			// The samples, Locks of no parameter: the Sampler's SAMPLE, LAYER SAMPLE
+			for(const uint16_t parameter : {SampleLock, SampleLayerLock})
+				if(const auto area = editor.lockMenuArea(parameter); !area.isEmpty())
+				{
+					for(const auto& other : areas)
+						check(!area.intersects(other), "a sample's entry lies over another");
+					areas.push_back(area);
+				}
+			check(!editor.lockMenuArea(SampleLayerLock).isEmpty(), "+ LOCK lists LAYER SAMPLE");
 			check(listed == expected && expected > 50, "the menu lists " + juce::String(listed) + " of the Track's "
 				+ juce::String(expected) + " parameters that take a Lock, the sample layer's 14 among them, none over "
 				"another");

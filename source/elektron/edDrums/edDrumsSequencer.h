@@ -39,14 +39,19 @@ namespace elektron::drums
 
 	// A parameter of the Track, by an index the caller defines, and the value to give it before the Hit
 	// A Lock whose parameter is SampleLock names a sample by its fingerprint instead of a value (ticket 07 of the v2
-	// map): the Sampler's sample for its step's Hits. Past every host parameter's index
-	constexpr uint16_t SampleLock = 0xffff;
+	// map): the Sampler's sample for its step's Hits; one whose parameter is SampleLayerLock the sample layer's (ticket
+	// 08). Past every host parameter's index
+	constexpr uint16_t SampleLock = 0xffff, SampleLayerLock = 0xfffe;
+	constexpr bool isSampleLock(const int _parameter)
+	{
+		return _parameter == SampleLock || _parameter == SampleLayerLock;
+	}
 
 	struct Lock
 	{
 		uint16_t parameter = 0;
 		float value = 0;
-		uint64_t sample = 0;	// a SampleLock's fingerprint
+		uint64_t sample = 0;	// a sample Lock's fingerprint (isSampleLock)
 	};
 
 	enum class ConditionKind : uint8_t

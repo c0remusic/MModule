@@ -252,6 +252,9 @@ namespace elektron::drums
 		// bank as setSample's, without allocating, and its source is read where it lies until another sample takes its
 		// place
 		void lockSample(int _track, const Sample* _sample);
+		// The same for the sample layer's sample (ticket 08 of the v2 map), on whichever path the Track plays: the Hit
+		// that follows plays _sample on its layer, the next without one the layer's own (setLayerSample)
+		void lockLayerSample(int _track, const Sample* _sample);
 
 		// The Track's sample layer (edDrumsLayer.h), on whichever path it plays: its settings from the next Hit, TUNE, FINE
 		// and LEVEL at once; its sample, nullptr none, _sample->source read where it lies as setSample's. What sounds of it
@@ -466,6 +469,7 @@ namespace elektron::drums
 			const Sample* ownSample = nullptr;
 			const Sample* placedSample = nullptr;
 			const Sample* lockedSample = nullptr;
+			const Sample* lockedLayer = nullptr;	// the next Hit's layer's, nullptr for its own
 		};
 
 		// _sample in the Track's slot of the bank and the grains' sources

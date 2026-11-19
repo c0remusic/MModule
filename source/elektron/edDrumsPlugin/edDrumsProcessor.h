@@ -177,9 +177,10 @@ namespace elektron::drums
 
 		// Message thread. A Lock of the Sampler's sample (ticket 07 of the v2 map) on _track's step _step of pattern
 		// _pattern: the Locker's sample of _fingerprint, which a Hit there plays; _name what the status line calls it
-		// should it go missing, which the state keeps. False where _fingerprint names no sample
+		// should it go missing, which the state keeps; _layer: the sample layer's sample instead (ticket 08). False
+		// where _fingerprint names no sample
 		bool lockSample(int _pattern, int _track, int _step, const juce::String& _fingerprint,
-			const juce::String& _name);
+			const juce::String& _name, bool _layer = false);
 		// The name a sample Lock's fingerprint was locked with, as the state keeps it; empty where none is kept
 		juce::String lockSampleName(const uint64_t _fingerprint) const
 		{
@@ -406,7 +407,7 @@ namespace elektron::drums
 		float snap(int _parameter, float _value) const override;
 		void apply(const int _parameter) override { applyTarget(_parameter); }
 		void hitLock(int _track, int _machine, uint8_t _value) override;
-		void hitSample(int _track, uint64_t _sample) override;
+		void hitSample(int _track, uint64_t _sample, bool _layer) override;
 		void publishSequencer();
 		void publishSample(int _track);
 		void pruneSamples();

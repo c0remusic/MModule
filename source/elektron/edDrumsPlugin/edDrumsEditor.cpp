@@ -417,7 +417,7 @@ namespace elektron::drums
 			addHit(std::move(step));
 
 			Hit strip;
-			strip.r = {hx, 310.83f, KeyPitch, 11.5f};
+			strip.r = {hx, StripY, KeyPitch, StripH};
 			strip.keepsLocks = true;
 			strip.press = [this, k]
 			{
@@ -1217,7 +1217,7 @@ namespace elektron::drums
 		sampleLoaded(_track);
 	}
 
-	void Editor::pickSample(const int _step)
+	void Editor::pickSample(const int _step, const int _line)
 	{
 		// Browse on the Locker's samples, unless it lists samples already (SAMPLES BY TYPE)
 		if(!browseSamples())
@@ -1229,20 +1229,34 @@ namespace elektron::drums
 		m_browseItem = -1;
 		// Before showPage, which keeps it on Browse: one layout
 		m_pickStep = _step;
+		m_pickLine = _line;
 		m_pickPattern = m_processor.currentPattern();
 		showPage(Page::Browse);
+	}
+
+	bool Editor::lockEntry(const int _pattern, const int _step, const SampleLibrary::Entry& _entry, const bool _layer)
+	{
+		if(!m_processor.lockSample(_pattern, m_track, _step, _entry.fingerprint, _entry.name, _layer))
+		{
+			toast(_entry.name.toUpperCase() + " HAS NO FINGERPRINT TO LOCK");
+			return false;
+		}
+		toast("STEP " + juce::String(_step + 1) + (_layer ? " LAYER PLAYS " : " PLAYS ") + _entry.name.toUpperCase());
+		return true;
+	}
+
+	void Editor::lockDropped(const int _step, const SampleLibrary::Entry& _entry)
+	{
+		// The Sampler's sample on a Sampler Track, else its layer's
+		lockEntry(m_processor.currentPattern(), _step, _entry, !(trackMachine(m_track) == Sampler));
 	}
 
 	void Editor::lockPicked(const SampleLibrary::Entry& _entry)
 	{
 		// The pattern whose lane was clicked, though another plays since
 		const int step = m_pickStep;
-		if(!m_processor.lockSample(m_pickPattern, m_track, step, _entry.fingerprint, _entry.name))
-		{
-			toast(_entry.name.toUpperCase() + " HAS NO FINGERPRINT TO LOCK");
+		if(!lockEntry(m_pickPattern, step, _entry, m_pickLine == SampleLayerLock))
 			return;
-		}
-		toast("STEP " + juce::String(step + 1) + " PLAYS " + _entry.name.toUpperCase());
 		m_seqStep = step;
 		m_seqTab = 0;
 		showPage(Page::Seq);

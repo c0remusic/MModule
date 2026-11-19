@@ -233,7 +233,7 @@ namespace elektron::drums
 					juce::StringArray locks;
 					const Lock* l = _p.locks(t, i);
 					for(int k = 0; k < s.lockCount; ++k)
-						locks.add(juce::String(l[k].parameter) + ":" + exact(l[k].value) + (l[k].parameter == SampleLock
+						locks.add(juce::String(l[k].parameter) + ":" + exact(l[k].value) + (isSampleLock(l[k].parameter)
 							? ":" + SampleLibrary::fingerprintText(l[k].sample) : juce::String()));
 					if(!locks.isEmpty())
 						step->setAttribute("locks", locks.joinIntoString(" "));
@@ -291,7 +291,7 @@ namespace elektron::drums
 						continue;
 					const int parameter = pair.substring(0, colon).getIntValue();
 					uint64_t sample = 0;
-					if(parameter == SampleLock)
+					if(isSampleLock(parameter))
 					{
 						const int second = pair.indexOfChar(colon + 1, ':');
 						sample = second > colon ? SampleLibrary::fingerprintValue(pair.substring(second + 1)) : 0;
@@ -1287,7 +1287,7 @@ namespace elektron::drums
 	}
 
 	bool Processor::lockSample(const int _pattern, const int _track, const int _step, const juce::String& _fingerprint,
-		const juce::String& _name)
+		const juce::String& _name, const bool _layer)
 	{
 		// A FACTORY sample by its slot, 1 to 32, which a hash of 16 hex digits is not in practice
 		const int factory = factorySlotOf(_fingerprint);
@@ -1296,7 +1296,8 @@ namespace elektron::drums
 		if(!fingerprint)
 			return false;
 		m_lockNames[fingerprint] = _name;
-		editSequencer([&](Sequencer& _s) { _s.pattern(_pattern).setLock(_track, _step, SampleLock, 0, fingerprint); });
+		editSequencer([&](Sequencer& _s) { _s.pattern(_pattern).setLock(_track, _step,
+			_layer ? SampleLayerLock : SampleLock, 0, fingerprint); });
 		return true;
 	}
 
@@ -1336,7 +1337,7 @@ namespace elektron::drums
 				{
 					const auto* l = pattern.locks(t, s);
 					for(int k = 0; l && k < pattern.step(t, s).lockCount; ++k)
-						if(l[k].parameter == SampleLock)
+						if(isSampleLock(l[k].parameter))
 							named.insert(l[k].sample);
 				}
 		}
@@ -1394,7 +1395,7 @@ namespace elektron::drums
 		}
 	}
 
-	void Processor::hitSample(const int _track, const uint64_t _sample)
+	void Processor::hitSample(const int _track, const uint64_t _sample, const bool _layer)
 	{
 		const auto* table = m_lockTable.load(std::memory_order_acquire);
 		if(!table)
@@ -1403,7 +1404,11 @@ namespace elektron::drums
 		const auto it = std::lower_bound(s.begin(), s.end(), _sample,
 			[](const std::pair<uint64_t, const Sample*>& _e, const uint64_t _f) { return _e.first < _f; });
 		// A sample not loaded: the Track's own
-		if(it != s.end() && it->first == _sample)
+		if(it == s.end() || it->first != _sample)
+			return;
+		if(_layer)
+			m_engine->lockLayerSample(_track, it->second);
+		else
 			m_engine->lockSample(_track, it->second);
 	}
 

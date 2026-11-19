@@ -2049,6 +2049,8 @@ namespace
 		Processor processor;
 		allOutputs(processor);
 		set(find(processor, "t01_machine"), processor.samplerChoice());
+		// The sample layer on, without a sample of its own: steps 5 and 13 lock one for it too (ticket 08)
+		set(find(processor, "t01_layer_on"), 1);
 		auto& library = processor.sampleLibrary();
 		require(library.addSource(SampleLibrary::Kind::Linked, folder), "the folder not added");
 		waitForScan(library);
@@ -2058,6 +2060,13 @@ namespace
 			processor.editSequencer([&](Sequencer& _s) { _s.pattern(0).setTrig(0, steps[k], true); });
 			processor.lockSample(0, 0, steps[k], SampleLibrary::fingerprintOf(files[static_cast<size_t>(k)]),
 				files[static_cast<size_t>(k)].getFileName());
+		}
+		const int layerSteps[]{4, 12}, layerFiles[]{2, 0};
+		for(int k = 0; k < 2; ++k)
+		{
+			const auto& file = files[static_cast<size_t>(layerFiles[k])];
+			require(processor.lockSample(0, 0, layerSteps[k], SampleLibrary::fingerprintOf(file), file.getFileName(),
+				true), "a layer Lock refused");
 		}
 		processor.editSequencer([&](Sequencer& _s) { _s.pattern(0).setTrig(0, 14, true); });
 		processor.takeLockSamples();
@@ -2072,13 +2081,30 @@ namespace
 			samples.push_back(std::get<Sample>(readSampleFile(files[static_cast<size_t>(k)])));
 		Calls calls;
 		for(int k = 0; k < 4; ++k)
-			calls.emplace(stepSample(steps[k] * 0.25), [&samples, k](Engine& _e)
+			calls.emplace(stepSample(steps[k] * 0.25), [&samples, k, steps](Engine& _e)
 			{
 				_e.lockSample(0, &samples[static_cast<size_t>(k)]);
+				if(steps[k] == 4 || steps[k] == 12)
+					_e.lockLayerSample(0, &samples[steps[k] == 4 ? 2u : 0u]);
 				_e.noteOn(0, 100);
 			});
 		calls.emplace(stepSample(14 * 0.25), hitOf(0));
-		requireSame(take, playEngine(_library, processor, calls, Length), "four sample Locks: ");
+		requireSame(take, playEngine(_library, processor, calls, Length), "four sample Locks, two of the layer's: ");
+		{
+			// Without the layer's Locks, steps 5 and 13 sound otherwise: the layer's are heard
+			Calls machineOnly;
+			for(int k = 0; k < 4; ++k)
+				machineOnly.emplace(stepSample(steps[k] * 0.25), [&samples, k](Engine& _e)
+				{
+					_e.lockSample(0, &samples[static_cast<size_t>(k)]);
+					_e.noteOn(0, 100);
+				});
+			machineOnly.emplace(stepSample(14 * 0.25), hitOf(0));
+			const auto plain = playEngine(_library, processor, machineOnly, Length);
+			const auto from = static_cast<std::ptrdiff_t>(stepSample(4 * 0.25));
+			require(!std::equal(take[0].begin() + from, take[0].begin() + from + 4000, plain[0].begin() + from),
+				"step 5's layer Lock is not heard");
+		}
 		require(allocations == 0, "sample Locks allocate on the audio thread");
 		for(int k = 0; k < 4; ++k)
 		{
@@ -2120,7 +2146,8 @@ namespace
 
 		require(library.removeSource(library.indexOf(folder)), "the folder not removed");
 		folder.deleteRecursively();
-		std::printf("PASS: four sample Locks play the engine's samples, nothing allocated; the state keeps them; a "
+		std::printf("PASS: four sample Locks, two of the layer's, play the engine's samples, nothing allocated; the "
+			"state keeps them; a "
 			"missing one named, its step the Track's own, until it comes back\n");
 	}
 

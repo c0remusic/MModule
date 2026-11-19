@@ -635,7 +635,7 @@ namespace elektron::drums
 		m_stMask = toDt2 ? m_stMask | bit : m_stMask & ~bit;
 		// The Machinedrum voice kept every value and move meanwhile (setParameter, takeMoves): nothing to replay
 		t.pendingLocks = t.lockedNow = 0;
-		t.lockedSample = nullptr;
+		t.lockedSample = t.lockedLayer = nullptr;
 	}
 
 	void Engine::setMachine(const int _track, const Machine& _machine)
@@ -648,7 +648,7 @@ namespace elektron::drums
 		m_stLayers->stop(_track);
 		t.machine = _machine;
 		t.pendingLocks = t.lockedNow = 0;
-		t.lockedSample = nullptr;
+		t.lockedSample = t.lockedLayer = nullptr;
 		t.params = allDefaults(_machine);
 		const uint32_t bit = 1u << _track;
 		if(_machine.family != Family::Off && _machine.family != t.chainFamily)
@@ -734,6 +734,11 @@ namespace elektron::drums
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
 		t.lockedSample = _sample;
+	}
+
+	void Engine::lockLayerSample(const int _track, const Sample* _sample)
+	{
+		m_tracks[static_cast<size_t>(_track)].lockedLayer = _sample;
 	}
 
 	void Engine::placeSample(const int _track, const Sample* _sample)
@@ -1090,6 +1095,7 @@ namespace elektron::drums
 			hitSyntakt(_track, _velocity, gain);
 		else if(t.machine.family != Family::Off)
 			hitMachinedrum(_track, _velocity, gain);
+		t.lockedLayer = nullptr;
 	}
 
 	void Engine::noteOff(const int _track)
@@ -1175,7 +1181,8 @@ namespace elektron::drums
 		const int moved = m_mdLive >> _track & 1 ? static_cast<int>(t.md.at - at) : 0;
 		if(moved < 0 && m_mdLayers->sounding(_track))
 			t.mdRing.hold(at);
-		m_mdLayers->hit(_track, start, moved);
+		const auto layer = slotOf(t.lockedLayer);
+		m_mdLayers->hit(_track, start, moved, t.lockedLayer ? &layer : nullptr);
 		const float tail = tailGain(t.md.velocity, _gain);
 		t.md.start(at, _gain, t.level);
 
@@ -1267,7 +1274,8 @@ namespace elektron::drums
 		// The voice sounds from the block after the one that sees its trig: the layer's first sample there, its offset after.
 		// What sounds of it fades in the trig's block, the old run's last, as the machine's voice does
 		m_stLayers->cut(_track);
-		m_stLayers->hit(_track, BlockSize);
+		const auto layer = slotOf(t.lockedLayer);
+		m_stLayers->hit(_track, BlockSize, 0, t.lockedLayer ? &layer : nullptr);
 
 		// The block that sees the trig, the next that sounds it: the voice's first sample out of its chain must be what the
 		// FIR places at output sample m_now + HitDelay, read - FirDelay = 147 (position of that sample in the ring)

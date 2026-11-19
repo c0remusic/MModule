@@ -20,6 +20,7 @@ namespace elektron::drums::ui
 	constexpr float Col = 19.25f;	// the screen's 24 columns, from x 16
 	constexpr float cx(const float _k) { return 16 + _k * Col; }
 	constexpr float KeyPitch = (509.33f - 28) / 15, KeyWidth = 28;	// the 16 Tracks under the screen
+	constexpr float StripY = 310.83f, StripH = 11.5f;					// their lock strips, a step each
 
 	// A section's hue: the ring, three darks (rule, fill, cell), the light
 	struct Hue

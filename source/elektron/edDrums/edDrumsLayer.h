@@ -52,8 +52,9 @@ namespace elektron::drums
 		// PLAY, START, LENGTH, LOOP, the envelope and OFFSET are taken here, as the Hit's Locks and LFOs leave them.
 		// _moved: how much later than the last block's end the next block's first sample lies, when the Track's ring
 		// starts a new run there (the Machinedrum path's, Engine::hitMachinedrum): what sounds of the layer goes on placed
-		// as it was
-		void hit(int _track, int _startIn, int _moved = 0);
+		// as it was. _sample, where given, the Hit's own (a Lock, ticket 08 of the v2 map), kept by the caller while a
+		// voice may read it; the Track's (setSample) otherwise. The voice fading under it plays on its own
+		void hit(int _track, int _startIn, int _moved = 0, const Dt2Samples::Slot* _sample = nullptr);
 		// Its voices fade out over their next block
 		void cut(int _track);
 		// Its voices end at once (the Track leaves this path, or its ring ramps over what was rendered)
@@ -79,6 +80,7 @@ namespace elektron::drums
 		struct Voice
 		{
 			int wait = -1;		// samples before the voice starts, -1 started or none
+			Dt2Samples::Slot sample;	// its Hit's, which its player plays from its start
 			bool live = false;	// the player plays it, or its delay still holds samples
 			bool fade = false;	// fades out over its next block
 			bool tail = false;	// the player is over, the delay gives its last samples
@@ -105,7 +107,8 @@ namespace elektron::drums
 
 		const double m_rate;
 		std::array<Dt2Player, Voices> m_players;
-		Dt2Samples m_samples{};		// both players'
+		Dt2Samples m_samples{};		// the Tracks' own (setSample)
+		std::array<Dt2Samples, Voices> m_playing{};	// what each player plays, its Hit's
 		std::array<LayerSettings, Lanes> m_settings{};
 		std::array<std::array<int, static_cast<size_t>(LayerMove::Count)>, Lanes> m_moves{};
 		std::array<int, Lanes> m_note{};

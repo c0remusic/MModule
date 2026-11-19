@@ -37,7 +37,7 @@ namespace elektron::drums
 		for(int v = 0; v < Voices; ++v)
 		{
 			m_players[static_cast<size_t>(v)].setOutputRate(_rate);
-			m_players[static_cast<size_t>(v)].setSamples(&m_samples);
+			m_players[static_cast<size_t>(v)].setSamples(&m_playing[static_cast<size_t>(v)]);
 		}
 		for(int t = 0; t < Lanes; ++t)
 		{
@@ -89,7 +89,11 @@ namespace elektron::drums
 	void SampleLayers::setSample(const int _track, const Dt2Samples::Slot& _slot)
 	{
 		cut(_track);
-		m_samples.slots[static_cast<size_t>(_track)] = _slot;
+		// The voices fading read it too: the old sample's memory is the caller's to free
+		const auto i = static_cast<size_t>(_track);
+		m_samples.slots[i] = _slot;
+		for(auto& playing : m_playing)
+			playing.slots[i] = _slot;
 	}
 
 	void SampleLayers::setSettings(const int _track, const LayerSettings& _settings)
@@ -109,7 +113,7 @@ namespace elektron::drums
 			player.setNote(_track, m_settings[i].noteTrack ? _note : 60);
 	}
 
-	void SampleLayers::hit(const int _track, const int _startIn, const int _moved)
+	void SampleLayers::hit(const int _track, const int _startIn, const int _moved, const Dt2Samples::Slot* _sample)
 	{
 		const auto i = static_cast<size_t>(_track);
 		// What sounds goes on from where it was written to: over the _moved samples the ring already holds, silence; after a
@@ -123,7 +127,8 @@ namespace elektron::drums
 				voice.silence += _moved;
 		}
 		const LayerSettings& s = m_settings[i];
-		if(!s.on || !m_samples.slots[i].pcm)
+		const Dt2Samples::Slot& sample = _sample ? *_sample : m_samples.slots[i];
+		if(!s.on || !sample.pcm)
 			return;
 		const auto offset = static_cast<int>(std::lround(moved(_track, LayerMove::Offset, s.offset) / 127
 			* MaxOffsetSeconds * m_rate));
@@ -134,6 +139,7 @@ namespace elektron::drums
 			v = 1 - v;
 		Voice& voice = m_voices[static_cast<size_t>(v)][i];
 		voice.wait = _startIn + offset;
+		voice.sample = sample;
 		voice.attack = whole(_track, LayerMove::Attack, s.attack);
 		voice.hold = whole(_track, LayerMove::Hold, s.hold);
 		voice.decay = whole(_track, LayerMove::Decay, s.decay);
@@ -180,6 +186,8 @@ namespace elektron::drums
 		const auto i = static_cast<size_t>(_track);
 		auto& player = m_players[static_cast<size_t>(_voice)];
 		Voice& voice = m_voices[static_cast<size_t>(_voice)][i];
+		// Its player reads its Hit's sample from here, block by block: what it played before has faded
+		m_playing[static_cast<size_t>(_voice)].slots[i] = voice.sample;
 		player.start(_track);
 		// Its place inside the block: as much silence first
 		voice.silence = voice.wait;

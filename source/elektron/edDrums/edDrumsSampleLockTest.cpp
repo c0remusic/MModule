@@ -120,6 +120,77 @@ namespace
 		}
 	}
 
+	// Ticket 08: both targets on each Hit, the Sampler's sample and its layer's, on each grain (12-BIT and VINTAGE on
+	// the Machinedrum path, CLEAN on the Syntakt one): Locks play what a host setting both samples before each Hit
+	// plays, sample for sample, nothing allocated; each layer Lock is heard (without it the Hit's stretch differs); the Hit
+	// after a Lock plays the layer's own again
+	void layers(const Library& _library)
+	{
+		const Sample own = sine(220, 4000), ownLayer = sine(330, 3000);
+		const std::vector<Sample> samples{sine(440, 4000), sine(660, 3000), sine(880, 5000), sine(1320, 4500)};
+		const std::vector<Sample> layerSamples{sine(510, 3500), sine(770, 2500), sine(990, 4000), sine(1170, 3000)};
+		const auto run = [&](const int _grain, const Way _way, const bool _layerLocks, size_t* _allocations)
+		{
+			auto e = std::make_unique<Engine>(_library);
+			e->setMachine(0, Sampler);
+			e->setLevel(0, 127);
+			e->setChain(0, ChainSettings{});
+			e->setParameter(0, vintage::GrainSlot, vintage::GrainValues[static_cast<size_t>(_grain)]);
+			LayerSettings layer;
+			layer.on = true;
+			e->setLayer(0, layer);
+			e->setSample(0, &own);
+			e->setLayerSample(0, &ownLayer);
+			Take take(Length);
+			int at = 0;
+			const auto hits = [&]
+			{
+				for(size_t k = 0; k < Notes.size(); ++k)
+				{
+					take.render(*e, at, Notes[k] - at);
+					at = Notes[k];
+					const bool locked = k < samples.size();
+					if(_way == Way::Lock && locked)
+					{
+						e->lockSample(0, &samples[k]);
+						if(_layerLocks)
+							e->lockLayerSample(0, &layerSamples[k]);
+					}
+					else if(_way == Way::Host)
+					{
+						e->setSample(0, locked ? &samples[k] : &own);
+						e->setLayerSample(0, locked ? &layerSamples[k] : &ownLayer);
+					}
+					e->noteOn(0, 127);
+				}
+				take.render(*e, at, Length - at);
+			};
+			if(_allocations)
+				*_allocations = countAllocations(hits);
+			else
+				hits();
+			return take.channel(0);
+		};
+		for(int grain = 0; grain < 3; ++grain)
+		{
+			size_t allocations = 0;
+			const auto lock = run(grain, Way::Lock, true, &allocations);
+			const auto host = run(grain, Way::Host, true, nullptr);
+			const auto machineOnly = run(grain, Way::Lock, false, nullptr);
+			require(lock == host, std::string(GrainNames[grain])
+				+ ": the two Locks play other samples than the host's");
+			for(size_t k = 0; k < samples.size(); ++k)
+			{
+				const auto from = static_cast<std::ptrdiff_t>(Notes[k]), to = static_cast<std::ptrdiff_t>(Notes[k + 1]);
+				require(!std::equal(lock.begin() + from, lock.begin() + to, machineOnly.begin() + from),
+					std::string(GrainNames[grain]) + ": Hit " + std::to_string(k) + "'s layer Lock is not heard");
+			}
+			require(allocations == 0, std::string(GrainNames[grain]) + ": a layer Lock allocates");
+			std::printf("  %s: four Hits locking both samples play the host's sample for sample, each layer Lock "
+				"heard, the fifth Hit both own, nothing allocated\n", GrainNames[grain]);
+		}
+	}
+
 	void cost(const Library& _library)
 	{
 		// 16 Tracks on the 12-BIT grain, a Hit each in one block, each on its own sample of the grain's whole length;
@@ -164,6 +235,7 @@ int main()
 	{
 		const Library none;
 		locks(none);
+		layers(none);
 		cost(none);
 	}
 	catch(const std::exception& e)
