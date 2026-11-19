@@ -37,6 +37,9 @@ namespace elektron::drums
 		// A hash of the file's size and first 64 KB, 16 hex digits: the same file wherever it lies. Empty for a file
 		// that cannot be read
 		static juce::String fingerprintOf(const juce::File& _file);
+		// A fingerprint as fingerprintOf writes it, and its value back, 0 for text that is none
+		static juce::String fingerprintText(uint64_t _fingerprint);
+		static uint64_t fingerprintValue(const juce::String& _text);
 
 		enum class Kind : uint8_t { Linked, Imported };
 		struct Source

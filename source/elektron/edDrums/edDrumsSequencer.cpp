@@ -60,7 +60,8 @@ namespace elektron::drums
 		return s.lockCount ? m_locks.data() + s.lockFirst : nullptr;
 	}
 
-	void Pattern::setLock(const int _track, const int _index, const uint16_t _parameter, const float _value)
+	void Pattern::setLock(const int _track, const int _index, const uint16_t _parameter, const float _value,
+		const uint64_t _sample)
 	{
 		Step& s = step(_track, _index);
 		for(uint32_t i = s.lockFirst; i < s.lockFirst + s.lockCount; ++i)
@@ -68,6 +69,7 @@ namespace elektron::drums
 			if(m_locks[i].parameter != _parameter)
 				continue;
 			m_locks[i].value = _value;
+			m_locks[i].sample = _sample;
 			return;
 		}
 		// Appended at the pool's end: a step whose locks are not last moves them there first
@@ -82,7 +84,7 @@ namespace elektron::drums
 		{
 			s.lockFirst = static_cast<uint32_t>(m_locks.size());
 		}
-		m_locks.push_back({_parameter, _value});
+		m_locks.push_back({_parameter, _value, _sample});
 		++s.lockCount;
 	}
 

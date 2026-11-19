@@ -1336,8 +1336,10 @@ namespace elektron::drums
 		for(int s = 0; s < SeqSteps; ++s)
 		{
 			const auto* locks = p.locks(m_track, s);
+			// A Lock of the sample has no lane yet (ticket 08 of the v2 map)
 			for(int i = 0; locks && i < p.step(m_track, s).lockCount; ++i)
-				if(std::find(lines.begin(), lines.end(), locks[i].parameter) == lines.end())
+				if(locks[i].parameter != SampleLock
+					&& std::find(lines.begin(), lines.end(), locks[i].parameter) == lines.end())
 					lines.push_back(locks[i].parameter);
 		}
 		for(const int l : m_lockLines[static_cast<size_t>(m_track)])
@@ -1461,7 +1463,7 @@ namespace elektron::drums
 							d = o;
 							d.lockCount = 0;
 							for(const auto& l : copy)
-								_p.setLock(m_track, s, l.parameter, l.value);
+								_p.setLock(m_track, s, l);
 							d.trig = o.trig;
 						}
 					});
@@ -1744,7 +1746,7 @@ namespace elektron::drums
 					s.lockFirst = 0;
 					_p.step(m_track, m_seqStep) = s;
 					for(const auto& l : m_stepLocksClipboard)
-						_p.setLock(m_track, m_seqStep, l.parameter, l.value);
+						_p.setLock(m_track, m_seqStep, l);
 				});
 			};
 			addHit(std::move(paste));
@@ -1765,7 +1767,7 @@ namespace elektron::drums
 					| static_cast<uint64_t>(st.condition.b) << 16);
 				const auto* l = p.locks(m_track, s);
 				for(int i = 0; l && i < st.lockCount; ++i)
-					h = mixFloat(mix(h, l[i].parameter), l[i].value);
+					h = mix(mixFloat(mix(h, l[i].parameter), l[i].value), l[i].sample);
 				if(s == m_seqStep)
 					h = mix(mix(mix(mix(mix(mix(h, static_cast<uint64_t>(st.timing + 64)), st.ratchets), st.ratchetRate),
 						static_cast<uint64_t>(st.ratchetVelocity + 128)), st.note), st.gate)
@@ -2411,7 +2413,7 @@ namespace elektron::drums
 						s.lockFirst = 0;
 						_q.step(i, n) = s;
 						for(const auto& l : m_undoLocks)
-							_q.setLock(i, n, l.parameter, l.value);
+							_q.setLock(i, n, l);
 					});
 				m_undoTrack = -1;
 				m_track = i;

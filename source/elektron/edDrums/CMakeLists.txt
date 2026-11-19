@@ -80,6 +80,15 @@ if(BUILD_TESTING)
 	add_test(NAME edDrumsLayerTest COMMAND edDrumsLayerTest)
 	set_tests_properties(edDrumsLayerTest PROPERTIES TIMEOUT 120)
 
+	# A Lock of the Sampler's sample on each grain, the host's samples sample for sample, nothing allocated, the cost of
+	# 16 locked Hits in a block; neither flash image nor vectors
+	add_executable(edDrumsSampleLockTest edDrumsSampleLockTest.cpp)
+	target_link_libraries(edDrumsSampleLockTest PRIVATE edDrums)
+	target_include_directories(edDrumsSampleLockTest PRIVATE ../md/mdDrums)
+	set_property(TARGET edDrumsSampleLockTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsSampleLockTest COMMAND edDrumsSampleLockTest)
+	set_tests_properties(edDrumsSampleLockTest PROPERTIES TIMEOUT 120)
+
 	# Two LFOs a Track on the transport, aimed at any Track; their laws against syntakt::main's and mdDrums::Lfo
 	# (GEARMULATOR_MD_FIRMWARE_BIN: exit 77 without it)
 	add_executable(edDrumsLfoTest edDrumsLfoTest.cpp ../md/mdDrums/mdDrumsLfo.cpp)

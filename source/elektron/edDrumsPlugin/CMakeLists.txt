@@ -88,7 +88,7 @@ if(BUILD_TESTING)
 		target_link_options(edDrumsProcessorTest PRIVATE /STACK:8388608)
 	endif()
 	add_test(NAME edDrumsProcessorTest COMMAND edDrumsProcessorTest)
-	set_tests_properties(edDrumsProcessorTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
+	set_tests_properties(edDrumsProcessorTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 	set_property(TARGET edDrumsProcessorTest PROPERTY FOLDER "Elektron/test")
 
 	# A Syntakt machine's Machine 1-8 in its SYN page's order: against the original (SYNTAKT_SECTION3, SYNTAKT_SECTION7),

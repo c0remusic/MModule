@@ -38,10 +38,15 @@ namespace elektron::drums
 	double stepQuarters(StepScale _scale);
 
 	// A parameter of the Track, by an index the caller defines, and the value to give it before the Hit
+	// A Lock whose parameter is SampleLock names a sample by its fingerprint instead of a value (ticket 07 of the v2
+	// map): the Sampler's sample for its step's Hits. Past every host parameter's index
+	constexpr uint16_t SampleLock = 0xffff;
+
 	struct Lock
 	{
 		uint16_t parameter = 0;
 		float value = 0;
+		uint64_t sample = 0;	// a SampleLock's fingerprint
 	};
 
 	enum class ConditionKind : uint8_t
@@ -100,8 +105,12 @@ namespace elektron::drums
 		static constexpr int AutoLength = 0;
 		int length() const;
 
-		// Sets a lock, adding it to the step (a step with no trig becomes a lock without note)
-		void setLock(int _track, int _index, uint16_t _parameter, float _value);
+		// Sets a lock, adding it to the step (a step with no trig becomes a lock without note); _sample a SampleLock's
+		void setLock(int _track, int _index, uint16_t _parameter, float _value, uint64_t _sample = 0);
+		void setLock(const int _track, const int _index, const Lock& _lock)
+		{
+			setLock(_track, _index, _lock.parameter, _lock.value, _lock.sample);
+		}
 		bool removeLock(int _track, int _index, uint16_t _parameter);
 		// Removing a trig removes its locks
 		void setTrig(int _track, int _index, bool _on, int _velocity = 100);

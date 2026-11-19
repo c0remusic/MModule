@@ -133,6 +133,13 @@ namespace elektron::drums
 		for(int k = 0; k < _event.lockCount; ++k)
 		{
 			const auto& lock = _event.locks[k];
+			// The sample, for each of the step's Hits, a ratchet's later ones too; nothing without a Hit
+			if(lock.parameter == SampleLock)
+			{
+				if(_event.trig)
+					_sink.hitSample(t, lock.sample);
+				continue;
+			}
 			if(lock.parameter >= m_targets.size())
 				continue;
 			const auto& target = m_targets[lock.parameter];

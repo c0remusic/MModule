@@ -635,6 +635,7 @@ namespace elektron::drums
 		m_stMask = toDt2 ? m_stMask | bit : m_stMask & ~bit;
 		// The Machinedrum voice kept every value and move meanwhile (setParameter, takeMoves): nothing to replay
 		t.pendingLocks = t.lockedNow = 0;
+		t.lockedSample = nullptr;
 	}
 
 	void Engine::setMachine(const int _track, const Machine& _machine)
@@ -647,6 +648,7 @@ namespace elektron::drums
 		m_stLayers->stop(_track);
 		t.machine = _machine;
 		t.pendingLocks = t.lockedNow = 0;
+		t.lockedSample = nullptr;
 		t.params = allDefaults(_machine);
 		const uint32_t bit = 1u << _track;
 		if(_machine.family != Family::Off && _machine.family != t.chainFamily)
@@ -723,6 +725,20 @@ namespace elektron::drums
 
 	void Engine::setSample(const int _track, const Sample* _sample)
 	{
+		auto& t = m_tracks[static_cast<size_t>(_track)];
+		t.ownSample = _sample;
+		placeSample(_track, _sample);
+	}
+
+	void Engine::lockSample(const int _track, const Sample* _sample)
+	{
+		auto& t = m_tracks[static_cast<size_t>(_track)];
+		t.lockedSample = _sample;
+	}
+
+	void Engine::placeSample(const int _track, const Sample* _sample)
+	{
+		m_tracks[static_cast<size_t>(_track)].placedSample = _sample;
 		if(m_tracks[static_cast<size_t>(_track)].machine == Sampler)
 			cut(_track);	// renders what the old voice has left ahead: its words can go
 		const uint32_t entry = 4 * (SamplerEntry + static_cast<uint32_t>(_track));
@@ -1060,6 +1076,11 @@ namespace elektron::drums
 		for(uint32_t bits = t.chokes, target = 0; bits; bits >>= 1, ++target)
 			if(bits & 1)
 				cut(static_cast<int>(target));
+		// The Sampler's sample for this Hit: its Lock's, else the Track's own; placed only where it changes
+		if(const Sample* sample = t.lockedSample ? t.lockedSample : t.ownSample; sample != t.placedSample
+			&& t.machine == Sampler)
+			placeSample(_track, sample);
+		t.lockedSample = nullptr;
 		m_lfos.trig(_track, position());
 		// What is aimed at the Track plays from the Hit where it stands, not where its ramp has got to
 		if(m_lfos.waiting(_track))

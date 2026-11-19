@@ -246,6 +246,12 @@ namespace elektron::drums
 		// has returned. A voice of the Track's sounding ramps out, as where a Hit of this moment would sound; the other
 		// Tracks' go on
 		void setSample(int _track, const Sample* _sample);
+		// A Lock of the Sampler's sample for the Hit that follows at this sample (ticket 07 of the v2 map): that Hit
+		// plays _sample on every grain, the Track's next Hit without one its own again (setSample's). Nothing moves
+		// until the Hit, and a Hit on the sample already in place copies nothing; _sample's words are copied into the
+		// bank as setSample's, without allocating, and its source is read where it lies until another sample takes its
+		// place
+		void lockSample(int _track, const Sample* _sample);
 
 		// The Track's sample layer (edDrumsLayer.h), on whichever path it plays: its settings from the next Hit, TUNE, FINE
 		// and LEVEL at once; its sample, nullptr none, _sample->source read where it lies as setSample's. What sounds of it
@@ -456,8 +462,14 @@ namespace elektron::drums
 			int64_t phaseAt = Never;
 			uint32_t pendingLocks = 0, lockedNow = 0;
 			std::array<uint8_t, MachineParameters> lockValue{}, lockPendingValue{};
+			// The Sampler's: its own sample (setSample), the one in place, and the next Hit's Lock, nullptr for none
+			const Sample* ownSample = nullptr;
+			const Sample* placedSample = nullptr;
+			const Sample* lockedSample = nullptr;
 		};
 
+		// _sample in the Track's slot of the bank and the grains' sources
+		void placeSample(int _track, const Sample* _sample);
 		void cut(int _track);
 		void hitMachinedrum(int _track, int _velocity, float _gain);
 		void hitSyntakt(int _track, int _velocity, float _gain);

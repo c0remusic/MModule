@@ -139,7 +139,17 @@ namespace elektron::drums
 		const int read = in.read(head.data(), static_cast<int>(head.size()));
 		for(int i = 0; i < read; ++i)
 			add(head[static_cast<size_t>(i)]);
-		return juce::String::toHexString(static_cast<juce::int64>(h)).paddedLeft('0', 16);
+		return fingerprintText(h);
+	}
+
+	juce::String SampleLibrary::fingerprintText(const uint64_t _fingerprint)
+	{
+		return juce::String::toHexString(static_cast<juce::int64>(_fingerprint)).paddedLeft('0', 16);
+	}
+
+	uint64_t SampleLibrary::fingerprintValue(const juce::String& _text)
+	{
+		return _text.containsOnly("0123456789abcdefABCDEF") ? static_cast<uint64_t>(_text.getHexValue64()) : 0;
 	}
 
 	namespace

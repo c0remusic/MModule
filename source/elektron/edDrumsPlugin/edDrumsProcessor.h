@@ -174,6 +174,18 @@ namespace elektron::drums
 		// Track's sample's fingerprint, which the state and a Kit keep beside its copy: empty for none
 		SampleLibrary& sampleLibrary() { return *m_sampleLibrary; }
 		bool loadLibrarySample(int _track, const juce::String& _fingerprint, juce::String& _error);
+
+		// Message thread. A Lock of the Sampler's sample (ticket 07 of the v2 map) on _track's step _step of pattern
+		// _pattern: the Locker's sample of _fingerprint, which a Hit there plays; _name what the status line calls it
+		// should it go missing, which the state keeps
+		void lockSample(int _pattern, int _track, int _step, const juce::String& _fingerprint,
+			const juce::String& _name);
+		// Message thread, which the timer calls: the samples the patterns' Locks name and this instance lacks, loaded
+		// from another instance of the process that holds them, else from the Locker; the ones the Locker lacks once
+		// its scan is known are missingSamples(), by name, and noticed once. A step whose sample is missing plays the
+		// Track's own, and its Lock's again once its fingerprint comes back
+		void takeLockSamples();
+		const juce::StringArray& missingSamples() const { return m_missingSamples; }
 		juce::String sampleFingerprint(const int _track) const { return m_sampleRefs[static_cast<size_t>(_track)]; }
 		// The Locker's FACTORY source, the factory bank of the user's flash image or its words (ticket 27): an entry each
 		// slot that holds one, no file, folder FactoryFolder, its fingerprint "factory:<slot>", named and typed as the
@@ -388,6 +400,7 @@ namespace elektron::drums
 		float snap(int _parameter, float _value) const override;
 		void apply(const int _parameter) override { applyTarget(_parameter); }
 		void hitLock(int _track, int _machine, uint8_t _value) override;
+		void hitSample(int _track, uint64_t _sample) override;
 		void publishSequencer();
 		void publishSample(int _track);
 		void pruneSamples();
@@ -493,6 +506,18 @@ namespace elektron::drums
 		// The first sample slot whose sample has _fingerprint, -1 for none
 		int slotHolding(const juce::String& _fingerprint) const;
 		std::unique_ptr<SampleLibrary> m_sampleLibrary;
+		// The samples the patterns' Locks name, by fingerprint (takeLockSamples): each one loaded kept for the
+		// instance's life, so that no table the audio thread reads points at a freed one, and each table published kept
+		// as long
+		using LockTable = std::vector<std::pair<uint64_t, const Sample*>>;	// by fingerprint
+		std::map<uint64_t, std::shared_ptr<const Sample>> m_lockSamples;
+		std::map<uint64_t, juce::String> m_lockNames;
+		std::vector<std::unique_ptr<const LockTable>> m_lockTables;
+		std::atomic<const LockTable*> m_lockTable{nullptr};
+		bool m_lockSamplesDue = true;			// a pattern changed since takeLockSamples looked
+		uint32_t m_lockGeneration = ~0u;		// the Locker's generation it looked at
+		juce::StringArray m_missingSamples;
+		std::shared_ptr<const Sample> lockerSample(uint64_t _fingerprint) const;
 		// FACTORY's entries as the bank holds them, and dressed as the Locker's generation last given; IN THIS SET's, and
 		// what they were made of (the Tracks' references and the Locker's generation)
 		std::vector<SampleLibrary::Entry> m_factorySamples, m_factoryDressed, m_setSamples;

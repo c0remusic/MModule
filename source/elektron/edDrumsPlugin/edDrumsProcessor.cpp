@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <mutex>
+#include <set>
 #include <utility>
 #include <variant>
 
@@ -227,11 +229,12 @@ namespace elektron::drums
 					step->setAttribute("condition", static_cast<int>(s.condition.kind));
 					step->setAttribute("conditionA", s.condition.a);
 					step->setAttribute("conditionB", s.condition.b);
-					// The Locks as "parameter:value" pairs
+					// The Locks as "parameter:value" pairs, a Lock of the sample "parameter:value:fingerprint"
 					juce::StringArray locks;
 					const Lock* l = _p.locks(t, i);
 					for(int k = 0; k < s.lockCount; ++k)
-						locks.add(juce::String(l[k].parameter) + ":" + exact(l[k].value));
+						locks.add(juce::String(l[k].parameter) + ":" + exact(l[k].value) + (l[k].parameter == SampleLock
+							? ":" + SampleLibrary::fingerprintText(l[k].sample) : juce::String()));
 					if(!locks.isEmpty())
 						step->setAttribute("locks", locks.joinIntoString(" "));
 				}
@@ -287,9 +290,17 @@ namespace elektron::drums
 					if(colon <= 0)
 						continue;
 					const int parameter = pair.substring(0, colon).getIntValue();
+					uint64_t sample = 0;
+					if(parameter == SampleLock)
+					{
+						const int second = pair.indexOfChar(colon + 1, ':');
+						sample = second > colon ? SampleLibrary::fingerprintValue(pair.substring(second + 1)) : 0;
+						if(!sample)
+							continue;
+					}
 					if(parameter >= 0 && parameter <= 0xffff)
 						_p.setLock(t, i, static_cast<uint16_t>(parameter),
-							std::strtof(pair.substring(colon + 1).toRawUTF8(), nullptr));
+							std::strtof(pair.substring(colon + 1).toRawUTF8(), nullptr), sample);
 				}
 			}
 		}
@@ -1058,6 +1069,7 @@ namespace elektron::drums
 	{
 		m_sequencers[static_cast<size_t>(m_spare)]->copyEdits(*m_edited);
 		m_spare = m_middle.exchange(m_spare | Fresh, std::memory_order_acq_rel) & 3;
+		m_lockSamplesDue = true;
 	}
 
 	bool Processor::exportPatternMidi(const int _pattern, const juce::File& _file) const
@@ -1256,6 +1268,142 @@ namespace elektron::drums
 		}
 		_error = "No sample of the Locker has fingerprint " + _fingerprint;
 		return false;
+	}
+
+	namespace
+	{
+		// The samples sample Locks name in every instance of the process, by fingerprint: each loaded once while one
+		// holds it
+		struct SharedLockSamples
+		{
+			std::mutex mutex;
+			std::map<uint64_t, std::weak_ptr<const Sample>> samples;
+		};
+		SharedLockSamples& sharedLockSamples()
+		{
+			static SharedLockSamples shared;
+			return shared;
+		}
+	}
+
+	void Processor::lockSample(const int _pattern, const int _track, const int _step, const juce::String& _fingerprint,
+		const juce::String& _name)
+	{
+		// A FACTORY sample by its slot, 1 to 32, which a hash of 16 hex digits is not in practice
+		const int factory = factorySlotOf(_fingerprint);
+		const uint64_t fingerprint = factory ? static_cast<uint64_t>(factory)
+			: SampleLibrary::fingerprintValue(_fingerprint);
+		if(!fingerprint)
+			return;
+		m_lockNames[fingerprint] = _name;
+		editSequencer([&](Sequencer& _s) { _s.pattern(_pattern).setLock(_track, _step, SampleLock, 0, fingerprint); });
+	}
+
+	// The Locker's sample of _fingerprint: FACTORY's, a source's file, or IN THIS SET's copy; null where none is
+	std::shared_ptr<const Sample> Processor::lockerSample(const uint64_t _fingerprint) const
+	{
+		if(_fingerprint <= static_cast<uint64_t>(FactorySlots))
+		{
+			auto sample = factorySample(*m_library, static_cast<int>(_fingerprint));
+			return sample ? std::make_shared<const Sample>(std::move(*sample)) : nullptr;
+		}
+		const auto text = SampleLibrary::fingerprintText(_fingerprint);
+		if(const auto* entry = m_sampleLibrary->find(text))
+		{
+			auto result = readSampleFile(entry->file);
+			if(auto* sample = std::get_if<Sample>(&result))
+				return std::make_shared<const Sample>(std::move(*sample));
+			return nullptr;
+		}
+		if(const int from = slotHolding(text); from >= 0)
+			return std::make_shared<const Sample>(*m_samples[static_cast<size_t>(from)]);
+		return nullptr;
+	}
+
+	void Processor::takeLockSamples()
+	{
+		if(!m_lockSamplesDue && m_lockGeneration == m_sampleLibrary->generation())
+			return;
+		m_lockSamplesDue = false;
+		m_lockGeneration = m_sampleLibrary->generation();
+		std::set<uint64_t> named;
+		for(int p = 0; p < SeqPatterns; ++p)
+		{
+			const auto& pattern = m_edited->pattern(p);
+			for(int t = 0; t < SeqTracks; ++t)
+				for(int s = 0; s < SeqSteps; ++s)
+				{
+					const auto* l = pattern.locks(t, s);
+					for(int k = 0; l && k < pattern.step(t, s).lockCount; ++k)
+						if(l[k].parameter == SampleLock)
+							named.insert(l[k].sample);
+				}
+		}
+		bool added = false;
+		juce::StringArray missing;
+		auto& shared = sharedLockSamples();
+		for(const uint64_t fingerprint : named)
+		{
+			if(m_lockSamples.count(fingerprint))
+				continue;
+			std::shared_ptr<const Sample> sample;
+			{
+				const std::lock_guard<std::mutex> lock(shared.mutex);
+				if(const auto it = shared.samples.find(fingerprint); it != shared.samples.end())
+					sample = it->second.lock();
+			}
+			if(!sample)
+				sample = lockerSample(fingerprint);
+			if(!sample)
+			{
+				const auto name = m_lockNames.find(fingerprint);
+				missing.add(name != m_lockNames.end() && name->second.isNotEmpty() ? name->second
+					: SampleLibrary::fingerprintText(fingerprint));
+				continue;
+			}
+			{
+				const std::lock_guard<std::mutex> lock(shared.mutex);
+				shared.samples[fingerprint] = sample;
+			}
+			m_lockSamples[fingerprint] = std::move(sample);
+			added = true;
+		}
+		if(added)
+		{
+			auto table = std::make_unique<LockTable>();
+			for(const auto& [fingerprint, sample] : m_lockSamples)
+				table->emplace_back(fingerprint, sample.get());
+			m_lockTable.store(table.get(), std::memory_order_release);
+			m_lockTables.push_back(std::move(table));
+		}
+		// Missing once the Locker's scan is known, which its end calls this again for (its generation moves); noticed
+		// when that list changes
+		if(!m_sampleLibrary->known())
+		{
+			if(!missing.isEmpty())
+				m_sampleLibrary->scanOnce();
+			return;
+		}
+		if(missing != m_missingSamples)
+		{
+			m_missingSamples = missing;
+			if(!missing.isEmpty())
+				notice(juce::String(missing.size()) + (missing.size() == 1 ? " SAMPLE MISSING" : " SAMPLES MISSING"),
+					missing.joinIntoString(", "));
+		}
+	}
+
+	void Processor::hitSample(const int _track, const uint64_t _sample)
+	{
+		const auto* table = m_lockTable.load(std::memory_order_acquire);
+		if(!table)
+			return;
+		const auto& s = *table;
+		const auto it = std::lower_bound(s.begin(), s.end(), _sample,
+			[](const std::pair<uint64_t, const Sample*>& _e, const uint64_t _f) { return _e.first < _f; });
+		// A sample not loaded: the Track's own
+		if(it != s.end() && it->first == _sample)
+			m_engine->lockSample(_track, it->second);
 	}
 
 	int Processor::slotHolding(const juce::String& _fingerprint) const
@@ -1617,6 +1765,7 @@ namespace elektron::drums
 		takeLive();
 		takeKitSwitch();
 		m_sampleLibrary->update();
+		takeLockSamples();
 		takeLockerImport();
 		if(++m_kitFollow >= 10)
 		{
@@ -2338,6 +2487,17 @@ namespace elektron::drums
 			if(auto pattern = patternXml(m_edited->pattern(i), i))
 				xml.addChildElement(pattern.release());
 		xml.addChildElement(sequencerXml(*m_edited, chainSlot() >= 0 || m_chainAsked.load()).release());
+		// What the sample Locks' samples are called, should they go missing
+		if(!m_lockNames.empty())
+		{
+			auto* names = xml.createNewChildElement("lockSamples");
+			for(const auto& [fingerprint, name] : m_lockNames)
+			{
+				auto* sample = names->createNewChildElement("sample");
+				sample->setAttribute("fingerprint", SampleLibrary::fingerprintText(fingerprint));
+				sample->setAttribute("name", name);
+			}
+		}
 
 		// The XML compressed with JUCE's zlib, behind its header: the 128 patterns' steps repeat, a few hundred kB of
 		// text in a full set (readState reads it, and the uncompressed XML of before)
@@ -2436,6 +2596,11 @@ namespace elektron::drums
 				readPattern(m_edited->pattern(i), *element);
 		if(readSequencer(*m_edited, xml->getChildByName("sequencer")))
 			requestChain();
+		m_lockNames.clear();
+		if(const auto* names = xml->getChildByName("lockSamples"))
+			for(const auto* sample : names->getChildWithTagNameIterator("sample"))
+				if(const auto f = SampleLibrary::fingerprintValue(sample->getStringAttribute("fingerprint")))
+					m_lockNames[f] = sample->getStringAttribute("name");
 		publishSequencer();
 
 		m_stateSerial.fetch_add(1, std::memory_order_acq_rel);

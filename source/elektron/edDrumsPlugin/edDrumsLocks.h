@@ -48,6 +48,8 @@ namespace elektron::drums
 			virtual void apply(int _parameter) = 0;
 			// A Hit's Lock of Machine _machine (Engine::lock), held for that Hit
 			virtual void hitLock(int _track, int _machine, uint8_t _value) = 0;
+			// A Hit's Lock of the Sampler's sample, by its fingerprint (Engine::lockSample), for that Hit
+			virtual void hitSample(int /*_track*/, uint64_t /*_sample*/) {}
 		};
 
 		// Before any audio: every host parameter's target, by index. Each Track's Note parameter is its Note target.

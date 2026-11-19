@@ -52,6 +52,7 @@
 #include "edDrumsAnalogPort.h"
 #include "edDrumsAnalogVoice.h"
 #include "edDrumsProcessor.h"
+#include "edDrumsSampleFiles.h"
 #include "edDrumsVintage.h"
 #include "MidiNoteNumbers.h"
 #include "mdProtocol/mdkit.h"
@@ -1384,7 +1385,8 @@ namespace
 	// ---- Machine 9-24 (ticket 26) ----
 
 	// Defined with the sequencer's helpers further down
-	Take playSequenced(Processor& _processor, int _samples, const std::function<void(int)>& _atBlock);
+	Take playSequenced(Processor& _processor, int _samples, const std::function<void(int)>& _atBlock = {},
+		size_t* _allocations = nullptr);
 	int stepSample(double _quarters);
 	int firstDifference(const Take& _a, const Take& _b);
 	uint16_t indexOf(Processor& _processor, const juce::String& _id);
@@ -1959,9 +1961,12 @@ namespace
 		return static_cast<int>(std::ceil(_quarters * SamplesPerQuarter - 1e-3));
 	}
 
-	// The processor in blocks, its playhead playing at 120 BPM from 0; _atBlock, if given, runs before each block
-	Take playSequenced(Processor& _processor, const int _samples, const std::function<void(int)>& _atBlock = {})
+	// The processor in blocks, its playhead playing at 120 BPM from 0; _atBlock, if given, runs before each block;
+	// _allocations, if given, counts what its blocks allocate. _samples whole blocks
+	Take playSequenced(Processor& _processor, const int _samples, const std::function<void(int)>& _atBlock,
+		size_t* const _allocations)
 	{
+		require(_samples % Block == 0, "playSequenced plays whole blocks");
 		Transport transport;
 		_processor.setPlayHead(&transport);
 		_processor.prepareToPlay(SampleRate, Block);
@@ -1974,7 +1979,10 @@ namespace
 				_atBlock(at);
 			transport.quarters = at / SamplesPerQuarter;
 			buffer.clear();
-			_processor.processBlock(buffer, midi);
+			if(_allocations)
+				*_allocations += countAllocations([&] { _processor.processBlock(buffer, midi); });
+			else
+				_processor.processBlock(buffer, midi);
 			for(int c = 0; c < Channels; ++c)
 				std::copy_n(buffer.getReadPointer(c), Block, take[static_cast<size_t>(c)].begin() + at);
 		}
@@ -2014,6 +2022,106 @@ namespace
 	std::function<void(Engine&)> hitOf(const int _track, const int _velocity = 100)
 	{
 		return [_track, _velocity](Engine& _e) { _e.noteOn(_track, _velocity); };
+	}
+
+	// Locks of the Sampler's sample (ticket 07 of the v2 map): four steps of Track 1 each locked to a sample of the
+	// Locker play what an engine told lockSample before each Hit plays, sample for sample, nothing allocated on the
+	// audio thread, and a fifth step without one the Track's own; the state keeps them; a fingerprint the Locker lacks
+	// is missing by its name, its step playing the Track's own, until a file of it comes back
+	void sampleLocks(const Library& _library)
+	{
+		const auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory)
+			.getChildFile("edDrumsLockSamples");
+		folder.deleteRecursively();
+		require(folder.createDirectory().wasOk(), "the samples' folder");
+		juce::WavAudioFormat wav;
+		std::vector<juce::File> files;
+		for(int i = 0; i < 5; ++i)
+		{
+			files.push_back(folder.getChildFile("lock" + juce::String(i) + ".wav"));
+			writeAudio(wav, files.back(), 44100, 1, 6000 + 500 * i, 300.0f + 170.0f * static_cast<float>(i));
+		}
+		// The fifth outside the Locker for now
+		const auto away = folder.getSiblingFile("edDrumsLockAway.wav");
+		away.deleteFile();
+		require(files[4].moveFileTo(away), "the fifth sample moved away");
+
+		Processor processor;
+		allOutputs(processor);
+		set(find(processor, "t01_machine"), processor.samplerChoice());
+		auto& library = processor.sampleLibrary();
+		require(library.addSource(SampleLibrary::Kind::Linked, folder), "the folder not added");
+		waitForScan(library);
+		const int steps[]{0, 4, 8, 12};
+		for(int k = 0; k < 4; ++k)
+		{
+			processor.editSequencer([&](Sequencer& _s) { _s.pattern(0).setTrig(0, steps[k], true); });
+			processor.lockSample(0, 0, steps[k], SampleLibrary::fingerprintOf(files[static_cast<size_t>(k)]),
+				files[static_cast<size_t>(k)].getFileName());
+		}
+		processor.editSequencer([&](Sequencer& _s) { _s.pattern(0).setTrig(0, 14, true); });
+		processor.takeLockSamples();
+		require(processor.missingSamples().isEmpty(), "a sample of the Locker missing");
+
+		// The pattern's 16 steps, in whole blocks, before it loops; each block's allocations counted
+		constexpr int Length = 689 * Block;
+		size_t allocations = 0;
+		const auto take = playSequenced(processor, Length, {}, &allocations);
+		std::vector<Sample> samples;
+		for(int k = 0; k < 4; ++k)
+			samples.push_back(std::get<Sample>(readSampleFile(files[static_cast<size_t>(k)])));
+		Calls calls;
+		for(int k = 0; k < 4; ++k)
+			calls.emplace(stepSample(steps[k] * 0.25), [&samples, k](Engine& _e)
+			{
+				_e.lockSample(0, &samples[static_cast<size_t>(k)]);
+				_e.noteOn(0, 100);
+			});
+		calls.emplace(stepSample(14 * 0.25), hitOf(0));
+		requireSame(take, playEngine(_library, processor, calls, Length), "four sample Locks: ");
+		require(allocations == 0, "sample Locks allocate on the audio thread");
+		for(int k = 0; k < 4; ++k)
+		{
+			const auto from = static_cast<size_t>(stepSample(steps[k] * 0.25));
+			float peak = 0;
+			for(size_t n = from; n < from + 4000; ++n)
+				peak = std::max(peak, std::abs(take[0][n]));
+			require(peak > 0.05f, "step " + std::to_string(steps[k]) + "'s sample Lock is silent");
+		}
+
+		// The state keeps them: the same samples
+		juce::MemoryBlock state;
+		processor.getStateInformation(state);
+		Processor restored;
+		allOutputs(restored);
+		restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+		restored.takeLockSamples();
+		requireSame(playSequenced(restored, Length, {}), take, "the state's sample Locks: ");
+
+		// A fingerprint the Locker lacks: missing by its name, its step the Track's own (silence here) ...
+		constexpr int Step = 64 * Block;
+		processor.lockSample(0, 0, 0, SampleLibrary::fingerprintOf(away), "AWAY.wav");
+		processor.takeLockSamples();
+		require(processor.missingSamples() == juce::StringArray("AWAY.wav"), "the missing sample not named");
+		require(peakOf(playSequenced(processor, Step, {}), 0) < Engine::Silence,
+			"a missing sample's step does not play the Track's own");
+		// ... until its file comes back to the Locker
+		require(away.moveFileTo(files[4]), "the fifth sample brought back");
+		require(library.addSource(SampleLibrary::Kind::Linked, folder), "the folder not scanned again");
+		waitForScan(library);
+		processor.takeLockSamples();
+		require(processor.missingSamples().isEmpty(), "a sample come back still missing");
+		require(peakOf(playSequenced(processor, Step, {}), 0) > 0.05f, "a sample come back is silent");
+		// A FACTORY sample of the flash image, by its slot
+		processor.lockSample(0, 0, 0, "factory:1", "FACTORY 01");
+		processor.takeLockSamples();
+		require(processor.missingSamples().isEmpty() && peakOf(playSequenced(processor, Step, {}), 0) > 0.05f,
+			"a Lock of a FACTORY sample is silent");
+
+		require(library.removeSource(library.indexOf(folder)), "the folder not removed");
+		folder.deleteRecursively();
+		std::printf("PASS: four sample Locks play the engine's samples, nothing allocated; the state keeps them; a "
+			"missing one named, its step the Track's own, until it comes back\n");
 	}
 
 	// The first sample from which two takes differ, on any channel; their length if none
@@ -3661,6 +3769,7 @@ int main(const int _argc, char** _argv)
 		machineKits();
 		repeatSync(wav);
 		sampleLibrary();
+		sampleLocks(library);
 		wav.deleteFile();
 		slides(library);
 		rateSwitch();
