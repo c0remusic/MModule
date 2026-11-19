@@ -1355,6 +1355,80 @@ namespace
 			check(processor.sampleName(0) == "hh closed.wav", "LOAD ON TRACK loads " + processor.sampleName(0));
 			snapshot(editor, _folder.getChildFile("browse-samples.png"));
 
+			// A step's sample (ticket 07 of the v2 map): + LOCK's SAMPLE, on the Sampler's Track, adds its lane; a
+			// click on a step shows Browse choosing its sample, the pointer over a row auditions it, LOCK ON STEP or a
+			// double-click locks it there and shows Seq again; a double-click on the lane is a click and no Lock; a
+			// drag across the lane's Locks takes them off, its X the lane; another page gives the choice up
+			{
+				using SB = Editor::SeqButton;
+				const auto sampleLock = [&](const int _step)
+				{
+					return lockAt(processor.sequencer().pattern(processor.currentPattern()), 0, _step, SampleLock);
+				};
+				editor.showPage(Editor::Page::Seq);
+				editor.showSeqTab(0);
+				editor.tick();
+				click(editor, editor.seqButtonArea(SB::AddLock).getCentre());
+				editor.tick();
+				const auto entry = editor.lockMenuArea(SampleLock);
+				check(!entry.isEmpty(), "+ LOCK lists SAMPLE on the Sampler's Track");
+				click(editor, entry.getCentre());
+				editor.tick();
+				const auto laneStep = [&](const int _step)
+				{
+					const auto lane = editor.laneArea(editor.lockLanes() - 1 - editor.lockScroll());
+					return juce::Point<int>(lane.getX() + lane.getWidth() * (2 * _step + 1) / 32, lane.getCentreY());
+				};
+				check(editor.lockLanes() >= 1 && !editor.lockMenuOpen(), "SAMPLE adds its lane");
+				doubleClick(editor, laneStep(2));
+				editor.tick();
+				check(editor.page() == Editor::Page::Browse && editor.pickStep() == 2 && !sampleLock(2),
+					"a double-click on step 3 shows Browse choosing its sample, no Lock written");
+				const auto rowName = [&](const int _row)
+				{
+					editor.mouseMove(mouse(editor, editor.browseRowArea(_row).getCentre(), editor.browseRowArea(_row)
+						.getCentre()));
+					editor.tick();
+					const auto* a = processor.auditioned();
+					return a ? juce::String::fromUTF8(a->name.c_str()) : juce::String();
+				};
+				const auto first = rowName(1), second = rowName(0);
+				check(first.isNotEmpty() && second.isNotEmpty() && first != second,
+					"the pointer over a row auditions it: " + first + ", then " + second);
+				click(editor, editor.browseButtonArea(B::Load).getCentre());
+				editor.tick();
+				const auto* locked = sampleLock(2);
+				const auto* chosen = locked ? library.find(SampleLibrary::fingerprintText(locked->sample)) : nullptr;
+				check(editor.page() == Editor::Page::Seq && editor.pickStep() < 0 && chosen
+					&& processor.lockSampleName(locked->sample) == chosen->name
+					&& editor.laneSteps(SampleLock)[2].locked, "LOCK ON STEP locks the sample pointed at on step 3 ("
+					+ (chosen ? chosen->name : juce::String("none")) + ") and shows Seq, its lane holding it");
+				click(editor, laneStep(4));
+				editor.tick();
+				doubleClick(editor, editor.browseRowArea(1).getCentre());
+				editor.tick();
+				int count = 0;
+				editor.laneSteps(SampleLock, &count);
+				check(editor.page() == Editor::Page::Seq && sampleLock(4) && count == 2,
+					"a double-click on a row locks it on step 5: " + juce::String(count) + " sample Locks");
+				snapshot(editor, _folder.getChildFile("seq-sample-lane.png"));
+				drag(editor, laneStep(2), laneStep(5) - laneStep(2));
+				editor.tick();
+				check(!sampleLock(2) && !sampleLock(4) && editor.page() == Editor::Page::Seq,
+					"a drag across the lane's Locks takes them off");
+				click(editor, laneStep(0));
+				editor.showPage(Editor::Page::Sound);
+				check(editor.pickStep() < 0, "another page gives the choice up");
+				editor.showPage(Editor::Page::Seq);
+				editor.tick();
+				const int lanes = editor.lockLanes();
+				click(editor, editor.laneDeleteArea(lanes - 1 - editor.lockScroll()).getCentre());
+				editor.tick();
+				check(editor.lockLanes() == lanes - 1, "the lane's X takes SAMPLE's lane off");
+				editor.showPage(Editor::Page::Browse);
+				editor.tick();
+			}
+
 			// The source, by its segment: its card; RENAME
 			click(editor, editor.browseSegmentArea(segmentOf(samples.getFileName())).getCentre());
 			editor.tick();
@@ -1647,6 +1721,10 @@ namespace
 					check(!area.intersects(other), id + "'s entry lies over another");
 				areas.push_back(area);
 			}
+			// The Sampler's SAMPLE, a Lock of no parameter
+			if(const auto area = editor.lockMenuArea(SampleLock); !area.isEmpty())
+				for(const auto& other : areas)
+					check(!area.intersects(other), "SAMPLE's entry lies over another");
 			check(listed == expected && expected > 50, "the menu lists " + juce::String(listed) + " of the Track's "
 				+ juce::String(expected) + " parameters that take a Lock, the sample layer's 14 among them, none over "
 				"another");

@@ -1,7 +1,7 @@
 # Lock de sample sur le lecteur du Sampler
 
 Type: AFK
-Status: ready-for-agent
+Status: done
 Assignee:
 Blocked by: 04
 
@@ -67,7 +67,29 @@ Mis de côté après revue :
   nouveau à chaque fois.
 - Les noms gardés dans l'état ne sont pas élagués quand un lock disparaît.
 
-Reste (tranche 2) : poser le lock depuis le menu de lock du pas, Locker avec recherche et écoute au survol.
+## Avancement (2026-11-19) : tranche 2, éditeur
+
+Sur une piste Sampler, le menu + LOCK de Seq propose SAMPLE, sous VOICE. Il ajoute une lane SAMPLE. Un clic sur un pas
+de cette lane ouvre Browse sur les samples du Locker, avec sa recherche, pour choisir le sample de ce pas. Le pointeur
+posé sur une ligne écoute le sample. Un double-clic ou LOCK ON STEP pose le lock, puis Seq revient. Une autre page, ou
+une autre piste, abandonne le choix. Le lock va dans le pattern dont la lane a été cliquée. Dans la lane, un pas locké
+montre le nom court du sample, sans extension ; la colonne des noms donne le sample propre de la piste (BASE). Un
+glisser horizontal sur les locks les retire ; le X de la lane retire la lane.
+
+Un double-clic exige maintenant que ses deux pressions tombent sur la même page. Sinon, le second clic d'un double-clic
+sur la lane tomberait sur une ligne de Browse et lockerait un sample au hasard.
+
+Test d'éditeur (`edDrumsEditorTest`) : entrée SAMPLE, double-clic sur la lane sans lock écrit, écoute au survol,
+LOCK ON STEP, double-clic sur une ligne, lane qui garde les deux locks, glisser qui les retire, abandon par une autre
+page, X de la lane.
+
+Mis de côté après revue :
+- Le survol lit le fichier de chaque ligne traversée sur le fil de message.
+- La lane SAMPLE reste cliquable si la piste quitte le Sampler ; ses locks n'y jouent pas.
+- Les cas `SampleLock` sont répartis dans la grille, `laneSteps`, le dessin et le menu. Un type de lane viendra avec
+  la seconde cible (couche, ticket 08).
+
+Le nom court dans les lanes, critère du ticket 08, est fait ici pour la cible machine.
 
 ## Références
 

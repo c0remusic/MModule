@@ -97,6 +97,12 @@ namespace elektron::drums
 			return found;
 		}
 
+		// A sample's name without its file's extension, as the SAMPLE lane shows it
+		juce::String withoutExtension(const juce::String& _name)
+		{
+			return _name.containsChar('.') ? _name.upToLastOccurrenceOf(".", false, false) : _name;
+		}
+
 		// _text cut to _width mm
 		juce::String fitted(const Painter& _p, juce::String _text, const float _cap, const float _width,
 			const int _weight = 500)
@@ -1336,10 +1342,8 @@ namespace elektron::drums
 		for(int s = 0; s < SeqSteps; ++s)
 		{
 			const auto* locks = p.locks(m_track, s);
-			// A Lock of the sample has no lane yet (ticket 08 of the v2 map)
 			for(int i = 0; locks && i < p.step(m_track, s).lockCount; ++i)
-				if(locks[i].parameter != SampleLock
-					&& std::find(lines.begin(), lines.end(), locks[i].parameter) == lines.end())
+				if(std::find(lines.begin(), lines.end(), locks[i].parameter) == lines.end())
 					lines.push_back(locks[i].parameter);
 		}
 		for(const int l : m_lockLines[static_cast<size_t>(m_track)])
@@ -1351,6 +1355,20 @@ namespace elektron::drums
 	// What the Processor plays on each step, from the same rules (Locks::lane)
 	std::vector<Editor::LaneStep> Editor::laneSteps(const int _line, int* _locks) const
 	{
+		if(_line == SampleLock)
+		{
+			std::vector<LaneStep> steps(static_cast<size_t>(SeqSteps), {0.0f, 0.0f, false});
+			int count = 0;
+			for(int s = 0; s < SeqSteps; ++s)
+				if(lockAt(pattern(), m_track, s, _line))
+				{
+					steps[static_cast<size_t>(s)].locked = true;
+					++count;
+				}
+			if(_locks)
+				*_locks = count;
+			return steps;
+		}
 		auto* rp = dynamic_cast<juce::RangedAudioParameter*>(m_processor.getParameters()[_line]);
 		if(!rp)
 		{
@@ -1503,6 +1521,9 @@ namespace elektron::drums
 			};
 			const auto set = [this, _line](const int _n, const bool _to)
 			{
+				// The SAMPLE lane writes its Locks from Browse alone
+				if(_line == SampleLock && _to)
+					return;
 				auto* p = _line >= 0 ? m_processor.getParameters()[_line] : nullptr;
 				auto* rp = dynamic_cast<juce::RangedAudioParameter*>(p);
 				editPattern([&](Pattern& _p)
@@ -1585,17 +1606,21 @@ namespace elektron::drums
 			h.click = [this, set, _line]
 			{
 				m_seqStep = m_grid.step;
-				if(_line < 0 && m_seqMode == 0)
+				// The SAMPLE lane: Browse chooses the step's sample; a drag across its Locks takes them off
+				if(_line == SampleLock)
+					pickSample(m_grid.step);
+				else if(_line < 0 && m_seqMode == 0)
 					toggleTrig(m_track, m_grid.step);
 				else if(_line < 0)
 					set(m_grid.step, !m_grid.was);
 				else if(!m_grid.was)
 					set(m_grid.step, true);
 			};
-			// A double-click toggles once: the trig row leaves the first click's; a lock cell takes the Lock off
+			// A double-click toggles once: the trig row leaves the first click's; a lock cell takes the Lock off (the
+			// SAMPLE lane's first click has shown Browse)
 			h.doubleClick = [this, stepAt, set, _line]
 			{
-				if(_line >= 0)
+				if(_line >= 0 && _line != SampleLock)
 					set(stepAt(m_press.down.x), false);
 			};
 			addHit(std::move(h));
@@ -1841,6 +1866,15 @@ namespace elektron::drums
 			const int row = rows[static_cast<size_t>(column)]++;
 			add(*p, section, column, row, row == 0 && column != 1);
 		}
+		// The Sampler's sample, a Lock of no parameter, after VOICE's
+		if(trackMachine(m_track) == Sampler)
+		{
+			const int column = rows[0] >= MenuRows ? 1 : 0;
+			const int row = rows[static_cast<size_t>(column)]++;
+			entries.push_back({SampleLock, {ScreenX + 4 + static_cast<float>(column) * cw, MenuY + 10
+				+ static_cast<float>(row) * MenuRow, cw - 2, MenuRow - 1}, &hue::k, {}, "SAMPLE",
+				std::find(lines.begin(), lines.end(), SampleLock) != lines.end()});
+		}
 		// SAMPLE LAYER under the two drives, seven a column below a row for its name
 		const int below = std::max(rows[2], rows[3]) + 1;
 		for(size_t i = 0; i < layer.size(); ++i)
@@ -2033,13 +2067,16 @@ namespace elektron::drums
 			const int line = lines[static_cast<size_t>(m_lockScroll + r)];
 			const auto b = laneBox(r);
 			const float yy = b.getY(), hh = b.getHeight();
+			// SAMPLE, the Sampler's sample: a Lock of no parameter
+			const bool sample = line == SampleLock;
 			auto* rp = dynamic_cast<juce::RangedAudioParameter*>(params[line]);
-			if(!rp)
+			if(!rp && !sample)
 				continue;
-			const auto section = laneSection(rp->getParameterID());
+			const auto section = sample ? LaneSection{&hue::k, "VOICE", 0} : laneSection(rp->getParameterID());
 			const Hue& h = *section.hue;
-			const bool list = dynamic_cast<juce::AudioParameterChoice*>(rp) || dynamic_cast<juce::AudioParameterBool*>(rp);
-			const float base = rp->getValue();
+			const bool list = !sample
+				&& (dynamic_cast<juce::AudioParameterChoice*>(rp) || dynamic_cast<juce::AudioParameterBool*>(rp));
+			const float base = sample ? 0 : rp->getValue();
 			const auto valueText = [&](const float _v)
 			{
 				Cell c;
@@ -2052,10 +2089,13 @@ namespace elektron::drums
 			// The names' column: the name, its block or the X's question, its base; the X, framed
 			const bool armed = m_armedLine == line;
 			const float nameW = SG - 16 - 9;
-			_p.text(16, yy + 6.2f, fitted(_p, lockName(*rp), 3.2f, nameW, 600), 3.2f, h.c[4], 600);
+			const auto own = sample ? withoutExtension(m_processor.sampleName(m_track)) : juce::String();
+			_p.text(16, yy + 6.2f, fitted(_p, sample ? juce::String("SAMPLE") : lockName(*rp), 3.2f, nameW, 600), 3.2f,
+				h.c[4], 600);
 			_p.text(16, yy + 11.4f, armed ? fitted(_p, "DELETE " + juce::String(locks) + " LOCKS?", 2.8f, SG - 18, 600)
 				: juce::String(section.name), 2.8f, armed ? colour::lock : colour::dim, armed ? 600 : 500);
-			_p.text(16, yy + 16.8f, fitted(_p, "BASE " + valueText(base), 2.8f, SG - 18), 2.8f, colour::base);
+			_p.text(16, yy + 16.8f, fitted(_p, "BASE " + (!sample ? valueText(base)
+				: own.isEmpty() ? juce::String("NONE") : own.toUpperCase()), 2.8f, SG - 18), 2.8f, colour::base);
 			const auto x = laneDeleteBox(r);
 			if(armed)
 				_p.rect(x.getX() + 0.5f, x.getY() + 0.5f, 6, 6.6f, juce::Colour(0xff5A2622), 0.8f);
@@ -2065,6 +2105,23 @@ namespace elektron::drums
 
 			laneFrame(b);
 			const auto at = [&](const int _q) { return steps[static_cast<size_t>(o0 + _q)]; };
+			if(sample)
+			{
+				// A step's sample: a pill with its name, cut to the step, its file's extension dropped
+				for(int q = 0; q < 16; ++q)
+				{
+					const auto* l = at(q).locked ? lockAt(p, m_track, o0 + q, SampleLock) : nullptr;
+					if(!l)
+						continue;
+					const auto name = withoutExtension(m_processor.lockSampleName(l->sample));
+					const float sx = SG + static_cast<float>(q) * SC, w = SC - 1.2f;
+					_p.rect(sx + 1.2f, yy + 4, w - 2.4f, hh - 8, h.c[3], 1.2f);
+					_p.frame(sx + 1.2f, yy + 4, w - 2.4f, hh - 8, h.c[0], 1.2f, 0.4f);
+					_p.text(sx + w / 2, yy + hh / 2 + 1.4f, fitted(_p, name.toUpperCase(), 2.8f, w - 3, 600), 2.8f,
+						h.c[4], 600, Align::Centre);
+				}
+				continue;
+			}
 			if(list)
 			{
 				// A list's Lock: a pill with its value, black ringed in the hue where the step's condition may not play it;
@@ -3881,8 +3938,10 @@ namespace elektron::drums
 			};
 			addHit(std::move(s));
 		}
-		// A click auditions, a double-click loads on the Track shown, a drag onto a Track loads there
+		// A click auditions, a double-click loads on the Track shown, a drag onto a Track loads there. Choosing a
+		// step's sample (pickStep): the pointer over a row auditions it, a double-click locks it on the step
 		const auto list = browseList();
+		const bool picking = m_pickStep >= 0;
 		for(int i = 0; i < 15 && m_browseScroll + i < static_cast<int>(list.size()); ++i)
 		{
 			const int item = m_browseScroll + i, entry = list[static_cast<size_t>(item)];
@@ -3894,10 +3953,21 @@ namespace elektron::drums
 				m_browseItem = item;
 				audition(e);
 			};
-			row.doubleClick = [this, item, e]
+			if(picking)
+				row.hover = [this, item, e]
+				{
+					if(m_browseItem == item)
+						return;
+					m_browseItem = item;
+					audition(e);
+				};
+			row.doubleClick = [this, item, e, picking]
 			{
 				m_browseItem = item;
-				loadSample(m_track, e);
+				if(picking)
+					lockPicked(e);
+				else
+					loadSample(m_track, e);
 			};
 			row.drag = [this, entry](float, float) { m_browseDrag = entry; };
 			row.end = [this, e]
@@ -3918,7 +3988,13 @@ namespace elektron::drums
 			addHit(std::move(replay));
 			Hit load;
 			load.r = {cx(16), 222, BrowseInfoW, 12.5f};
-			load.click = [this, e] { loadSample(m_track, e); };
+			load.click = [this, e, picking]
+			{
+				if(picking)
+					lockPicked(e);
+				else
+					loadSample(m_track, e);
+			};
 			addHit(std::move(load));
 			// TYPE, its row in the panel (drawBrowseSample): a click opens the types, the one chosen kept as the user's,
 			// by fingerprint, a factory sample's too; one of the set has no file to keep it by
@@ -4061,8 +4137,10 @@ namespace elektron::drums
 		}
 		if(samples || m_browseTree == 1)
 		{
-			const juce::String hints[]{"CLICK: LISTEN", "DOUBLE CLICK: LOAD ON TRACK " + juce::String(m_track + 1),
-				"DRAG: DROP ON ANY TRACK"};
+			const bool picking = m_pickStep >= 0 && samples;
+			const juce::String hints[]{picking ? "POINT: LISTEN" : "CLICK: LISTEN", picking
+				? "DOUBLE CLICK: LOCK ON STEP " + juce::String(m_pickStep + 1)
+				: "DOUBLE CLICK: LOAD ON TRACK " + juce::String(m_track + 1), "DRAG: DROP ON ANY TRACK"};
 			for(int i = 0; i < 3; ++i)
 				_p.text(x, 202 + static_cast<float>(i) * 5.6f, hints[i], 2.6f, colour::dim);
 		}
@@ -4198,7 +4276,8 @@ namespace elektron::drums
 		}
 		else
 			drawLockerSource(_p, x, c);
-		drawButton(_p, x, 222, BrowseInfoW, 12.5f, "LOAD ON TRACK " + juce::String(m_track + 1), e != nullptr, e != nullptr);
+		drawButton(_p, x, 222, BrowseInfoW, 12.5f, m_pickStep >= 0 ? "LOCK ON STEP " + juce::String(m_pickStep + 1)
+			: "LOAD ON TRACK " + juce::String(m_track + 1), e != nullptr, e != nullptr);
 	}
 
 	// The card of the segment chosen while no sample is: ALL the Locker's, a source's, FACTORY's or IN THIS SET's

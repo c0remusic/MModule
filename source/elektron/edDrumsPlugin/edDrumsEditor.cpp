@@ -97,6 +97,8 @@ namespace elektron::drums
 		m_lockMenu = false;
 		if(_page != Page::Sound)
 			m_lockSteps.clear();
+		if(_page != Page::Browse)
+			m_pickStep = -1;
 		layout();
 		repaint();
 	}
@@ -112,6 +114,7 @@ namespace elektron::drums
 		m_armedLine = -1;
 		m_lockScroll = 0;
 		m_lockMenu = false;
+		m_pickStep = -1;
 		layout();
 		repaint();
 	}
@@ -196,8 +199,9 @@ namespace elektron::drums
 			<< m_machinePage << "/" << m_focus << "/" << m_stepPage << "/" << (m_follow ? 1 : 0) << "/"
 			<< (m_selector.open ? 1 : 0) << "/" << m_seqStep << "/" << m_seqMode << "/" << m_lockScroll << "/"
 			<< m_armedLine << "/" << (m_lockMenu ? 1 : 0) << "/" << m_browseItem << "/" << m_browseScroll << "/" << getWidth() << "/" << m_browseTree << "/"
-			<< m_browseFilter << "/" << m_browseSearch << "/" << static_cast<int>(m_processor.sampleLibrary().generation())
-			<< "/" << static_cast<int>(m_processor.trackSounds().generation()) << "/";
+			<< m_browseFilter << "/" << m_browseSearch << "/" << m_pickStep << "/"
+			<< static_cast<int>(m_processor.sampleLibrary().generation()) << "/"
+			<< static_cast<int>(m_processor.trackSounds().generation()) << "/";
 		// The LOCKER: FACTORY, IN THIS SET, the source whose REMOVE asks again, the walks ended
 		if(m_page == Page::Browse && browseSamples())
 			key << m_processor.factorySamples().size() << "," << m_processor.setSamples().size() << "," << m_removeArmed
@@ -667,6 +671,10 @@ namespace elektron::drums
 			return;
 		// A click beside RENAME's field keeps its name: the editor takes no focus from it
 		endRename(true);
+		// A double-click is one where both presses fall on the same page: a click that shows another (the SAMPLE lane's
+		// shows Browse) leaves the next press a single one
+		const bool samePage = m_pressPage == m_page;
+		m_pressPage = m_page;
 		const auto mm = toMm(_e.position);
 		int found = -1;
 		for(int i = static_cast<int>(m_hits.size()) - 1; i >= 0; --i)
@@ -718,7 +726,7 @@ namespace elektron::drums
 		m_press.hit = found;
 		m_press.down = m_press.last = mm;
 		const auto& hit = m_hits[static_cast<size_t>(found)];
-		if(_e.getNumberOfClicks() >= 2 && hit.doubleClick)
+		if(_e.getNumberOfClicks() >= 2 && samePage && hit.doubleClick)
 		{
 			hit.doubleClick();
 			m_press.hit = -1;
@@ -802,6 +810,14 @@ namespace elektron::drums
 			if(it->r.contains(mm))
 			{
 				setMouseCursor(it->cursor);
+				if(it->hover)
+				{
+					// What it changes laid out at once, as a click's: the hits then hold what it chose
+					const auto hover = it->hover;
+					hover();
+					if(layoutKey() != m_key)
+						layout();
+				}
 				return;
 			}
 		setMouseCursor(juce::MouseCursor::NormalCursor);
@@ -1199,6 +1215,37 @@ namespace elektron::drums
 			return;
 		}
 		sampleLoaded(_track);
+	}
+
+	void Editor::pickSample(const int _step)
+	{
+		// Browse on the Locker's samples, unless it lists samples already (SAMPLES BY TYPE)
+		if(!browseSamples())
+		{
+			m_browseTree = 2;
+			m_browseFilter = 0;
+			m_browseScroll = 0;
+		}
+		m_browseItem = -1;
+		// Before showPage, which keeps it on Browse: one layout
+		m_pickStep = _step;
+		m_pickPattern = m_processor.currentPattern();
+		showPage(Page::Browse);
+	}
+
+	void Editor::lockPicked(const SampleLibrary::Entry& _entry)
+	{
+		// The pattern whose lane was clicked, though another plays since
+		const int step = m_pickStep;
+		if(!m_processor.lockSample(m_pickPattern, m_track, step, _entry.fingerprint, _entry.name))
+		{
+			toast(_entry.name.toUpperCase() + " HAS NO FINGERPRINT TO LOCK");
+			return;
+		}
+		toast("STEP " + juce::String(step + 1) + " PLAYS " + _entry.name.toUpperCase());
+		m_seqStep = step;
+		m_seqTab = 0;
+		showPage(Page::Seq);
 	}
 
 	void Editor::sampleLoaded(const int _track)

@@ -177,9 +177,15 @@ namespace elektron::drums
 
 		// Message thread. A Lock of the Sampler's sample (ticket 07 of the v2 map) on _track's step _step of pattern
 		// _pattern: the Locker's sample of _fingerprint, which a Hit there plays; _name what the status line calls it
-		// should it go missing, which the state keeps
-		void lockSample(int _pattern, int _track, int _step, const juce::String& _fingerprint,
+		// should it go missing, which the state keeps. False where _fingerprint names no sample
+		bool lockSample(int _pattern, int _track, int _step, const juce::String& _fingerprint,
 			const juce::String& _name);
+		// The name a sample Lock's fingerprint was locked with, as the state keeps it; empty where none is kept
+		juce::String lockSampleName(const uint64_t _fingerprint) const
+		{
+			const auto it = m_lockNames.find(_fingerprint);
+			return it != m_lockNames.end() ? it->second : juce::String();
+		}
 		// Message thread, which the timer calls: the samples the patterns' Locks name and this instance lacks, loaded
 		// from another instance of the process that holds them, else from the Locker; the ones the Locker lacks once
 		// its scan is known are missingSamples(), by name, and noticed once. A step whose sample is missing plays the

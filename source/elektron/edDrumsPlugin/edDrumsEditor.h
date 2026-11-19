@@ -101,10 +101,14 @@ namespace elektron::drums
 		bool lockMenuOpen() const { return m_lockMenu; }
 		int lockLanes() const { return static_cast<int>(lockLineList().size()); }
 		int lockScroll() const { return m_lockScroll; }
+		// The step of the Track shown whose sample Lock Browse chooses, -1 for none: a click on a step of the SAMPLE
+		// lane opens Browse on the Locker's samples, where the pointer over a row auditions it and a double-click or
+		// LOCK ON STEP locks it there, then shows Seq again; another page, or another Track, gives it up
+		int pickStep() const { return m_pickStep; }
 		// What a lane draws: the parameter _line (its index) on each step of the Track shown, normalised, at the step's
 		// start and end (they differ where a slide glides), and whether the step holds its own Lock; a step whose condition
 		// may not play it holds none, and may: its Lock's value would. _locks, where given, gets the steps of the 64 that
-		// hold a Lock of it
+		// hold a Lock of it. SampleLock's lane: whether each step locks a sample, its value 0
 		using LaneStep = Locks::LaneStep;
 		std::vector<LaneStep> laneSteps(int _line, int* _locks = nullptr) const;
 		// The timer's work, once
@@ -288,6 +292,9 @@ namespace elektron::drums
 		void loadSample(int _track, const SampleLibrary::Entry& _entry);
 		void sampleLoaded(int _track);
 		void chooseSample(int _track);
+		// The SAMPLE lane's step _step: Browse chosen for it (pickStep); the sample of _entry locked there
+		void pickSample(int _step);
+		void lockPicked(const SampleLibrary::Entry& _entry);
 		// Browse's samples: the list shown, indices in the Locker's entries, then past them in FACTORY's, then past
 		// those in IN THIS SET's (browseEntry), filtered by the segment and the search; for KITS the Slots that hold
 		// one, for TRACK SOUNDS indices in their Library's entries, filtered by the search. LOCKER's segments: what
@@ -337,6 +344,9 @@ namespace elektron::drums
 		std::array<std::vector<int>, 16> m_lockLines;	// Detail's lines added without a Lock yet, parameter indices
 		int m_lockScroll = 0;				// the first lane shown, a multiple of five
 		bool m_lockMenu = false;			// + LOCK's menu open
+		int m_pickStep = -1;				// pickStep()
+		int m_pickPattern = 0;				// ... and its pattern
+		Page m_pressPage = Page::Sound;		// the page the last press fell on
 		int m_browseItem = 0, m_browseScroll = 0;	// in the list shown
 		int m_browseTree = 3, m_browseFilter = 0;	// LIBRARY's entry, the list's segment
 		juce::String m_browseSearch;

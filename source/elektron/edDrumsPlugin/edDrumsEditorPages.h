@@ -127,6 +127,7 @@ namespace elektron::drums::ui
 		std::function<void(int)> steps;
 		std::function<void(float, float)> drag;		// a free drag, its last move in mm
 		std::function<void()> end;					// after a drag
+		std::function<void()> hover;				// on each move of the pointer over it, no button held
 		juce::MouseCursor::StandardCursorType cursor = juce::MouseCursor::PointingHandCursor;
 		bool keepsLocks = false;					// a press here leaves the lock edit as it is
 	};

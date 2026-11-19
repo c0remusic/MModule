@@ -1286,7 +1286,7 @@ namespace elektron::drums
 		}
 	}
 
-	void Processor::lockSample(const int _pattern, const int _track, const int _step, const juce::String& _fingerprint,
+	bool Processor::lockSample(const int _pattern, const int _track, const int _step, const juce::String& _fingerprint,
 		const juce::String& _name)
 	{
 		// A FACTORY sample by its slot, 1 to 32, which a hash of 16 hex digits is not in practice
@@ -1294,9 +1294,10 @@ namespace elektron::drums
 		const uint64_t fingerprint = factory ? static_cast<uint64_t>(factory)
 			: SampleLibrary::fingerprintValue(_fingerprint);
 		if(!fingerprint)
-			return;
+			return false;
 		m_lockNames[fingerprint] = _name;
 		editSequencer([&](Sequencer& _s) { _s.pattern(_pattern).setLock(_track, _step, SampleLock, 0, fingerprint); });
+		return true;
 	}
 
 	// The Locker's sample of _fingerprint: FACTORY's, a source's file, or IN THIS SET's copy; null where none is
