@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "edDrumsDt2Stages.h"
 #include "edDrumsMaster.h"
 #include "edDrumsOversampler.h"
 #include "edDrumsVintage.h"
@@ -35,6 +36,8 @@ namespace elektron::drums
 		Dac,		// the vintage PCM DAC (edDrumsVintage.h), after the others: stored choices keep their numbers
 		Overdrive,	// the Digitakt II's, the master's saturator alone (edDrumsMaster.h)
 		CyclesDist,	// the Model:Cycles' VOL+DIST stage, AMOUNT its one knob (edDrumsMaster.h)
+		Dt2Br,		// the Digitakt II's BR and SRR (edDrumsDt2Stages.h)
+		Dt2Srr,
 		Count
 	};
 
@@ -44,6 +47,7 @@ namespace elektron::drums
 		BaseWidth,
 		MdEq,
 		ThreeBand,
+		Dt2BaseWidth,	// the Digitakt II's base-width (edDrumsDt2Stages.h)
 		Count
 	};
 
@@ -231,8 +235,8 @@ namespace elektron::drums
 	private:
 		enum Place { Pre0, Pre1, BandBefore, FilterPlace, BandAfter, Post0, Post1, Places };
 
-		// Off, then the stages of a place: the drives' six, the band's and the filter's three
-		static constexpr int Types = 7;
+		// Off, then the stages of a place: the drives' eight, the band's and the filter's three
+		static constexpr int Types = 9;
 		static constexpr int8_t NoPending = -1;
 
 		struct DriveStages
@@ -244,13 +248,15 @@ namespace elektron::drums
 			vintage::Dac dac;
 			Overdrive overdrive;
 			CyclesDist cyclesDist;
+			Dt2Br dt2Br;
+			Dt2Srr dt2Srr;
 			std::array<Oversampler, Types> rates;		// by DriveType: a raised drive's history is its own
 		};
 
 		struct BandStages
 		{
 			explicit BandStages(double _rate);
-			syntakt::fast::BaseWidth baseWidth;
+			syntakt::fast::BaseWidth baseWidth, dt2BaseWidth;
 			md::fast::Eq eq;
 			ThreeBand threeBand;
 		};

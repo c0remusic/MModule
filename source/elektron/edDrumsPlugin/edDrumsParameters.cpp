@@ -15,7 +15,8 @@ namespace elektron::drums::parameters
 {
 	namespace
 	{
-		constexpr const char* DriveTypes = "Off|Saturate|Distort|Downsample|DAC|Overdrive|Cycles dist";
+		constexpr const char* DriveTypes = "Off|Saturate|Distort|Downsample|DAC|Overdrive|Cycles dist|Bit reduce"
+			"|SR reduce";
 		constexpr const char* OutputNames = "Main|Out 01|Out 02|Out 03|Out 04|Out 05|Out 06|Out 07|Out 08|Out 09"
 			"|Out 10|Out 11|Out 12|Out 13|Out 14|Out 15";
 		constexpr const char* Targets = "None|Drive A|Drive B|EQ A|EQ B|Cutoff|Resonance|Width|Env Depth";
@@ -304,6 +305,9 @@ namespace elektron::drums::parameters
 			case DriveType::Overdrive:	return _v == 0 ? "OFF" : gain(masterDriveGain(static_cast<uint8_t>(_v)));
 			// The Cycles' VOL+DIST (CyclesDist::set): dry up to 60, then the gain into the curve
 			case DriveType::CyclesDist:	return _v <= 60 ? "OFF" : gain(CyclesDist::gain(_v));
+			// The DT2's BR: the bits it keeps; its SRR: the mixed hold, in samples at 48 kHz
+			case DriveType::Dt2Br:		return _v == 0 ? "OFF" : withUnit(Dt2Br::bits(_v), "BIT");
+			case DriveType::Dt2Srr:		return _v == 0 ? "OFF" : withUnit(Dt2Srr::hold(_v) + 1, "x");
 			default:					return std::to_string(_v);
 			}
 		}
@@ -569,15 +573,15 @@ namespace elektron::drums::parameters
 	}
 
 	const std::array<Spec, ChainValues> chainSpecs{{
-		{"drv1_type", "Drive 1 Type", 0, 6, DriveTypes},
+		{"drv1_type", "Drive 1 Type", 0, 8, DriveTypes},
 		{"drv1_post", "Drive 1 Place", 0, 1, nullptr, true},
 		{"drv1_amount", "Drive 1 Amount"},
 		{"drv1_mix", "Drive 1 Mix"},
-		{"drv2_type", "Drive 2 Type", 0, 6, DriveTypes},
+		{"drv2_type", "Drive 2 Type", 0, 8, DriveTypes},
 		{"drv2_post", "Drive 2 Place", 0, 1, nullptr, true},
 		{"drv2_amount", "Drive 2 Amount"},
 		{"drv2_mix", "Drive 2 Mix"},
-		{"band_type", "EQ Type", 0, 3, "Off|Cuts|Peak|3 Band"},
+		{"band_type", "EQ Type", 0, 4, "Off|Cuts|Peak|3 Band|Fine cuts"},
 		{"band_after", "EQ Place", 0, 1, nullptr, true},
 		{"band_1", "EQ 1"}, {"band_2", "EQ 2"}, {"band_3", "EQ 3"},
 		{"band_4", "EQ 4"}, {"band_5", "EQ 5"}, {"band_6", "EQ 6"},

@@ -287,13 +287,18 @@ namespace elektron::drums
 
 	Chain::DriveStages::DriveStages(const double _rate)
 		: dist(rate::fastFir()), srr(_rate), dac(_rate), overdrive(rate::fastFir()), cyclesDist(rate::fastFir()),
+		  dt2Srr(_rate),
 		  rates{Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()),
 			Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()),
+			Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()),
 			Oversampler(_rate, rate::fastFir())}
 	{
 	}
 
-	Chain::BandStages::BandStages(const double _rate) : baseWidth(_rate), eq(_rate) {}
+	Chain::BandStages::BandStages(const double _rate)
+		: baseWidth(_rate), dt2BaseWidth(_rate, dt2BaseWidthPole), eq(_rate)
+	{
+	}
 	Chain::FilterStages::FilterStages(const double _rate)
 		: syntakt(_rate), syntaktOther(_rate), machinedrum(_rate, rate::fastFir())
 	{
@@ -333,8 +338,10 @@ namespace elektron::drums
 
 	bool Chain::raised(const bool _post, const int _type) const
 	{
-		// SRR's and the DAC's hold fold the spectrum down: that is their sound, which a raised rate would take away
-		if(m_factor == 1 || _type == static_cast<int>(DriveType::MdSrr) || _type == static_cast<int>(DriveType::Dac))
+		// SRR's and the DAC's hold fold the spectrum down: that is their sound, which a raised rate would take away;
+		// the DT2's BR and SRR, the same
+		if(m_factor == 1 || _type == static_cast<int>(DriveType::MdSrr) || _type == static_cast<int>(DriveType::Dac)
+			|| _type == static_cast<int>(DriveType::Dt2Br) || _type == static_cast<int>(DriveType::Dt2Srr))
 			return false;
 		// A firmware's drive where its firmware has it stays that firmware's
 		return m_syntakt ? !(_type == static_cast<int>(DriveType::Syntakt) && !_post)
@@ -362,6 +369,8 @@ namespace elektron::drums
 				_function(s.eq, MdEqLevel);
 			else if(_type == static_cast<int>(BandType::ThreeBand))
 				_function(s.threeBand, StageLevel{1, 1});
+			else if(_type == static_cast<int>(BandType::Dt2BaseWidth))
+				_function(s.dt2BaseWidth, StageLevel{1, 1});
 		}
 		else
 		{
@@ -378,6 +387,10 @@ namespace elektron::drums
 				_function(s.overdrive, StageLevel{1, 1});
 			else if(_type == static_cast<int>(DriveType::CyclesDist))
 				_function(s.cyclesDist, StageLevel{1, 1});
+			else if(_type == static_cast<int>(DriveType::Dt2Br))
+				_function(s.dt2Br, StageLevel{1, 1});
+			else if(_type == static_cast<int>(DriveType::Dt2Srr))
+				_function(s.dt2Srr, StageLevel{1, 1});
 		}
 	}
 
@@ -454,6 +467,8 @@ namespace elektron::drums
 		case DriveType::Dac:		s.dac.set(_lane, amount); break;
 		case DriveType::Overdrive:	s.overdrive.set(_lane, amount); break;
 		case DriveType::CyclesDist:	s.cyclesDist.set(_lane, amount); break;
+		case DriveType::Dt2Br:		s.dt2Br.set(_lane, amount); break;
+		case DriveType::Dt2Srr:		s.dt2Srr.set(_lane, amount); break;
 		default:					break;
 		}
 		m_mix[_place][_lane] = static_cast<float>(_drive.mix) / 127.0f;
@@ -471,6 +486,9 @@ namespace elektron::drums
 		{
 		case BandType::BaseWidth:
 			s.baseWidth.set(_lane, word(0, a) << 1, word(1, b) << 1);
+			break;
+		case BandType::Dt2BaseWidth:
+			s.dt2BaseWidth.set(_lane, dt2BaseWidthKnob(word(0, a)), dt2BaseWidthKnob(word(1, b)));
 			break;
 		case BandType::MdEq:
 			s.eq.set(_lane, word(0, a), word(1, b));
@@ -796,11 +814,19 @@ namespace elektron::drums
 		stepEnvelopes(_active);
 		m_live = _active;
 
-		// The Track's RST, which the Syntakt's BASE/WIDTH reads from where a Hit sounds
+		// The Track's RST, which the Syntakt's BASE/WIDTH reads from where a Hit sounds, and the DT2's SRR
 		for(int l = 0; m_reset && l < Lanes; ++l)
 			if(m_reset >> l & 1)
+			{
 				for(auto& band : m_bands)
+				{
 					band.baseWidth.clear(l);
+					band.dt2BaseWidth.clear(l);
+				}
+				for(const int p : {Pre0, Pre1, Post0, Post1})
+					if(m_type[static_cast<size_t>(p)][static_cast<size_t>(l)] == static_cast<int>(DriveType::Dt2Srr))
+						driveAt(p).dt2Srr.hit(l);
+			}
 		m_reset = m_resetNext;
 		m_resetNext = 0;
 

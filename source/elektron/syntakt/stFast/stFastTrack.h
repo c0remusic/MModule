@@ -35,7 +35,10 @@ namespace syntakt::fast
 	class BaseWidth
 	{
 	public:
-		explicit BaseWidth(double _rate = MachineRate);
+		// _pole, where given, the table's pole at an index and a rate in place of the Syntakt's (the Digitakt II's:
+		// edDrumsDt2Stages.h)
+		using Pole = double (*)(int _index, double _rate);
+		explicit BaseWidth(double _rate = MachineRate, Pole _pole = nullptr);
 		void set(int _lane, int _base, int _width);
 		void process(Block& _buf, uint16_t _lanes = 0xffff);
 		void clear(int _lane) { m_low[_lane] = m_high[_lane] = 0; }

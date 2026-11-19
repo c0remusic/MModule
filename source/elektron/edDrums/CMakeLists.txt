@@ -7,7 +7,8 @@ add_library(edDrums STATIC edDrumsAnalog.h edDrumsAnalogPort.h edDrumsAnalogShar
 	edDrumsAnalogSynth.cpp edDrumsAnalogSynthVoice.cpp edDrumsAnalogUtility.cpp edDrumsAnalogUtilityVoice.cpp
 	edDrumsAnalogRates.h edDrumsAnalogRates.cpp edDrumsAnalogMetal.cpp edDrumsAnalogMetalVoice.cpp
 	edDrumsRytm.h edDrumsRytmControl.cpp edDrumsRytmVoice.h edDrumsRytmVoice.cpp
-	edDrumsChain.h edDrumsChain.cpp edDrumsDt2Player.h edDrumsDt2Player.cpp edDrumsLayer.h edDrumsLayer.cpp
+	edDrumsChain.h edDrumsChain.cpp edDrumsDt2Stages.h edDrumsDt2Stages.cpp
+	edDrumsDt2Player.h edDrumsDt2Player.cpp edDrumsLayer.h edDrumsLayer.cpp
 	edDrumsEngine.h edDrumsEngine.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
 	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
 	edDrumsOversamplerKernel.h edDrumsOversamplerAvx2.cpp edDrumsMasterAvx2.cpp
@@ -63,6 +64,14 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsCyclesDistTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsCyclesDistTest COMMAND edDrumsCyclesDistTest)
 	set_tests_properties(edDrumsCyclesDistTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
+
+	# The Digitakt II's BR, SRR and base-width against the stages run in its OS (DT2_VECTORS, vectors-dt2: exit 77
+	# without them), 16 lanes against 1, 44.1 against 48 kHz, their cost
+	add_executable(edDrumsDt2StagesTest edDrumsDt2StagesTest.cpp)
+	target_link_libraries(edDrumsDt2StagesTest PRIVATE edDrums)
+	set_property(TARGET edDrumsDt2StagesTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsDt2StagesTest COMMAND edDrumsDt2StagesTest)
+	set_tests_properties(edDrumsDt2StagesTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
 
 	# The Sampler's DT2 player in ONESHOT against the Digitakt II's voice run in its OS (DT2_VECTORS, vectors-dt2: exit 77
 	# without them), its 16 lanes against 1, 44.1 against 48 kHz, its cost

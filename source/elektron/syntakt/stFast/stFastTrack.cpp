@@ -106,13 +106,14 @@ namespace syntakt::fast
 
 	// ---- BASE/WIDTH ----
 
-	BaseWidth::BaseWidth(const double _rate)
+	BaseWidth::BaseWidth(const double _rate, const Pole _pole)
 	{
 		// exp(-w) at 5 Hz up an equal scale, bent under the top, where it stops at an index of 508. The bend is a fit
 		for(int i = 0; i < 1024; ++i)
 		{
 			const double w = 2 * Pi * 5 * std::exp(0.01769 * i) / _rate;
-			m_table[i] = i >= 508 ? 0 : std::exp(-w / std::pow(1 + std::pow(w / 3.44, 2.82), 1 / 2.82));
+			m_table[i] = _pole ? _pole(i, _rate) : i >= 508 ? 0
+				: std::exp(-w / std::pow(1 + std::pow(w / 3.44, 2.82), 1 / 2.82));
 		}
 		for(int l = 0; l < Lanes; ++l)
 			set(l, 0, 0x7f00);

@@ -1046,11 +1046,11 @@ namespace elektron::drums
 			block(x, y, w, "b", "EQ", hue::b, 53.5f, 2);
 			const int type = choiceOf(t("band_type")->getParameterID());
 			const int t2 = title(t("band_type"), x + w - 28, y, 30, hue::b, "b");
-			m_cells[static_cast<size_t>(t2)].labels = {"OFF", "CUTS", "PEAK", "3 BAND"};
+			m_cells[static_cast<size_t>(t2)].labels = {"OFF", "CUTS", "PEAK", "3 BAND", "FINE CUTS"};
 			segments(t("band_after"), "PLACE", x + w - 26, y, 22, {"PRE", "POST"}, hue::b, "b");
-			const std::array<juce::StringArray, 4> names{{{}, {"HPF", "LPF"}, {"PEAK FREQ", "PEAK GAIN"},
-				{"LOW F", "LOW G", "MID F", "MID G", "HIGH F", "HIGH G"}}};
-			const auto& n = names[static_cast<size_t>(juce::jlimit(0, 3, type))];
+			const std::array<juce::StringArray, 5> names{{{}, {"HPF", "LPF"}, {"PEAK FREQ", "PEAK GAIN"},
+				{"LOW F", "LOW G", "MID F", "MID G", "HIGH F", "HIGH G"}, {"HPF", "LPF"}}};
+			const auto& n = names[static_cast<size_t>(juce::jlimit(0, 4, type))];
 			const float cw3 = (w - 2) / 3;
 			for(int i = 0; i < 6; ++i)
 			{
@@ -1301,7 +1301,8 @@ namespace elektron::drums
 			{
 				const float u = static_cast<float>(i) / 240;
 				float l = 0;
-				if(type == 1)
+				// CUTS and the DT2's: the same shape, BASE and WIDTH
+				if(type == 1 || type == 4)
 				{
 					const float lo = b(1), hi = std::min(1.0f, b(1) + b(2));
 					l = 2 * sig(u - lo) * (1 - sig(u - hi)) - 1;
