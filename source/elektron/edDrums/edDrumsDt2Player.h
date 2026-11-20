@@ -56,7 +56,10 @@ namespace elektron::drums
 		// 1/32, 1/16 or 1/8 of it, Machine 5 SEGMENT, steps on by a segment over 2^BARS every as much of a note at the
 		// tempo, Machine 4 BARS, the sample crossed in 1 to 8 bars; the voice plays at TUNE's pitch and stops where its
 		// read passes the window's end; PLAY's direction and loop; the Digitakt II's ColdFire and SHARC run at the
-		// oracle, ticket 11); SLICE and STRETCH play as ONESHOT until their tickets (12, 13)
+		// oracle, ticket 11); STRETCH (STRT and LEN over 2^BARS bars at the tempo, Machine 4 BARS, at TUNE's pitch: a
+		// grain of the sample read every 2048 outputs from where the time has reached, faded in over 128 as the last fades
+		// out, rendered at the output rate without the kernel; PLAY's direction and loop; ticket 13); SLICE plays as
+		// ONESHOT until its ticket (12)
 		enum PlayerMode : int
 		{
 			OneShot, Grid, Repitch, Werp, SliceMode, Stretch
@@ -84,7 +87,7 @@ namespace elektron::drums
 
 		// The samples it plays from the next block (nullptr: none, every lane silent)
 		void setSamples(const Dt2Samples* _samples) { m_samples = _samples; }
-		// The tempo REPITCH plays at, from the next block (120 at construction)
+		// The tempo REPITCH and STRETCH play at, from the next block (120 at construction)
 		void setTempo(const double _bpm) { m_bpm = _bpm; }
 		// The rate it renders at (48 kHz at construction, the Syntakt family's), set before its voices start: a voice's
 		// step is taken at its start, REPITCH's at each block. The sample layer's player renders at its chain's, 44.1 kHz
@@ -137,6 +140,13 @@ namespace elektron::drums
 			bool werp = false, werpLive = false, werpFresh = false;
 			int werpBars = 0;
 			int64_t werpStride = 0, werpPos = 0, werpAcc = 0;
+			// STRETCH: the grain fading in (grain), the one fading out held as an offset behind it (behind, as the DSP
+			// holds it: the two go round a looped portion together), and where the last grain started (timeline), in
+			// source samples with a 31-bit fraction; the outputs since that grain started; a forward loop gone past the
+			// sample's end, which starts the grains again at the next
+			bool stretch = false, stretchRestart = false;
+			int64_t grain = 0, behind = 0, timeline = 0;
+			int grainAge = 0;
 			double x[4]{}, y[4]{};	// the half-band's all-pass state, newest first
 			float oddTail[4]{};		// the last block's last four odd samples at 96 kHz, the odd branch's delay
 		};
@@ -147,6 +157,12 @@ namespace elektron::drums
 		void werpFrame(Lane& _v, bool _trig);
 		static void werpWindow(Lane& _v);
 		void render96(int _l, float* _work);
+		// STRETCH: the step, and how far the time moves a grain, as the DSP holds them (a 31-bit fraction); the grains
+		// as at the trig; the block straight at the output rate (ticket 13)
+		int64_t stretchStep(int _l) const;
+		int64_t stretchAdvance(const Lane& _v) const;
+		void stretchStart(Lane& _v) const;
+		void renderStretch(int _l, bool _fadeOut, float* _out);
 		// ... to 32 at the output rate into _out; _fadeOut ramps the block to silence (a trig's block)
 		void decimate(int _l, const float* _work, bool _fadeOut, float* _out);
 

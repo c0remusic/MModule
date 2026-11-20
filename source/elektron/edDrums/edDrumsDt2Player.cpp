@@ -62,6 +62,18 @@ namespace elektron::drums
 		{
 			return std::clamp(_word / WordFull, 0.0, 1.0);
 		}
+
+		// STRETCH, as the Digitakt II's DSP plays it (0x1c5576, the voice oracle, ticket 13): a grain every GrainHop
+		// outputs, faded in linearly over GrainFade (weight n / 127) while the last fades out; the time moves a grain
+		// the portion over 2^BARS bars at the tempo times GrainHop, the ratio held to [1/8, 4]. Positions in source
+		// samples with a 31-bit fraction, as the DSP's
+		constexpr int GrainHop = 2048, GrainFade = 128;
+		constexpr double SlowestStretch = 0.125, FastestStretch = 4;
+		constexpr int64_t Unit = int64_t{1} << 31;
+		// The block whose read would reach this many outputs on past the end is the last (a reversed read: past the
+		// start less ReverseBelow, never below the sample's first), faded over the block: ONESHOT's rule, as the
+		// oracle's ends show it
+		constexpr int StretchLookAhead = 64;
 	}
 
 	double Dt2Player::kernelAt(const double _t)
@@ -172,6 +184,13 @@ namespace elektron::drums
 		}
 		v.reverse = play == Reverse || play == ReverseLoop;
 		v.loop = play == ForwardLoop || play == ReverseLoop;
+		v.stretch = mode == Stretch;
+		if(v.stretch)
+		{
+			// The portion's end on a whole sample, as the DSP's; the loop goes round the whole portion (Machine 4 is BARS)
+			v.end = std::floor(v.end);
+			v.loopAt = v.start;
+		}
 		v.werp = mode == Werp;
 		if(v.werp)
 		{
@@ -183,6 +202,8 @@ namespace elektron::drums
 		v.position = v.reverse ? v.end - ReverseFrom : v.start;
 		if(v.end <= v.start)
 			v.playing = false;
+		if(v.stretch)
+			stretchStart(v);
 		std::fill(std::begin(v.x), std::end(v.x), 0.0);
 		std::fill(std::begin(v.y), std::end(v.y), 0.0);
 		std::fill(std::begin(v.oddTail), std::end(v.oddTail), 0.0f);
@@ -324,6 +345,127 @@ namespace elektron::drums
 			v.playing = false;
 	}
 
+	int64_t Dt2Player::stretchStep(const int _l) const
+	{
+		// TUNE and the note's pitch at the output rate, a float as the DSP's (its 96 kHz step doubled), then its fraction
+		const auto pitch = static_cast<float>(2 * m_stepOf[_l]);
+		return std::llround(pitch * m_lane[static_cast<size_t>(_l)].rate * static_cast<double>(Unit));
+	}
+
+	int64_t Dt2Player::stretchAdvance(const Lane& _v) const
+	{
+		// The portion over 2^BARS bars of four beats at the tempo, in source samples an output, held to [1/8, 4]; a
+		// grain's worth in floats, as the DSP's
+		const double ratio = (_v.end - _v.start) / (_v.bars * 4 * 60 / m_bpm * m_outRate);
+		const auto held = static_cast<float>(std::clamp(ratio, SlowestStretch, FastestStretch));
+		return static_cast<int64_t>(static_cast<double>(held * static_cast<float>(GrainHop)) * static_cast<double>(Unit));
+	}
+
+	void Dt2Player::stretchStart(Lane& _v) const
+	{
+		// From the start, or the end's last sample reversed: the time a grain back, a grain starting at once, so that the
+		// first block fades into the first grain from the one that would have started a grain back (the oracle's first
+		// block)
+		const int64_t d = _v.reverse ? -1 : 1;
+		const auto origin = static_cast<int64_t>(_v.reverse ? _v.end - 1 : _v.start) * Unit;
+		_v.timeline = origin - d * stretchAdvance(_v);
+		_v.grainAge = GrainHop;
+		_v.stretchRestart = false;
+	}
+
+	void Dt2Player::renderStretch(const int _l, const bool _fadeOut, float* _out)
+	{
+		Lane& v = m_lane[static_cast<size_t>(_l)];
+		if(m_samples)
+		{
+			const auto& slot = m_samples->slots[static_cast<size_t>(_l)];
+			v.pcm = slot.pcm;
+			v.length = slot.pcm ? slot.length : 0;
+		}
+		const int64_t step = stretchStep(_l), d = v.reverse ? -1 : 1;
+		const auto start = static_cast<int64_t>(v.start) * Unit, end = static_cast<int64_t>(v.end) * Unit;
+		// A loop goes round at least StartMargin samples, as the DSP's (st_noise_tiny_loop: a LEN of 100 samples reads 141)
+		const int64_t span = std::max(end - start, static_cast<int64_t>(StartMargin) * Unit);
+		const int64_t whole = static_cast<int64_t>(v.length) * Unit;
+		if(v.grainAge >= GrainHop)
+		{
+			// A loop that went past the sample's end starts the grains again from STRT, as at the trig (a reversed one
+			// goes on). The time moves a grain on and a grain starts there; the last one fades out a grain's read on from
+			// where it started, held as the offset between the two before the time goes round a looped portion
+			if(v.stretchRestart)
+				stretchStart(v);
+			int64_t next = v.timeline + d * stretchAdvance(v);
+			v.behind = next - (v.timeline + d * step * GrainHop);
+			// (a portion shorter than the time's move goes round as often as it takes: the DSP plays on there, its grains
+			// not identified)
+			while(v.loop && !v.reverse && next >= end)
+				next -= span;
+			while(v.loop && v.reverse && next < start)
+				next += span;
+			v.timeline = v.grain = next;
+			v.grainAge = 0;
+		}
+		// Unlooped, the block whose read would pass the end is the last, faded out
+		bool last = false;
+		if(!v.loop)
+		{
+			const auto floor = static_cast<int64_t>(std::max(v.start - ReverseBelow, 0.0)) * Unit;
+			last = v.reverse ? v.grain - StretchLookAhead * step < floor : v.grain + StretchLookAhead * step >= end;
+		}
+		const int16_t* const pcm = v.pcm;
+		const auto length = static_cast<int64_t>(v.length);
+		const auto at = [pcm, length](const int64_t _i)
+		{
+			return _i >= 0 && _i < length ? static_cast<float>(pcm[_i]) : 0.0f;
+		};
+		int64_t grain = v.grain;
+		const int64_t behind = v.behind;
+		bool restart = v.stretchRestart;
+		for(int n = 0; n < BlockSize; ++n)
+		{
+			const int age = v.grainAge + n;
+			const float in = age < GrainFade ? static_cast<float>(age) / (GrainFade - 1) : 1.0f;
+			// The grain fading out reads round the sample past its end (reversed, past its first)
+			int64_t lastGrain = grain - behind;
+			if(!v.reverse && lastGrain >= whole)
+				lastGrain -= whole;
+			else if(v.reverse && lastGrain < 0)
+				lastGrain += whole;
+			// Both read linearly with the fading-in grain's fraction (the DSP's loop takes it for both)
+			const float f = static_cast<float>(grain & (Unit - 1)) / static_cast<float>(Unit);
+			const int64_t i = grain >> 31, j = lastGrain >> 31;
+			const float a = at(i) + (at(i + 1) - at(i)) * f;
+			float y = a;
+			if(in < 1)
+			{
+				const float b = at(j) + (at(j + 1) - at(j)) * f;
+				y = a * in + b * (1 - in);
+			}
+			float gain = last ? static_cast<float>(BlockSize - 1 - n) / (BlockSize - 1) : 1.0f;
+			if(_fadeOut)
+				gain *= 1 - static_cast<float>(n) / BlockSize;
+			_out[n] = y * gain / 32768;
+			grain += d * step;
+			if(v.loop)
+			{
+				// Round the portion, the grain fading out with it; past the sample's own end, the grains start again at
+				// the next grain
+				if(!v.reverse && grain >= end)
+				{
+					grain -= span;
+					restart = restart || end == whole;
+				}
+				else if(v.reverse && grain <= start)
+					grain += span;
+			}
+		}
+		v.grain = grain;
+		v.stretchRestart = restart;
+		v.grainAge += BlockSize;
+		if(last)
+			v.playing = false;
+	}
+
 	void Dt2Player::decimate(const int _l, const float* _work, const bool _fadeOut, float* _out)
 	{
 		Lane& v = m_lane[static_cast<size_t>(_l)];
@@ -356,9 +498,14 @@ namespace elektron::drums
 			std::fill_n(_out, BlockSize, 0.0f);
 			return;
 		}
-		alignas(16) float work[Work];
-		render96(_lane, work);
-		decimate(_lane, work, _fadeOut, _out);
+		if(v.stretch)
+			renderStretch(_lane, _fadeOut, _out);
+		else
+		{
+			alignas(16) float work[Work];
+			render96(_lane, work);
+			decimate(_lane, work, _fadeOut, _out);
+		}
 		if(_fadeOut)
 			v.playing = false;
 	}

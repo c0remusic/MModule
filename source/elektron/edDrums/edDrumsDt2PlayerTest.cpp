@@ -1,13 +1,14 @@
-// The Sampler's DT2 player in ONESHOT (ticket 04 of .scratch/elektron-drums-v2) against the Digitakt II's voice run in
-// its OS (DT2_VECTORS, the folder dt2_voice_oracle.py wrote: per case the sample, the voice's 48 kHz output and its
-// settings), on every ONESHOT case:
-//   - the player's output, scaled by the oracle's DC gain, nulled against the voice column: SNR at least the bound each
-//     case states (the Hits 45 dB, the sines 45, the broadband cases 27: our own kernel, fitted, not the firmware's);
+// The Sampler's DT2 player (tickets 04, 05, 11 and 13 of .scratch/elektron-drums-v2) against the Digitakt II's voice
+// run in its OS (DT2_VECTORS, the folder dt2_voice_oracle.py and its siblings wrote: per case the sample, the voice's
+// 48 kHz output and its settings), on every case:
+//   - the player's output, scaled by the oracle's DC gain (STRETCH's voice has no kernel, no gain), nulled against the
+//     voice column: SNR at least the bound each case states (the Hits 45 dB, the sines 45, the broadband cases 27: our
+//     own kernel, fitted, not the firmware's; STRETCH 60, its grains read linearly as the DSP's);
 //   - Q4 on top: the 1 ms envelope within 0.1 dB where the oracle is above its peak - 40 dB, a sine's pitch within 1 cent;
 //   - 16 lanes on the same case give lane 0's samples, and 4 lanes rendered alone give those of 16;
 //   - Q15: the same Hits at 44.1 kHz through Host against 48 kHz: 10 ms envelopes within 0.2 dB, third octaves to
 //     16 kHz within 0.5 dB;
-//   - the cost of 16 lanes playing, printed.
+//   - the cost of 16 lanes playing, in ONESHOT and in STRETCH, printed.
 // Exit 77 without the vectors, once the rest has run.
 #include <algorithm>
 #include <chrono>
@@ -106,13 +107,23 @@ namespace
 		// noise, against 30 around it) whatever the lag (ReverseLoopLag, the best of 0 to 7): not identified; the blocks
 		// between agree to the forward cases'
 		{"wp_revl_sine", 20, true, false, 38},
+		// STRETCH (ticket 13): grains at the tempo, at TUNE's pitch, at the output rate without the kernel. The oracle's
+		// products are floored (a sample 2 LSB low where positive), which a quiet Hit shows (its reversed tail, ~20 LSB,
+		// or its middle, ~570 LSB, at STRT 60): those cases play noise
+		{"st_hit_ratio1", 60, false}, {"st_hit_ratio05", 60, false}, {"st_hit_ratio1_up12", 60, false},
+		{"st_hit_down12", 60, false}, {"st_hit_note72_bars2", 60, false}, {"st_hit_ratio25", 60, false},
+		{"st_hit_ratio_clamp4", 60, false}, {"st_noise_frac", 60, false}, {"st_noise_rev", 60, false},
+		{"st_hit_short_end", 60, false}, {"st_hit_short_rev", 60, false}, {"st_noise_strt60_len6", 60, false},
+		{"st_noise_strt60_len6_rev", 60, false}, {"st_hit_short_loop", 60, false}, {"st_hit_short_revloop", 60, false},
+		{"st_noise_short_loop_frac", 60, false}, {"st_noise_short_revloop_frac", 60, false},
+		{"st_noise_strt60_len6_loop", 60, false},
 	};
 
 	struct Settings
 	{
 		double tune = 64, note = 60, strt = 0, len = 120, loopPos = 0, bpm = 120;
 		bool reverse = false, loop = false;
-		int blocks = 0, selector = 0, bars = 0;	// selector 0 ONESHOT, 1 WERP, 3 REPITCH, 4 GRID; bars BARS, or GRID's G
+		int blocks = 0, selector = 0, bars = 0;	// selector 0 ONESHOT, 1 WERP, 2 STRETCH, 3 REPITCH, 4 GRID; bars BARS, or GRID's G
 		// WERP: PLAY as the Digitakt II numbers it (0 REV, 1 REV.L, 2 FWD.L, 3 FWD), SEG and BARS
 		int werpPlay = 3, werpSegment = 0, werpBars = 0;
 	};
@@ -131,8 +142,7 @@ namespace
 		s.selector = static_cast<int>(number(_json, "selector"));
 		s.bars = static_cast<int>(number(_json, "bars"));
 		s.bpm = number(_json, "bpm");
-		require(s.selector == 0 || s.selector == 1 || s.selector == 3 || s.selector == 4,
-			"not an ONESHOT, WERP, REPITCH or GRID case");
+		require(s.selector >= 0 && s.selector <= 4, "not an ONESHOT, WERP, STRETCH, REPITCH or GRID case");
 		if(s.selector == 1)
 		{
 			const auto werp = _json.substr(_json.find("\"werp\":"));
@@ -165,9 +175,9 @@ namespace
 			play = Plays[_s.werpPlay];
 		}
 		_p.setParameter(_lane, Dt2Player::Play, static_cast<uint8_t>(play * 32), 0);
-		// MODE a sixth of the range each (Dt2Player::modeOf): ONESHOT 0, GRID 1, REPITCH 2, WERP 3
-		const int mode = _s.selector == 1 ? Dt2Player::Werp : _s.selector == 3 ? Dt2Player::Repitch
-			: _s.selector == 4 ? Dt2Player::Grid : Dt2Player::OneShot;
+		// MODE a sixth of the range each (Dt2Player::modeOf): ONESHOT 0, GRID 1, REPITCH 2, WERP 3, STRETCH 5
+		const int mode = _s.selector == 1 ? Dt2Player::Werp : _s.selector == 2 ? Dt2Player::Stretch
+			: _s.selector == 3 ? Dt2Player::Repitch : _s.selector == 4 ? Dt2Player::Grid : Dt2Player::OneShot;
 		_p.setParameter(_lane, Dt2Player::Mode, static_cast<uint8_t>(mode * 128 / 6 + 10), 0);
 		if(_s.selector == 1)
 		{
@@ -192,9 +202,9 @@ namespace
 		}
 		setFraction(_p, _lane, Dt2Player::Start, _s.strt);
 		setFraction(_p, _lane, Dt2Player::Length, _s.len);
-		if(_s.selector == 3)
+		if(_s.selector == 3 || _s.selector == 2)
 		{
-			// BARS: Dt2Player::barsOf, a fifth of the range each
+			// BARS: Dt2Player::barsOf, a fifth of the range each (REPITCH's and STRETCH's)
 			const auto value = static_cast<uint8_t>(_s.bars * 26);
 			require(Dt2Player::barsOf(value) == _s.bars, "the test's BARS value does not give the case's bars");
 			_p.setParameter(_lane, Dt2Player::Loop, value, 0);
@@ -203,8 +213,8 @@ namespace
 		setFraction(_p, _lane, Dt2Player::Loop, _s.loopPos);
 	}
 
-	// _blocks of lane _lane after the trig's block, at the oracle's gain
-	std::vector<double> render(Dt2Player& _p, const int _lane, const int _blocks)
+	// _blocks of lane _lane after the trig's block, at the oracle's gain (STRETCH's voice has none: no kernel)
+	std::vector<double> render(Dt2Player& _p, const int _lane, const int _blocks, const double _gain = Dt2Player::DcGain)
 	{
 		std::vector<double> y;
 		y.reserve(static_cast<size_t>(_blocks) * BlockSize);
@@ -213,7 +223,7 @@ namespace
 		{
 			const Block& out = _p.renderBlock();
 			for(int n = 0; n < BlockSize; ++n)
-				y.push_back(out.s[n][_lane] * Dt2Player::DcGain);
+				y.push_back(out.s[n][_lane] * _gain);
 		}
 		return y;
 	}
@@ -265,7 +275,7 @@ namespace
 			p->setSamples(&l.samples);
 			apply(*p, 0, l.settings);
 			p->trig(0);
-			auto y = render(*p, 0, l.settings.blocks);
+			auto y = render(*p, 0, l.settings.blocks, l.settings.selector == 2 ? 1.0 : Dt2Player::DcGain);
 			auto voice = l.voice;
 			if(c.openLastBlock)
 			{
@@ -438,8 +448,8 @@ namespace
 		require(worstBand <= 0.5, "Q15: a third octave at 44.1 kHz is off by more than 0.5 dB");
 	}
 
-	// ---- the cost: 16 lanes looping a sample ----
-	void cost()
+	// ---- the cost: 16 lanes looping a sample, in ONESHOT (the 96 kHz kernel) or STRETCH ----
+	void cost(const Dt2Player::PlayerMode _mode)
 	{
 		std::vector<int16_t> pcm(48000);
 		for(size_t i = 0; i < pcm.size(); ++i)
@@ -454,6 +464,7 @@ namespace
 			p->setParameter(lane, Dt2Player::Play, Dt2Player::ForwardLoop * 32, 0);
 			p->setParameter(lane, Dt2Player::Length, 127, 0);
 			p->setParameter(lane, Dt2Player::Tune, static_cast<uint8_t>(60 + lane), 0);
+			p->setParameter(lane, Dt2Player::Mode, static_cast<uint8_t>(_mode * 128 / 6 + 10), 0);
 			p->trig(lane);
 		}
 		p->renderBlock();
@@ -466,8 +477,63 @@ namespace
 				p->renderBlock();
 			best = std::min(best, std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
 		}
-		std::printf("cost: 16 lanes playing, %.3f %% of a core at 48 kHz (%.2f us a block)\n",
-			100 * best / (Blocks * BlockSize / 48000.0), 1e6 * best / Blocks);
+		std::printf("cost: 16 lanes playing %s, %.3f %% of a core at 48 kHz (%.2f us a block)\n",
+			_mode == Dt2Player::Stretch ? "STRETCH" : "ONESHOT", 100 * best / (Blocks * BlockSize / 48000.0), 1e6 * best / Blocks);
+	}
+
+	// ---- STRETCH without vectors: the tempo taken at each grain; a looped portion shorter than a grain's move ----
+	void stretchLaws()
+	{
+		std::vector<int16_t> pcm(48000);
+		for(size_t i = 0; i < pcm.size(); ++i)
+			pcm[i] = static_cast<int16_t>(20000 * std::sin(i * 0.05) * std::sin(i * 0.0011));
+		Dt2Samples samples;
+		for(auto& slot : samples.slots)
+			slot = {pcm.data(), static_cast<uint32_t>(pcm.size()), 48000.0};
+		const auto make = [&](const int _play, const uint8_t _length, const uint8_t _fine)
+		{
+			auto p = std::make_unique<Dt2Player>();
+			p->setSamples(&samples);
+			p->setParameter(0, Dt2Player::Mode, static_cast<uint8_t>(Dt2Player::Stretch * 128 / 6 + 10), 0);
+			p->setParameter(0, Dt2Player::Play, static_cast<uint8_t>(_play * 32), 0);
+			p->setParameter(0, Dt2Player::Length, _length, _fine);
+			p->setTempo(120);
+			p->trig(0);
+			p->renderBlock();
+			return p;
+		};
+		// The tempo moved in the first grain: the same outputs to the second grain (2048 outputs, 64 blocks), others after
+		auto steady = make(Dt2Player::Forward, 127, 0), moved = make(Dt2Player::Forward, 127, 0);
+		bool same = true, after = false;
+		for(int b = 0; b < 128; ++b)
+		{
+			if(b == 10)
+				moved->setTempo(240);
+			const Block& x = steady->renderBlock();
+			const Block& y = moved->renderBlock();
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				const bool equal = x.s[n][0] == y.s[n][0];
+				if(b < 64)
+					same = same && equal;
+				else
+					after = after || !equal;
+			}
+		}
+		require(same && after, "STRETCH: the tempo is not taken at the next grain");
+		// A looped LEN of 128/256 of a step (189 samples, less than the time's 256 a grain, the ratio held at 1/8): it
+		// plays on
+		auto tiny = make(Dt2Player::ForwardLoop, 0, 128);
+		double late = 0;
+		for(int b = 0; b < 1500; ++b)
+		{
+			const Block& x = tiny->renderBlock();
+			if(b >= 1400)
+				for(int n = 0; n < BlockSize; ++n)
+					late = std::max(late, static_cast<double>(std::abs(x.s[n][0])));
+		}
+		require(late > 0.01, "STRETCH: a looped portion shorter than the time's move falls silent");
+		std::printf("PASS: STRETCH takes the tempo at the next grain; a short looped portion plays on\n");
 	}
 
 	// ---- the kernel's own laws, without vectors ----
@@ -513,7 +579,9 @@ int main()
 	try
 	{
 		kernel();
-		cost();
+		cost(Dt2Player::OneShot);
+		cost(Dt2Player::Stretch);
+		stretchLaws();
 		const char* folder = std::getenv("DT2_VECTORS");
 		if(!folder || !*folder || !std::ifstream(std::string(folder) + "/os_hit_unison.json").good())
 		{
@@ -526,6 +594,8 @@ int main()
 		// WERP at 300 BPM, a step every 1200 samples at 48 kHz: three in the 80 ms; the lanes, 12 to 27 semitones down,
 		// behind the window, play on where a lane ahead of it would stop (a cut that onset alignment does not judge)
 		q15(folder, "wp_fwd_down12", -15);
+		// STRETCH at 240 BPM: grains every 2048 outputs, the 80 ms crossing two of them
+		q15(folder, "st_hit_ratio1", -8);
 	}
 	catch(const std::exception& e)
 	{
