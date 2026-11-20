@@ -300,7 +300,8 @@ namespace elektron::drums
 	{
 	}
 	Chain::FilterStages::FilterStages(const double _rate)
-		: syntakt(_rate), syntaktOther(_rate), machinedrum(_rate, rate::fastFir())
+		: syntakt(_rate), syntaktOther(_rate), machinedrum(_rate, rate::fastFir()), dt2Multimode(_rate), dt2Equalizer(_rate),
+		  dt2Lowpass4(_rate), dt2CombMinus(_rate, false), dt2CombPlus(_rate, true), dt2Legacy(_rate)
 	{
 	}
 
@@ -308,7 +309,7 @@ namespace elektron::drums
 		: m_rate(_rate), m_syntakt(_syntakt), m_drives{DriveStages(_rate), DriveStages(_rate), DriveStages(_rate), DriveStages(_rate)},
 		m_bands{BandStages(_rate), BandStages(_rate)}, m_filter(_rate), m_amp(_rate), m_envelope(_rate)
 	{
-		static_assert(static_cast<int>(DriveType::Count) == Types && static_cast<int>(BandType::Count) <= Types
+		static_assert(static_cast<int>(DriveType::Count) <= Types &&static_cast<int>(BandType::Count) <= Types
 			&& static_cast<int>(FilterType::Count) + 1 <= Types, "a place holds at most Types kinds of stage");
 		std::fill_n(&m_mix[0][0], Places * Lanes, 1.0f);
 		std::fill_n(&m_mixNow[0][0], Places * Lanes, 1.0f);
@@ -359,6 +360,8 @@ namespace elektron::drums
 				_function(m_filter.syntaktOther, MultimodeLevel);
 			else if(_type == static_cast<int>(FilterType::Machinedrum))
 				_function(m_filter.machinedrum, MdFilterLevel);
+			else
+				withDt2Filter(static_cast<FilterType>(_type), [&](auto& _stage) { _function(_stage, StageLevel{1, 1}); });
 		}
 		else if(_place == BandBefore || _place == BandAfter)
 		{
@@ -391,6 +394,21 @@ namespace elektron::drums
 				_function(s.dt2Br, StageLevel{1, 1});
 			else if(_type == static_cast<int>(DriveType::Dt2Srr))
 				_function(s.dt2Srr, StageLevel{1, 1});
+		}
+	}
+
+	template<typename Function>
+	void Chain::withDt2Filter(const FilterType _type, Function&& _function)
+	{
+		switch(_type)
+		{
+		case FilterType::Dt2Multimode:	_function(m_filter.dt2Multimode); break;
+		case FilterType::Dt2Equalizer:	_function(m_filter.dt2Equalizer); break;
+		case FilterType::Dt2Lowpass4:	_function(m_filter.dt2Lowpass4); break;
+		case FilterType::Dt2CombMinus:	_function(m_filter.dt2CombMinus); break;
+		case FilterType::Dt2Legacy:		_function(m_filter.dt2Legacy); break;
+		case FilterType::Dt2CombPlus:	_function(m_filter.dt2CombPlus); break;
+		default:						break;
 		}
 	}
 
@@ -529,6 +547,19 @@ namespace elektron::drums
 			const double moved = frequency + _envelope * (depth - (64 << 7)) * 2;
 			const int width = wordOf(f.width, offset(_lane, VelocityTarget::Width));
 			m_filter.machinedrum.set(_lane, std::clamp(static_cast<int>(moved), 0, 0x3fff), width, resonance);
+		}
+		else if(isDt2(f.type))
+		{
+			// The envelope moves FREQ as the Machinedrum's FLTF; the words as the DT2's chain hands them to its setter
+			const bool comb = f.type == FilterType::Dt2CombMinus || f.type == FilterType::Dt2CombPlus;
+			const int moved = std::clamp(static_cast<int>(frequency + _envelope * (depth - (64 << 7)) * 2), 0, 0x3fff);
+			const int width = wordOf(f.width, offset(_lane, VelocityTarget::Width));
+			const float p68 = dt2::knob127(f.type == FilterType::Dt2Legacy ? f.mode << 7 : width);
+			const float p70 = comb ? dt2::knob127(resonance) : dt2::knob128(resonance);
+			withDt2Filter(f.type, [&](auto& _stage)
+			{
+				_stage.set(_lane, dt2::frequency(moved, f.keyTrack, m_note[i], comb), p68, p70);
+			});
 		}
 	}
 
@@ -826,6 +857,9 @@ namespace elektron::drums
 				for(const int p : {Pre0, Pre1, Post0, Post1})
 					if(m_type[static_cast<size_t>(p)][static_cast<size_t>(l)] == static_cast<int>(DriveType::Dt2Srr))
 						driveAt(p).dt2Srr.hit(l);
+				// And the DT2's filters' states, as its trig does
+				withDt2Filter(static_cast<FilterType>(m_type[FilterPlace][static_cast<size_t>(l)]),
+					[&](auto& _stage) { _stage.hit(l); });
 			}
 		m_reset = m_resetNext;
 		m_resetNext = 0;

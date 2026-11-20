@@ -1,6 +1,7 @@
 #include "edDrumsEditor.h"
 
 #include <cmath>
+#include <cstring>
 
 #include "edDrumsNames.h"
 #include "sophieMachine.h"
@@ -327,9 +328,17 @@ namespace elektron::drums
 
 		// The filter's response, drawn: a biquad's, an EQ's bell, or the Machinedrum's (t.js biq). _mode: Filter Mode's
 		// choice, LP, HP, EQ1-EQ5, OFF
-		std::function<float(float)> response(const float _fc, const float _q, const FilterType _type, const int _mode)
+		std::function<float(float)> response(const float _fc, const float _q, FilterType _type, int _mode)
 		{
 			constexpr int Hp = 1, Eq1 = 2, Eq5 = 6, ModeOff = 7;
+			// The DT2's as the nearest drawn: a low-pass, EQUALIZER a bell, LEGACY its mode, the combs flat
+			if(isDt2(_type))
+			{
+				const bool legacy = _type == FilterType::Dt2Legacy;
+				_mode = _type == FilterType::Dt2Equalizer ? Eq1 + 2 : legacy ? (_mode <= Hp ? _mode : ModeOff)
+					: _type == FilterType::Dt2CombMinus || _type == FilterType::Dt2CombPlus ? ModeOff : 0;
+				_type = FilterType::Syntakt;
+			}
 			if(_type == FilterType::Off || (_type != FilterType::Machinedrum && _mode == ModeOff))
 				return [](float) { return 0.0f; };
 			if(_type != FilterType::Machinedrum && _mode >= Eq1 && _mode <= Eq5)
@@ -891,19 +900,27 @@ namespace elektron::drums
 		{
 			const float x = TimX, w = TimW, y = FltY, cw = 31;
 			block(x, y, w, "f", "FILTER", hue::s, 118);
-			const bool md = choiceOf(t("flt_type")->getParameterID()) == 2;
+			// The DT2's types (edDrumsDt2Filters.h) take the same four places: FREQ, its p70 under RESO's name or its own,
+			// and its p68 where MODE and WIDTH sit (LEGACY's LP/HP in MODE; LOWPASS 4 has none)
+			const auto type = static_cast<FilterType>(choiceOf(t("flt_type")->getParameterID()));
+			const bool comb = type == FilterType::Dt2CombMinus || type == FilterType::Dt2CombPlus;
+			const bool eq = type == FilterType::Dt2Equalizer, legacy = type == FilterType::Dt2Legacy;
+			const bool width = type == FilterType::Machinedrum || type == FilterType::Dt2Multimode || eq || comb;
+			const bool mode = !width && type != FilterType::Dt2Lowpass4;
 			title(t("flt_type"), x + w - 4, y, 40, hue::s, "f");
 			const auto at = [&](const float _x, const float _y, const char* _id, const char* _name, const bool _visible)
 			{
 				Cell c = cellOf(t(_id), _name, _x, _y, cw, hue::s, "f");
 				c.visible = _visible;
+				if(legacy && std::strcmp(_id, "flt_mode") == 0)
+					c.labels = {"LP", "HP", "DRY", "DRY", "DRY", "DRY", "DRY", "DRY"};
 				addCell(c);
 			};
-			at(x + 2, y + 9, "flt_freq", "CUTOFF", true);
-			at(x + 2 + cw, y + 9, "flt_res", "RESO", true);
+			at(x + 2, y + 9, "flt_freq", comb ? "PITCH" : eq ? "FREQ" : "CUTOFF", true);
+			at(x + 2 + cw, y + 9, "flt_res", comb ? "FEEDBACK" : eq ? "GAIN" : "RESO", true);
 			at(x + 2, y + 27, "flt_key", "KEY TRACK", true);
-			at(x + 2 + cw, y + 27, "flt_mode", "MODE", !md);
-			at(x + 2 + cw, y + 27, "flt_width", "WIDTH", md);
+			at(x + 2 + cw, y + 27, "flt_mode", "MODE", mode);
+			at(x + 2 + cw, y + 27, "flt_width", type == FilterType::Dt2Multimode ? "MORPH" : comb ? "LPF" : "WIDTH", width);
 			const float ey = y + 54;
 			Cell reset = cellOf(t("fenv_reset"), "ENV RETRIG", x + w - 34, ey + 1.2f, 30, hue::s, "f");
 			reset.look = Look::Button;

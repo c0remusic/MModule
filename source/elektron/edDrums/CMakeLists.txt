@@ -7,7 +7,7 @@ add_library(edDrums STATIC edDrumsAnalog.h edDrumsAnalogPort.h edDrumsAnalogShar
 	edDrumsAnalogSynth.cpp edDrumsAnalogSynthVoice.cpp edDrumsAnalogUtility.cpp edDrumsAnalogUtilityVoice.cpp
 	edDrumsAnalogRates.h edDrumsAnalogRates.cpp edDrumsAnalogMetal.cpp edDrumsAnalogMetalVoice.cpp
 	edDrumsRytm.h edDrumsRytmControl.cpp edDrumsRytmVoice.h edDrumsRytmVoice.cpp
-	edDrumsChain.h edDrumsChain.cpp edDrumsDt2Stages.h edDrumsDt2Stages.cpp
+	edDrumsChain.h edDrumsChain.cpp edDrumsDt2Stages.h edDrumsDt2Stages.cpp edDrumsDt2Filters.h edDrumsDt2Filters.cpp
 	edDrumsDt2Player.h edDrumsDt2Player.cpp edDrumsLayer.h edDrumsLayer.cpp
 	edDrumsEngine.h edDrumsEngine.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
 	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
@@ -27,6 +27,12 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
 	set_source_files_properties(edDrumsRateAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma")
 	# AVX without FMA, so that nothing fuses a multiply and an add the SSE build keeps apart
 	set_source_files_properties(edDrumsOversamplerAvx2.cpp edDrumsMasterAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-ffp-contract=off")
+endif()
+# The DT2's filters' setters in the order the DSP computes them, nothing reordered or fused
+if(MSVC)
+	set_source_files_properties(edDrumsDt2Filters.cpp PROPERTIES COMPILE_OPTIONS "/fp:precise")
+else()
+	set_source_files_properties(edDrumsDt2Filters.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
 target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast sophie PRIVATE mdEngine opendrum)
 set_property(TARGET edDrums PROPERTY FOLDER "Elektron")
@@ -72,6 +78,14 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsDt2StagesTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsDt2StagesTest COMMAND edDrumsDt2StagesTest)
 	set_tests_properties(edDrumsDt2StagesTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
+
+	# The Digitakt II's six track filters against the filters run in its OS (DT2_VECTORS, vectors-dt2: exit 77 without
+	# them), 16 lanes against 1, 44.1 against 48 kHz, their cost
+	add_executable(edDrumsDt2FiltersTest edDrumsDt2FiltersTest.cpp)
+	target_link_libraries(edDrumsDt2FiltersTest PRIVATE edDrums)
+	set_property(TARGET edDrumsDt2FiltersTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsDt2FiltersTest COMMAND edDrumsDt2FiltersTest)
+	set_tests_properties(edDrumsDt2FiltersTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
 
 	# The Sampler's DT2 player in ONESHOT against the Digitakt II's voice run in its OS (DT2_VECTORS, vectors-dt2: exit 77
 	# without them), its 16 lanes against 1, 44.1 against 48 kHz, its cost

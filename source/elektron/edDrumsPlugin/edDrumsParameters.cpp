@@ -335,6 +335,21 @@ namespace elektron::drums::parameters
 			return "Q " + withUnit(0.501 * std::pow(2 * std::sqrt(2.0) / 0.501, _v / 127.0), "");
 		if(is("flt_width") && filter() == FilterType::Machinedrum)
 			return withUnit(mdWidthOctaves(_v), "oct");
+		// The DT2's (edDrumsDt2Filters.h): FREQ on its scale from 5 Hz to 22 kHz, the combs' pitch (COMB- an octave
+		// under), MULTI-MODE's Q, EQUALIZER's gain
+		if(is("flt_freq") && (filter() == FilterType::Dt2CombMinus || filter() == FilterType::Dt2CombPlus))
+		{
+			const double w = _v / 127.0, low = 48000.0 / 8191;
+			const double hz = w > 0.259842515 ? std::min(220 * std::pow(2.0, (_v - 69) / 12.0), 8372.0)
+				: low + (w / 0.26) * (w / 0.26) * (27.5 - low);
+			return hertz(filter() == FilterType::Dt2CombMinus ? hz / 2 : hz);
+		}
+		if(is("flt_freq") && isDt2(filter()))
+			return hertz(5 * std::pow(4400.0, std::min(8 * _v, 1023) / 1023.0));
+		if(is("flt_res") && filter() == FilterType::Dt2Multimode)
+			return "Q " + withUnit(0.5 + 20 * (_v / 127.0) * (_v / 127.0), "");
+		if(is("flt_res") && filter() == FilterType::Dt2Equalizer)
+			return decibels(24.0 * _v / 127 - 11.959, true);
 		if(is("fenv_delay"))
 			return seconds(blocks(st::envelopeDelayBlocks(_v)));
 		if(is("fenv_attack"))
@@ -587,7 +602,7 @@ namespace elektron::drums::parameters
 		{"band_after", "EQ Place", 0, 1, nullptr, true},
 		{"band_1", "EQ 1"}, {"band_2", "EQ 2"}, {"band_3", "EQ 3"},
 		{"band_4", "EQ 4"}, {"band_5", "EQ 5"}, {"band_6", "EQ 6"},
-		{"flt_type", "Filter Type", 0, 2, "Off|Multimode|Window"},
+		{"flt_type", "Filter Type", 0, 8, "Off|Multimode|Window|State var|Equalizer|Lowpass 4|Comb-|Legacy LP/HP|Comb+"},
 		{"flt_mode", "Filter Mode", 0, 7, "LP|HP|EQ1|EQ2|EQ3|EQ4|EQ5|OFF"},
 		{"flt_freq", "Filter Cutoff"},
 		{"flt_res", "Filter Reso"},

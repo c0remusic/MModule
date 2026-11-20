@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "edDrumsDt2Filters.h"
 #include "edDrumsDt2Stages.h"
 #include "edDrumsMaster.h"
 #include "edDrumsOversampler.h"
@@ -56,8 +57,16 @@ namespace elektron::drums
 		Off,
 		Syntakt,
 		Machinedrum,
+		Dt2Multimode,	// the Digitakt II's six, in the order of its index (edDrumsDt2Filters.h)
+		Dt2Equalizer,
+		Dt2Lowpass4,
+		Dt2CombMinus,
+		Dt2Legacy,
+		Dt2CombPlus,
 		Count
 	};
+
+	constexpr bool isDt2(const FilterType _type) { return _type >= FilterType::Dt2Multimode && _type < FilterType::Count; }
 
 	// What velocity reaches, besides the level
 	enum class VelocityTarget : uint8_t
@@ -96,9 +105,9 @@ namespace elektron::drums
 		struct Filter
 		{
 			FilterType type = FilterType::Off;
-			int mode = 7;			// the Syntakt's TYPE
-			int frequency = 127, resonance = 0;		// on the Machinedrum's: FLTF, FLTQ
-			int width = 127;		// FLTW
+			int mode = 7;			// the Syntakt's TYPE; the DT2's LEGACY: 0 low-pass, 1 high-pass, the rest dry
+			int frequency = 127, resonance = 0;		// on the Machinedrum's: FLTF, FLTQ; on the DT2's: FREQ, its p70
+			int width = 127;		// FLTW; the DT2's p68: MULTI-MODE's morph, EQUALIZER's width, the combs' low-pass
 			syntakt::fast::FilterEnvelope::Setting envelope;
 			int depth = 64;			// 64 none
 			int keyTrack = 0;		// -128 to 127, the Syntakt's filter's
@@ -235,8 +244,8 @@ namespace elektron::drums
 	private:
 		enum Place { Pre0, Pre1, BandBefore, FilterPlace, BandAfter, Post0, Post1, Places };
 
-		// Off, then the stages of a place: the drives' eight, the band's and the filter's three
-		static constexpr int Types = 9;
+		// Off, then the stages of a place: the drives' eight, the band's four, the filter's eight and the Syntakt's other
+		static constexpr int Types = 10;
 		static constexpr int8_t NoPending = -1;
 
 		struct DriveStages
@@ -250,7 +259,7 @@ namespace elektron::drums
 			CyclesDist cyclesDist;
 			Dt2Br dt2Br;
 			Dt2Srr dt2Srr;
-			std::array<Oversampler, Types> rates;		// by DriveType: a raised drive's history is its own
+			std::array<Oversampler, static_cast<size_t>(DriveType::Count)> rates;	// by DriveType: a raised drive's history is its own
 		};
 
 		struct BandStages
@@ -266,9 +275,15 @@ namespace elektron::drums
 			explicit FilterStages(double _rate);
 			syntakt::fast::Multimode syntakt, syntaktOther;
 			md::fast::Filter machinedrum;
+			Dt2Multimode dt2Multimode;
+			Dt2Equalizer dt2Equalizer;
+			Dt2Lowpass4 dt2Lowpass4;
+			Dt2Comb dt2CombMinus, dt2CombPlus;
+			Dt2Legacy dt2Legacy;
 		};
 
 		template<typename Function> void withStage(int _place, int _type, Function&& _function);
+		template<typename Function> void withDt2Filter(FilterType _type, Function&& _function);
 		template<typename Stage> void runDrive(Stage& _stage, StageLevel _level, int _place, int _type, Block& _buf, uint16_t _lanes);
 
 		static bool isDrive(const int _place) { return _place <= Pre1 || _place >= Post0; }
