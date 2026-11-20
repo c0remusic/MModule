@@ -75,6 +75,10 @@ namespace
 		// oracle's probes have not identified (under the fade a near constant ~0.11, neither the sample, nor zeros, nor
 		// the slice's end): judged up to that block, its length checked
 		bool openLastBlock = false;
+		// WERP looped (FWD.L, REV.L): after a step, while the read lies outside the window it moved, the oracle adds
+		// something not identified (+0.12 dB on a sine, -18 dB of the signal on noise, ramped in and out): judged up to
+		// the first step, which falls in that block
+		int beforeBlock = 0;
 	};
 
 	// The ONESHOT cases: what each exercises is in vectors-dt2's README. The lev and vel cases play the unison Hit
@@ -92,13 +96,25 @@ namespace
 		{"gr_hit_g4_i1_l3", 45, false}, {"gr_hit_g16_i5_up12", 45, false}, {"gr_hit_g16_i5_l0", 45, false},
 		{"gr_hit_g4_i2_rev", 45, false, true}, {"gr_hit_g4_i3_rev", 45, false, true}, {"gr_hit_g16_i9_rev", 45, false, true},
 		{"gr_hit_g4_i2_rev_up12", 45, false, true}, {"os_hit_strt30_rev", 45, false, true},
+		// WERP (ticket 11): the ColdFire's sequencer and the SHARC's voice composed at the oracle, a window a segment
+		// long stepping at the tempo; the voice stops where its read passes the window's end
+		{"wp_fwd_match", 45, false}, {"wp_fwd_short", 45, false}, {"wp_fwd_up12", 45, false},
+		{"wp_fwd_down12", 45, false}, {"wp_fwd_seg2_bars1", 45, false}, {"wp_fwd_seg1_bars2", 45, false},
+		{"wp_rev_sine", 45, true, true}, {"wp_fwd_noise_match", 27, false},
+		{"wp_fwdl_sine", 45, true, false, 38}, {"wp_fwdl_short", 45, false, false, 38},
+		// A reversed loop's wrap: the block that goes round differs from the oracle's (6 dB on the sine, 22 dB on the
+		// noise, against 30 around it) whatever the lag (ReverseLoopLag, the best of 0 to 7): not identified; the blocks
+		// between agree to the forward cases'
+		{"wp_revl_sine", 20, true, false, 38},
 	};
 
 	struct Settings
 	{
 		double tune = 64, note = 60, strt = 0, len = 120, loopPos = 0, bpm = 120;
 		bool reverse = false, loop = false;
-		int blocks = 0, selector = 0, bars = 0;	// selector 0 ONESHOT, 3 REPITCH, 4 GRID; bars BARS, or GRID's G
+		int blocks = 0, selector = 0, bars = 0;	// selector 0 ONESHOT, 1 WERP, 3 REPITCH, 4 GRID; bars BARS, or GRID's G
+		// WERP: PLAY as the Digitakt II numbers it (0 REV, 1 REV.L, 2 FWD.L, 3 FWD), SEG and BARS
+		int werpPlay = 3, werpSegment = 0, werpBars = 0;
 	};
 
 	Settings settingsOf(const std::string& _json)
@@ -115,7 +131,15 @@ namespace
 		s.selector = static_cast<int>(number(_json, "selector"));
 		s.bars = static_cast<int>(number(_json, "bars"));
 		s.bpm = number(_json, "bpm");
-		require(s.selector == 0 || s.selector == 3 || s.selector == 4, "not an ONESHOT, REPITCH or GRID case");
+		require(s.selector == 0 || s.selector == 1 || s.selector == 3 || s.selector == 4,
+			"not an ONESHOT, WERP, REPITCH or GRID case");
+		if(s.selector == 1)
+		{
+			const auto werp = _json.substr(_json.find("\"werp\":"));
+			s.werpPlay = static_cast<int>(number(werp, "play"));
+			s.werpSegment = static_cast<int>(number(werp, "seg"));
+			s.werpBars = static_cast<int>(number(werp, "bars"));
+		}
 		return s;
 	}
 
@@ -133,12 +157,29 @@ namespace
 		_p.setParameter(_lane, Dt2Player::Tune, static_cast<uint8_t>(value), static_cast<uint8_t>(std::lround((tune - value) * 256)));
 		_p.setNote(_lane, static_cast<int>(_s.note));
 		_p.setTempo(_s.bpm);
-		const int play = _s.reverse ? (_s.loop ? Dt2Player::ReverseLoop : Dt2Player::Reverse)
+		int play = _s.reverse ? (_s.loop ? Dt2Player::ReverseLoop : Dt2Player::Reverse)
 			: (_s.loop ? Dt2Player::ForwardLoop : Dt2Player::Forward);
+		if(_s.selector == 1)
+		{
+			static constexpr int Plays[]{Dt2Player::Reverse, Dt2Player::ReverseLoop, Dt2Player::ForwardLoop, Dt2Player::Forward};
+			play = Plays[_s.werpPlay];
+		}
 		_p.setParameter(_lane, Dt2Player::Play, static_cast<uint8_t>(play * 32), 0);
-		// MODE a sixth of the range each (Dt2Player::modeOf): ONESHOT 0, GRID 1, REPITCH 2
-		const int mode = _s.selector == 3 ? Dt2Player::Repitch : _s.selector == 4 ? Dt2Player::Grid : Dt2Player::OneShot;
+		// MODE a sixth of the range each (Dt2Player::modeOf): ONESHOT 0, GRID 1, REPITCH 2, WERP 3
+		const int mode = _s.selector == 1 ? Dt2Player::Werp : _s.selector == 3 ? Dt2Player::Repitch
+			: _s.selector == 4 ? Dt2Player::Grid : Dt2Player::OneShot;
 		_p.setParameter(_lane, Dt2Player::Mode, static_cast<uint8_t>(mode * 128 / 6 + 10), 0);
+		if(_s.selector == 1)
+		{
+			// SEGMENT a third of the range each, BARS a quarter (Dt2Player::werpSegmentOf, werpBarsOf)
+			const auto segment = static_cast<uint8_t>(_s.werpSegment * 43 + 1);
+			const auto bars = static_cast<uint8_t>(_s.werpBars * 32 + 1);
+			require(Dt2Player::werpSegmentOf(segment) == _s.werpSegment && Dt2Player::werpBarsOf(bars) == _s.werpBars,
+				"the test's SEGMENT or BARS value does not give the case's");
+			_p.setParameter(_lane, Dt2Player::Start, segment, 0);
+			_p.setParameter(_lane, Dt2Player::Loop, bars, 0);
+			return;
+		}
 		if(_s.selector == 4)
 		{
 			// The oracle's strt is the slice (1-based), len the slices after it, bars G: 4 << G slices
@@ -242,6 +283,12 @@ namespace
 				voice.resize(keep);
 				y.resize(keep);
 			}
+			if(c.beforeBlock)
+			{
+				require(voice.size() >= static_cast<size_t>(c.beforeBlock * BlockSize), std::string(c.name) + ": shorter than judged");
+				voice.resize(static_cast<size_t>(c.beforeBlock * BlockSize));
+				y.resize(voice.size());
+			}
 			const double snr = snrOf(voice, y);
 			const double env = bench::envelopeDiff(bench::envelope(voice, 48000), bench::envelope(y, 48000));
 			double cents = 0;
@@ -309,19 +356,19 @@ namespace
 	}
 
 	// ---- Q15: 44.1 kHz through Host against 48 kHz ----
-	void q15(const std::string& _folder)
+	// The case's 16 lanes a semitone apart, from _lowest semitones about its TUNE
+	void q15(const std::string& _folder, const char* _case, const int _lowest)
 	{
-		const Loaded l = load(_folder, "os_hit_unison");
+		const Loaded l = load(_folder, _case);
 		auto at48 = std::make_unique<Dt2Player>();
 		auto at44 = std::make_unique<syntakt::fast::Host<Dt2Player>>(44100.0f);
 		at48->setSamples(&l.samples);
 		at44->setSamples(&l.samples);
-		// 16 lanes a semitone apart from -8 to +7
 		for(int lane = 0; lane < Lanes; ++lane)
 			for(auto* p : {static_cast<Dt2Player*>(at48.get()), static_cast<Dt2Player*>(at44.get())})
 			{
 				Settings s = l.settings;
-				s.tune = 64 + lane - 8;
+				s.tune = l.settings.tune + lane + _lowest;
 				apply(*p, lane, s);
 				p->trig(lane);
 			}
@@ -385,8 +432,8 @@ namespace
 				worstLane = static_cast<int>(lane);
 			}
 		}
-		std::printf("Q15: 44.1 against 48 kHz, 16 lanes: 10 ms envelope within %.3f dB, third octaves to 16 kHz within %.3f dB"
-			" (lane %d, %.0f Hz)\n", worstEnv, worstBand, worstLane, worstAt);
+		std::printf("Q15 (%s): 44.1 against 48 kHz, 16 lanes: 10 ms envelope within %.3f dB, third octaves to 16 kHz within"
+			" %.3f dB (lane %d, %.0f Hz)\n", _case, worstEnv, worstBand, worstLane, worstAt);
 		require(worstEnv <= 0.2, "Q15: the envelope at 44.1 kHz is off by more than 0.2 dB");
 		require(worstBand <= 0.5, "Q15: a third octave at 44.1 kHz is off by more than 0.5 dB");
 	}
@@ -475,7 +522,10 @@ int main()
 		}
 		oracleCases(folder);
 		lanes(folder);
-		q15(folder);
+		q15(folder, "os_hit_unison", -8);
+		// WERP at 300 BPM, a step every 1200 samples at 48 kHz: three in the 80 ms; the lanes, 12 to 27 semitones down,
+		// behind the window, play on where a lane ahead of it would stop (a cut that onset alignment does not judge)
+		q15(folder, "wp_fwd_down12", -15);
 	}
 	catch(const std::exception& e)
 	{

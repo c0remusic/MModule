@@ -115,13 +115,15 @@ namespace elektron::drums::names
 		constexpr std::array<const char*, vintage::SamplerParameters> samplerControls{"TUNE", "DECAY", "HOLD", "BIT CRUSH",
 			"START", "END", "REPEATS", "REPEAT GAP", "GRAIN", "BITS", "COMPANDING", "OUTPUT LPF"};
 		// The CLEAN grain's controls (Dt2Player::Slot), on the ROM player's slots whose defaults suit them, then GRAIN; by
-		// MODE: ONESHOT (and the modes not ported yet), GRID, REPITCH (which reads no TUNE)
+		// MODE: ONESHOT (and the modes not ported yet), GRID, REPITCH (which reads no TUNE), WERP
 		constexpr std::array<const char*, vintage::SamplerParameters> dt2Controls{"TUNE", nullptr, "MODE", "LOOP",
 			"START", "LENGTH", "PLAY", nullptr, "GRAIN", nullptr, nullptr, nullptr};
 		constexpr std::array<const char*, vintage::SamplerParameters> dt2GridControls{"TUNE", nullptr, "MODE", "GRID",
 			"SLICE", "LENGTH", "PLAY", nullptr, "GRAIN", nullptr, nullptr, nullptr};
 		constexpr std::array<const char*, vintage::SamplerParameters> dt2RepitchControls{nullptr, nullptr, "MODE", "BARS",
 			"START", "LENGTH", "PLAY", nullptr, "GRAIN", nullptr, nullptr, nullptr};
+		constexpr std::array<const char*, vintage::SamplerParameters> dt2WerpControls{"TUNE", nullptr, "MODE", "BARS",
+			"SEGMENT", nullptr, "PLAY", nullptr, "GRAIN", nullptr, nullptr, nullptr};
 
 		// VA DRUMS, by id (edDrumsEngine.h, OpenDrumMachines), their controls in openDrum.c's
 		constexpr std::array<const char*, OpenDrumMachines> openDrumNames{"VA DRUM", "VA SNARE", "VA CYMBAL", "VA HIHAT"};
@@ -257,7 +259,8 @@ namespace elektron::drums::names
 			if(_index < 0 || _index >= vintage::SamplerParameters)
 				return nullptr;
 			const auto mode = Dt2Player::modeOf(_page.mode);
-			const auto& controls = mode == Dt2Player::Grid ? dt2GridControls : mode == Dt2Player::Repitch ? dt2RepitchControls : dt2Controls;
+			const auto& controls = mode == Dt2Player::Grid ? dt2GridControls : mode == Dt2Player::Repitch ? dt2RepitchControls
+				: mode == Dt2Player::Werp ? dt2WerpControls : dt2Controls;
 			return controls[static_cast<size_t>(_index)];
 		}
 		return control(_machine, _index);

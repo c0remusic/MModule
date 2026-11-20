@@ -30,6 +30,10 @@ namespace elektron::drums
 		constexpr uint32_t StartMargin = 141;
 		// Where a reversed read starts, from the end; how far below its start it may read
 		constexpr double ReverseFrom = 6, ReverseBelow = 32;
+		// A reversed loop goes round this far below its loop point: the DSP's read position runs 5 samples above ours
+		// (its reversed read starts at the end less 1), and it wraps where that reaches the loop point (WERP's REV.L at
+		// the oracle, ticket 11: the best of 0 to 7; applied to WERP alone, render96)
+		constexpr double ReverseLoopLag = 5;
 		// A block sounds while its last output's position plus a sample (the step where it is more) lies within the end;
 		// the last that sounds is faded out (probe_end2.py at the oracle, steps 0.25 to 2, and GRID's slice ends)
 		bool sounds(const double _lastRead, const double _step, const double _end)
@@ -48,6 +52,11 @@ namespace elektron::drums
 		}
 
 		constexpr double WordFull = 127.0 * 256;	// a value of 127 with no fine part: a fraction of 1
+
+		// WERP's sequencer, as the Digitakt II's ColdFire runs it once a frame of 32 samples at 48 kHz (ticket 11): a
+		// whole sample is WerpWhole of its units; a segment WerpWhole >> (5 - SEGMENT); a step moves the window by a
+		// segment >> BARS when the accumulator, fed (tempo x 120) << 4 >> BARS a frame, reaches that
+		constexpr int64_t WerpWhole = 691200000;
 
 		double fraction(const int32_t _word)
 		{
@@ -151,7 +160,7 @@ namespace elektron::drums
 			v.end = std::min(std::floor((slice + more) * length / grid), length);
 			v.loopAt = v.start;
 		}
-		else
+		else if(mode != Werp)
 		{
 			const double startOf = fraction(word(Start)), loopOf = fraction(word(Loop));
 			v.start = std::min(std::floor(startOf * length), bound);
@@ -163,12 +172,66 @@ namespace elektron::drums
 		}
 		v.reverse = play == Reverse || play == ReverseLoop;
 		v.loop = play == ForwardLoop || play == ReverseLoop;
+		v.werp = mode == Werp;
+		if(v.werp)
+		{
+			// Machine 5 SEGMENT, 4 BARS: the step, which is also the window's length
+			v.werpBars = werpBarsOf(word(Loop) >> 8);
+			v.werpStride = (WerpWhole >> (5 - werpSegmentOf(word(Start) >> 8))) >> v.werpBars;
+			werpFrame(v, true);
+		}
 		v.position = v.reverse ? v.end - ReverseFrom : v.start;
 		if(v.end <= v.start)
 			v.playing = false;
 		std::fill(std::begin(v.x), std::end(v.x), 0.0);
 		std::fill(std::begin(v.y), std::end(v.y), 0.0);
 		std::fill(std::begin(v.oddTail), std::end(v.oddTail), 0.0f);
+	}
+
+	void Dt2Player::werpFrame(Lane& _v, const bool _trig)
+	{
+		const int64_t stride = _v.werpStride;
+		if(_trig)
+		{
+			_v.werpLive = _v.werpFresh = true;
+			_v.werpAcc = 0;
+			_v.werpPos = _v.reverse ? WerpWhole - stride : 0;
+		}
+		else
+		{
+			if(!_v.werpLive)
+				return;
+			// The tempo as the ColdFire holds it, times 120 within 30 to 300 BPM, read every frame; a frame is a block of
+			// 32 at 48 kHz, the rate WERP renders at (the Syntakt family's path: the sample layer plays ONESHOT alone)
+			const auto tempo = std::clamp(static_cast<int64_t>(std::lround(m_bpm * 120)), int64_t{3600}, int64_t{36000});
+			_v.werpAcc += (tempo << 4) >> _v.werpBars;
+			if(_v.werpAcc < stride)
+				return;
+			_v.werpAcc -= stride;
+			_v.werpPos += _v.reverse ? -stride : stride;
+			// Past the sample: on round with PLAY's loop, else the sequence ends there, its window where it went
+			if(_v.reverse ? _v.werpPos < 0 : _v.werpPos > WerpWhole - 1)
+			{
+				if(_v.loop)
+					_v.werpPos += _v.reverse ? WerpWhole : -WerpWhole;
+				else
+					_v.werpLive = false;
+			}
+		}
+		werpWindow(_v);
+	}
+
+	void Dt2Player::werpWindow(Lane& _v)
+	{
+		// The SHARC reads the position as an unsigned fraction of WerpWhole: one below 0 lies past the end, where the
+		// start is bounded as STRT's
+		const auto length = static_cast<double>(_v.length);
+		const double bound = _v.length > StartMargin ? static_cast<double>(_v.length - StartMargin) : 0.0;
+		const auto x = static_cast<double>(static_cast<uint32_t>(_v.werpPos));
+		_v.start = std::min(std::floor(x / static_cast<double>(WerpWhole) * length), bound);
+		// The window is a step long: at a tempo where the sample lasts its bars, the segments follow one another
+		_v.end = std::min(_v.start + static_cast<double>(_v.werpStride) / static_cast<double>(WerpWhole) * length, length);
+		_v.loopAt = _v.start;
 	}
 
 	void Dt2Player::render96(const int _l, float* _work)
@@ -180,6 +243,14 @@ namespace elektron::drums
 			const auto& slot = m_samples->slots[static_cast<size_t>(_l)];
 			v.pcm = slot.pcm;
 			v.length = slot.pcm ? slot.length : 0;
+		}
+		// WERP: the trig's frame placed the window at the start; every block after moves the sequencer on a frame
+		if(v.werp)
+		{
+			if(v.werpFresh)
+				v.werpFresh = false;
+			else
+				werpFrame(v, false);
 		}
 		// REPITCH: the portion over 2^BARS bars of four beats at the tempo, in outputs at twice the output rate, whatever
 		// TUNE and the note
@@ -202,6 +273,8 @@ namespace elektron::drums
 		const auto& kernel = m_kernel;
 		const bool reverse = v.reverse, loop = v.loop;
 		const double move = reverse ? -step : step, end = v.end, loopAt = v.loopAt, span = end - loopAt;
+		// Measured on WERP alone: ONESHOT's and GRID's REV LOOP keep their wrap until a vector of theirs says otherwise
+		const double lag = v.werp ? ReverseLoopLag : 0;
 		double position = v.position;
 		for(int m = 0; m < Work; ++m)
 		{
@@ -242,7 +315,7 @@ namespace elektron::drums
 			{
 				if(!reverse && position >= end)
 					position -= span;
-				else if(reverse && position < loopAt)
+				else if(reverse && position < loopAt - lag)
 					position += span;
 			}
 		}

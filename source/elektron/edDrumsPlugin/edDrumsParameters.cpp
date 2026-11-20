@@ -469,8 +469,8 @@ namespace elektron::drums::parameters
 		if(vintage::isDt2(_page.grain) && _index < vintage::GrainSlot)
 		{
 			// The CLEAN grain's page (Dt2Player::Slot), as its MODE lays it out
-			// WERP, SLICE and STRETCH play as ONESHOT until their tickets (11, 12, 13), and say so
-			static constexpr const char* Modes[]{"ONESHOT", "GRID", "REPITCH", "ONESHOT", "ONESHOT", "ONESHOT"};
+			// SLICE and STRETCH play as ONESHOT until their tickets (12, 13), and say so
+			static constexpr const char* Modes[]{"ONESHOT", "GRID", "REPITCH", "WERP", "ONESHOT", "ONESHOT"};
 			const auto mode = Dt2Player::modeOf(_page.mode);
 			const int slices = Dt2Player::gridOf(_page.grid);
 			switch(_index)
@@ -481,13 +481,15 @@ namespace elektron::drums::parameters
 			case Dt2Player::Loop:
 				if(mode == Dt2Player::Grid)
 					return std::to_string(Dt2Player::gridOf(_value));
-				if(mode == Dt2Player::Repitch)
+				if(mode == Dt2Player::Repitch || mode == Dt2Player::Werp)
 				{
-					const int bars = Dt2Player::barsOf(_value);
+					const int bars = mode == Dt2Player::Werp ? Dt2Player::werpBarsOf(_value) : Dt2Player::barsOf(_value);
 					return std::to_string(1 << bars) + (bars ? " BARS" : " BAR");
 				}
 				return withUnit(100.0 * _value / 127, "%");
 			case Dt2Player::Start:
+				if(mode == Dt2Player::Werp)
+					return "1/" + std::to_string(32 >> Dt2Player::werpSegmentOf(_value));
 				return mode == Dt2Player::Grid ? std::to_string(Dt2Player::sliceOf(_value, slices)) : withUnit(100.0 * _value / 127, "%");
 			case Dt2Player::Length:
 				return mode == Dt2Player::Grid ? std::to_string(1 + Dt2Player::moreSlicesOf(_value, slices))

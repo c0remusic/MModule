@@ -52,8 +52,11 @@ namespace elektron::drums
 		// MODE, a sixth of the range each, in the Digitakt II's order: ONESHOT; GRID (the sample in 4, 8, 16, 32 or 64
 		// equal slices, Machine 4; Machine 5 the slice played, 6 how many more follow it; as its OS plays it, probed at
 		// the oracle: ticket 05); REPITCH (STRT and LEN over 2^BARS bars at the tempo, Machine 4 BARS, the pitch
-		// following, TUNE and the note not read; ticket 05); WERP, SLICE and STRETCH play as ONESHOT until their tickets
-		// (11, 12, 13)
+		// following, TUNE and the note not read; ticket 05); WERP (from the trig, a window of the sample a segment long,
+		// 1/32, 1/16 or 1/8 of it, Machine 5 SEGMENT, steps on by a segment over 2^BARS every as much of a note at the
+		// tempo, Machine 4 BARS, the sample crossed in 1 to 8 bars; the voice plays at TUNE's pitch and stops where its
+		// read passes the window's end; PLAY's direction and loop; the Digitakt II's ColdFire and SHARC run at the
+		// oracle, ticket 11); SLICE and STRETCH play as ONESHOT until their tickets (12, 13)
 		enum PlayerMode : int
 		{
 			OneShot, Grid, Repitch, Werp, SliceMode, Stretch
@@ -62,6 +65,10 @@ namespace elektron::drums
 		// BARS: 2^bars bars, bars 0 to 4 (1 to 16 bars), a fifth of the range each, as the OS's own BARS, a whole number
 		// (2^BARS by a shift); 0, the ROM player's BRR default, is 1 bar
 		static int barsOf(const int _value) { return _value * 5 / 128; }
+		// WERP: BARS 0 to 3 (1 to 8 bars), a quarter of the range each; SEGMENT 0 to 2 (1/32, 1/16, 1/8), a third each:
+		// the Digitakt II's own ranges
+		static int werpBarsOf(const int _value) { return _value * 4 / 128; }
+		static int werpSegmentOf(const int _value) { return _value * 3 / 128; }
 		// GRID: 4 << g slices, g 0 to 4 (4 to 64), a fifth of the range each
 		static int gridOf(const int _value) { return 4 << (_value * 5 / 128); }
 		// SLICE: which of _slices plays, 1 to _slices; LEN: how many more follow it, 0 to _slices - 1
@@ -125,12 +132,20 @@ namespace elektron::drums
 			bool playing = false, reverse = false, loop = false;
 			bool repitch = false;	// the step from the portion's length and the bars, not from TUNE
 			double bars = 1;		// REPITCH: 2^BARS, the bars the portion takes
+			// WERP: the ColdFire's sequencer in its own units (a whole sample is WerpWhole), its step (the window's length)
+			// and the step clock's accumulator in them too; the window, start and end, from the position at the last step
+			bool werp = false, werpLive = false, werpFresh = false;
+			int werpBars = 0;
+			int64_t werpStride = 0, werpPos = 0, werpAcc = 0;
 			double x[4]{}, y[4]{};	// the half-band's all-pass state, newest first
 			float oddTail[4]{};		// the last block's last four odd samples at 96 kHz, the odd branch's delay
 		};
 
 		void convert(int _track);
 		void startVoice(int _l);
+		// WERP: one frame of the sequencer (at the trig, or 32 samples later), the window from the position it leaves
+		void werpFrame(Lane& _v, bool _trig);
+		static void werpWindow(Lane& _v);
 		void render96(int _l, float* _work);
 		// ... to 32 at the output rate into _out; _fadeOut ramps the block to silence (a trig's block)
 		void decimate(int _l, const float* _work, bool _fadeOut, float* _out);
