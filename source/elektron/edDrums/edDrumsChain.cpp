@@ -120,6 +120,14 @@ namespace elektron::drums
 		return s;
 	}
 
+	ChainSettings fmDrumsChain()
+	{
+		// The Model:Cycles' own: its VOL+DIST in post at the machine's VOL 60 (DIST at rest), no filter, the voice's amp
+		ChainSettings s;
+		s.drive[0] = {DriveType::CyclesDist, true, 60, 127};
+		return s;
+	}
+
 	ChainSettings machinedrumChain()
 	{
 		ChainSettings s;

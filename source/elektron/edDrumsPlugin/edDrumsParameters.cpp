@@ -8,6 +8,7 @@
 #include <limits>
 #include <numeric>
 
+#include "cyFastKick.h"
 #include "edDrumsMaster.h"
 #include "sophieMachine.h"
 
@@ -575,6 +576,13 @@ namespace elektron::drums::parameters
 		}
 		case Family::Sophie:
 			return sophieText(_index, v);
+		case Family::FmDrums:
+			// PTCH: semitones about 64, held to 40-88 as the machine's; PUNCH and GATE switches from 64
+			if(_index == cycles::fast::Kick::Pitch)
+				return semitones(std::clamp(v, 40, 88) - 64);
+			if(_index == cycles::fast::Kick::Punch || _index == cycles::fast::Kick::Gate)
+				return v >= 64 ? "ON" : "OFF";
+			return std::to_string(v);
 		case Family::Machinedrum:
 			return _machine == Sampler ? samplerText(_index, v, _page) : std::to_string(v);
 		case Family::Off:
@@ -796,6 +804,8 @@ namespace elektron::drums::parameters
 	{
 		if(_machine.family == Family::Syntakt)
 			return syntaktChain(_machine.id == SyBits);
+		if(_machine.family == Family::FmDrums)
+			return fmDrumsChain();
 		if(_machine.family == Family::Machinedrum || _machine.family == Family::OpenDrum
 			|| _machine.family == Family::Sophie || isAnalog(_machine.family))
 			return machinedrumChain();

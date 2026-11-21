@@ -135,20 +135,25 @@ namespace elektron::drums
 		int samplerChoice() const
 		{
 			return static_cast<int>(m_machines.size()) - 1 - OpenDrumMachines - SophieMachines - SyntaktAnalogMachines
-				- RytmAnalogMachines;
+				- RytmAnalogMachines - FmDrumsMachines;
 		}
-		// The rate _track's chain runs at: the Syntakt's for a Track that took its chain, the Machinedrum's 44.1 kHz
-		// otherwise, whatever the host's
+		// The rate _track's chain runs at: the Syntakt's for a Track that took its chain (its family's or FM DRUMS's), the
+		// Machinedrum's 44.1 kHz otherwise, whatever the host's
 		double chainRate(const int _track) const
 		{
-			return m_chainFamily[static_cast<size_t>(_track)] == Family::Syntakt ? syntakt::fast::MachineRate : SampleRate;
+			return onLanes(m_chainFamily[static_cast<size_t>(_track)]) ? syntakt::fast::MachineRate : SampleRate;
 		}
 		int sophieChoice() const
 		{
-			return static_cast<int>(m_machines.size()) - SophieMachines - SyntaktAnalogMachines - RytmAnalogMachines;
+			return static_cast<int>(m_machines.size()) - SophieMachines - SyntaktAnalogMachines - RytmAnalogMachines
+				- FmDrumsMachines;
 		}
-		int analogChoice() const { return static_cast<int>(m_machines.size()) - SyntaktAnalogMachines - RytmAnalogMachines; }
-		int rytmChoice() const { return static_cast<int>(m_machines.size()) - RytmAnalogMachines; }
+		int analogChoice() const
+		{
+			return static_cast<int>(m_machines.size()) - SyntaktAnalogMachines - RytmAnalogMachines - FmDrumsMachines;
+		}
+		int rytmChoice() const { return static_cast<int>(m_machines.size()) - RytmAnalogMachines - FmDrumsMachines; }
+		int fmDrumsChoice() const { return static_cast<int>(m_machines.size()) - FmDrumsMachines; }
 
 		// Message thread. One of SOPHIE's 16 factory sounds (sophie::soundValues) on _track's Machine 1-20, each an edit
 		// the host is told of, as the editor's own. The sound the Track's Machine 1-20 hold, -1 for none

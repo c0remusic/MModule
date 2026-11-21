@@ -61,6 +61,7 @@ namespace
 		add(Family::Sophie, SophieMachines);
 		add(Family::SyntaktAnalog, SyntaktAnalogMachines);
 		add(Family::RytmAnalog, RytmAnalogMachines);
+		add(Family::FmDrums, FmDrumsMachines);
 		return m;
 	}
 
@@ -74,6 +75,7 @@ namespace
 		case Family::Sophie:		return "SOPHIE";
 		case Family::SyntaktAnalog:	return "Syntakt analog";
 		case Family::RytmAnalog:	return "Rytm analog";
+		case Family::FmDrums:		return "FM DRUMS";
 		case Family::Off:			return "off";
 		}
 		return "?";

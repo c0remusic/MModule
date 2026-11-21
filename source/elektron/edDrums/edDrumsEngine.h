@@ -96,7 +96,8 @@ namespace elektron::drums
 		OpenDrum,
 		Sophie,
 		SyntaktAnalog,
-		RytmAnalog
+		RytmAnalog,
+		FmDrums
 	};
 
 	// A Syntakt machine by its index in syntaktMachineNames, a Machinedrum one by its id
@@ -149,6 +150,15 @@ namespace elektron::drums
 	// routines' structure) are the Syntakt's family's
 	constexpr int RytmAnalogMachines = rytm::Machines;
 	inline bool isAnalog(const Family _f) { return _f == Family::SyntaktAnalog || _f == Family::RytmAnalog; }
+
+	// FM DRUMS (ticket 18 of .scratch/elektron-drums-v2): the Model:Cycles' machines rewritten (cycles/cyFast), on the
+	// Syntakt family's path, lanes of their machine and the 48 kHz chain, Cycles dist in post by default. Machine 1-8 are
+	// the machine's own (PTCH, DEC, COLR, SHPE, SWEP, CONT, PUNCH, GATE); velocity is the Track's, after the voice. Ids:
+	// 0 FMD KICK. Their sources come after the DT2 player's
+	constexpr int FmDrumsMachines = 1;
+	constexpr int FmDrumsSource = Dt2Source + 1;
+	// Whether a family plays on lanes of its machine, at 48 kHz, through the Syntakt family's chain
+	inline bool onLanes(const Family _f) { return _f == Family::Syntakt || _f == Family::FmDrums; }
 
 	// Whether a Track can play _machine: every Syntakt machine here, a Machinedrum one whose render is ported or a MID or
 	// CTR one, which stops the voice
@@ -497,7 +507,7 @@ namespace elektron::drums
 		SampleLayers& layersOf(const Track& _track) { return _track.stChain ? *m_stLayers : *m_mdLayers; }
 		// The Sampler on its DT2 grain, which plays on the Syntakt family's path; and whether the Track plays there
 		static bool dt2Grain(const Track& _track);
-		static bool syntaktPath(const Track& _track) { return _track.machine.family == Family::Syntakt || dt2Grain(_track); }
+		static bool syntaktPath(const Track& _track) { return onLanes(_track.machine.family) || dt2Grain(_track); }
 		// The Track's chain settings from one family's Chain to the other's (_syntakt: the Syntakt's), its LFO moves with them
 		void moveChain(int _track, bool _syntakt);
 		// Machine 9 of the Sampler to _value: another grain cuts the voice, the DT2 grain moves the Track between the paths

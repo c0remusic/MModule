@@ -71,6 +71,9 @@ namespace elektron::drums
 			// The Rytm's own analog machines after them, appended for the same reason
 			for(int id = 0; id < RytmAnalogMachines; ++id)
 				list.push_back({Family::RytmAnalog, static_cast<uint8_t>(id)});
+			// FM DRUMS's after them, appended for the same reason
+			for(int id = 0; id < FmDrumsMachines; ++id)
+				list.push_back({Family::FmDrums, static_cast<uint8_t>(id)});
 			return list;
 		}
 

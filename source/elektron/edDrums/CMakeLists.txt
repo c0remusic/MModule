@@ -34,7 +34,7 @@ if(MSVC)
 else()
 	set_source_files_properties(edDrumsDt2Filters.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
-target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast sophie PRIVATE mdEngine opendrum)
+target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast cyFast sophie PRIVATE mdEngine opendrum)
 set_property(TARGET edDrums PROPERTY FOLDER "Elektron")
 
 if(BUILD_TESTING)

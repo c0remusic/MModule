@@ -1124,9 +1124,14 @@ namespace
 		// ... then the Rytm's own (ticket 28, stage 2)
 		for(int id = 0; id < RytmAnalogMachines; ++id)
 			v5.push_back({Family::RytmAnalog, static_cast<uint8_t>(id)});
+		// ... then FM DRUMS (ticket 18 of elektron-drums-v2)
+		for(int id = 0; id < FmDrumsMachines; ++id)
+			v5.push_back({Family::FmDrums, static_cast<uint8_t>(id)});
 		const auto& list = processor.machines();
 		require(list == v5, "the list");
 		require(list[static_cast<size_t>(processor.rytmChoice())] == Machine{Family::RytmAnalog, 0}, "the Rytm family's choice");
+		require(list[static_cast<size_t>(processor.fmDrumsChoice())] == Machine{Family::FmDrums, 0}, "FM DRUMS's choice");
+		require(list[static_cast<size_t>(processor.samplerChoice())] == Sampler, "the Sampler's choice");
 		require(list[static_cast<size_t>(processor.sophieChoice())] == Machine{Family::Sophie, 0}, "SOPHIE's choice");
 		{
 			// A Track put on SOPHIE starts on its Kick; a factory sound sets Machine 1-20, which the engine plays

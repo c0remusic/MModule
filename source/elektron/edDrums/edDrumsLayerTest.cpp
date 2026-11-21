@@ -257,7 +257,7 @@ namespace
 		const std::vector<std::pair<const char*, Machine>> machines{{"Syntakt machine 0", {Family::Syntakt, 0}},
 			{"Machinedrum TRX-BD", {Family::Machinedrum, 16}}, {"OPEN DRUM", {Family::OpenDrum, 1}},
 			{"SOPHIE", {Family::Sophie, 0}}, {"Syntakt analog", {Family::SyntaktAnalog, 0}},
-			{"Rytm analog", {Family::RytmAnalog, 0}}};
+			{"Rytm analog", {Family::RytmAnalog, 0}}, {"FM DRUMS", {Family::FmDrums, 0}}};
 		for(const auto& [name, machine] : machines)
 		{
 			const auto render = [&](const bool _layer)

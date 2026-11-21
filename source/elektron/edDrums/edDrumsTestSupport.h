@@ -11,7 +11,7 @@ namespace elektron::drums::test
 {
 	constexpr int Channels = 2 * Outputs;
 
-	// Every machine that can sound, both families
+	// Every machine that can sound of the Syntakt's, the Machinedrum's and FM DRUMS
 	inline std::vector<Machine> machines()
 	{
 		std::vector<Machine> m;
@@ -20,11 +20,15 @@ namespace elektron::drums::test
 		for(int id = 1; id < 256; ++id)
 			if(md::voice::coefficientsPorted(static_cast<uint8_t>(id)))
 				m.push_back({Family::Machinedrum, static_cast<uint8_t>(id)});
+		for(int id = 0; id < FmDrumsMachines; ++id)
+			m.push_back({Family::FmDrums, static_cast<uint8_t>(id)});
 		return m;
 	}
 
 	inline std::string nameOf(const Machine& _m)
 	{
+		if(_m.family == Family::FmDrums)
+			return "FM DRUMS machine " + std::to_string(_m.id);
 		return _m.family == Family::Syntakt ? syntaktMachineNames[_m.id] : "MD machine " + std::to_string(_m.id);
 	}
 

@@ -10,6 +10,7 @@
 
 #include <emmintrin.h>
 
+#include "cyFastKick.h"
 #include "edDrumsRate.h"
 #include "openDrum.h"
 #include "sophieMachine.h"
@@ -178,6 +179,7 @@ namespace elektron::drums
 		case Family::Sophie:		return _machine.id < SophieMachines;
 		case Family::SyntaktAnalog:	return _machine.id < SyntaktAnalogMachines;
 		case Family::RytmAnalog:	return _machine.id < RytmAnalogMachines;
+		case Family::FmDrums:		return _machine.id < FmDrumsMachines;
 		case Family::Machinedrum:
 			// ROM-33 to -48's entries are the Sampler's
 			return _machine == Sampler || (md::voice::playable(_machine.id) && (_machine.id < Rom33 || _machine.id >= Rom33 + 16));
@@ -235,6 +237,12 @@ namespace elektron::drums
 			const auto a = _machine.family == Family::RytmAnalog ? rytm::Voice::defaultsOf(static_cast<rytm::Machine>(_machine.id))
 				: analog::defaultsOf(static_cast<analog::Machine>(_machine.id));
 			std::copy(a.begin(), a.end(), d.begin());
+			return d;
+		}
+		if(_machine.family == Family::FmDrums)
+		{
+			// The OS's sound for the machine, its parameter sheets' defaults
+			std::copy(cycles::fast::Kick::Defaults.begin(), cycles::fast::Kick::Defaults.end(), d.begin());
 			return d;
 		}
 		if(_machine.family == Family::Sophie)
@@ -577,9 +585,9 @@ namespace elektron::drums
 		rytm::warmUp();
 
 		using namespace syntakt::fast;
-		// The nine machines, then the Sampler's DT2 player (Dt2Source)
-		makeSources<Source, BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage, CpVintage, SyToy, SyBits, SpTwinshot, Dt2Player>(
-			m_sources, m_library.twinshot);
+		// The nine machines, then the Sampler's DT2 player (Dt2Source), then FM DRUMS's (FmDrumsSource)
+		makeSources<Source, BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage, CpVintage, SyToy, SyBits, SpTwinshot, Dt2Player,
+			cycles::fast::Kick>(m_sources, m_library.twinshot);
 		for(auto& s : m_sources)
 			s->fitWidth();
 		m_stOver = std::make_unique<TrackDrive>();
@@ -591,7 +599,9 @@ namespace elektron::drums
 
 	Engine::Source& Engine::sourceOf(const Track& _track)
 	{
-		return *m_sources[_track.machine == Sampler ? static_cast<size_t>(Dt2Source) : _track.machine.id];
+		const int source = _track.machine == Sampler ? Dt2Source
+			: _track.machine.family == Family::FmDrums ? FmDrumsSource + _track.machine.id : _track.machine.id;
+		return *m_sources[static_cast<size_t>(source)];
 	}
 
 	bool Engine::dt2Grain(const Track& _track)
@@ -661,18 +671,19 @@ namespace elektron::drums
 					m_lfos.wait(_track, target);
 			}
 			t.chainFamily = _machine.family;
-			t.stChain = _machine.family == Family::Syntakt;
+			t.stChain = onLanes(_machine.family);
 			chainOf(t).setNote(_track, t.note);
-			chainOf(t).configure(_track, _machine.family == Family::Syntakt ? syntaktChain(startsSustained(_machine)) : machinedrumChain());
+			chainOf(t).configure(_track, _machine.family == Family::Syntakt ? syntaktChain(startsSustained(_machine))
+				: _machine.family == Family::FmDrums ? fmDrumsChain() : machinedrumChain());
 			t.held = chainOf(t).holdsVoice(_track);
 		}
-		else if(_machine.family != Family::Off && t.stChain != (_machine.family == Family::Syntakt))
+		else if(_machine.family != Family::Off && t.stChain != onLanes(_machine.family))
 		{
 			// The Sampler's DT2 grain left for a machine of its family: the chain comes back, as it is
-			moveChain(_track, _machine.family == Family::Syntakt);
+			moveChain(_track, onLanes(_machine.family));
 		}
 		// Machine 9 at its default, the Sampler on its 12-BIT grain: the family's path
-		m_stMask = _machine.family == Family::Syntakt ? m_stMask | bit : m_stMask & ~bit;
+		m_stMask = onLanes(_machine.family) ? m_stMask | bit : m_stMask & ~bit;
 		// OVERDRIVE at the new machine's, off but on a Syntakt one, ramping as any word of the stage does
 		setOver(_track, 0);
 		if(_machine.family == Family::Syntakt)
@@ -941,6 +952,13 @@ namespace elektron::drums
 		{
 			// The DT2 player's slots at their own indices; the others nothing
 			if(Dt2Player::usesSlot(_slot) && t.lane >= 0)
+				give(_slot, wordOf(value, offset));
+			return;
+		}
+		if(t.machine.family == Family::FmDrums)
+		{
+			// Machine 1-8 at the machine's own indices: no OVERDRIVE or HOLD of the Syntakt's
+			if(_slot < cycles::fast::Kick::Parameters && t.lane >= 0)
 				give(_slot, wordOf(value, offset));
 			return;
 		}

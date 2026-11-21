@@ -32,7 +32,7 @@ $targets = @(
     "mdDrumsBankTest", "mdDrumsHitPreviewTest", "mdDrumsFirstHitTest", "mdDrumsVst3HostTest", "mdDrumsUpdateTest",
     "mdX20OsTest", "mdX20BuiltinsTest", "mdX20PortTest", "synthLibResamplerTimingTest", "synthLibOutputChannelsTest",
     "mdProtocolKitTest", "stEngineOracleTest", "stVoiceCpuTest", "stMainOracleTest", "stSyntaktTest", "stSyntakt16Test",
-    "stSimdTest", "stDrumsFirmwareTest", "stDrumsVst3HostTest", "mdVoicePortTest", "mdVoiceCoefficientsTest", "mdVoiceRomFiltersTest", "stFastBdModernTest", "stFastTablesTest", "stFastSdBasicTest", "stFastResampleTest", "stFastCyAlloyTest", "stFastPcCarbonTest", "stFastSdVintageTest", "stFastCpVintageTest", "stFastSyToyTest", "stFastSyBitsTest", "stFastSpTwinshotTest", "stFastSendFxTest", "stFastLanesTest", "mdFastSendsTest", "mdFastTrackFxTest", "stFastTrackTest", "edDrumsChainTest", "edDrumsEngineTest", "edDrumsLfoTest", "edDrumsSequencerTest", "edDrumsLocksTest", "edDrumsEditorTest", "edDrumsProcessorTest", "edDrumsNoFlashTest", "edDrumsVst3HostTest", "edDrumsOpenDrumTest", "sophieTest", "edDrumsSampleLibraryTest", "edDrumsSophieTest", "edDrumsAmpTest", "edDrumsVintageTest", "edDrumsSyntaktSlotsTest", "edDrumsRateTest", "edDrumsAnalogControlTest", "edDrumsAnalogTest", "edDrumsRytmControlTest", "edDrumsWorstKitCost", "edDrumsCyclesDistTest", "edDrumsDt2PlayerTest", "edDrumsLayerTest", "edDrumsSampleLockTest", "edDrumsDt2StagesTest", "edDrumsDt2FiltersTest")
+    "stSimdTest", "stDrumsFirmwareTest", "stDrumsVst3HostTest", "mdVoicePortTest", "mdVoiceCoefficientsTest", "mdVoiceRomFiltersTest", "stFastBdModernTest", "stFastTablesTest", "stFastSdBasicTest", "stFastResampleTest", "stFastCyAlloyTest", "stFastPcCarbonTest", "stFastSdVintageTest", "stFastCpVintageTest", "stFastSyToyTest", "stFastSyBitsTest", "stFastSpTwinshotTest", "stFastSendFxTest", "stFastLanesTest", "mdFastSendsTest", "mdFastTrackFxTest", "stFastTrackTest", "edDrumsChainTest", "edDrumsEngineTest", "edDrumsLfoTest", "edDrumsSequencerTest", "edDrumsLocksTest", "edDrumsEditorTest", "edDrumsProcessorTest", "edDrumsNoFlashTest", "edDrumsVst3HostTest", "edDrumsOpenDrumTest", "sophieTest", "edDrumsSampleLibraryTest", "edDrumsSophieTest", "edDrumsAmpTest", "edDrumsVintageTest", "edDrumsSyntaktSlotsTest", "edDrumsRateTest", "edDrumsAnalogControlTest", "edDrumsAnalogTest", "edDrumsRytmControlTest", "edDrumsWorstKitCost", "edDrumsCyclesDistTest", "edDrumsDt2PlayerTest", "edDrumsLayerTest", "edDrumsSampleLockTest", "edDrumsDt2StagesTest", "edDrumsDt2FiltersTest", "cyFastKickTest")
 # The Syntakt's two oracle tests run a second time with the AVX2 kernels off (SYNTAKT_NO_AVX2, set by ctest)
 $tests = $targets + @("mdSlideFirmwareTest", "stEngineOracleTestScalar", "stMainOracleTestScalar") |
     Where-Object { $_ -ne "mdTrigLatencyFirmwareTest" }
@@ -70,6 +70,9 @@ $syntakt = [ordered]@{
     RYTM_SECTION3        = "$SyntaktData\scratch-arch\research\rytm\rytm_174_sec3.bin"
     # The Model:Cycles' VOL+DIST stage as its OS runs it (tools\cycles\vectors_cycles_dist.py, out of the repository)
     CYCLES_DIST_VECTORS  = "$SyntaktData\vectors-cycles-dist"
+    # The Model:Cycles' KICK as its OS runs it, and with GATE on (tools\cycles\vectors_cycles*.py, out of the repository)
+    CYCLES_VECTORS       = "$SyntaktData\vectors-cycles"
+    CYCLES_GATE_VECTORS  = "$SyntaktData\vectors-cycles-gate"
     # The Digitakt II's sample voice as its OS runs it (tools\dt2\dt2_voice_oracle.py, out of the repository)
     DT2_VECTORS          = "$SyntaktData\vectors-dt2"
 }

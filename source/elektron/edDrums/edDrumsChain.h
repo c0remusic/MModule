@@ -142,6 +142,8 @@ namespace elektron::drums
 	// as near as the stage goes
 	ChainSettings syntaktChain(bool _sustained = false);
 	ChainSettings machinedrumChain();
+	// FM DRUMS's: Cycles dist in post at rest, no filter
+	ChainSettings fmDrumsChain();
 
 	// The three bands of the "+": a low shelf, a bell of fixed Q and a high shelf, each a trapezoidal state-variable filter
 	// (Simper), their words ramping over a block

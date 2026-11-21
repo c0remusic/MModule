@@ -302,7 +302,7 @@ namespace
 	// Whether the voice plays on the Syntakt family's path: its machines, and the Sampler's CLEAN grain (Engine::syntaktPath)
 	bool onSyntaktPath(const Voice& _v)
 	{
-		return _v.machine.family == Family::Syntakt || (_v.machine == Sampler && _v.grain >= 0 && vintage::isDt2(_v.grain));
+		return onLanes(_v.machine.family) || (_v.machine == Sampler && _v.grain >= 0 && vintage::isDt2(_v.grain));
 	}
 
 	double familyRate(const Voice& _v)
@@ -354,6 +354,7 @@ namespace
 		for(int id = 0; id < OpenDrumMachines; ++id)
 			v.push_back({"OPEN DRUM " + std::to_string(id), {Family::OpenDrum, static_cast<uint8_t>(id)}, nullptr, -1, id == 0});
 		v.push_back({"SOPHIE", {Family::Sophie, 0}, nullptr, -1, true});
+		v.push_back({"FMD KICK", {Family::FmDrums, 0}, nullptr, -1, true});
 		v.push_back({"Sampler, ROM grain, 440 Hz", Sampler, &_sine, 0, true});
 		v.push_back({"Sampler, VINTAGE, 440 Hz", Sampler, &_sine, vintage::GrainValues[1], true});
 		v.push_back({"Sampler, CLEAN, 440 Hz", Sampler, &_sine, vintage::GrainValues[2], true});
