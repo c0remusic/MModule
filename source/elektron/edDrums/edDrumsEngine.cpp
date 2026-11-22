@@ -10,7 +10,12 @@
 
 #include <emmintrin.h>
 
+#include "cyFastChord.h"
 #include "cyFastKick.h"
+#include "cyFastMetal.h"
+#include "cyFastPerc.h"
+#include "cyFastSnare.h"
+#include "cyFastTone.h"
 #include "edDrumsRate.h"
 #include "openDrum.h"
 #include "sophieMachine.h"
@@ -196,7 +201,8 @@ namespace elektron::drums
 		if(_machine.family == Family::Machinedrum)
 			return _library.mdData[_machine.id];
 		const bool twinshot = _machine.family == Family::Syntakt && _machine.id == SyntaktTwinshot;
-		return twinshot && !_library.twinshot ? MachineData::None : MachineData::Whole;
+		const bool chord = _machine.family == Family::FmDrums && _machine.id == FmDrumsChord;
+		return (twinshot && !_library.twinshot) || (chord && !_library.chord) ? MachineData::None : MachineData::Whole;
 	}
 
 	int machineParameters(const Machine& _machine)
@@ -241,8 +247,14 @@ namespace elektron::drums
 		}
 		if(_machine.family == Family::FmDrums)
 		{
-			// The OS's sound for the machine, its parameter sheets' defaults
-			std::copy(cycles::fast::Kick::Defaults.begin(), cycles::fast::Kick::Defaults.end(), d.begin());
+			// The OS's sound for the machine, its parameter records' defaults
+			using namespace cycles::fast;
+			static constexpr std::array<std::array<uint8_t, Kick::Parameters>, FmDrumsMachines> Defaults{
+				Kick::Defaults, Snare::Defaults, Metal::Defaults, Perc::Defaults, Tone::Defaults, Chord::Defaults};
+			if(_machine.id >= FmDrumsMachines)
+				return d;
+			const auto& a = Defaults[_machine.id];
+			std::copy(a.begin(), a.end(), d.begin());
 			return d;
 		}
 		if(_machine.family == Family::Sophie)
@@ -323,12 +335,12 @@ namespace elektron::drums
 		{
 			static constexpr bool Dt2 = std::is_same_v<M, Dt2Player>;
 
-			explicit SourceOf(const syntakt::fast::TwinshotSamples* _samples)
+			explicit SourceOf(const Library& _library)
 			{
 				if constexpr(std::is_same_v<M, syntakt::fast::SpTwinshot>)
-					m.setSamples(_samples);
-				else
-					(void)_samples;
+					m.setSamples(_library.twinshot);
+				if constexpr(std::is_same_v<M, cycles::fast::Chord>)
+					m.setWaves(_library.chord.get());
 				if constexpr(Dt2)
 					m.setSamples(&m_dt2);
 			}
@@ -363,9 +375,9 @@ namespace elektron::drums
 		};
 
 		template<typename Base, typename... Machines>
-		void makeSources(std::vector<std::unique_ptr<Base>>& _sources, const syntakt::fast::TwinshotSamples* _samples)
+		void makeSources(std::vector<std::unique_ptr<Base>>& _sources, const Library& _library)
 		{
-			(_sources.push_back(std::make_unique<SourceOf<Machines, Base>>(_samples)), ...);
+			(_sources.push_back(std::make_unique<SourceOf<Machines, Base>>(_library)), ...);
 		}
 	}
 
@@ -587,7 +599,8 @@ namespace elektron::drums
 		using namespace syntakt::fast;
 		// The nine machines, then the Sampler's DT2 player (Dt2Source), then FM DRUMS's (FmDrumsSource)
 		makeSources<Source, BdModern, SdBasic, CyAlloy, PcCarbon, SdVintage, CpVintage, SyToy, SyBits, SpTwinshot, Dt2Player,
-			cycles::fast::Kick>(m_sources, m_library.twinshot);
+			cycles::fast::Kick, cycles::fast::Snare, cycles::fast::Metal, cycles::fast::Perc, cycles::fast::Tone,
+			cycles::fast::Chord>(m_sources, m_library);
 		for(auto& s : m_sources)
 			s->fitWidth();
 		m_stOver = std::make_unique<TrackDrive>();

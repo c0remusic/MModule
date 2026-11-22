@@ -3,7 +3,7 @@
 #include <array>
 #include <cstdint>
 
-#include "stFastStages.h"
+#include "cyFastFm.h"
 
 // The FM DRUMS family's machines (ticket 18 of .scratch/elektron-drums-v2): the voices of the Model:Cycles OS 1.13,
 // their laws read in its code and checked at its oracle (elektron-work's cycles-kick/KICK.md, outside the
@@ -12,11 +12,6 @@
 // (cyFastKickCurves.inc).
 namespace cycles::fast
 {
-	using syntakt::fast::Block;
-	using syntakt::fast::Controls;
-	using syntakt::fast::Lanes;
-	constexpr int BlockSize = syntakt::fast::BlockSize;
-
 	// FMD KICK: four sine operators. Operator 0 phase-modulates itself by its last sample; operator 2, a five-harmonic
 	// wave under its own envelope, is phase-modulated by operator 1; the two mix (COLR and SHPE's gains) under the
 	// index envelope (CONT) into the phase of operator 3, at the note, whose pitch the sweep (SWEP) raises at the trig.

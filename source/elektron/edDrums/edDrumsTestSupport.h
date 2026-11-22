@@ -28,7 +28,11 @@ namespace elektron::drums::test
 	inline std::string nameOf(const Machine& _m)
 	{
 		if(_m.family == Family::FmDrums)
-			return "FM DRUMS machine " + std::to_string(_m.id);
+		{
+			constexpr const char* Names[FmDrumsMachines]{"FMD KICK", "FMD SNARE", "FMD METAL", "FMD PERC", "FMD TONE",
+				"FMD CHORD"};
+			return Names[_m.id];
+		}
 		return _m.family == Family::Syntakt ? syntaktMachineNames[_m.id] : "MD machine " + std::to_string(_m.id);
 	}
 

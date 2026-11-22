@@ -154,8 +154,10 @@ namespace elektron::drums
 	// FM DRUMS (ticket 18 of .scratch/elektron-drums-v2): the Model:Cycles' machines rewritten (cycles/cyFast), on the
 	// Syntakt family's path, lanes of their machine and the 48 kHz chain, Cycles dist in post by default. Machine 1-8 are
 	// the machine's own (PTCH, DEC, COLR, SHPE, SWEP, CONT, PUNCH, GATE); velocity is the Track's, after the voice. Ids:
-	// 0 FMD KICK. Their sources come after the DT2 player's
-	constexpr int FmDrumsMachines = 1;
+	// 0 FMD KICK, 1 FMD SNARE, 2 FMD METAL, 3 FMD PERC, 4 FMD TONE, 5 FMD CHORD (ticket 19; its waves from the user's
+	// Model:Cycles OS, Library::chord). Their sources come after the DT2 player's
+	constexpr int FmDrumsMachines = 6;
+	constexpr int FmDrumsChord = 5;
 	constexpr int FmDrumsSource = Dt2Source + 1;
 	// Whether a family plays on lanes of its machine, at 48 kHz, through the Syntakt family's chain
 	inline bool onLanes(const Family _f) { return _f == Family::Syntakt || _f == Family::FmDrums; }

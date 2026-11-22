@@ -252,6 +252,14 @@ int main(const int _argc, char** _argv)
 	syntakt::fast::TwinshotSamples samples;
 	loadTwinshotNoise(samples);
 	library.twinshot = &samples;
+	// FMD CHORD plays its waves, or its cost would count as silence's
+	const char* section3 = std::getenv("CYCLES_SECTION3");
+	library.chord = section3 ? Library::loadChordWaves(section3) : nullptr;
+	if(!library.chord)
+	{
+		std::printf("no FMD CHORD waves: set CYCLES_SECTION3 to the Model:Cycles OS 1.13's section 3\n");
+		return 77;
+	}
 
 	Setup s;
 	s.kit = dearestMachines(library);

@@ -1,6 +1,8 @@
 #include "edDrumsLibrary.h"
 
 #include <algorithm>
+#include <fstream>
+#include <iterator>
 #include <stdexcept>
 
 #include "Firmware.h"
@@ -101,5 +103,18 @@ namespace elektron::drums
 	std::vector<uint8_t> Library::findFlashImage(const std::filesystem::path& _folder)
 	{
 		return md::fw::findFlashImage({_folder});
+	}
+
+	std::unique_ptr<cycles::fast::ChordWaves> Library::loadChordWaves(const std::filesystem::path& _file)
+	{
+		// The size first: no other file is read whole
+		std::error_code ec;
+		if(std::filesystem::file_size(_file, ec) != cycles::fast::ChordSection3Size || ec)
+			return nullptr;
+		std::ifstream f(_file, std::ios::binary);
+		const std::vector<uint8_t> bytes{std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
+		auto waves = std::make_unique<cycles::fast::ChordWaves>();
+		std::string error;
+		return cycles::fast::readChordWaves(bytes, *waves, error) ? std::move(waves) : nullptr;
 	}
 }

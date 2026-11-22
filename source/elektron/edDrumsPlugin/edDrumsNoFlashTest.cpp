@@ -310,8 +310,9 @@ int main()
 		std::printf("  no image: %d machines whole, %d on words made here, quietest %s at %.1f dB, HitDelay %d "
 			"reported, the earliest 1 %% of a peak %d, jitter 0 at 4 positions; %d silent:%s\n", whole, house, quietestName.c_str(),
 			20 * std::log10(quietest), HitDelay, earliest, silent, silentNames.c_str());
-		// FMD KICK (FM DRUMS, ticket 18) whole too: it reads nothing of an image
-		require(whole == 33 && house == 10 && silent == 17, "another count of machines");
+		// FM DRUMS's KICK to TONE (tickets 18 and 19) whole too: they read nothing of an image; FMD CHORD silent, its
+		// waves the Model:Cycles OS's, which this data folder lacks
+		require(whole == 37 && house == 10 && silent == 18, "another count of machines");
 
 		// Ticket 27: a Track on factory slot 5 without the image keeps its reference, says why it is silent, and a state
 		// saved again keeps the slot; Browse has no factory sample to list

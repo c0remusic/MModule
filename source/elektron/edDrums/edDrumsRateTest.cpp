@@ -354,7 +354,12 @@ namespace
 		for(int id = 0; id < OpenDrumMachines; ++id)
 			v.push_back({"OPEN DRUM " + std::to_string(id), {Family::OpenDrum, static_cast<uint8_t>(id)}, nullptr, -1, id == 0});
 		v.push_back({"SOPHIE", {Family::Sophie, 0}, nullptr, -1, true});
-		v.push_back({"FMD KICK", {Family::FmDrums, 0}, nullptr, -1, true});
+		for(int id = 0; id < FmDrumsMachines; ++id)
+		{
+			const Machine m{Family::FmDrums, static_cast<uint8_t>(id)};
+			if(id != FmDrumsChord)	// its waves come from the user's OS, which this test leaves out
+				v.push_back({nameOf(m), m, nullptr, -1, true});
+		}
 		v.push_back({"Sampler, ROM grain, 440 Hz", Sampler, &_sine, 0, true});
 		v.push_back({"Sampler, VINTAGE, 440 Hz", Sampler, &_sine, vintage::GrainValues[1], true});
 		v.push_back({"Sampler, CLEAN, 440 Hz", Sampler, &_sine, vintage::GrainValues[2], true});

@@ -198,8 +198,10 @@ namespace elektron::drums::names
 			{"TUNE", "DECAY", "SWEEP", "SWEEP TIME", "NOISE DECAY", "NOISE", "NOISE TONE", "LEVEL"},
 		}};
 
-		// FM DRUMS (ticket 18 of .scratch/elektron-drums-v2), by id, Machine 1-8 as cycles::fast::Kick::Slot orders them
-		constexpr std::array<const char*, FmDrumsMachines> fmDrumsNames{"FMD KICK"};
+		// FM DRUMS (tickets 18 and 19 of .scratch/elektron-drums-v2), by id, Machine 1-8 as cycles::fast's Slot orders
+		// them
+		constexpr std::array<const char*, FmDrumsMachines> fmDrumsNames{"FMD KICK", "FMD SNARE", "FMD METAL",
+			"FMD PERC", "FMD TONE", "FMD CHORD"};
 		constexpr std::array<const char*, 8> fmDrumsControls{"PTCH", "DEC", "COLR", "SHPE", "SWEP", "CONT", "PUNCH", "GATE"};
 
 		const char* named(const char* _name)

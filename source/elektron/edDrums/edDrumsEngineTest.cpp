@@ -21,6 +21,8 @@
 #include <cmath>
 #include <complex>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
@@ -2951,6 +2953,13 @@ int main()
 		Library library(flash);
 		const auto samples = noise();
 		library.twinshot = samples.get();
+		// FMD CHORD's waves where the user's Model:Cycles OS section 3 is given (the gate gives it), else it is silent
+		if(const char* section3 = std::getenv("CYCLES_SECTION3"))
+		{
+			library.chord = Library::loadChordWaves(section3);
+			require(library.chord != nullptr, std::string("CYCLES_SECTION3 is not OS 1.13's section 3: ") + section3);
+		}
+		std::printf("FMD CHORD %s\n", library.chord ? "plays the user's OS's waves" : "silent: CYCLES_SECTION3 unset");
 		sampler(library);
 		withoutTheImage(flash, library);
 		machineTable(flash);

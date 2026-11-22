@@ -6,6 +6,7 @@
 #include <memory>
 #include <vector>
 
+#include "cyFastChordWaves.h"
 #include "mdVoice.h"
 #include "mdVoiceCoefficients.h"
 #include "mdVoiceTrack.h"
@@ -66,5 +67,13 @@ namespace elektron::drums
 
 		// What SP TWINSHOT plays, nullptr: silence. A later ticket imports them; a test makes some
 		const syntakt::fast::TwinshotSamples* twinshot = nullptr;
+
+		// FMD CHORD's waves (31, the 32nd pointer the 31st again), read from the user's Model:Cycles OS 1.13 (its
+		// section 3, ChordSection3Name in the data folder's roms), nullptr: FMD CHORD plays silence (ticket 19 of
+		// .scratch/elektron-drums-v2)
+		std::unique_ptr<cycles::fast::ChordWaves> chord;
+		static constexpr const char* ChordSection3Name = "section_3_MAIN_OS.bin";
+		// The waves from the section 3 file _file, nullptr when it is missing or not OS 1.13's section 3
+		static std::unique_ptr<cycles::fast::ChordWaves> loadChordWaves(const std::filesystem::path& _file);
 	};
 }

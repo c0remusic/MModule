@@ -32,7 +32,7 @@ $targets = @(
     "mdDrumsBankTest", "mdDrumsHitPreviewTest", "mdDrumsFirstHitTest", "mdDrumsVst3HostTest", "mdDrumsUpdateTest",
     "mdX20OsTest", "mdX20BuiltinsTest", "mdX20PortTest", "synthLibResamplerTimingTest", "synthLibOutputChannelsTest",
     "mdProtocolKitTest", "stEngineOracleTest", "stVoiceCpuTest", "stMainOracleTest", "stSyntaktTest", "stSyntakt16Test",
-    "stSimdTest", "stDrumsFirmwareTest", "stDrumsVst3HostTest", "mdVoicePortTest", "mdVoiceCoefficientsTest", "mdVoiceRomFiltersTest", "stFastBdModernTest", "stFastTablesTest", "stFastSdBasicTest", "stFastResampleTest", "stFastCyAlloyTest", "stFastPcCarbonTest", "stFastSdVintageTest", "stFastCpVintageTest", "stFastSyToyTest", "stFastSyBitsTest", "stFastSpTwinshotTest", "stFastSendFxTest", "stFastLanesTest", "mdFastSendsTest", "mdFastTrackFxTest", "stFastTrackTest", "edDrumsChainTest", "edDrumsEngineTest", "edDrumsLfoTest", "edDrumsSequencerTest", "edDrumsLocksTest", "edDrumsEditorTest", "edDrumsProcessorTest", "edDrumsNoFlashTest", "edDrumsVst3HostTest", "edDrumsOpenDrumTest", "sophieTest", "edDrumsSampleLibraryTest", "edDrumsSophieTest", "edDrumsAmpTest", "edDrumsVintageTest", "edDrumsSyntaktSlotsTest", "edDrumsRateTest", "edDrumsAnalogControlTest", "edDrumsAnalogTest", "edDrumsRytmControlTest", "edDrumsWorstKitCost", "edDrumsCyclesDistTest", "edDrumsDt2PlayerTest", "edDrumsLayerTest", "edDrumsSampleLockTest", "edDrumsDt2StagesTest", "edDrumsDt2FiltersTest", "cyFastKickTest")
+    "stSimdTest", "stDrumsFirmwareTest", "stDrumsVst3HostTest", "mdVoicePortTest", "mdVoiceCoefficientsTest", "mdVoiceRomFiltersTest", "stFastBdModernTest", "stFastTablesTest", "stFastSdBasicTest", "stFastResampleTest", "stFastCyAlloyTest", "stFastPcCarbonTest", "stFastSdVintageTest", "stFastCpVintageTest", "stFastSyToyTest", "stFastSyBitsTest", "stFastSpTwinshotTest", "stFastSendFxTest", "stFastLanesTest", "mdFastSendsTest", "mdFastTrackFxTest", "stFastTrackTest", "edDrumsChainTest", "edDrumsEngineTest", "edDrumsLfoTest", "edDrumsSequencerTest", "edDrumsLocksTest", "edDrumsEditorTest", "edDrumsProcessorTest", "edDrumsNoFlashTest", "edDrumsVst3HostTest", "edDrumsOpenDrumTest", "sophieTest", "edDrumsSampleLibraryTest", "edDrumsSophieTest", "edDrumsAmpTest", "edDrumsVintageTest", "edDrumsSyntaktSlotsTest", "edDrumsRateTest", "edDrumsAnalogControlTest", "edDrumsAnalogTest", "edDrumsRytmControlTest", "edDrumsWorstKitCost", "edDrumsCyclesDistTest", "edDrumsDt2PlayerTest", "edDrumsLayerTest", "edDrumsSampleLockTest", "edDrumsDt2StagesTest", "edDrumsDt2FiltersTest", "cyFastKickTest", "cyFastSnareMetalTest", "cyFastPercToneTest", "cyFastChordTest")
 # The Syntakt's two oracle tests run a second time with the AVX2 kernels off (SYNTAKT_NO_AVX2, set by ctest)
 $tests = $targets + @("mdSlideFirmwareTest", "stEngineOracleTestScalar", "stMainOracleTestScalar") |
     Where-Object { $_ -ne "mdTrigLatencyFirmwareTest" }
@@ -73,6 +73,16 @@ $syntakt = [ordered]@{
     # The Model:Cycles' KICK as its OS runs it, and with GATE on (tools\cycles\vectors_cycles*.py, out of the repository)
     CYCLES_VECTORS       = "$SyntaktData\vectors-cycles"
     CYCLES_GATE_VECTORS  = "$SyntaktData\vectors-cycles-gate"
+    # Its SNARE and METAL with GATE on and a retrig (cycles-snare-metal\vectors_gate_sm.py, out of the repository)
+    CYCLES_GATE_SNARE_VECTORS = "$SyntaktData\vectors-cycles-gate-snare"
+    CYCLES_GATE_METAL_VECTORS = "$SyntaktData\vectors-cycles-gate-metal"
+    # Its PERC and TONE with GATE on (cycles-perc-tone-chord\vectors_gate_m.py, out of the repository)
+    CYCLES_GATE_PERC_VECTORS = "$SyntaktData\vectors-cycles-gate-perc"
+    CYCLES_GATE_TONE_VECTORS = "$SyntaktData\vectors-cycles-gate-tone"
+    # Its CHORD with GATE on (cycles-perc-tone-chord\vectors_gate_m.py), and the user's OS 1.13 section 3, whose waves
+    # CHORD plays (both out of the repository)
+    CYCLES_GATE_CHORD_VECTORS = "$SyntaktData\vectors-cycles-gate-chord"
+    CYCLES_SECTION3      = "$SyntaktData\model-cycles-1.13\section_3_MAIN_OS.bin"
     # The Digitakt II's sample voice as its OS runs it (tools\dt2\dt2_voice_oracle.py, out of the repository)
     DT2_VECTORS          = "$SyntaktData\vectors-dt2"
 }

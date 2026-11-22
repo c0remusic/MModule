@@ -582,6 +582,9 @@ namespace elektron::drums::parameters
 				return semitones(std::clamp(v, 40, 88) - 64);
 			if(_index == cycles::fast::Kick::Punch || _index == cycles::fast::Kick::Gate)
 				return v >= 64 ? "ON" : "OFF";
+			// FMD CHORD's SHPE: its record's 0-37, 0-2 unisons, 3-37 the chord rows
+			if(_machine.id == FmDrumsChord && _index == cycles::fast::Kick::Shape)
+				return std::to_string(std::min(v, 37));
 			return std::to_string(v);
 		case Family::Machinedrum:
 			return _machine == Sampler ? samplerText(_index, v, _page) : std::to_string(v);

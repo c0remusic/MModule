@@ -498,6 +498,15 @@ namespace elektron::drums
 		{
 			m_library = std::make_unique<Library>();
 		}
+		// FMD CHORD's waves from the user's Model:Cycles OS in the roms folder, else it plays silence
+		try
+		{
+			const auto file = dataFolder().getChildFile("roms").getChildFile(Library::ChordSection3Name);
+			m_library->chord = Library::loadChordWaves(std::filesystem::path(file.getFullPathName().toWideCharPointer()));
+		}
+		catch(const std::exception&)
+		{
+		}
 		// The Locker's FACTORY: the factory bank's slots that hold a sample, by what their directory entries say
 		for(int slot = 1; slot <= FactorySlots && !m_library->directory.empty(); ++slot)
 		{
