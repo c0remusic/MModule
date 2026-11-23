@@ -1085,6 +1085,49 @@ namespace
 		require(std::abs(accented / normal - 168.0f / 127) < 1e-3f, "accent");
 	}
 
+	// On a Cycles Track VEL DEST reaches PTCH, DEC, COLR, SHPE, SWEP and CONT: the Hit plays the value VEL AMT x
+	// velocity / 127 above the Kit's, as a Hit of that value would, again at each Hit; on another family those targets
+	// move nothing
+	void velocityOnMachine(const Library& _library)
+	{
+		const auto play = [&](const Machine& _machine, const VelocityTarget _target, const int _slot,
+			const std::array<int, 2>& _values)
+		{
+			auto e = engineWith(_library, _machine);
+			ChainSettings chain;
+			chain.velocityTarget = _target;
+			chain.velocityDepth = 30;
+			e->setChain(0, chain);
+			std::vector<float> out;
+			const int velocities[]{100, 20};
+			for(int h = 0; h < 2; ++h)
+			{
+				e->setParameter(0, _slot, static_cast<uint8_t>(_values[static_cast<size_t>(h)]));
+				e->noteOn(0, velocities[h], false);
+				Take take(6000);
+				take.render(*e, 0, 6000);
+				out.insert(out.end(), take.channel(0).begin(), take.channel(0).end());
+			}
+			return out;
+		};
+		const Machine kick{Family::FmDrums, 0};
+		// 30 x 100 / 127 is 23 values, 30 x 20 / 127 is 4
+		for(int slot = 0; slot < 6; ++slot)
+		{
+			const auto target = static_cast<VelocityTarget>(static_cast<int>(VelocityTarget::Machine1) + slot);
+			const auto moved = play(kick, target, slot, {40, 40});
+			require(moved == play(kick, VelocityTarget::None, slot, {63, 44}),
+				"FMD KICK's Machine " + std::to_string(slot + 1) + " does not follow velocity as a Hit of its value");
+			require(moved != play(kick, VelocityTarget::None, slot, {40, 40}),
+				"FMD KICK's Machine " + std::to_string(slot + 1) + ": velocity moves nothing");
+		}
+		const Machine syntakt{Family::Syntakt, 3};
+		require(play(syntakt, VelocityTarget::Machine1, 0, {40, 40})
+			== play(syntakt, VelocityTarget::None, 0, {40, 40}), "a Syntakt machine's Machine 1 follows velocity");
+		std::printf("  velocity on FMD KICK's Machine 1-6: each Hit as one of its value, again at the next; nothing on "
+			"a Syntakt machine\n");
+	}
+
 	// A closed hat choking an open hat, the two in one group
 	void chokedNeighbour(const Library& _library)
 	{
@@ -2984,6 +3027,7 @@ int main()
 		bareVoice(library);
 		chainsAtHits(library);
 		velocityAndAccent(library);
+		velocityOnMachine(library);
 		hits(library);
 		running(library);
 		againstHost(library);

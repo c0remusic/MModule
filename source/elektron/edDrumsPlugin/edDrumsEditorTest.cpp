@@ -511,6 +511,7 @@ namespace
 		const float machineWas = machine->getValue(), targetWas = target->getValue();
 		target->setValueNotifyingHost(target->convertTo0to1(static_cast<float>(LfoTarget::Machine1)));
 		const auto& list = _processor.machines();
+		int velocityLists = 0;		// VEL TARGET cells seen on a Cycles machine
 		_editor.showPage(Editor::Page::Sound);
 		_editor.showLfo(0);
 		for(size_t k = 0; k < list.size(); ++k)
@@ -530,6 +531,20 @@ namespace
 						if(c.valueText(c.normalised()) != (first ? juce::String(first) : juce::String("MACHINE 1")))
 							misnamed.add(juce::String(names::machine(m)) + " TARGET " + c.valueText(c.normalised()));
 					}
+					// VEL TARGET: the chain's nine everywhere, a Cycles machine's Machine 1-6 after them by its names
+					if(id == "t01_vel_target")
+					{
+						velocityLists += m.family == Family::FmDrums;
+						const bool cycles = m.family == Family::FmDrums;
+						// ENV DEPTH, the list's ninth, is value 8 of the fifteen the host has, on either list
+						bool named = c.count() == (cycles ? 15 : 9) && c.labels[8] == "ENV DEPTH"
+							&& juce::roundToInt(c.parameter->convertFrom0to1(c.normalisedOf(8))) == 8;
+						for(int i = 0; cycles && i < 6; ++i)
+							named = named && c.labels[9 + i] == juce::String(names::control(m, i));
+						if(!named)
+							misnamed.add(juce::String(names::machine(m)) + " VEL TARGET "
+								+ c.labels.joinIntoString(","));
+					}
 					if(!id.startsWith("t01_m") || !id.substring(5).containsOnly("0123456789"))
 						continue;
 					const int i = id.substring(5).getIntValue() - 1;
@@ -548,8 +563,9 @@ namespace
 				misnamed.add(juce::String(names::machine(m)) + ": no FAMILY " + family);
 			_editor.showPage(Editor::Page::Sound);
 		}
-		check(misnamed.isEmpty(), "Sound: every machine's cells and LFO TARGET named as the machine names them"
-			+ (misnamed.isEmpty() ? juce::String() : ": " + misnamed.joinIntoString(" | ")));
+		check(misnamed.isEmpty(), juce::String("Sound: every machine's cells, LFO TARGET and VEL TARGET named as the ")
+			+ "machine names them" + (misnamed.isEmpty() ? juce::String() : ": " + misnamed.joinIntoString(" | ")));
+		check(velocityLists > 0, "Sound: VEL TARGET seen on a Cycles machine");
 
 		// Seq: lock lines on Machine 1-3 of ROUND KICK, named as it names them
 		const Machine kick{Family::Machinedrum, 16};

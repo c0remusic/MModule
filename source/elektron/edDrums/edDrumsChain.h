@@ -80,6 +80,9 @@ namespace elektron::drums
 		Resonance,
 		Width,			// FLTW
 		EnvelopeDepth,
+		// Appended: a Cycles machine's PTCH, DEC, COLR, SHPE, SWEP and CONT (Machine 1-6), which the engine moves at
+		// each Hit (Engine::setChain): the chain never sees them
+		Machine1, Machine2, Machine3, Machine4, Machine5, Machine6,
 		Count
 	};
 

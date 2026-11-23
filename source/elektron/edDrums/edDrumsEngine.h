@@ -430,6 +430,9 @@ namespace elektron::drums
 			bool stChain = false;			// the Syntakt's Chain (48 kHz) holds its settings, else the Machinedrum's
 			bool held = false;				// its chain's amp holds its voice (Chain::holdsVoice)
 			std::array<int, static_cast<size_t>(LfoTarget::Count)> taken{};	// what the LFOs aimed here add up to, as far as its slope has got
+			// A Cycles machine's Machine 1-6 that VEL DEST aims at (-1 none), VEL AMT, and what the last Hit's velocity
+			// added to it, in 1/128 of a value
+			int velocitySlot = -1, velocityDepth = 0, velocityMove = 0;
 
 			// Machinedrum
 			Ring mdRing;

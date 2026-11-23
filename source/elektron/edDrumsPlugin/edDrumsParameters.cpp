@@ -20,7 +20,10 @@ namespace elektron::drums::parameters
 			"|SR reduce";
 		constexpr const char* OutputNames = "Main|Out 01|Out 02|Out 03|Out 04|Out 05|Out 06|Out 07|Out 08|Out 09"
 			"|Out 10|Out 11|Out 12|Out 13|Out 14|Out 15";
-		constexpr const char* Targets = "None|Drive A|Drive B|EQ A|EQ B|Cutoff|Resonance|Width|Env Depth";
+		// VelocityTarget's: the chain's, then a Cycles machine's Machine 1-6, which the editor offers on a Cycles Track
+		// only
+		constexpr const char* Targets = "None|Drive A|Drive B|EQ A|EQ B|Cutoff|Resonance|Width|Env Depth"
+			"|Machine 1|Machine 2|Machine 3|Machine 4|Machine 5|Machine 6";
 
 		// SY BITS starts in ADSR, its voice held: the engine's startsSustained, which it keeps to itself
 		constexpr uint8_t SyBits = 7;
@@ -633,7 +636,7 @@ namespace elektron::drums::parameters
 		{"amp_sustain", "Amp Sustain"},
 		{"amp_release", "Amp Release"},
 		{"amp_mode", "Amp Mode", 0, 1, "AHD|ADSR"},
-		{"vel_target", "Velocity Target", 0, 8, Targets},
+		{"vel_target", "Velocity Target", 0, static_cast<int>(VelocityTarget::Count) - 1, Targets},
 		{"vel_depth", "Velocity Amt", -127, 127},
 	}};
 

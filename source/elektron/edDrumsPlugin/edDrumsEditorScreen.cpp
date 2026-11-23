@@ -177,6 +177,21 @@ namespace elektron::drums
 			return labels;
 		}
 
+		// What VEL TARGET lists: the chain's targets, and on a Cycles machine its Machine 1-6 as it names them
+		juce::StringArray velocityLabels(const juce::AudioParameterChoice& _target, const Machine& _machine)
+		{
+			const bool cycles = _machine.family == Family::FmDrums;
+			const int count = cycles ? _target.choices.size() : static_cast<int>(VelocityTarget::Machine1);
+			juce::StringArray labels;
+			for(int i = 0; i < count; ++i)
+			{
+				const int slot = i - static_cast<int>(VelocityTarget::Machine1);
+				const char* name = slot >= 0 ? names::control(_machine, slot) : nullptr;
+				labels.add(name ? juce::String(name) : _target.choices[i].toUpperCase());
+			}
+			return labels;
+		}
+
 		juce::StringArray outputs()
 		{
 			juce::StringArray o{"MAIN"};
@@ -952,7 +967,9 @@ namespace elektron::drums
 			const int pan = put(x, y + 9, w, 3, 1, t("pan"), "PAN", hue::p, "a");
 			m_cells[static_cast<size_t>(pan)].format = Format::Pan;
 			put(x, y + 9, w, 3, 2, t("accent"), "ACCENT", hue::p, "a");
-			put(x, y + 27, w, 3, 0, t("vel_target"), "VEL TARGET", hue::p, "a");
+			const int velTarget = put(x, y + 27, w, 3, 0, t("vel_target"), "VEL TARGET", hue::p, "a");
+			m_cells[static_cast<size_t>(velTarget)].labels = velocityLabels(
+				*dynamic_cast<const juce::AudioParameterChoice*>(t("vel_target")), trackMachine(m_track));
 			put(x, y + 27, w, 3, 1, t("vel_depth"), "VEL AMT", hue::p, "a");
 			put(x, y + 27, w, 3, 2, t("amp_on"), "AMP ENV", hue::p, "a");
 			const bool adsr = choiceOf(t("amp_mode")->getParameterID()) == 1;

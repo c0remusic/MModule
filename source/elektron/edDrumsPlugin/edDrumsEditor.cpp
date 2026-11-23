@@ -862,8 +862,8 @@ namespace elektron::drums
 				return;
 			m_press.accumulated -= static_cast<float>(n) * 4;
 			const int count = _cell.count();
-			const int index = juce::jlimit(0, count - 1, juce::roundToInt(m_press.value * static_cast<float>(count - 1)) + n);
-			m_press.value = count > 1 ? static_cast<float>(index) / static_cast<float>(count - 1) : 0;
+			const int index = juce::jlimit(0, count - 1, _cell.indexOf(m_press.value) + n);
+			m_press.value = _cell.normalisedOf(index);
 			cellSet(_cell, m_press.value);
 			return;
 		}
@@ -909,15 +909,15 @@ namespace elektron::drums
 				const Cell cell = _cell;
 				juce::StringArray items;
 				for(int i = 0; i < count; ++i)
-					items.add(cell.valueText(count > 1 ? static_cast<float>(i) / static_cast<float>(count - 1) : 0));
+					items.add(cell.valueText(cell.normalisedOf(i)));
 				openSelector(x, y, items, [this, cell](const int _i)
 				{
 					float v = cell.normalised();
 					lockOf(cell, v);
-					return juce::roundToInt(v * static_cast<float>(cell.count() - 1)) == _i;
+					return cell.indexOf(v) == _i;
 				}, [this, cell](const int _i)
 				{
-					const float v = static_cast<float>(_i) / static_cast<float>(cell.count() - 1);
+					const float v = cell.normalisedOf(_i);
 					if(lockEdit() && lockable(cell))
 						cellSet(cell, v);
 					else
@@ -926,8 +926,8 @@ namespace elektron::drums
 			}
 			else if(_cell.isList() || _cell.look == Cell::Look::Button || _cell.look == Cell::Look::Segments)
 			{
-				const int next = (juce::roundToInt(m_press.value * static_cast<float>(count - 1)) + 1) % count;
-				cellSet(_cell, count > 1 ? static_cast<float>(next) / static_cast<float>(count - 1) : 0);
+				const int next = (_cell.indexOf(m_press.value) + 1) % count;
+				cellSet(_cell, _cell.normalisedOf(next));
 			}
 		}
 		if(m_press.gesture)

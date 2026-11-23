@@ -235,10 +235,21 @@ namespace elektron::drums::ui
 
 	int Cell::index() const
 	{
+		return parameter ? indexOf(parameter->getValue()) : 0;
+	}
+
+	float Cell::normalisedOf(const int _index) const
+	{
 		if(!parameter)
 			return 0;
-		const auto& r = parameter->getNormalisableRange();
-		return juce::roundToInt(parameter->convertFrom0to1(parameter->getValue()) - r.start);
+		return parameter->convertTo0to1(parameter->getNormalisableRange().start + static_cast<float>(_index));
+	}
+
+	int Cell::indexOf(const float _normalised) const
+	{
+		if(!parameter)
+			return 0;
+		return juce::roundToInt(parameter->convertFrom0to1(_normalised) - parameter->getNormalisableRange().start);
 	}
 
 	juce::String Cell::valueText(const float _normalised) const
@@ -271,7 +282,8 @@ namespace elektron::drums::ui
 		if(isList())
 		{
 			const int i = juce::roundToInt(plain - r.start);
-			if(!labels.isEmpty())
+			// A value past the labels (a Cycles machine's VEL TARGET on another machine) as the host names it
+			if(i < labels.size())
 				return labels[i];
 			if(const auto* c = dynamic_cast<const juce::AudioParameterChoice*>(parameter))
 				return c->choices[i].toUpperCase();

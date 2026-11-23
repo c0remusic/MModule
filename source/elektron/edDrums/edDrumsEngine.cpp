@@ -685,6 +685,9 @@ namespace elektron::drums
 			}
 			t.chainFamily = _machine.family;
 			t.stChain = onLanes(_machine.family);
+			// The family's chain aims velocity at nothing, a machine's value included
+			t.velocitySlot = -1;
+			t.velocityMove = 0;
 			chainOf(t).setNote(_track, t.note);
 			chainOf(t).configure(_track, _machine.family == Family::Syntakt ? syntaktChain(startsSustained(_machine))
 				: _machine.family == Family::FmDrums ? fmDrumsChain() : machinedrumChain());
@@ -970,9 +973,11 @@ namespace elektron::drums
 		}
 		if(t.machine.family == Family::FmDrums)
 		{
-			// Machine 1-8 at the machine's own indices: no OVERDRIVE or HOLD of the Syntakt's
+			// Machine 1-8 at the machine's own indices: no OVERDRIVE or HOLD of the Syntakt's. VEL DEST's move adds
+			// to the LFOs'
+			const int velocity = _slot == t.velocitySlot ? t.velocityMove : 0;
 			if(_slot < cycles::fast::Kick::Parameters && t.lane >= 0)
-				give(_slot, wordOf(value, offset));
+				give(_slot, wordOf(value, offset + velocity));
 			return;
 		}
 		if(_slot == OverSlot)
@@ -1061,7 +1066,19 @@ namespace elektron::drums
 	void Engine::setChain(const int _track, const ChainSettings& _settings)
 	{
 		auto& t = m_tracks[static_cast<size_t>(_track)];
-		chainOf(t).configure(_track, _settings);
+		// A machine's target is the engine's, played at each Hit (hitSyntakt): the chain takes none in its place. The
+		// move of one no longer aimed at goes at once; VEL AMT changed waits for the next Hit, as velocity is a Hit's
+		const int slot = _settings.velocityTarget >= VelocityTarget::Machine1
+			? static_cast<int>(_settings.velocityTarget) - static_cast<int>(VelocityTarget::Machine1) : -1;
+		const int last = t.velocitySlot;
+		t.velocitySlot = slot;
+		t.velocityDepth = _settings.velocityDepth;
+		if(last >= 0 && last != slot && std::exchange(t.velocityMove, 0) && t.machine.family == Family::FmDrums)
+			playSyntakt(_track, last);
+		auto settings = _settings;
+		if(slot >= 0)
+			settings.velocityTarget = VelocityTarget::None;
+		chainOf(t).configure(_track, settings);
 		t.held = chainOf(t).holdsVoice(_track);
 		if(t.machine.family == Family::Syntakt)
 			playSyntakt(_track, HoldSlot);
@@ -1294,7 +1311,15 @@ namespace elektron::drums
 		auto& source = sourceOf(t);
 
 		// The Hit's locks, and the Kit's value back on what the last Hit locked
-		const uint32_t changed = t.lockedNow | t.pendingLocks;
+		uint32_t changed = t.lockedNow | t.pendingLocks;
+		// A Cycles machine's value VEL DEST aims at, VEL AMT x velocity / 127 values above its own, as the chain's
+		// targets
+		if(t.machine.family == Family::FmDrums && t.velocitySlot >= 0)
+		{
+			const int move = t.velocityDepth * _velocity / 127 * 128;
+			if(std::exchange(t.velocityMove, move) != move)
+				changed |= 1u << t.velocitySlot;
+		}
 		t.lockedNow = t.pendingLocks;
 		t.pendingLocks = 0;
 		t.lockValue = t.lockPendingValue;

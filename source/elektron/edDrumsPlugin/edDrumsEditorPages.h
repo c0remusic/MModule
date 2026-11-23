@@ -99,6 +99,10 @@ namespace elektron::drums::ui
 		bool isList() const;
 		int index() const;			// a list's value, from 0
 		int count() const;			// a list's values
+		// A list's value _index (from 0) as the parameter's normalised value, and back: labels may name the first
+		// values of its range only (VEL TARGET's chain targets off a Cycles Track)
+		float normalisedOf(int _index) const;
+		int indexOf(float _normalised) const;
 		float normalised() const { return parameter ? parameter->getValue() : 0.0f; }
 		juce::String valueText(float _normalised) const;
 		// Where it takes the mouse and what it paints. Cell and Plain: x, y the name's top left. Field: y the baseline.
