@@ -260,6 +260,7 @@ namespace elektron::drums
 		giveSyntaktWords();
 		if(asleep)
 		{
+			m_delayVolumePlayed = m_delayVolume;
 			m_stDelay->settle();
 			m_echo->settle();
 			m_chorus->settle();
@@ -291,6 +292,19 @@ namespace elektron::drums
 			m_stReverb->process(reverbIn[0].data(), reverbIn[1].data(), delay[0].data(), delay[1].data(),
 				reverb[0].data(), reverb[1].data());
 		fade(Send::Reverb);
+		// The Syntakt delay's VOL on its return, after REV took its share, as on the DT2; at 1 nothing is computed
+		if(m_source[static_cast<size_t>(Send::Delay)] == SendSource::Syntakt
+			&& (m_delayVolume != 1 || m_delayVolumePlayed != 1))
+		{
+			const float from = m_delayVolumePlayed, step = (m_delayVolume - from) / BlockSize;
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				const float g = from + step * static_cast<float>(n + 1);
+				delay[0][static_cast<size_t>(n)] *= g;
+				delay[1][static_cast<size_t>(n)] *= g;
+			}
+		}
+		m_delayVolumePlayed = m_delayVolume;
 		const float chorusLevel = sendFxLevel(m_chorusBytes[ChorusLevel]);
 		const auto type = m_source[static_cast<size_t>(Send::Chorus)];
 		if(type == SendSource::Vibrato)

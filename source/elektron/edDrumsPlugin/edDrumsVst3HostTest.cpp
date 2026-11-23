@@ -53,8 +53,8 @@ namespace
 	constexpr int g_machine24 = g_pages + Tracks * 16;	// up to T16 Machine 24; then tickets 14-15's sync and S&H
 	constexpr int g_parameters = g_machine24 + 7;
 	// After the relays: ticket 14's chorus type, then each Track's REPEAT GAP Sync and Note, Chorus X-Over, then each
-	// Track's 14 of the sample layer (ticket 06 of the v2 map)
-	constexpr int g_appended = 1 + 2 * Tracks + 1 + 14 * Tracks;
+	// Track's 14 of the sample layer (ticket 06 of the v2 map), then the Syntakt delay's VOL (ticket 14 of the v2 map)
+	constexpr int g_appended = 1 + 2 * Tracks + 1 + 14 * Tracks + 1;
 	constexpr double g_stallMs = 10.0;
 
 	void require(const bool _condition, const std::string& _message)

@@ -1850,3 +1850,4 @@ t16_layer_hold
 t16_layer_decay
 t16_layer_offset
 t16_layer_note
+delay_vol

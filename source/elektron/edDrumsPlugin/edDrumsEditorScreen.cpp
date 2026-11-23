@@ -3224,9 +3224,9 @@ namespace elektron::drums
 			{"echo_mod", "MOD DEPTH"}, {"echo_mfrq", "MOD RATE"}, {"echo_fb", "FEEDBACK"},
 			{"echo_fltf", "HPF"}, {"echo_fltw", "BANDWIDTH"}, {"echo_mono", "MONO"}, {"echo_lev", "LEVEL"},
 			{"delay_cross", "PING-PONG"}, {"delay_width", "WIDTH"}, {"delay_fdbk", "FEEDBACK"},
-			{"delay_hp", "HPF"}, {"delay_lp", "LPF"}, {"delay_rev", "TO REVERB"}},
+			{"delay_hp", "HPF"}, {"delay_lp", "LPF"}, {"delay_rev", "TO REVERB"}, {"delay_vol", "VOL"}},
 			{true, true, sync, !sync, echo && !sync, !echo && !sync, echo, echo, echo, echo, echo, echo, echo, !echo, !echo,
-				!echo, !echo, !echo, !echo});
+				!echo, !echo, !echo, !echo, !echo});
 		syncOf(0, "delay_sync", hue::k);
 		blockOf(1, "fr", "REVERB", hue::a, {{"reverb_source", "SOURCE"}, {"reverb_output", "OUT"},
 			{"gate_dvol", "DRY LEVEL"}, {"gate_pred", "PRE-DELAY"}, {"gate_dec", "DECAY"}, {"gate_damp", "DAMPING"},

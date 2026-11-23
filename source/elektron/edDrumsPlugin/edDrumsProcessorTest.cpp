@@ -274,6 +274,7 @@ namespace
 		for(int t = 0; t < Tracks; ++t)
 			for(const auto& spec : parameters::layerSpecs)
 				afterRelays.add(juce::String::formatted("t%02d_", t + 1) + spec.id);
+		afterRelays.add("delay_vol");
 		const auto& relays = _processor.ids(Processor::Section::Relays);
 		require(relays.size() == parameters::RelayCount
 			&& ids.indexOf(relays[0]) == ids.size() - parameters::RelayCount - afterRelays.size(),
@@ -459,6 +460,7 @@ namespace
 			reverb("reverb_pre", StReverbPre); reverb("reverb_dec", StReverbDec); reverb("reverb_freq", StReverbFreq);
 			reverb("reverb_gain", StReverbGain); reverb("reverb_hp", StReverbHp); reverb("reverb_lp", StReverbLp);
 			m["delay_rev"] = [](Engine& _e, const double _v) { _e.sends().setSyntaktDelaySend(byteOf(_v)); };
+			m["delay_vol"] = [](Engine& _e, const double _v) { _e.sends().setSyntaktDelayVolume(byteOf(_v)); };
 			m["delay_free"] = [](Engine& _e, const double _v) { _e.sends().setDelayFree(_v); };
 			const auto chorus = [&m](const char* _id, const int _byte)
 			{

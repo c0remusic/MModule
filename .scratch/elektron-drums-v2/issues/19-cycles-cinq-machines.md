@@ -1,7 +1,7 @@
 # SNARE, METAL, PERC, TONE, CHORD
 
 Type: AFK puis HITL (écoute)
-Status: in-progress (port fait, écoute à venir)
+Status: done
 Assignee: Claude (session 2026-11-21)
 Blocked by: 18
 
@@ -70,8 +70,10 @@ Contre l'oracle (SNR / pire 10 ms ; bornes 60 et 50 dB) :
   échantillons après HitDelay (son bloc de trig muet, comme l'OS) ; même son à 44,1 et 48 kHz (`edDrumsRateTest`, sauf
   CHORD).
 
+Écoute (2026-11-23) : l'utilisateur, sur `elektron-work\listen-cycles\page.html` (76 sons des six machines, oracle,
+port à 48 kHz et à 44,1 kHz côte à côte) : « ça sonne bien ».
+
 Points ouverts :
-- Écoute de contrôle (HITL).
 - Revenir sur une machine FM DRUMS après une autre ne relance pas l'init de la voix, comme l'OS le ferait (KICK aussi).
 - Sans vecteur : notes autres que 60, mots changés pendant une note, retrig sur une voix qui sonne, CHORD SHPE 1 et 2 et
   les fondus montant/descendant.

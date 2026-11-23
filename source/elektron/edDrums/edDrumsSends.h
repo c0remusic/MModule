@@ -81,6 +81,15 @@ namespace elektron::drums
 		void setSyntaktDelay(const int _byte, const uint8_t _value) { target(_byte, _value); }
 		void setSyntaktReverb(const int _byte, const uint8_t _value) { target(StDelayBytes + _byte, _value); }
 		void setSyntaktDelaySend(const uint8_t _value) { target(StDelayBytes + StReverbBytes, _value); }
+		// The Syntakt delay's VOL, the Digitakt II's: its return's gain after REV takes its share, ramped over a block.
+		// The DT2's law is (VOL / 128)^2 over this delay's return (measured exact at 64, 110 and 127); ours divides by
+		// 127, so that 127, the default, keeps the return as it was (0.14 dB over the DT2's everywhere; the user's
+		// choice, 2026-11-23)
+		static constexpr float delayVolumeGain(const uint8_t _value)
+		{
+			return static_cast<float>(_value) * static_cast<float>(_value) / (127.0f * 127.0f);
+		}
+		void setSyntaktDelayVolume(const uint8_t _value) { m_delayVolume = delayVolumeGain(_value); }
 		// Beats per minute x 24; held to the OS's 720 to 7200
 		void setTempo(uint32_t _tempo);
 		// A delay time of 1 / _hz seconds in place of TIME's and the tempo's, on either delay; 0 gives TIME back. The
@@ -156,6 +165,7 @@ namespace elektron::drums
 		std::unique_ptr<syntakt::fast::Delay> m_stDelay;
 		std::unique_ptr<syntakt::fast::Reverb> m_stReverb;
 		std::array<int, SyntaktWords> m_stTarget{}, m_stWords{};
+		float m_delayVolume = 1, m_delayVolumePlayed = 1;	// the Syntakt delay's VOL: its gain, the last block's
 		int32_t m_echoFree = 0;								// a free time in samples; 0: TIME's
 		double m_bpm = 120, m_freeHz = 0, m_delayNote = 1;	// the note in beats
 		double m_lfoNote[2] = {1, 1};						// the chorus's, the phaser's

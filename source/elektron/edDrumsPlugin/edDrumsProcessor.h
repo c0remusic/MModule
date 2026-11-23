@@ -475,7 +475,7 @@ namespace elektron::drums
 		std::array<Watched, 8> m_echo{}, m_gateBox{};
 		std::array<Watched, StDelayBytes> m_syntaktDelay{};
 		std::array<Watched, StReverbBytes> m_syntaktReverb{};
-		Watched m_syntaktDelaySend, m_delayFree;
+		Watched m_syntaktDelaySend, m_syntaktDelayVolume, m_delayFree;
 		std::array<Watched, ChorusBytes> m_chorus{};
 		std::array<Watched, PhaserBytes> m_phaser{};
 		std::array<Watched, MasterBytes> m_master{};

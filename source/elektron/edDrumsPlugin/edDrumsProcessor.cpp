@@ -738,6 +738,8 @@ namespace elektron::drums
 				watch(p.layer[v], spec, id + spec.id, name + spec.name, layerDefaults()[v], Section::Machine, t);
 			}
 		}
+		// ... then the Syntakt delay's VOL, at the gain of 1 it had before
+		shared(m_syntaktDelayVolume, syntaktDelayVolumeSpec, 127, Section::Effects);
 
 		m_edited = std::make_unique<Sequencer>();
 		for(auto& s : m_sequencers)
@@ -1995,6 +1997,8 @@ namespace elektron::drums
 				fx.setSyntaktReverb(static_cast<int>(i), byte(m_syntaktReverb[i]));
 		if(m_syntaktDelaySend.changed())
 			fx.setSyntaktDelaySend(byte(m_syntaktDelaySend));
+		if(m_syntaktDelayVolume.changed())
+			fx.setSyntaktDelayVolume(byte(m_syntaktDelayVolume));
 		if(m_delayFree.changed())
 			fx.setDelayFree(m_delayFree.value());
 		for(size_t i = 0; i < m_chorus.size(); ++i)

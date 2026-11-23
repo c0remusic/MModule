@@ -2196,6 +2196,61 @@ namespace
 
 	// The Syntakt's delay, which does not run while Sends sleeps or the Echo plays, starts at its time; the tempo held
 	// to the OS's range; a free time on both delays
+	// The Syntakt delay's VOL: its return x (VOL / 127)^2, REV's share into the reverb unchanged, 127 the return as it
+	// was. The DT2's, measured on its send driver (elektron-work's vectors-dt2\sends, drv_imp_del_vol64, _vol127 and
+	// drv_imp_all at 110): its delay's raw return x 0.5, 1.96887 and 1.47705, which is this return, half of it, x
+	// (VOL / 128)^2; ours (128 / 127)^2 over it, 0.136 dB
+	void delayVolume(const Library& _library)
+	{
+		const auto play = [&](const int _volume)
+		{
+			auto fx = sendsOf(_library);
+			fx->setSource(Send::Delay, SendSource::Syntakt);
+			fx->setSource(Send::Reverb, SendSource::Syntakt);
+			fx->setSyntaktDelaySend(64);
+			if(_volume >= 0)
+				fx->setSyntaktDelayVolume(static_cast<uint8_t>(_volume));
+			idle(*fx, 2, false);
+			fx->input(Send::Delay, 0, 16)[0] = 0.25f;
+			std::array<std::vector<float>, 2> out;
+			for(int b = 0; b < 1000; ++b)
+			{
+				fx->input(Send::Delay, 0, 0);
+				fx->block();
+				for(int i = 0; i < Frames; ++i)
+				{
+					out[0].push_back(fx->output(Send::Delay, 0, 0)[i]);
+					out[1].push_back(fx->output(Send::Reverb, 0, 0)[i]);
+				}
+			}
+			return out;
+		};
+		const auto before = play(-1);
+		require(play(127) == before, "VOL 127 changes the delay's return");
+		const auto energy = [](const std::vector<float>& _x)
+		{
+			double e = 0;
+			for(const float v : _x)
+				e += static_cast<double>(v) * v;
+			return e;
+		};
+		const double unity = energy(before[0]);
+		require(unity > 0, "the delay returns nothing");
+		const std::pair<int, double> dt2[]{{64, 0.5}, {110, 1.47705078}, {127, 1.96887207}};
+		for(const auto& [volume, raw] : dt2)
+		{
+			const auto moved = play(volume);
+			const double gain = std::sqrt(energy(moved[0]) / unity);
+			require(std::abs(gain - std::pow(volume / 127.0, 2)) < 1e-4, "VOL " + std::to_string(volume) + "'s gain");
+			const double fromDt2 = 20 * std::log10(gain / (raw / 2));
+			require(std::abs(fromDt2 - 40 * std::log10(128.0 / 127)) < 1e-3,
+				"VOL " + std::to_string(volume) + " is " + std::to_string(fromDt2) + " dB from the DT2's");
+			require(moved[1] == before[1], "VOL " + std::to_string(volume) + " moves what REV sends the reverb");
+		}
+		std::printf("  the Syntakt delay's VOL: (VOL / 127)^2 on its return, REV's share unchanged, 0.136 dB over "
+			"the DT2's at 64, 110 and 127\n");
+	}
+
 	void sendTimes(const Library& _library)
 	{
 		auto fx = sendsOf(_library);
@@ -3012,6 +3067,7 @@ int main()
 		master(library);
 		effectsCost(library);
 		sendTimes(library);
+		delayVolume(library);
 		sendSwitch(library);
 		sendSlew(library, false);
 		sendSlew(library, true);

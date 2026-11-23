@@ -58,6 +58,7 @@ namespace elektron::drums::parameters
 	extern const std::array<Spec, StDelayBytes> syntaktDelaySpecs;
 	extern const std::array<Spec, StReverbBytes> syntaktReverbSpecs;
 	extern const Spec syntaktDelaySendSpec;
+	extern const Spec syntaktDelayVolumeSpec;
 	extern const std::array<Spec, ChorusBytes> chorusSpecs;
 	extern const std::array<Spec, PhaserBytes> phaserSpecs;
 	extern const Spec masterOnSpec;

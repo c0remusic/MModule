@@ -411,6 +411,8 @@ namespace elektron::drums::parameters
 			return noteLength(_v + 1);
 		if(is("delay_fdbk"))
 			return withUnit(100 * 66053.0 * std::min(_v << 8, 0x7f00) / 2147483648.0, "%");
+		if(is("delay_vol"))
+			return gain(Sends::delayVolumeGain(static_cast<uint8_t>(_v)));
 		if(is("reverb_pre"))
 		{
 			const int64_t pre = _v << 8;
@@ -689,6 +691,7 @@ namespace elektron::drums::parameters
 		{"reverb_gain", "Reverb Gain"}, {"reverb_hp", "Reverb HPF"}, {"reverb_lp", "Reverb LPF"},
 	}};
 	const Spec syntaktDelaySendSpec{"delay_rev", "Delay To Reverb"};
+	const Spec syntaktDelayVolumeSpec{"delay_vol", "Delay Volume"};
 	const std::array<Spec, ChorusBytes> chorusSpecs{{
 		{"chorus_rate", "Chorus Free Rate"}, {"chorus_depth", "Chorus Depth"}, {"chorus_delay", "Chorus Delay"},
 		{"chorus_fdbk", "Chorus Feedback"}, {"chorus_level", "Chorus Level"},
