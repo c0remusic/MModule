@@ -74,6 +74,11 @@ namespace elektron::drums::parameters
 	extern const Spec chorusTypeSpec;
 	// Bucket Brigade's crossover (Sends' ChorusXOver), appended after REPEAT GAP's
 	extern const Spec chorusXOverSpec;
+	// The DT2 chorus's DPTH, SPD, HPF, WDTH, VOL, DEL and REV (Sends' ChorusDt2Depth on), appended after the Syntakt
+	// delay's VOL, at the DT2's oracle's knobs
+	constexpr size_t ChorusDt2Bytes = ChorusAllBytes - ChorusDt2Depth;
+	extern const std::array<Spec, ChorusDt2Bytes> chorusDt2Specs;
+	extern const std::array<int, ChorusDt2Bytes> chorusDt2Defaults;
 	constexpr int DefaultDelayNote = 9, DefaultLfoNote = 6;		// 1/4, 1 Bar
 	// Beats of delayNoteSpec's and lfoNoteSpecs' choices
 	double delayNoteQuarters(int _choice);

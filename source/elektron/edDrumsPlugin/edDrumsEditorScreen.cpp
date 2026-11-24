@@ -3234,11 +3234,18 @@ namespace elektron::drums
 			{"reverb_pre", "PRE-DELAY"}, {"reverb_dec", "DECAY"}, {"reverb_freq", "SHELF FREQ"}, {"reverb_gain", "SHELF GAIN"},
 			{"reverb_hp", "HPF"}, {"reverb_lp", "LPF"}},
 			{true, true, gate, gate, gate, gate, gate, gate, gate, gate, !gate, !gate, !gate, !gate, !gate, !gate});
+		// The DT2's chorus has its own seven and no sync
+		const bool dt2 = choiceOf("chorus_type") == 5;
 		blockOf(2, "fc", "CHORUS", hue::g, {{"chorus_type", "TYPE"}, {"chorus_output", "OUT"}, {"chorus_depth", "DEPTH"},
 			{"chorus_rate", "RATE"}, {"chorus_speed", "RATE"}, {"chorus_delay", "DELAY"}, {"chorus_fdbk", "FEEDBACK"},
-			{"chorus_level", "LEVEL"}, {"chorus_shape", "WAVE"}, {"chorus_xover", "X-OVER"}},
-			{true, true, true, !chorusSync, chorusSync, true, true, true, true, choiceOf("chorus_type") == 3});
-		syncOf(2, "chorus_sync", hue::g);
+			{"chorus_level", "LEVEL"}, {"chorus_shape", "WAVE"}, {"chorus_xover", "X-OVER"},
+			{"chorus_dt2_depth", "DEPTH"}, {"chorus_dt2_speed", "SPEED"}, {"chorus_dt2_hpf", "HPF"},
+			{"chorus_dt2_width", "WIDTH"}, {"chorus_dt2_vol", "VOL"}, {"chorus_dt2_del", "TO DELAY"},
+			{"chorus_dt2_rev", "TO REVERB"}},
+			{true, true, !dt2, !dt2 && !chorusSync, !dt2 && chorusSync, !dt2, !dt2, !dt2, !dt2,
+				choiceOf("chorus_type") == 3, dt2, dt2, dt2, dt2, dt2, dt2, dt2});
+		if(!dt2)
+			syncOf(2, "chorus_sync", hue::g);
 		blockOf(3, "fp", "PHASER / FLANGER", hue::p, {{"phaser_mode", "TYPE"}, {"phaser_output", "OUT"},
 			{"phaser_stages", "STAGES"}, {"phaser_depth", "DEPTH"}, {"phaser_rate", "RATE"}, {"phaser_speed", "RATE"},
 			{"phaser_freq", "FREQ"}, {"phaser_spread", "SPREAD"}, {"phaser_fdbk", "FEEDBACK"}, {"phaser_level", "LEVEL"},

@@ -53,8 +53,9 @@ namespace
 	constexpr int g_machine24 = g_pages + Tracks * 16;	// up to T16 Machine 24; then tickets 14-15's sync and S&H
 	constexpr int g_parameters = g_machine24 + 7;
 	// After the relays: ticket 14's chorus type, then each Track's REPEAT GAP Sync and Note, Chorus X-Over, then each
-	// Track's 14 of the sample layer (ticket 06 of the v2 map), then the Syntakt delay's VOL (ticket 14 of the v2 map)
-	constexpr int g_appended = 1 + 2 * Tracks + 1 + 14 * Tracks + 1;
+	// Track's 14 of the sample layer (ticket 06 of the v2 map), then the Syntakt delay's VOL (ticket 14 of the v2 map),
+	// then the DT2 chorus's seven (ticket 15)
+	constexpr int g_appended = 1 + 2 * Tracks + 1 + 14 * Tracks + 1 + 7;
 	constexpr double g_stallMs = 10.0;
 
 	void require(const bool _condition, const std::string& _message)
@@ -471,8 +472,9 @@ namespace
 		const int chorusType = g_parameters + elektron::drums::parameters::RelayCount;
 		require(parameters[chorusType]->getName(64) == "Chorus Type" && parameters[chorusType]->isAutomatable()
 			&& parameters[chorusType]->getText(0.0f, 64) == "Classic"
-			&& parameters[chorusType]->getText(0.75f, 64) == "Bucket Brigade"
-			&& parameters[chorusType]->getText(1.0f, 64) == "Multi Voice",
+			&& parameters[chorusType]->getText(0.6f, 64) == "Bucket Brigade"
+			&& parameters[chorusType]->getText(0.8f, 64) == "Multi Voice"
+			&& parameters[chorusType]->getText(1.0f, 64) == "Wide Chorus",
 			"Chorus Type's place after the relays, or its choices");
 		require(parameters[chorusType + 1]->getName(64) == "T01 Gap Sync"
 			&& parameters[chorusType + 2 * Tracks]->getName(64) == "T16 Gap Note"

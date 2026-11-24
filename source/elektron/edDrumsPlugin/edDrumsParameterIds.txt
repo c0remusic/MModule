@@ -1851,3 +1851,10 @@ t16_layer_decay
 t16_layer_offset
 t16_layer_note
 delay_vol
+chorus_dt2_depth
+chorus_dt2_speed
+chorus_dt2_hpf
+chorus_dt2_width
+chorus_dt2_vol
+chorus_dt2_del
+chorus_dt2_rev

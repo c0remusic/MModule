@@ -2251,6 +2251,61 @@ namespace
 			"the DT2's at 64, 110 and 127\n");
 	}
 
+	// The Chorus slot's DT2 type: its return the DT2's chorus x 2 (VOL / 128)^2, the same block's input; DEL and REV
+	// feed the delay and the reverb from its raw output, nothing at 0
+	void dt2ChorusSends(const Library& _library)
+	{
+		const auto play = [&](const uint8_t _del, const uint8_t _rev, std::vector<float>* _chorus)
+		{
+			auto fx = sendsOf(_library);
+			fx->setSource(Send::Delay, SendSource::Syntakt);
+			fx->setSource(Send::Reverb, SendSource::Syntakt);
+			fx->setChorus(ChorusType, 5);
+			fx->setChorus(ChorusDt2Volume, 64);
+			fx->setChorus(ChorusDt2Delay, _del);
+			fx->setChorus(ChorusDt2Reverb, _rev);
+			// The type comes at the first block's end, which wakes the sends: the second runs the chorus, on silence
+			idle(*fx, 2, false);
+			Dt2Chorus alone(Sends::Rate);
+			{
+				float zero[Frames]{}, outL[Frames], outR[Frames];
+				alone.process(zero, zero, outL, outR);
+			}
+			double delay = 0, reverb = 0, off = 0;
+			for(int b = 0; b < 800; ++b)
+			{
+				float in[Frames], outL[Frames], outR[Frames];
+				for(int i = 0; i < Frames; ++i)
+				{
+					in[i] = b < 4 ? static_cast<float>(0.3 * std::sin(0.07 * (b * Frames + i))) : 0.0f;
+					fx->input(Send::Chorus, 0, i)[0] = in[i];
+					fx->input(Send::Chorus, 1, i)[0] = in[i];
+				}
+				fx->block();
+				alone.process(in, in, outL, outR);
+				for(int i = 0; i < Frames; ++i)
+				{
+					const float ret = fx->output(Send::Chorus, 0, 0)[i];
+					off = std::max(off, static_cast<double>(std::abs(ret - outL[i] * 0.5f)));
+					if(_chorus)
+						_chorus->push_back(ret);
+					delay += std::pow(fx->output(Send::Delay, 0, 0)[i], 2);
+					reverb += std::pow(fx->output(Send::Reverb, 0, 0)[i], 2);
+				}
+			}
+			require(off < 1e-7, "the DT2 chorus's return is not its chorus x 2 (64 / 128)^2: " + std::to_string(off));
+			return std::pair<double, double>{delay, reverb};
+		};
+		std::vector<float> plain, sent;
+		const auto none = play(0, 0, &plain);
+		require(none.first == 0 && none.second == 0, "the DT2 chorus feeds the delay or the reverb at DEL and REV 0");
+		const auto both = play(64, 64, &sent);
+		require(both.first > 0 && both.second > 0, "the DT2 chorus's DEL or REV feeds nothing");
+		require(plain == sent, "DEL and REV move the chorus's own return");
+		std::printf("  the DT2 chorus in the Chorus slot: its return x 2 (VOL / 128)^2, DEL and REV into the delay and "
+			"the reverb, nothing at 0\n");
+	}
+
 	void sendTimes(const Library& _library)
 	{
 		auto fx = sendsOf(_library);
@@ -3068,6 +3123,7 @@ int main()
 		effectsCost(library);
 		sendTimes(library);
 		delayVolume(library);
+		dt2ChorusSends(library);
 		sendSwitch(library);
 		sendSlew(library, false);
 		sendSlew(library, true);

@@ -740,6 +740,9 @@ namespace elektron::drums
 		}
 		// ... then the Syntakt delay's VOL, at the gain of 1 it had before
 		shared(m_syntaktDelayVolume, syntaktDelayVolumeSpec, 127, Section::Effects);
+		// ... then the DT2 chorus's seven
+		for(size_t i = 0; i < m_chorusDt2.size(); ++i)
+			shared(m_chorusDt2[i], chorusDt2Specs[i], chorusDt2Defaults[i], Section::Effects);
 
 		m_edited = std::make_unique<Sequencer>();
 		for(auto& s : m_sequencers)
@@ -2013,6 +2016,9 @@ namespace elektron::drums
 			fx.setChorus(ChorusType, byte(m_chorusType));
 		if(m_chorusXOver.changed())
 			fx.setChorus(ChorusXOver, byte(m_chorusXOver));
+		for(size_t i = 0; i < m_chorusDt2.size(); ++i)
+			if(m_chorusDt2[i].changed())
+				fx.setChorus(ChorusDt2Depth + static_cast<int>(i), byte(m_chorusDt2[i]));
 		if(m_delayNote.changed())
 			fx.setDelayNote(parameters::delayNoteQuarters(m_delayNote.integer()));
 		if(m_delaySync.changed())

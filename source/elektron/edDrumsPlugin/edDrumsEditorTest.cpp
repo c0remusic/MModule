@@ -1026,9 +1026,11 @@ namespace
 			}
 			collect(true);
 		}
-		// X-Over shows on Bucket Brigade alone
+		// X-Over shows on Bucket Brigade alone, Wide Chorus's seven on it alone
 		auto* chorusType = processor.parameter("chorus_type");
 		chorusType->setValueNotifyingHost(chorusType->convertTo0to1(3.0f));
+		collect(true);
+		chorusType->setValueNotifyingHost(chorusType->convertTo0to1(5.0f));
 		collect(true);
 		chorusType->setValueNotifyingHost(0.0f);
 		editor.showPage(Editor::Page::Master);

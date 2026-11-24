@@ -413,6 +413,18 @@ namespace elektron::drums::parameters
 			return withUnit(100 * 66053.0 * std::min(_v << 8, 0x7f00) / 2147483648.0, "%");
 		if(is("delay_vol"))
 			return gain(Sends::delayVolumeGain(static_cast<uint8_t>(_v)));
+
+		// The DT2's chorus (Dt2Chorus, Sends::runDt2Chorus)
+		if(is("chorus_dt2_speed"))
+			return hertz(_v * 2.82 / 127 + 0.28);
+		if(is("chorus_dt2_hpf"))
+			return hertz(40 + 960 * std::pow(_v / 127.0, 2));
+		if(is("chorus_dt2_depth") || is("chorus_dt2_width"))
+			return withUnit(100.0 * _v / 127, "%");
+		if(is("chorus_dt2_vol"))
+			return gain(2 * std::pow(_v / 128.0, 2));
+		if(is("chorus_dt2_del") || is("chorus_dt2_rev"))
+			return gain(std::pow(_v / 128.0, 2));
 		if(is("reverb_pre"))
 		{
 			const int64_t pre = _v << 8;
@@ -726,9 +738,16 @@ namespace elektron::drums::parameters
 	}};
 	const Spec dp4SampleHoldSpec{"phaser_dp4_sh", "Rack S&H Rate"};
 	// A new type is appended, so that a set keeps the one it chose
-	const Spec chorusTypeSpec{"chorus_type", "Chorus Type", 0, 4,
-		"Classic|Vibrato|Slow Sweep|Bucket Brigade|Multi Voice"};
+	const Spec chorusTypeSpec{"chorus_type", "Chorus Type", 0, 5,
+		"Classic|Vibrato|Slow Sweep|Bucket Brigade|Multi Voice|Wide Chorus"};
 	const Spec chorusXOverSpec{"chorus_xover", "Chorus X-Over"};
+	// Wide Chorus, the user's name for it (2026-11-24): no machine of origin in what the host shows
+	const std::array<Spec, ChorusDt2Bytes> chorusDt2Specs{{
+		{"chorus_dt2_depth", "Wide Depth"}, {"chorus_dt2_speed", "Wide Speed"}, {"chorus_dt2_hpf", "Wide HPF"},
+		{"chorus_dt2_width", "Wide Width"}, {"chorus_dt2_vol", "Wide Volume"}, {"chorus_dt2_del", "Wide To Delay"},
+		{"chorus_dt2_rev", "Wide To Reverb"},
+	}};
+	const std::array<int, ChorusDt2Bytes> chorusDt2Defaults{127, 32, 0, 127, 100, 0, 0};
 
 	double delayNoteQuarters(const int _choice)
 	{

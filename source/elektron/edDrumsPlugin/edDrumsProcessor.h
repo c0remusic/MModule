@@ -481,6 +481,7 @@ namespace elektron::drums
 		std::array<Watched, MasterBytes> m_master{};
 		Watched m_masterOn, m_oversampling;
 		Watched m_delaySync, m_delayNote, m_dp4SampleHold, m_chorusType, m_chorusXOver;
+		std::array<Watched, parameters::ChorusDt2Bytes> m_chorusDt2;
 		std::array<Watched, 2> m_lfoSync{}, m_lfoNote{};	// the chorus's, the phaser's
 		std::vector<Watched*> m_watched;	// all of them, made due for a new engine
 

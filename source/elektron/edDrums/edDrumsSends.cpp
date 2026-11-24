@@ -14,8 +14,13 @@ namespace elektron::drums
 		  m_flanger(std::make_unique<ModulatedDelay>(ModulatedDelay::FlangerStep)),
 		  m_vibrato(std::make_unique<Vibrato>()), m_air(std::make_unique<Air>()),
 		  m_vintage(std::make_unique<Vintage>()), m_hyper(std::make_unique<Hyper>()),
+		  m_dt2Chorus(std::make_unique<Dt2Chorus>(Rate)),
 		  m_phaser(std::make_unique<Phaser>()), m_dp4(std::make_unique<Dp4Phaser>())
 	{
+		// The DT2 chorus's knobs as the DT2's oracle starts them, VOL 100, nothing sent on
+		m_chorusBytes[ChorusDt2Depth] = m_chorusBytes[ChorusDt2Width] = 127;
+		m_chorusBytes[ChorusDt2Speed] = 32;
+		m_chorusBytes[ChorusDt2Volume] = 100;
 		// Nothing fed back until said otherwise
 		m_chorusBytes[ChorusFeedback] = m_phaserBytes[PhaserFeedback] = 64;
 		m_chorusBytes[ChorusShape] = 1;
@@ -144,6 +149,8 @@ namespace elektron::drums
 			m_vintage->clear();
 		else if(_send == Send::Chorus && m_source[s] == SendSource::Hyper)
 			m_hyper->clear();
+		else if(_send == Send::Chorus && m_source[s] == SendSource::Dt2)
+			m_dt2Chorus->settle();
 		else if(_send == Send::Chorus)
 			m_chorus->clear();
 		else if(_send == Send::Phaser && m_source[s] == SendSource::Flanger)
@@ -181,6 +188,8 @@ namespace elektron::drums
 			m_air->settle();
 			m_vintage->settle();
 			m_hyper->settle();
+			m_dt2Chorus->settle();
+			dt2Gains(m_dt2Played);
 		}
 	}
 
@@ -194,9 +203,10 @@ namespace elektron::drums
 		m_air->set(b[ChorusDepth]);
 		m_vintage->set(b[ChorusDepth], b[ChorusRate], b[ChorusXOver]);
 		m_hyper->set(b[ChorusDepth], b[ChorusDelay]);
+		m_dt2Chorus->set(b[ChorusDt2Depth], b[ChorusDt2Speed], b[ChorusDt2Hpf], b[ChorusDt2Width]);
 		giveLfoRates();
 		static constexpr SendSource Types[] = {SendSource::Classic, SendSource::Vibrato, SendSource::Air,
-			SendSource::Vintage, SendSource::Hyper};
+			SendSource::Vintage, SendSource::Hyper, SendSource::Dt2};
 		static_assert(std::size(Types) == SendTypes[static_cast<size_t>(Send::Chorus)]);
 		setSource(Send::Chorus, Types[std::min<int>(b[ChorusType], std::size(Types) - 1)]);
 	}
@@ -225,6 +235,50 @@ namespace elektron::drums
 		_effect.process(in[0].data(), in[1].data(), out[0].data(), out[1].data());
 		ramp(out, _played, _level);
 		_played = _level;
+	}
+
+	// The DT2's chorus: its raw output into the delay x (DEL / 128)^2 and the reverb x (REV / 128)^2, then its return x
+	// 2 (VOL / 128)^2, each gain moving over the block from the last as the DT2's driver moves it (sample k at
+	// last + k (new - last) / 32), measured on its oracle (vectors-dt2\sends drv_cho_*, drv_imp_all)
+	void Sends::dt2Gains(float (&_gains)[3]) const
+	{
+		const auto square = [](const uint8_t _v) { return static_cast<float>(_v) * static_cast<float>(_v) / 16384.0f; };
+		_gains[0] = 2 * square(m_chorusBytes[ChorusDt2Volume]);
+		_gains[1] = square(m_chorusBytes[ChorusDt2Delay]);
+		_gains[2] = square(m_chorusBytes[ChorusDt2Reverb]);
+	}
+
+	void Sends::runDt2Chorus()
+	{
+		auto& out = m_out[static_cast<size_t>(Send::Chorus)];
+		const auto& in = m_in[static_cast<size_t>(Send::Chorus)];
+		m_dt2Chorus->process(in[0].data(), in[1].data(), out[0].data(), out[1].data());
+		float gains[3];
+		dt2Gains(gains);
+		// The sends first, from the raw output
+		const Send targets[2]{Send::Delay, Send::Reverb};
+		for(int t = 0; t < 2; ++t)
+		{
+			const float from = m_dt2Played[t + 1], step = (gains[t + 1] - from) / BlockSize;
+			m_dt2Played[t + 1] = gains[t + 1];
+			if(from == 0 && gains[t + 1] == 0)
+				continue;
+			auto& to = m_in[static_cast<size_t>(targets[t])];
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				const float g = from + step * static_cast<float>(n);
+				to[0][static_cast<size_t>(n)] += out[0][static_cast<size_t>(n)] * g;
+				to[1][static_cast<size_t>(n)] += out[1][static_cast<size_t>(n)] * g;
+			}
+		}
+		const float from = m_dt2Played[0], step = (gains[0] - from) / BlockSize;
+		m_dt2Played[0] = gains[0];
+		for(int n = 0; n < BlockSize; ++n)
+		{
+			const float g = from + step * static_cast<float>(n);
+			out[0][static_cast<size_t>(n)] *= g;
+			out[1][static_cast<size_t>(n)] *= g;
+		}
 	}
 
 	void Sends::block()
@@ -268,6 +322,8 @@ namespace elektron::drums
 			m_air->settle();
 			m_vintage->settle();
 			m_hyper->settle();
+			m_dt2Chorus->settle();
+			dt2Gains(m_dt2Played);
 			m_flanger->settle();
 			m_dp4->settle();
 			m_phaser->settle();
@@ -280,6 +336,10 @@ namespace elektron::drums
 		auto& reverb = m_out[static_cast<size_t>(Send::Reverb)];
 		const auto& delayIn = m_in[static_cast<size_t>(Send::Delay)];
 		const auto& reverbIn = m_in[static_cast<size_t>(Send::Reverb)];
+		// The DT2's chorus before the delay and the reverb, which its DEL and REV feed in the same block, as on the DT2
+		const auto type = m_source[static_cast<size_t>(Send::Chorus)];
+		if(type == SendSource::Dt2)
+			runDt2Chorus();
 		if(m_source[static_cast<size_t>(Send::Delay)] == SendSource::Machinedrum)
 			m_echo->process(delayIn[0].data(), delayIn[1].data(), delay[0].data(), delay[1].data());
 		else
@@ -299,15 +359,18 @@ namespace elektron::drums
 			const float from = m_delayVolumePlayed, step = (m_delayVolume - from) / BlockSize;
 			for(int n = 0; n < BlockSize; ++n)
 			{
-				const float g = from + step * static_cast<float>(n + 1);
+				const float g = from + step * static_cast<float>(n);
 				delay[0][static_cast<size_t>(n)] *= g;
 				delay[1][static_cast<size_t>(n)] *= g;
 			}
 		}
 		m_delayVolumePlayed = m_delayVolume;
 		const float chorusLevel = sendFxLevel(m_chorusBytes[ChorusLevel]);
-		const auto type = m_source[static_cast<size_t>(Send::Chorus)];
-		if(type == SendSource::Vibrato)
+		if(type == SendSource::Dt2)
+		{
+			// Ran before the delay
+		}
+		else if(type == SendSource::Vibrato)
 			runOurs(Send::Chorus, *m_vibrato, chorusLevel, m_chorusPlayed);
 		else if(type == SendSource::Air)
 			runOurs(Send::Chorus, *m_air, chorusLevel, m_chorusPlayed);

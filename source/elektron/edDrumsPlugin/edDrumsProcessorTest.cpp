@@ -275,6 +275,8 @@ namespace
 			for(const auto& spec : parameters::layerSpecs)
 				afterRelays.add(juce::String::formatted("t%02d_", t + 1) + spec.id);
 		afterRelays.add("delay_vol");
+		for(const auto& spec : parameters::chorusDt2Specs)
+			afterRelays.add(spec.id);
 		const auto& relays = _processor.ids(Processor::Section::Relays);
 		require(relays.size() == parameters::RelayCount
 			&& ids.indexOf(relays[0]) == ids.size() - parameters::RelayCount - afterRelays.size(),
@@ -469,6 +471,8 @@ namespace
 			chorus("chorus_rate", ChorusRate); chorus("chorus_depth", ChorusDepth); chorus("chorus_delay", ChorusDelay);
 			chorus("chorus_fdbk", ChorusFeedback); chorus("chorus_level", ChorusLevel); chorus("chorus_shape", ChorusShape);
 			chorus("chorus_type", ChorusType); chorus("chorus_xover", ChorusXOver);
+			for(size_t i = 0; i < parameters::ChorusDt2Bytes; ++i)
+				chorus(parameters::chorusDt2Specs[i].id, ChorusDt2Depth + static_cast<int>(i));
 			const auto phaser = [&m](const char* _id, const int _byte)
 			{
 				m[_id] = [_byte](Engine& _e, const double _v) { _e.sends().setPhaser(_byte, byteOf(_v)); };
@@ -910,6 +914,10 @@ namespace
 		expected.push_back("chorus_xover");
 		// The sample layer plays a sample of its own, which neither sound holds: layer() hears it
 		for(const auto& spec : parameters::layerSpecs)
+			expected.push_back(spec.id);
+		// The DT2 chorus's seven play on its type, which neither sound chooses: edDrumsEngineTest's dt2ChorusSends and
+		// edDrumsDt2ChorusTest hear them
+		for(const auto& spec : parameters::chorusDt2Specs)
 			expected.push_back(spec.id);
 		require(unheard == expected, "a setting the processor gives is not heard");
 		std::printf("PASS: every parameter reaches the engine\n");

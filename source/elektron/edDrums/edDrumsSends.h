@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "edDrumsDt2Chorus.h"
 #include "mdFastEcho.h"
 #include "mdFastGateBox.h"
 #include "edDrumsSendFx.h"
@@ -22,11 +23,11 @@ namespace elektron::drums
 	constexpr int SendCount = 4;
 	// How many types each effect offers: the delay's and the reverb's sources, the Chorus send's Types, the Phaser send's
 	// Modes, in Send's order
-	constexpr std::array<int, SendCount> SendTypes{2, 2, 5, 3};
+	constexpr std::array<int, SendCount> SendTypes{2, 2, 6, 3};
 	// Each effect's types (SendTypes)
 	enum class SendSource : uint8_t
 	{
-		Machinedrum, Syntakt, Dp4, Vintage, Hyper, Phaser = Machinedrum, Flanger = Syntakt, Classic = Machinedrum,
+		Machinedrum, Syntakt, Dp4, Vintage, Hyper, Dt2, Phaser = Machinedrum, Flanger = Syntakt, Classic = Machinedrum,
 		Vibrato = Syntakt, Air = Dp4
 	};
 
@@ -38,11 +39,14 @@ namespace elektron::drums
 	// parameters ChorusBytes counts: 0 the chorus above, 1 Vibrato (Depth and Rate alone), 2 Air (Depth alone), 3 Vintage
 	// (Depth and Rate), 4 Hyper (Depth, and Delay as its Amount); a change of Type goes as a change of source does.
 	// XOver, after it: Vintage's crossover, under which its input passes as it is, 0 at 19.7 Hz (Vintage::crossover);
-	// the other types have none
+	// the other types have none. Type 5, the Digitakt II's chorus (Dt2Chorus), takes its own bytes after them: DPTH,
+	// SPD, HPF, WDTH, VOL, and its sends DEL and REV into the delay and the reverb, whatever their source
 	enum ChorusByte
 	{
 		ChorusRate, ChorusDepth, ChorusDelay, ChorusFeedback, ChorusLevel, ChorusShape, ChorusBytes,
-		ChorusType = ChorusBytes, ChorusXOver, ChorusAllBytes
+		ChorusType = ChorusBytes, ChorusXOver,
+		ChorusDt2Depth, ChorusDt2Speed, ChorusDt2Hpf, ChorusDt2Width, ChorusDt2Volume, ChorusDt2Delay, ChorusDt2Reverb,
+		ChorusAllBytes
 	};
 	enum PhaserByte
 	{
@@ -158,6 +162,8 @@ namespace elektron::drums
 		void fade(Send _send);
 		void changeSource(Send _send);
 		template<typename Effect> void runOurs(Send _send, Effect& _effect, float _level, float& _played);
+		void runDt2Chorus();
+		void dt2Gains(float (&_gains)[3]) const;		// the DT2 chorus's VOL, DEL and REV as gains
 
 		md::fast::SendWords m_words;
 		std::unique_ptr<md::fast::Echo> m_echo;
@@ -175,6 +181,8 @@ namespace elektron::drums
 		std::unique_ptr<Air> m_air;
 		std::unique_ptr<Vintage> m_vintage;
 		std::unique_ptr<Hyper> m_hyper;
+		std::unique_ptr<Dt2Chorus> m_dt2Chorus;
+		float m_dt2Played[3] = {};	// the DT2 chorus's VOL, DEL and REV gains the last block ended on
 		std::unique_ptr<Phaser> m_phaser;
 		std::unique_ptr<Dp4Phaser> m_dp4;
 		std::array<uint8_t, ChorusAllBytes> m_chorusBytes{};
