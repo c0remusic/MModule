@@ -1,6 +1,7 @@
 #include "edDrumsNames.h"
 
 #include <algorithm>
+#include <string_view>
 
 #include "edDrumsVintage.h"
 #include "sophieMachine.h"
@@ -260,6 +261,85 @@ namespace elektron::drums::names
 			return nullptr;
 		}
 		return nullptr;
+	}
+
+	namespace
+	{
+		struct Typed
+		{
+			const char* name;
+			Type type;
+		};
+
+		// Every machine the list offers, by its name above; one missing is OTHER (edDrumsEditorTest checks none is)
+		constexpr Typed typed[]{
+			// MODERN DIGI
+			{"PUNCH KICK", Type::Kick}, {"DIGI SNARE", Type::Snare}, {"SHINY CYM", Type::Cymbal},
+			{"TONAL PERC", Type::Perc}, {"OLD SNARE", Type::Snare}, {"OLD CLAP", Type::Clap}, {"TOY SYNTH", Type::Synth},
+			{"BIT SYNTH", Type::Synth}, {"DUO SAMPLE", Type::Other},
+			// BASIC
+			{"SILENCE", Type::Other}, {"SINE", Type::Synth}, {"NOISE", Type::Other}, {"IMPULSE", Type::Other},
+			// CIRCUIT
+			{"ROUND KICK", Type::Kick}, {"ANA SNARE", Type::Snare}, {"ANA TOM", Type::Tom}, {"ROOM CLAP", Type::Clap},
+			{"ANA RIM", Type::Perc}, {"COWBELL", Type::Perc}, {"TIGHT HAT", Type::Hat}, {"OPEN HAT", Type::Hat},
+			{"ANA CYMBAL", Type::Cymbal}, {"MARACAS", Type::Perc}, {"CLAVES", Type::Perc}, {"ANA TOM 2", Type::Tom},
+			{"DIRTY KICK", Type::Kick}, {"SINE SNARE", Type::Snare},
+			// FM PERC
+			{"FM KICK", Type::Kick}, {"FM SNARE", Type::Snare}, {"FM TOM", Type::Tom}, {"FM CLAP", Type::Clap},
+			{"FM RIM", Type::Perc}, {"FM COWBELL", Type::Perc}, {"FM HAT", Type::Hat}, {"FM CYMBAL", Type::Cymbal},
+			// CRUNCH 12
+			{"LOFI KICK", Type::Kick}, {"LOFI SNARE", Type::Snare}, {"LOFI HITOM", Type::Tom}, {"LOFI LOTOM", Type::Tom},
+			{"LOFI CLAP", Type::Clap}, {"LOFI RIM", Type::Perc}, {"LOFI COW", Type::Perc}, {"LOFI HAT", Type::Hat},
+			{"LOFI OPEN", Type::Hat}, {"LOFI RIDE", Type::Cymbal}, {"LOFI CRASH", Type::Cymbal},
+			{"LOFI BRUSH", Type::Snare}, {"LOFI TAMB", Type::Perc}, {"LOFI TRI", Type::Perc}, {"LOFI SHAKE", Type::Perc},
+			{"LOFI BONGO", Type::Perc},
+			// PHYSICAL
+			{"REAL KICK", Type::Kick}, {"REAL SNARE", Type::Snare}, {"REAL TOM", Type::Tom}, {"MALLET", Type::Perc},
+			{"SHAKER", Type::Perc}, {"REAL RIM", Type::Perc}, {"REAL RIDE", Type::Cymbal}, {"REAL CRASH", Type::Cymbal},
+			{"REAL HAT", Type::Hat},
+			// SAMPLER, VA DRUMS, HYPER FM
+			{"SAMPLER", Type::Other}, {"VA DRUM", Type::Kick}, {"VA SNARE", Type::Snare}, {"VA CYMBAL", Type::Cymbal},
+			{"VA HIHAT", Type::Hat}, {"HYPER FM", Type::Other},
+			// ANALOG
+			{"HARD THUMP", Type::Kick}, {"NOISE KICK", Type::Kick}, {"PHASE KICK", Type::Kick}, {"TOY KICK", Type::Kick},
+			{"SOFT KICK", Type::Kick}, {"SNAP KICK", Type::Kick}, {"BODY KICK", Type::Kick}, {"TWIN SNARE", Type::Snare},
+			{"BEAT SNARE", Type::Snare}, {"WARP SNARE", Type::Snare}, {"SNAP SNARE", Type::Snare},
+			{"BODY SNARE", Type::Snare}, {"CLICK RIM", Type::Perc}, {"RING RIM", Type::Perc}, {"TWIN OSC", Type::Synth},
+			{"RAW OSC", Type::Synth}, {"CHIP ARP", Type::Synth}, {"SIX CLOSED", Type::Hat}, {"SIX OPEN", Type::Hat},
+			{"SIX CYMBAL", Type::Cymbal}, {"DUO BELL", Type::Perc}, {"RING HAT", Type::Hat}, {"RING OPEN", Type::Hat},
+			{"RING CRASH", Type::Cymbal}, {"RING BELL", Type::Perc}, {"BAND RIDE", Type::Cymbal}, {"BEAT HAT", Type::Hat},
+			{"TUNED HAT", Type::Hat}, {"NOISE GEN", Type::Other}, {"CLICK HIT", Type::Perc},
+			// ANALOG PERC
+			{"BURST CLAP", Type::Clap}, {"DEEP TOM", Type::Tom}, {"SWEEP TOM", Type::Tom},
+			// FM DRUMS
+			{"FMD KICK", Type::Kick}, {"FMD SNARE", Type::Snare}, {"FMD METAL", Type::Cymbal}, {"FMD PERC", Type::Perc},
+			{"FMD TONE", Type::Synth}, {"FMD CHORD", Type::Synth},
+		};
+	}
+
+	const char* typeName(const Type _type)
+	{
+		constexpr const char* names[Types]{"KICK", "SNARE", "HAT", "CLAP", "TOM", "CYMBAL", "PERC", "SYNTH", "OTHER"};
+		return names[static_cast<int>(_type)];
+	}
+
+	Type type(const Machine& _machine)
+	{
+		const char* name = machine(_machine);
+		if(!name)
+			return Type::Other;
+		for(const auto& t : typed)
+			if(std::string_view(t.name) == name)
+				return t.type;
+		return Type::Other;
+	}
+
+	bool playsSamples(const Machine& _machine)
+	{
+		if(_machine == Sampler || (_machine.family == Family::Syntakt && _machine.id == SyntaktTwinshot))
+			return true;
+		const char* f = family(_machine);
+		return f && std::string_view(f) == "CRUNCH 12";
 	}
 
 	const char* control(const Machine& _machine, const int _index, const vintage::SamplerPage& _page)

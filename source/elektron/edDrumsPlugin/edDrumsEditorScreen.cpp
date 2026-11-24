@@ -3640,6 +3640,17 @@ namespace elektron::drums
 			return {cx(6), (_samples ? 41 : 32) + static_cast<float>(_row) * BrowseRowH, BrowseListW, BrowseRowH - 0.7f};
 		}
 
+		// MACHINES' chips in the LIBRARY column (ticket 35), three a row under their title: FAMILY's, then SOURCE's
+		constexpr float FamilyChipY = 104.5f, SourceChipY = 155, ChipPitch = 7.5f;
+		const char* const machineSources[]{"ALL", "SYNTHESIS", "SAMPLES"};
+
+		juce::Rectangle<float> machineChip(const int _chip, const float _y)
+		{
+			const float w = (6 * Col - 4) / 3;
+			return {cx(0) + static_cast<float>(_chip % 3) * w, _y + static_cast<float>(_chip / 3) * ChipPitch, w - 0.8f,
+				ChipPitch - 0.8f};
+		}
+
 		// The card's RENAME (0) and REMOVE SOURCE or KEEP IN LOCKER (1)
 		juce::Rectangle<float> cardButton(const int _i)
 		{
@@ -3694,7 +3705,47 @@ namespace elektron::drums
 
 	juce::Rectangle<int> Editor::browseRowArea(const int _row) const
 	{
-		return toPx(browseListRow(_row, browseSamples()));
+		return toPx(browseListRow(_row, browseSegmented()));
+	}
+
+	juce::Rectangle<int> Editor::machineFamilyArea(const int _chip) const
+	{
+		return toPx(machineChip(_chip, FamilyChipY));
+	}
+
+	juce::Rectangle<int> Editor::machineSourceArea(const int _chip) const
+	{
+		return toPx(machineChip(_chip, SourceChipY));
+	}
+
+	std::vector<juce::String> Editor::machineFamilies() const
+	{
+		std::vector<juce::String> families;
+		for(const auto& m : m_processor.machines())
+			if(const char* f = names::family(m); f && std::find(families.begin(), families.end(), f) == families.end())
+				families.emplace_back(f);
+		return families;
+	}
+
+	std::vector<int> Editor::machineList() const
+	{
+		const auto& machines = m_processor.machines();
+		const auto families = machineFamilies();
+		const juce::String family = m_machineFamily >= 0 && m_machineFamily < static_cast<int>(families.size())
+			? families[static_cast<size_t>(m_machineFamily)] : juce::String();
+		std::vector<int> list;
+		for(size_t i = 0; i < machines.size(); ++i)
+		{
+			const auto& m = machines[i];
+			if(m_browseFilter > 0 && static_cast<int>(names::type(m)) != m_browseFilter - 1)
+				continue;
+			if(family.isNotEmpty() && family != juce::String(names::family(m)))
+				continue;
+			if(m_machineSource && (m.family == Family::Off || names::playsSamples(m) != (m_machineSource == 2)))
+				continue;
+			list.push_back(static_cast<int>(i));
+		}
+		return list;
 	}
 
 	juce::Rectangle<int> Editor::browseButtonArea(const BrowseButton _button) const
@@ -3806,6 +3857,13 @@ namespace elektron::drums
 	juce::StringArray Editor::browseFilters() const
 	{
 		juce::StringArray filters;
+		if(m_browseTree == 3)
+		{
+			filters.add("ALL");
+			for(int t = 0; t < names::Types; ++t)
+				filters.add(names::typeName(static_cast<names::Type>(t)));
+			return filters;
+		}
 		if(m_browseTree == 4)
 		{
 			filters.add("ALL");
@@ -3831,6 +3889,8 @@ namespace elektron::drums
 			{
 				m_browseTree = tree;
 				m_browseItem = m_browseScroll = m_browseFilter = 0;
+				m_machineFamily = -1;
+				m_machineSource = 0;
 				m_removeArmed = AllSegment;
 			};
 			addHit(std::move(row));
@@ -3913,13 +3973,38 @@ namespace elektron::drums
 		}
 		if(!browseSamples())
 		{
-			// MACHINES: its list, scrolled by the wheel, PUT ON TRACK, and a row dragged onto a Track puts it there
-			const int n = static_cast<int>(m_processor.machines().size());
-			for(int i = 0; i < 16 && m_browseScroll + i < n; ++i)
+			// MACHINES: its list under the types' segments, filtered by the family's and the source's chips, scrolled by
+			// the wheel, PUT ON TRACK, and a row dragged onto a Track puts it there
+			const auto filters = browseFilters();
+			const float segment = browseSegment(filters.size());
+			for(int i = 0; i < filters.size(); ++i)
+			{
+				Hit s;
+				s.r = {cx(6) + static_cast<float>(i) * segment, 33, segment, 6};
+				s.click = [this, i] { m_browseFilter = i; m_browseScroll = 0; };
+				addHit(std::move(s));
+			}
+			const int families = static_cast<int>(machineFamilies().size());
+			for(int i = 0; i <= families; ++i)
+			{
+				Hit chip;
+				chip.r = machineChip(i, FamilyChipY);
+				chip.click = [this, i] { m_machineFamily = i - 1; m_browseScroll = 0; };
+				addHit(std::move(chip));
+			}
+			for(int i = 0; i < 3; ++i)
+			{
+				Hit chip;
+				chip.r = machineChip(i, SourceChipY);
+				chip.click = [this, i] { m_machineSource = i; m_browseScroll = 0; };
+				addHit(std::move(chip));
+			}
+			const auto list = machineList();
+			for(int i = 0; i < 15 && m_browseScroll + i < static_cast<int>(list.size()); ++i)
 			{
 				Hit row;
-				row.r = browseListRow(i, false).withHeight(BrowseRowH);
-				const int item = m_browseScroll + i;
+				row.r = browseListRow(i, true).withHeight(BrowseRowH);
+				const int item = list[static_cast<size_t>(m_browseScroll + i)];
 				row.click = [this, item] { m_browseItem = item; };
 				row.doubleClick = [this, item]
 				{
@@ -4255,21 +4340,56 @@ namespace elektron::drums
 			const auto& machines = m_processor.machines();
 			const int n = static_cast<int>(machines.size());
 			const int current = choiceOf(trackParameter("machine")->getParameterID());
-			drawBlockTitle(_p, {x - 2, 23, 10 * Col + 2, "MACHINES", "bm", &hue::k});
-			_p.text(x + BrowseListW, 29.2f, juce::String(n), 2.8f, hue::k.c[4], 500, Align::Right);
-			const auto* choice = dynamic_cast<const juce::AudioParameterChoice*>(trackParameter("machine"));
-			for(int i = 0; i < 16 && m_browseScroll + i < n; ++i)
+			// Ticket 35: FAMILY's and SOURCE's chips in the LIBRARY column
+			const auto chips = [&](const float _y, const char* _title, const juce::StringArray& _names, const int _on)
 			{
-				const int item = m_browseScroll + i;
-				const auto r = browseListRow(i, false);
+				_p.text(cx(0), _y - 1.6f, _title, 2.6f, colour::dim, 600);
+				for(int i = 0; i < _names.size(); ++i)
+				{
+					const auto r = machineChip(i, _y);
+					const bool on = i == _on;
+					_p.rect(r.getX(), r.getY(), r.getWidth(), r.getHeight(), on ? hue::k.c[1] : beat(i), 0.4f);
+					auto name = _names[i];
+					while(name.length() > 1 && _p.textWidth(name, 2.6f, 600) > r.getWidth() - 1.6f)
+						name = name.dropLastCharacters(1);
+					_p.text(r.getCentreX(), r.getY() + 4.6f, name, 2.6f, on ? hue::k.c[4] : colour::mid, on ? 600 : 500,
+						Align::Centre);
+				}
+			};
+			juce::StringArray families{"ALL"};
+			for(const auto& f : machineFamilies())
+				families.add(f);
+			chips(FamilyChipY, "FAMILY", families, m_machineFamily + 1);
+			chips(SourceChipY, "SOURCE", juce::StringArray(machineSources, 3), m_machineSource);
+
+			const auto list = machineList();
+			drawBlockTitle(_p, {x - 2, 23, 10 * Col + 2, "MACHINES", "bm", &hue::k});
+			_p.text(x + BrowseListW, 29.2f, juce::String(static_cast<int>(list.size())), 2.8f, hue::k.c[4], 500,
+				Align::Right);
+			auto types = browseFilters();
+			const float segment = browseSegment(types.size());
+			for(auto& t : types)
+				while(t.length() > 1 && _p.textWidth(t, 3.2f, 600) > segment - 2)
+					t = t.dropLastCharacters(1);
+			drawSegments(_p, x, 33, segment, types, m_browseFilter, &hue::k);
+			const auto* choice = dynamic_cast<const juce::AudioParameterChoice*>(trackParameter("machine"));
+			for(int i = 0; i < 15 && m_browseScroll + i < static_cast<int>(list.size()); ++i)
+			{
+				const int item = list[static_cast<size_t>(m_browseScroll + i)];
+				const auto r = browseListRow(i, true);
 				const bool on = item == m_browseItem;
 				_p.rect(x, r.getY(), BrowseListW, r.getHeight(), on ? hue::k.c[1] : beat(i), 0.5f);
 				if(on)
 					_p.rect(x, r.getY() + 0.6f, 0.7f, BrowseRowH - 1.9f, hue::k.c[0], 0.3f);
 				_p.text(x + 2.4f, r.getY() + 8, choice->choices[item], 3.2f, on ? colour::ink : colour::mid, on ? 600 : 500);
-				if(item == current)
-					_p.text(x + BrowseListW - 3, r.getY() + 8, "ON TRACK", 2.8f, hue::k.c[4], 500, Align::Right);
+				const auto& m = machines[static_cast<size_t>(item)];
+				const auto tag = item == current ? juce::String("ON TRACK")
+					: m.family == Family::Off ? juce::String() : juce::String(names::typeName(names::type(m)));
+				_p.text(x + BrowseListW - 3, r.getY() + 8, tag, 2.8f, item == current ? hue::k.c[4] : colour::dim, 500,
+					Align::Right);
 			}
+			if(list.empty())
+				_p.text(x + BrowseListW / 2, 126, "NO MACHINE OF THESE", 2.8f, colour::dim, 500, Align::Centre);
 			x = cx(16);
 			const auto name = m_browseItem < n ? choice->choices[m_browseItem].toUpperCase() : juce::String();
 			drawBlockTitle(_p, {x - 2, 23, 8 * Col + 2, name, "bi", &hue::k});

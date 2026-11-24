@@ -88,6 +88,11 @@ namespace elektron::drums
 		juce::Rectangle<int> browseButtonArea(BrowseButton _button) const;
 		juce::Rectangle<int> browseSegmentArea(int _segment) const;
 		int browseSegments() const { return browseFilters().size(); }
+		// MACHINES' filters in the LIBRARY column (ticket 35): a family chip (0 ALL, then machineFamilies), a source chip
+		// (0 ALL, 1 SYNTHESIS, 2 SAMPLES); the machines listed, indices in machines()
+		juce::Rectangle<int> machineFamilyArea(int _chip) const;
+		juce::Rectangle<int> machineSourceArea(int _chip) const;
+		std::vector<int> machinesListed() const { return machineList(); }
 		juce::Rectangle<int> selectorItemArea(int _item) const;
 		// Seq's Detail: + LOCK, LANES (the lanes' page, past five), LIVE and the trig row's modes, the trig row of the
 		// 16 steps shown, a lane's row shown and its X, the + LOCK menu's entry of a parameter (by its index; empty when
@@ -307,7 +312,13 @@ namespace elektron::drums
 		// each stands for, ALL, a source's index, FACTORY, IN THIS SET, or + (ADD FOLDER)
 		static constexpr int AllSegment = -1, FactorySegment = -2, SetSegment = -3, AddSegment = -4;
 		bool browseSamples() const { return m_browseTree == 2 || m_browseTree == 4; }
+		// A list under segments: the samples', and MACHINES' by type (ticket 35)
+		bool browseSegmented() const { return m_browseTree >= 2; }
 		std::vector<int> browseList() const;
+		// Ticket 35: MACHINES' list, indices in machines(), by the type segment, the family and the source chosen; the
+		// families in the list's order
+		std::vector<int> machineList() const;
+		std::vector<juce::String> machineFamilies() const;
 		juce::StringArray browseFilters() const;
 		std::vector<int> lockerSegments() const;
 		int lockerSegment() const;
@@ -356,6 +367,7 @@ namespace elektron::drums
 		Page m_pressPage = Page::Sound;		// the page the last press fell on
 		int m_browseItem = 0, m_browseScroll = 0;	// in the list shown
 		int m_browseTree = 3, m_browseFilter = 0;	// LIBRARY's entry, the list's segment
+		int m_machineFamily = -1, m_machineSource = 0;	// MACHINES': a family of machineFamilies or all; all, synthesis, samples
 		juce::String m_browseSearch;
 		int m_browseDrag = -1;				// the Library entry a list row's drag carries
 		juce::File m_auditionFile;			// what the audition played last

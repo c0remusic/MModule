@@ -199,7 +199,8 @@ namespace elektron::drums
 			<< m_machinePage << "/" << m_focus << "/" << m_stepPage << "/" << (m_follow ? 1 : 0) << "/"
 			<< (m_selector.open ? 1 : 0) << "/" << m_seqStep << "/" << m_seqMode << "/" << m_lockScroll << "/"
 			<< m_armedLine << "/" << (m_lockMenu ? 1 : 0) << "/" << m_browseItem << "/" << m_browseScroll << "/" << getWidth() << "/" << m_browseTree << "/"
-			<< m_browseFilter << "/" << m_browseSearch << "/" << m_pickStep << "/"
+			<< m_browseFilter << "/" << m_machineFamily << "/" << m_machineSource << "/" << m_browseSearch << "/"
+			<< m_pickStep << "/"
 			<< static_cast<int>(m_processor.sampleLibrary().generation()) << "/"
 			<< static_cast<int>(m_processor.trackSounds().generation()) << "/";
 		// The LOCKER: FACTORY, IN THIS SET, the source whose REMOVE asks again, the walks ended
@@ -828,8 +829,8 @@ namespace elektron::drums
 	{
 		if(m_page != Page::Browse)
 			return;
-		const int n = m_browseTree != 3 ? browseCount() : static_cast<int>(m_processor.machines().size());
-		const int rows = browseSamples() ? 15 : 16;
+		const int n = m_browseTree != 3 ? browseCount() : static_cast<int>(machineList().size());
+		const int rows = browseSegmented() ? 15 : 16;
 		m_browseScroll = juce::jlimit(0, std::max(0, n - rows), m_browseScroll + (_wheel.deltaY < 0 ? 4 : -4));
 		layout();
 		repaint();
@@ -899,8 +900,10 @@ namespace elektron::drums
 			{
 				m_browseTree = 3;
 				m_browseFilter = 0;
+				m_machineFamily = -1;
+				m_machineSource = 0;
 				m_browseItem = _cell.index();
-				m_browseScroll = juce::jlimit(0, std::max(0, static_cast<int>(m_processor.machines().size()) - 16),
+				m_browseScroll = juce::jlimit(0, std::max(0, static_cast<int>(m_processor.machines().size()) - 15),
 					m_browseItem - 8);
 				showPage(Page::Browse);
 			}

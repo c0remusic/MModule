@@ -2021,6 +2021,45 @@ namespace
 			snapshot(editor, _folder.getChildFile("sound-names-toy-synth.png"));
 			click(editor, editor.cellArea("t01_machine").getCentre());
 			snapshot(editor, _folder.getChildFile("browse-machine.png"));
+			{
+				// Ticket 35: every machine has a type (OTHER only for those named so), the type's segment, the family's
+				// and the source's chips filter the list, together
+				const auto& list = processor.machines();
+				const std::set<juce::String> others{"OFF", "SILENCE", "NOISE", "IMPULSE", "DUO SAMPLE", "SAMPLER", "HYPER FM",
+					"NOISE GEN"};
+				int untyped = 0;
+				for(const auto& m : list)
+					if(names::type(m) == names::Type::Other && !others.count(names::machine(m)))
+					{
+						++untyped;
+						std::printf("  no type: %s\n", names::machine(m));
+					}
+				check(untyped == 0, "every machine has its type");
+				click(editor, editor.browseSegmentArea(1 + static_cast<int>(names::Type::Kick)).getCentre());
+				auto shown = editor.machinesListed();
+				bool kicks = !shown.empty();
+				for(const int i : shown)
+					kicks = kicks && names::type(list[static_cast<size_t>(i)]) == names::Type::Kick;
+				check(kicks, "KICK lists " + juce::String(static_cast<int>(shown.size())) + " machines, all kicks");
+				click(editor, editor.machineSourceArea(2).getCentre());
+				shown = editor.machinesListed();
+				check(shown.size() == 1 && juce::String(names::machine(list[static_cast<size_t>(shown[0])])) == "LOFI KICK",
+					"KICK and SAMPLES list LOFI KICK alone");
+				snapshot(editor, _folder.getChildFile("browse-machine-filters.png"));
+				click(editor, editor.machineSourceArea(0).getCentre());
+				click(editor, editor.browseSegmentArea(0).getCentre());
+				int analog = -1;
+				for(int c = 1; c < 16 && analog < 0; ++c)
+				{
+					click(editor, editor.machineFamilyArea(c).getCentre());
+					const auto f = editor.machinesListed();
+					if(!f.empty() && juce::String(names::family(list[static_cast<size_t>(f[0])])) == "ANALOG")
+						analog = static_cast<int>(f.size());
+				}
+				check(analog == SyntaktAnalogMachines, "the ANALOG chip lists its " + juce::String(analog) + " machines");
+				click(editor, editor.browseTreeArea(3).getCentre());
+				check(editor.machinesListed().size() == list.size(), "MACHINES again lists them all");
+			}
 			machine->setValueNotifyingHost(was);
 			target->setValueNotifyingHost(targetWas);
 		}

@@ -20,4 +20,13 @@ namespace elektron::drums::names
 	// The same for a Track whose Sampler values are _page (edDrumsVintage.h): on the CLEAN grain its player's controls as
 	// its MODE lays them out, nothing of the other grains'
 	const char* control(const Machine& _machine, int _index, const vintage::SamplerPage& _page);
+
+	// What a machine sounds like, for the browser's filters (ticket 35 of .scratch/elektron-drums-v2): the samples'
+	// types, then SYNTH for the machines that play notes; OTHER for Off, the bare generators and the many-model ones
+	enum class Type : uint8_t { Kick, Snare, Hat, Clap, Tom, Cymbal, Perc, Synth, Other };
+	constexpr int Types = 9;
+	const char* typeName(Type _type);
+	Type type(const Machine& _machine);
+	// Whether _machine plays samples (the Sampler, DUO SAMPLE, CRUNCH 12's) rather than making its sound
+	bool playsSamples(const Machine& _machine);
 }
