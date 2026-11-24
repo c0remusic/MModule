@@ -2111,7 +2111,7 @@ namespace elektron::drums
 		transport.sampleRate = m_rate;
 		transport.length = count;
 		sequencer.process(transport, m_events);
-		// A pattern that began in the block (the transport starting on one included) loads its Kit there, read ahead
+		// Another pattern that began in the block (one asked for while stopped included) loads its Kit there, read ahead
 		// (prepareKits)
 		const PreparedKit* kitAhead = nullptr;
 		int kitAt = m_events.patternStart;
@@ -2248,6 +2248,9 @@ namespace elektron::drums
 			m_outputPeak[b].store(std::max(peak, m_outputPeak[b].load(std::memory_order_relaxed) * fall),
 				std::memory_order_relaxed);
 		}
+		for(size_t t = 0; t < m_trackPeak.size(); ++t)
+			m_trackPeak[t].store(std::max(m_engine->takePeak(static_cast<int>(t)),
+				m_trackPeak[t].load(std::memory_order_relaxed) * fall), std::memory_order_relaxed);
 		for(int s = 0; s < SendCount; ++s)
 			m_returnPeak[static_cast<size_t>(s)].store(m_engine->sends().peak(static_cast<Send>(s)),
 				std::memory_order_relaxed);

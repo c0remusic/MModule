@@ -609,6 +609,66 @@ namespace
 		return take;
 	}
 
+	// Ticket 30: each Track's meter reads its own peak, whatever its machine's family: every Track hit sounds on it, a
+	// Track at level 0 does not, and the peak falls once the Tracks are quiet
+	void trackPeaks()
+	{
+		Processor processor;
+		set(find(processor, "t02_level"), 0);
+		play(processor);
+		float least = 1;
+		for(int t = 0; t < Tracks; ++t)
+		{
+			if(t == 1)
+				continue;
+			const auto& machine = find(processor, juce::String::formatted("t%02d_machine", t + 1));
+			require(processor.trackPeak(t) > 1e-3f, "T" + std::to_string(t + 1) + " "
+				+ machine.getCurrentValueAsText().toStdString() + ": no peak where it sounds");
+			least = std::min(least, processor.trackPeak(t));
+		}
+		require(processor.trackPeak(1) == 0, "a Track at level 0 has a peak");
+		// 4 s without a Hit: the peaks fall under -60 dBFS
+		juce::AudioBuffer<float> buffer(Channels, Block);
+		juce::MidiBuffer midi;
+		for(int at = 0; at < 4 * static_cast<int>(SampleRate); at += Block)
+			processor.processBlock(buffer, midi);
+		for(int t = 0; t < Tracks; ++t)
+			require(processor.trackPeak(t) < 1e-3f, "a peak that stays");
+		std::printf("PASS: every Track's peak, the least %.4f, none at level 0, falling\n", least);
+	}
+
+	// Ticket 29: the master's compressor, on, reduces a kit's Main once its threshold comes under it; at its default
+	// threshold, 0 dB, it leaves Main as it is (Main goes in at -10 dB), and off it does nothing
+	void compressor()
+	{
+		const auto deepest = [](Processor& _p)
+		{
+			_p.prepareToPlay(SampleRate, Block);
+			juce::AudioBuffer<float> buffer(Channels, Block);
+			juce::MidiBuffer midi;
+			float least = 0;
+			for(int at = 0; at < Samples; at += Block)
+			{
+				midi.clear();
+				if(at % 8192 == 0)
+					for(int t = 0; t < Tracks; ++t)
+						midi.addEvent(juce::MidiMessage::noteOn(1, 36 + t, static_cast<juce::uint8>(127)), 0);
+				_p.processBlock(buffer, midi);
+				least = std::min(least, _p.masterReduction());
+			}
+			return least;
+		};
+		Processor off, idle, low;
+		set(find(idle, "master_on"), 1);
+		set(find(low, "master_on"), 1);
+		set(find(low, "master_threshold"), 64);
+		set(find(low, "master_ratio"), 127);
+		const float offDb = deepest(off), idleDb = deepest(idle), lowDb = deepest(low);
+		require(offDb == 0 && idleDb == 0, "the compressor acts off or at its default threshold");
+		require(lowDb < -6, "the compressor at -30 dB reduces " + std::to_string(lowDb) + " dB");
+		std::printf("PASS: the compressor reduces %.1f dB at -30 dB, nothing at 0 dB or off\n", lowDb);
+	}
+
 	Take play(Engine& _engine, const int _samples = Samples)
 	{
 		Take take(Channels, std::vector<float>(static_cast<size_t>(_samples)));
@@ -3585,6 +3645,25 @@ namespace
 			switched.setPlayHead(nullptr);
 			require(switched.currentPattern() == 0 && plain(find(switched, "t02_level")) == 30, "pattern 1's Kit not loaded");
 			require(allocations == 0, "a pattern's Kit loaded allocated " + std::to_string(allocations) + " times");
+			// ... and the Kit played kept as edited: the transport stopped and started again, or moved back, loads nothing
+			set(find(switched, "t02_level"), 100);
+			const auto run = [&](const int _blocks)
+			{
+				for(int b = 0; b < _blocks; ++b)
+				{
+					transport.quarters = b * Block / SamplesPerQuarter;
+					switched.processBlock(buffer, midi);
+				}
+			};
+			switched.setPlayHead(&transport);
+			run(8);
+			transport.playing = false;
+			run(1);
+			transport.playing = true;
+			run(8);
+			switched.setPlayHead(nullptr);
+			require(switched.currentPattern() == 0 && plain(find(switched, "t02_level")) == 100,
+				"the transport starting again loaded the pattern's Kit over the Kit played");
 			switched.setPatternKit(0, -1);
 		}
 		std::printf("  pattern 2 loads Slot 21 at its first step, sample %d, the engine's, nothing allocated\n",
@@ -3798,6 +3877,8 @@ int main(const int _argc, char** _argv)
 		factory();
 		units();
 		transport();
+		trackPeaks();
+		compressor();
 		{
 			Processor processor;
 			frozenIds(processor);

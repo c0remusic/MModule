@@ -320,6 +320,11 @@ namespace elektron::drums
 		float outputPeak(const int _bus) const { return m_outputPeak[static_cast<size_t>(_bus)].load(std::memory_order_relaxed); }
 		// A send's return's peak, as outputPeak; the master's gain reduction in dB, 0 or under, 0 while it is off
 		float returnPeak(const int _send) const { return m_returnPeak[static_cast<size_t>(_send)].load(std::memory_order_relaxed); }
+		// A Track's own peak, after its level and before its pan, as outputPeak
+		float trackPeak(const int _track) const
+		{
+			return m_trackPeak[static_cast<size_t>(_track)].load(std::memory_order_relaxed);
+		}
 		float masterReduction() const { return m_reduction.load(std::memory_order_relaxed); }
 
 	private:
@@ -669,6 +674,7 @@ namespace elektron::drums
 		std::atomic<uint32_t> m_liveTracks{0};
 		std::array<std::atomic<float>, Outputs> m_outputPeak{};
 		std::array<std::atomic<float>, SendCount> m_returnPeak{};
+		std::array<std::atomic<float>, Tracks> m_trackPeak{};
 		std::atomic<float> m_reduction{0};
 		std::atomic<float> m_cpu{0};
 	};

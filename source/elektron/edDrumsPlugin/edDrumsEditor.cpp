@@ -453,6 +453,7 @@ namespace elektron::drums
 			{
 				uint64_t h = mix(0, k == m_track ? 1 : 0);
 				h = mix(h, static_cast<uint64_t>(m_activity[static_cast<size_t>(k)] * 10));
+				h = mix(h, static_cast<uint64_t>(m_processor.trackPeak(k) * 40));
 				h = mixFloat(h, trackParameter("level", k)->getValue());
 				h = mix(h, static_cast<uint64_t>(m_processor.trackColour(k)));
 				return mix(h, static_cast<uint64_t>(choiceOf(trackParameter("machine", k)->getParameterID())));
@@ -589,9 +590,9 @@ namespace elektron::drums
 			const bool selected = k == m_track;
 			_p.text(x + 1.3f, 254.93f, juce::String(k + 1) + "  " + machineName(k), 2.6f,
 				selected ? colour::ink : colour::mid, selected ? 600 : 500);
-			// The LCD's meter: the level set, lit while the voice sounds
+			// The LCD's meter: the level set, lit to the Track's peak
 			const float level = trackParameter("level", k)->getValue();
-			const float lit = m_activity[static_cast<size_t>(k)] * level;
+			const float lit = juce::jlimit(0.0f, 1.0f, 1.07f * std::sqrt(m_processor.trackPeak(k)));
 			const float w = (KeyWidth - 2.6f) / 10;
 			for(int j = 0; j < 10; ++j)
 			{

@@ -1915,6 +1915,26 @@ namespace
 		stepGestures(editor, processor);
 		editor.showPage(Editor::Page::Master);
 		snapshot(editor, _folder.getChildFile("master.png"));
+		{
+			// Ticket 32: the Master at its widest values, every label at its longest
+			std::vector<std::pair<juce::String, float>> kept;
+			const auto put = [&](const juce::String& _id, const float _value)
+			{
+				auto* p = processor.parameter(_id);
+				kept.emplace_back(_id, p->getValue());
+				p->setValueNotifyingHost(_value);
+			};
+			for(const char* id : {"master_on", "master_threshold", "master_makeup", "master_drive", "master_filter"})
+				put(id, std::strcmp(id, "master_threshold") == 0 ? 0.0f : 1.0f);
+			put("master_ratio", 0);
+			for(const char* id : {"delay_output", "reverb_output", "chorus_output", "phaser_output"})
+				put(id, 1);
+			for(int t = 0; t < 16; ++t)
+				put(juce::String::formatted("t%02d_output", t + 1), 1);
+			snapshot(editor, _folder.getChildFile("master-widest.png"));
+			for(const auto& [id, value] : kept)
+				processor.parameter(id)->setValueNotifyingHost(value);
+		}
 		editor.showPage(Editor::Page::Fx);
 		snapshot(editor, _folder.getChildFile("fx.png"));
 		{

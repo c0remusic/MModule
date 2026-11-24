@@ -378,12 +378,12 @@ namespace elektron::drums
 		const double drift = blockStart - m_expected;
 		if(!m_playing || drift * samplesPerQuarter <= -0.5 || drift >= stepQuarters(StepScale::One))
 		{
+			// Another pattern loads its Kit; the same one, started again or moved in, keeps the Kit played as edited
 			const int before = m_current;
-			const bool started = !m_playing;
 			if(m_playing)
 				flushOffs(0, 1, _t.length, true, _out);
 			restart(blockStart);
-			if(started || m_current != before)
+			if(m_current != before)
 				_out.patternStart = 0;
 		}
 		m_playing = true;

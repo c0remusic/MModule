@@ -350,6 +350,14 @@ namespace elektron::drums
 
 		// The voices sounding, a bit per Track
 		uint32_t liveTracks() const;
+		// The largest |sample| Track _track gave the mix, after its level and before its pan, since the last call
+		float takePeak(const int _track)
+		{
+			auto& t = m_tracks[static_cast<size_t>(_track)];
+			const float peak = t.peak;
+			t.peak = 0;
+			return peak;
+		}
 		// The lanes Syntakt machine _machine renders, 0 when it does not
 		int lanesRendered(int _machine) const;
 
@@ -422,6 +430,7 @@ namespace elektron::drums
 			int panValue = 64;
 			std::array<float, 2> pan{1, 1}, panNow{1, 1};
 			std::array<float, SendCount> send{}, sendNow{};
+			float peak = 0;					// the largest |sample| the Track gave the mix since takePeak
 			int output = 0;
 			uint32_t chokes = 0;
 			int accent = 0;

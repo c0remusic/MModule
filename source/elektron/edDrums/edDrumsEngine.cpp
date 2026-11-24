@@ -1908,6 +1908,8 @@ namespace elektron::drums
 				continue;
 			std::fill_n(sum, _count, 0.0f);
 			read(track, sum, _count);
+			for(int i = 0; i < _count; ++i)
+				t.peak = std::max(t.peak, std::abs(sum[i]));
 			for(size_t c = 0; c < 2; ++c)
 			{
 				float* out = _outputs[2 * static_cast<size_t>(t.output) + c];
@@ -1977,6 +1979,8 @@ namespace elektron::drums
 			}
 			std::fill_n(sum, _count, 0.0f);
 			read(track, sum, _count);
+			for(int i = 0; i < _count; ++i)
+				t.peak = std::max(t.peak, std::abs(sum[i]));
 			for(size_t c = 0; c < 2; ++c)
 			{
 				float* out = _outputs[2 * static_cast<size_t>(t.output) + c];

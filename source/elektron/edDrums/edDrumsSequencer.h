@@ -156,7 +156,8 @@ namespace elektron::drums
 		std::array<Event, Capacity> events;
 		int count = 0;
 		int dropped = 0;
-		int patternStart = -1;		// the sample where another pattern began in the block, -1 for none (ticket 19)
+		int patternStart = -1;		// the sample where another pattern began in the block, -1 for none (ticket 19): the
+									// transport starting on the pattern that played last is not one
 	};
 
 	struct Transport

@@ -2956,7 +2956,10 @@ namespace elektron::drums
 
 	void Editor::buildMaster()
 	{
-		const auto outs = outputs();
+		// The strips' outputs in their 9.5 mm: Main, then O1 to O15 (ticket 32: OUT 15 ran into its neighbours)
+		auto outs = outputs();
+		for(int i = 1; i < outs.size(); ++i)
+			outs.set(i, "O" + juce::String(i));
 		for(int i = 0; i < 16; ++i)
 		{
 			const float xc = 22 + static_cast<float>(i) * 13.5f;
@@ -3035,8 +3038,8 @@ namespace elektron::drums
 		watch({ScreenX, 25, 280, 182}, [this]
 		{
 			uint64_t h = static_cast<uint64_t>(m_processor.outputPeak(0) * 40);
-			for(size_t t = 0; t < 16; ++t)
-				h = mix(h, static_cast<uint64_t>(m_activity[t] * 10));
+			for(int t = 0; t < 16; ++t)
+				h = mix(h, static_cast<uint64_t>(m_processor.trackPeak(t) * 400));
 			for(int t = 0; t < 16; ++t)
 				h = mixFloat(h, trackParameter("level", t)->getValue());
 			for(int s = 0; s < SendCount; ++s)
@@ -3087,13 +3090,13 @@ namespace elektron::drums
 		{
 			const float xc = 22 + static_cast<float>(i) * 13.5f;
 			const bool sel = i == m_track;
-			// The machine's name, cut to the strip's 12.5 mm
+			// The machine's name, cut to 11 mm of the strip's 13.5, so that two names never read as one
 			auto name = machineName(i);
-			while(name.length() > 1 && _p.textWidth(name, 2.6f, sel ? 600 : 500) > 12.5f)
+			while(name.length() > 1 && _p.textWidth(name, 2.6f, sel ? 600 : 500) > 11)
 				name = name.dropLastCharacters(1);
 			_p.text(xc, 30, name, 2.6f, sel ? colour::ink : colour::mid, sel ? 600 : 500, Align::Centre);
 			const float level = trackParameter("level", i)->getValue();
-			ladder(_p, xc - 2.5f, 34, 5, h, m_activity[static_cast<size_t>(i)] * level);
+			ladder(_p, xc - 2.5f, 34, 5, h, juce::jlimit(0.0f, 1.0f, 1.07f * std::sqrt(m_processor.trackPeak(i))));
 			_p.text(xc, 206.5f, juce::String(juce::roundToInt(level * 127)), 3.2f, colour::ink, 600, Align::Centre);
 			// Mute and Solo, the sequencer's, lit as Overview's
 			const auto& seq = m_processor.sequencer();
