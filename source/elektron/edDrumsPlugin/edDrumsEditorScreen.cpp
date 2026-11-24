@@ -3215,7 +3215,8 @@ namespace elektron::drums
 			c.h = 6;
 			addCell(c);
 		};
-		const bool echo = choiceOf("delay_source") == 0, gate = choiceOf("reverb_source") == 0;
+		const bool echo = choiceOf("delay_source") == 0, gate = choiceOf("reverb_source") == 0,
+			lush = choiceOf("reverb_source") == 1, dense = choiceOf("reverb_source") == 2;
 		const bool sync = choiceOf("delay_sync") != 0, chorusSync = choiceOf("chorus_sync") != 0,
 			phaserSync = choiceOf("phaser_sync") != 0;
 		blockOf(0, "fd", "DELAY", hue::k, {{"delay_source", "SOURCE"}, {"delay_output", "OUT"},
@@ -3232,8 +3233,12 @@ namespace elektron::drums
 			{"gate_dvol", "DRY LEVEL"}, {"gate_pred", "PRE-DELAY"}, {"gate_dec", "DECAY"}, {"gate_damp", "DAMPING"},
 			{"gate_hp", "HPF"}, {"gate_lp", "LPF"}, {"gate_gate", "GATE"}, {"gate_lev", "LEVEL"},
 			{"reverb_pre", "PRE-DELAY"}, {"reverb_dec", "DECAY"}, {"reverb_freq", "SHELF FREQ"}, {"reverb_gain", "SHELF GAIN"},
-			{"reverb_hp", "HPF"}, {"reverb_lp", "LPF"}},
-			{true, true, gate, gate, gate, gate, gate, gate, gate, gate, !gate, !gate, !gate, !gate, !gate, !gate});
+			{"reverb_hp", "HPF"}, {"reverb_lp", "LPF"},
+			{"reverb_dt2_pre", "PRE-DELAY"}, {"reverb_dt2_dec", "DECAY"}, {"reverb_dt2_freq", "SHELF FREQ"},
+			{"reverb_dt2_gain", "SHELF GAIN"}, {"reverb_dt2_hpf", "HPF"}, {"reverb_dt2_lpf", "LPF"},
+			{"reverb_dt2_vol", "VOL"}},
+			{true, true, gate, gate, gate, gate, gate, gate, gate, gate, lush, lush, lush, lush, lush, lush, dense,
+				dense, dense, dense, dense, dense, dense});
 		// The DT2's chorus has its own seven and no sync
 		const bool dt2 = choiceOf("chorus_type") == 5;
 		blockOf(2, "fc", "CHORUS", hue::g, {{"chorus_type", "TYPE"}, {"chorus_output", "OUT"}, {"chorus_depth", "DEPTH"},
@@ -3306,9 +3311,10 @@ namespace elektron::drums
 			}
 			else if(i == 1)
 			{
-				const bool gate = choiceOf("reverb_source") == 0;
-				const float dc = 2 + (1 - valueOf(gate ? "gate_dec" : "reverb_dec")) * 9,
-					pre = valueOf(gate ? "gate_pred" : "reverb_pre") * 0.2f;
+				const auto source = choiceOf("reverb_source");
+				const char* const decay = source == 0 ? "gate_dec" : source == 1 ? "reverb_dec" : "reverb_dt2_dec";
+				const char* const preDelay = source == 0 ? "gate_pred" : source == 1 ? "reverb_pre" : "reverb_dt2_pre";
+				const float dc = 2 + (1 - valueOf(decay)) * 9, pre = valueOf(preDelay) * 0.2f;
 				std::vector<juce::Point<float>> curve;
 				for(int k = 0; k <= 300; ++k)
 				{

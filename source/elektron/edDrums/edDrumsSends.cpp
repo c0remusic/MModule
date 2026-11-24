@@ -9,7 +9,7 @@ namespace elektron::drums
 		: m_words(_tables), m_echo(std::make_unique<md::fast::Echo>()),
 		  m_gateBox(std::make_unique<md::fast::GateBox>(_sine)),
 		  m_stDelay(std::make_unique<syntakt::fast::Delay>(Rate)),
-		  m_stReverb(std::make_unique<syntakt::fast::Reverb>(Rate)),
+		  m_stReverb(std::make_unique<syntakt::fast::Reverb>(Rate)), m_dense(std::make_unique<Dt2Reverb>(Rate)),
 		  m_chorus(std::make_unique<ModulatedDelay>(ModulatedDelay::ChorusStep)),
 		  m_flanger(std::make_unique<ModulatedDelay>(ModulatedDelay::FlangerStep)),
 		  m_vibrato(std::make_unique<Vibrato>()), m_air(std::make_unique<Air>()),
@@ -21,6 +21,9 @@ namespace elektron::drums
 		m_chorusBytes[ChorusDt2Depth] = m_chorusBytes[ChorusDt2Width] = 127;
 		m_chorusBytes[ChorusDt2Speed] = 32;
 		m_chorusBytes[ChorusDt2Volume] = 100;
+		// The DT2 reverb's as its oracle starts them, which Dt2Reverb starts at too
+		m_denseBytes = {16, 31, 64, 50, 32, 96, 110};
+		denseGains(m_densePlayed);
 		// Nothing fed back until said otherwise
 		m_chorusBytes[ChorusFeedback] = m_phaserBytes[PhaserFeedback] = 64;
 		m_chorusBytes[ChorusShape] = 1;
@@ -159,6 +162,8 @@ namespace elektron::drums
 			m_dp4->clear();
 		else if(_send == Send::Phaser)
 			m_phaser->clear();
+		else if(_send == Send::Reverb && m_source[s] == SendSource::Dense)
+			m_dense->clear();
 		else if(_send == Send::Reverb && fromSyntakt)
 			m_stReverb->clear();
 		else if(_send == Send::Reverb)
@@ -191,6 +196,8 @@ namespace elektron::drums
 			m_dt2Chorus->settle();
 			dt2Gains(m_dt2Played);
 		}
+		else if(_send == Send::Reverb)
+			denseGains(m_densePlayed);
 	}
 
 	void Sends::setChorus(const int _byte, const uint8_t _value)
@@ -209,6 +216,13 @@ namespace elektron::drums
 			SendSource::Vintage, SendSource::Hyper, SendSource::Dt2};
 		static_assert(std::size(Types) == SendTypes[static_cast<size_t>(Send::Chorus)]);
 		setSource(Send::Chorus, Types[std::min<int>(b[ChorusType], std::size(Types) - 1)]);
+	}
+
+	void Sends::setDense(const int _byte, const uint8_t _value)
+	{
+		m_denseBytes[static_cast<size_t>(_byte)] = _value;
+		const auto& b = m_denseBytes;
+		m_dense->set(b[DensePre], b[DenseDec], b[DenseFreq], b[DenseGain], b[DenseHpf], b[DenseLpf]);
 	}
 
 	void Sends::setPhaser(const int _byte, const uint8_t _value)
@@ -281,6 +295,43 @@ namespace elektron::drums
 		}
 	}
 
+	// The DT2's reverb: the delay's return in x its REV word squared (the Syntakt reverb's law, the DT2's DEL REV:
+	// (DEL REV / 128)^2 on its oracle, drv_imp_all), then its return x 0.5 (VOL / 128)^2, each gain moving over the
+	// block from the last as the DT2's driver moves its returns
+	void Sends::denseGains(float (&_gains)[2]) const
+	{
+		const float send = static_cast<float>(m_stWords[StDelayBytes + StReverbBytes]) / 32768;
+		_gains[0] = denseVolumeGain(m_denseBytes[DenseVolume]);
+		_gains[1] = send * send;
+	}
+
+	void Sends::runDense()
+	{
+		auto& in = m_in[static_cast<size_t>(Send::Reverb)];
+		auto& out = m_out[static_cast<size_t>(Send::Reverb)];
+		const auto& delay = m_out[static_cast<size_t>(Send::Delay)];
+		float gains[2];
+		denseGains(gains);
+		const float sendFrom = m_densePlayed[1], sendStep = (gains[1] - sendFrom) / BlockSize;
+		m_densePlayed[1] = gains[1];
+		if(sendFrom != 0 || gains[1] != 0)
+			for(int n = 0; n < BlockSize; ++n)
+			{
+				const float g = sendFrom + sendStep * static_cast<float>(n);
+				in[0][static_cast<size_t>(n)] += delay[0][static_cast<size_t>(n)] * g;
+				in[1][static_cast<size_t>(n)] += delay[1][static_cast<size_t>(n)] * g;
+			}
+		m_dense->process(in[0].data(), in[1].data(), out[0].data(), out[1].data());
+		const float from = m_densePlayed[0], step = (gains[0] - from) / BlockSize;
+		m_densePlayed[0] = gains[0];
+		for(int n = 0; n < BlockSize; ++n)
+		{
+			const float g = from + step * static_cast<float>(n);
+			out[0][static_cast<size_t>(n)] *= g;
+			out[1][static_cast<size_t>(n)] *= g;
+		}
+	}
+
 	void Sends::block()
 	{
 		if(++m_tick == TickBlocks)
@@ -324,6 +375,7 @@ namespace elektron::drums
 			m_hyper->settle();
 			m_dt2Chorus->settle();
 			dt2Gains(m_dt2Played);
+			denseGains(m_densePlayed);
 			m_flanger->settle();
 			m_dp4->settle();
 			m_phaser->settle();
@@ -345,7 +397,9 @@ namespace elektron::drums
 		else
 			m_stDelay->process(delayIn[0].data(), delayIn[1].data(), delay[0].data(), delay[1].data());
 		fade(Send::Delay);
-		if(m_source[static_cast<size_t>(Send::Reverb)] == SendSource::Machinedrum)
+		if(m_source[static_cast<size_t>(Send::Reverb)] == SendSource::Dense)
+			runDense();
+		else if(m_source[static_cast<size_t>(Send::Reverb)] == SendSource::Machinedrum)
 			m_gateBox->process(reverbIn[0].data(), reverbIn[1].data(), delay[0].data(), delay[1].data(),
 				reverb[0].data(), reverb[1].data());
 		else

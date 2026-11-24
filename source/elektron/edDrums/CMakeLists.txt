@@ -14,7 +14,7 @@ add_library(edDrums STATIC edDrumsAnalog.h edDrumsAnalogPort.h edDrumsAnalogShar
 	edDrumsOversamplerKernel.h edDrumsOversamplerAvx2.cpp edDrumsMasterAvx2.cpp
 	edDrumsMaster.h edDrumsMaster.cpp edDrumsRate.h edDrumsRate.cpp edDrumsRateAvx2.cpp edDrumsSamples.h edDrumsSamples.cpp
 	edDrumsSendFx.h edDrumsSendFx.cpp edDrumsSends.h edDrumsSends.cpp edDrumsDt2Chorus.h edDrumsDt2Chorus.cpp
-	edDrumsSequencer.h edDrumsSequencer.cpp edDrumsVintage.h edDrumsVintage.cpp)
+	edDrumsDt2Reverb.h edDrumsDt2Reverb.cpp edDrumsSequencer.h edDrumsSequencer.cpp edDrumsVintage.h edDrumsVintage.cpp)
 target_include_directories(edDrums PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # The rates' FIRs in AVX2 and FMA, which run only where rate::fastFir() finds the CPU has them: their file alone built
 # for it, as stEngine's stSimdAvx2.cpp
@@ -28,11 +28,12 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
 	# AVX without FMA, so that nothing fuses a multiply and an add the SSE build keeps apart
 	set_source_files_properties(edDrumsOversamplerAvx2.cpp edDrumsMasterAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-ffp-contract=off")
 endif()
-# The DT2's filters' setters and its chorus in the order the DSP computes them, nothing reordered or fused
+# The DT2's filters' setters, its chorus and its reverb in the order the DSP computes them, nothing reordered or fused
 if(MSVC)
-	set_source_files_properties(edDrumsDt2Filters.cpp edDrumsDt2Chorus.cpp PROPERTIES COMPILE_OPTIONS "/fp:precise")
+	set_source_files_properties(edDrumsDt2Filters.cpp edDrumsDt2Chorus.cpp edDrumsDt2Reverb.cpp
+		PROPERTIES COMPILE_OPTIONS "/fp:precise")
 else()
-	set_source_files_properties(edDrumsDt2Filters.cpp edDrumsDt2Chorus.cpp
+	set_source_files_properties(edDrumsDt2Filters.cpp edDrumsDt2Chorus.cpp edDrumsDt2Reverb.cpp
 		PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
 target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast cyFast sophie PRIVATE mdEngine opendrum)
@@ -95,6 +96,14 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsDt2ChorusTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsDt2ChorusTest COMMAND edDrumsDt2ChorusTest)
 	set_tests_properties(edDrumsDt2ChorusTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 300)
+
+	# The Digitakt II's send reverb against the model its formulas come from and the reverb on the DT2's own tables
+	# (DT2_VECTORS, vectors-dt2\sends\dense: exit 77 without them), 44.1 against 48 kHz, its cost
+	add_executable(edDrumsDt2ReverbTest edDrumsDt2ReverbTest.cpp)
+	target_link_libraries(edDrumsDt2ReverbTest PRIVATE edDrums)
+	set_property(TARGET edDrumsDt2ReverbTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsDt2ReverbTest COMMAND edDrumsDt2ReverbTest)
+	set_tests_properties(edDrumsDt2ReverbTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 600)
 
 	# The Sampler's DT2 player in ONESHOT against the Digitakt II's voice run in its OS (DT2_VECTORS, vectors-dt2: exit 77
 	# without them), its 16 lanes against 1, 44.1 against 48 kHz, its cost

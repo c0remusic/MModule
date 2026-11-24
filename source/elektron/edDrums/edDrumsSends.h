@@ -1,7 +1,7 @@
 // The send effects the 16 Tracks share: one of each, stereo returns, in parallel. The delay is the Machinedrum's Echo
-// or the Syntakt's, the reverb its Gate Box or the Syntakt's, chosen apart. They run on the engine's blocks of 32, so
-// that a return comes 32 samples after its send whatever the host's blocks; delay before reverb in a block, as on the
-// machines. Nothing here allocates after the constructor.
+// or the Syntakt's, the reverb its Gate Box, the Syntakt's or the Digitakt II's, chosen apart. They run on the engine's
+// blocks of 32, so that a return comes 32 samples after its send whatever the host's blocks; delay before reverb in a
+// block, as on the machines. Nothing here allocates after the constructor.
 #pragma once
 
 #include <array>
@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "edDrumsDt2Chorus.h"
+#include "edDrumsDt2Reverb.h"
 #include "mdFastEcho.h"
 #include "mdFastGateBox.h"
 #include "edDrumsSendFx.h"
@@ -23,13 +24,15 @@ namespace elektron::drums
 	constexpr int SendCount = 4;
 	// How many types each effect offers: the delay's and the reverb's sources, the Chorus send's Types, the Phaser send's
 	// Modes, in Send's order
-	constexpr std::array<int, SendCount> SendTypes{2, 2, 6, 3};
-	// Each effect's types (SendTypes)
+	constexpr std::array<int, SendCount> SendTypes{2, 3, 6, 3};
+	// Each effect's types (SendTypes); the reverb's third, Dense, the Digitakt II's (Dt2Reverb)
 	enum class SendSource : uint8_t
 	{
 		Machinedrum, Syntakt, Dp4, Vintage, Hyper, Dt2, Phaser = Machinedrum, Flanger = Syntakt, Classic = Machinedrum,
-		Vibrato = Syntakt, Air = Dp4
+		Vibrato = Syntakt, Air = Dp4, Dense = Dp4
 	};
+	// The reverb's source parameter is its SendSource
+	static_assert(static_cast<int>(SendSource::Dense) == 2);
 
 	// Our chorus's and phaser's settings, 0-127, but Stages 1-6. Mode 0 phaser, 1 flanger, whose delay Frequency sets
 	// and which has no Stages or Spread, 2 the DP/4's phaser: Frequency its centre, Depth its width, Spread its notch
@@ -62,6 +65,8 @@ namespace elektron::drums
 	{
 		StReverbPre, StReverbDec, StReverbFreq, StReverbGain, StReverbHp, StReverbLp, StReverbBytes
 	};
+	// The Digitakt II reverb's knobs, its six in Dt2Reverb::set's order, then VOL
+	enum DenseByte { DensePre, DenseDec, DenseFreq, DenseGain, DenseHpf, DenseLpf, DenseVolume, DenseBytes };
 
 	class Sends
 	{
@@ -94,6 +99,15 @@ namespace elektron::drums
 			return static_cast<float>(_value) * static_cast<float>(_value) / (127.0f * 127.0f);
 		}
 		void setSyntaktDelayVolume(const uint8_t _value) { m_delayVolume = delayVolumeGain(_value); }
+		// The Digitakt II reverb's bytes (DenseByte), 0-127, from the next block. It takes the delay's return as the
+		// Syntakt's does, x the delay's REV squared (the DT2's DEL REV law, measured exact on its oracle); its return
+		// is x 0.5 (VOL / 128)^2: the DT2's (VOL / 128)^2 with the half its bus gives the Tracks' sends and the
+		// chorus's, which ours do not take
+		void setDense(int _byte, uint8_t _value);
+		static constexpr float denseVolumeGain(const uint8_t _value)
+		{
+			return 0.5f * static_cast<float>(_value) * static_cast<float>(_value) / 16384.0f;
+		}
 		// Beats per minute x 24; held to the OS's 720 to 7200
 		void setTempo(uint32_t _tempo);
 		// A delay time of 1 / _hz seconds in place of TIME's and the tempo's, on either delay; 0 gives TIME back. The
@@ -164,12 +178,17 @@ namespace elektron::drums
 		template<typename Effect> void runOurs(Send _send, Effect& _effect, float _level, float& _played);
 		void runDt2Chorus();
 		void dt2Gains(float (&_gains)[3]) const;		// the DT2 chorus's VOL, DEL and REV as gains
+		void runDense();
+		void denseGains(float (&_gains)[2]) const;		// the DT2 reverb's return, the delay's into it
 
 		md::fast::SendWords m_words;
 		std::unique_ptr<md::fast::Echo> m_echo;
 		std::unique_ptr<md::fast::GateBox> m_gateBox;
 		std::unique_ptr<syntakt::fast::Delay> m_stDelay;
 		std::unique_ptr<syntakt::fast::Reverb> m_stReverb;
+		std::unique_ptr<Dt2Reverb> m_dense;
+		std::array<uint8_t, DenseBytes> m_denseBytes{};
+		float m_densePlayed[2] = {};	// denseGains' the last block ended on
 		std::array<int, SyntaktWords> m_stTarget{}, m_stWords{};
 		float m_delayVolume = 1, m_delayVolumePlayed = 1;	// the Syntakt delay's VOL: its gain, the last block's
 		int32_t m_echoFree = 0;								// a free time in samples; 0: TIME's

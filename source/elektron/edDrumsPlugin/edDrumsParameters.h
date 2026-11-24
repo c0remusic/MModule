@@ -79,6 +79,10 @@ namespace elektron::drums::parameters
 	constexpr size_t ChorusDt2Bytes = ChorusAllBytes - ChorusDt2Depth;
 	extern const std::array<Spec, ChorusDt2Bytes> chorusDt2Specs;
 	extern const std::array<int, ChorusDt2Bytes> chorusDt2Defaults;
+	// The DT2 reverb's PRE, DEC, FREQ, GAIN, HPF, LPF and VOL (Sends' DenseByte), appended after the DT2 chorus's, at
+	// the DT2's oracle's knobs
+	extern const std::array<Spec, DenseBytes> denseSpecs;
+	extern const std::array<int, DenseBytes> denseDefaults;
 	constexpr int DefaultDelayNote = 9, DefaultLfoNote = 6;		// 1/4, 1 Bar
 	// Beats of delayNoteSpec's and lfoNoteSpecs' choices
 	double delayNoteQuarters(int _choice);

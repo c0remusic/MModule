@@ -743,6 +743,9 @@ namespace elektron::drums
 		// ... then the DT2 chorus's seven
 		for(size_t i = 0; i < m_chorusDt2.size(); ++i)
 			shared(m_chorusDt2[i], chorusDt2Specs[i], chorusDt2Defaults[i], Section::Effects);
+		// ... then the DT2 reverb's seven
+		for(size_t i = 0; i < m_dense.size(); ++i)
+			shared(m_dense[i], denseSpecs[i], denseDefaults[i], Section::Effects);
 
 		m_edited = std::make_unique<Sequencer>();
 		for(auto& s : m_sequencers)
@@ -2019,6 +2022,9 @@ namespace elektron::drums
 		for(size_t i = 0; i < m_chorusDt2.size(); ++i)
 			if(m_chorusDt2[i].changed())
 				fx.setChorus(ChorusDt2Depth + static_cast<int>(i), byte(m_chorusDt2[i]));
+		for(size_t i = 0; i < m_dense.size(); ++i)
+			if(m_dense[i].changed())
+				fx.setDense(static_cast<int>(i), byte(m_dense[i]));
 		if(m_delayNote.changed())
 			fx.setDelayNote(parameters::delayNoteQuarters(m_delayNote.integer()));
 		if(m_delaySync.changed())

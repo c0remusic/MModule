@@ -9,6 +9,7 @@
 #include <numeric>
 
 #include "cyFastKick.h"
+#include "edDrumsDt2Stages.h"
 #include "edDrumsMaster.h"
 #include "sophieMachine.h"
 
@@ -425,6 +426,13 @@ namespace elektron::drums::parameters
 			return gain(2 * std::pow(_v / 128.0, 2));
 		if(is("chorus_dt2_del") || is("chorus_dt2_rev"))
 			return gain(std::pow(_v / 128.0, 2));
+		// The DT2's reverb (Dt2Reverb::set, Sends::denseGains): PRE's samples at 48 kHz, GAIN the shelf's at Nyquist
+		if(is("reverb_dt2_pre"))
+			return seconds(Dt2Reverb::preDelaySeconds(static_cast<uint8_t>(_v)));
+		if(is("reverb_dt2_gain"))
+			return gain(std::min(dt2Knob(_v << 7), 1.0f));
+		if(is("reverb_dt2_vol"))
+			return gain(Sends::denseVolumeGain(static_cast<uint8_t>(_v)));
 		if(is("reverb_pre"))
 		{
 			const int64_t pre = _v << 8;
@@ -678,7 +686,7 @@ namespace elektron::drums::parameters
 
 	const std::array<Spec, 2> sourceSpecs{{
 		{"delay_source", "Delay Source", 0, 1, "Dub Echo|Stereo Dly"},
-		{"reverb_source", "Reverb Source", 0, 1, "Gated Verb|Lush Verb"},
+		{"reverb_source", "Reverb Source", 0, 2, "Gated Verb|Lush Verb|Dense Verb"},
 	}};
 	const std::array<Spec, SendCount> sendOutputSpecs{{
 		{"delay_output", "Delay Out", 0, 15, OutputNames}, {"reverb_output", "Reverb Out", 0, 15, OutputNames},
@@ -748,6 +756,13 @@ namespace elektron::drums::parameters
 		{"chorus_dt2_rev", "Wide To Reverb"},
 	}};
 	const std::array<int, ChorusDt2Bytes> chorusDt2Defaults{127, 32, 0, 127, 100, 0, 0};
+	// Dense Verb, the user's name for it (2026-11-24)
+	const std::array<Spec, DenseBytes> denseSpecs{{
+		{"reverb_dt2_pre", "Dense Pre-Delay"}, {"reverb_dt2_dec", "Dense Decay"}, {"reverb_dt2_freq", "Dense Freq"},
+		{"reverb_dt2_gain", "Dense Gain"}, {"reverb_dt2_hpf", "Dense HPF"}, {"reverb_dt2_lpf", "Dense LPF"},
+		{"reverb_dt2_vol", "Dense Volume"},
+	}};
+	const std::array<int, DenseBytes> denseDefaults{16, 31, 64, 50, 32, 96, 110};
 
 	double delayNoteQuarters(const int _choice)
 	{

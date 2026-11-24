@@ -2306,6 +2306,60 @@ namespace
 			"the reverb, nothing at 0\n");
 	}
 
+	// The DT2's reverb in the Reverb slot: its return the reverb alone x 0.5 (VOL / 128)^2; the Syntakt delay's REV
+	// feeds it, nothing at 0
+	void denseSends(const Library& _library)
+	{
+		const auto play = [&](const uint8_t _rev, const bool _toDelay)
+		{
+			auto fx = sendsOf(_library);
+			fx->setSource(Send::Delay, SendSource::Syntakt);
+			fx->setSource(Send::Reverb, SendSource::Dense);
+			fx->setDense(DenseVolume, 64);
+			fx->setDense(DenseDec, 64);
+			fx->setSyntaktDelaySend(_rev);
+			// The type comes at the first block's end, which wakes the sends: the second runs the reverb, on silence
+			idle(*fx, 2, false);
+			Dt2Reverb alone(Sends::Rate);
+			alone.set(16, 64, 64, 50, 32, 96);
+			{
+				float zero[Frames]{}, outL[Frames], outR[Frames];
+				alone.process(zero, zero, outL, outR);
+			}
+			double reverb = 0, off = 0;
+			for(int b = 0; b < 800; ++b)
+			{
+				float in[Frames], outL[Frames], outR[Frames];
+				for(int i = 0; i < Frames; ++i)
+				{
+					in[i] = b < 4 ? static_cast<float>(0.3 * std::sin(0.07 * (b * Frames + i))) : 0.0f;
+					const Send to = _toDelay ? Send::Delay : Send::Reverb;
+					fx->input(to, 0, i)[0] = in[i];
+					fx->input(to, 1, i)[0] = in[i];
+				}
+				fx->block();
+				alone.process(in, in, outL, outR);
+				for(int i = 0; i < Frames; ++i)
+				{
+					const float ret = fx->output(Send::Reverb, 0, 0)[i];
+					off = std::max(off, static_cast<double>(std::abs(ret - outL[i] * 0.125f)));
+					reverb += std::pow(ret, 2);
+				}
+			}
+			return std::pair<double, double>{off, reverb};
+		};
+		const auto alone = play(0, false);
+		require(alone.first < 1e-7 && alone.second > 0,
+			"the DT2 reverb's return is not its reverb x 0.5 (64 / 128)^2: " + std::to_string(alone.first));
+		require(play(0, true).second == 0, "the delay feeds the DT2 reverb at REV 0");
+		// REV squared: twice the REV, four times the gain, sixteen times the energy
+		const double ratio = play(64, true).second / play(32, true).second;
+		require(std::abs(ratio / 16 - 1) < 1e-3, "the delay's REV does not feed the DT2 reverb squared: energy x "
+			+ std::to_string(ratio) + " for twice the REV");
+		std::printf("  the DT2 reverb in the Reverb slot: its return x 0.5 (VOL / 128)^2, the delay's REV into it, "
+			"nothing at 0\n");
+	}
+
 	void sendTimes(const Library& _library)
 	{
 		auto fx = sendsOf(_library);
@@ -3124,6 +3178,7 @@ int main()
 		sendTimes(library);
 		delayVolume(library);
 		dt2ChorusSends(library);
+		denseSends(library);
 		sendSwitch(library);
 		sendSlew(library, false);
 		sendSlew(library, true);

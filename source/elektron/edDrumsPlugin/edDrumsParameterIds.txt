@@ -1858,3 +1858,10 @@ chorus_dt2_width
 chorus_dt2_vol
 chorus_dt2_del
 chorus_dt2_rev
+reverb_dt2_pre
+reverb_dt2_dec
+reverb_dt2_freq
+reverb_dt2_gain
+reverb_dt2_hpf
+reverb_dt2_lpf
+reverb_dt2_vol

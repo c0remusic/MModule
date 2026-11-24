@@ -1026,6 +1026,11 @@ namespace
 			}
 			collect(true);
 		}
+		// Dense Verb's seven on it alone
+		auto* reverbSource = processor.parameter("reverb_source");
+		reverbSource->setValueNotifyingHost(reverbSource->convertTo0to1(2.0f));
+		collect(true);
+		reverbSource->setValueNotifyingHost(0.0f);
 		// X-Over shows on Bucket Brigade alone, Wide Chorus's seven on it alone
 		auto* chorusType = processor.parameter("chorus_type");
 		chorusType->setValueNotifyingHost(chorusType->convertTo0to1(3.0f));

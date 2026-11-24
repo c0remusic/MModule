@@ -277,6 +277,8 @@ namespace
 		afterRelays.add("delay_vol");
 		for(const auto& spec : parameters::chorusDt2Specs)
 			afterRelays.add(spec.id);
+		for(const auto& spec : parameters::denseSpecs)
+			afterRelays.add(spec.id);
 		const auto& relays = _processor.ids(Processor::Section::Relays);
 		require(relays.size() == parameters::RelayCount
 			&& ids.indexOf(relays[0]) == ids.size() - parameters::RelayCount - afterRelays.size(),
@@ -473,6 +475,11 @@ namespace
 			chorus("chorus_type", ChorusType); chorus("chorus_xover", ChorusXOver);
 			for(size_t i = 0; i < parameters::ChorusDt2Bytes; ++i)
 				chorus(parameters::chorusDt2Specs[i].id, ChorusDt2Depth + static_cast<int>(i));
+			for(size_t i = 0; i < DenseBytes; ++i)
+				m[parameters::denseSpecs[i].id] = [i](Engine& _e, const double _v)
+				{
+					_e.sends().setDense(static_cast<int>(i), byteOf(_v));
+				};
 			const auto phaser = [&m](const char* _id, const int _byte)
 			{
 				m[_id] = [_byte](Engine& _e, const double _v) { _e.sends().setPhaser(_byte, byteOf(_v)); };
@@ -918,6 +925,9 @@ namespace
 		// The DT2 chorus's seven play on its type, which neither sound chooses: edDrumsEngineTest's dt2ChorusSends and
 		// edDrumsDt2ChorusTest hear them
 		for(const auto& spec : parameters::chorusDt2Specs)
+			expected.push_back(spec.id);
+		// The DT2 reverb's seven likewise: edDrumsEngineTest's denseSends and edDrumsDt2ReverbTest hear them
+		for(const auto& spec : parameters::denseSpecs)
 			expected.push_back(spec.id);
 		require(unheard == expected, "a setting the processor gives is not heard");
 		std::printf("PASS: every parameter reaches the engine\n");
