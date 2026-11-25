@@ -157,6 +157,7 @@ namespace elektron::drums
 			bool gesture = false;			// a parameter's gesture begun
 			int armed = -1;					// the line armed before the press, which a lane's X keeps
 			int assign = -1;				// the LFO ASSIGN armed before the press, which ASSIGN's click disarms
+			juce::ModifierKeys mods;		// at the press, then at each drag: Shift, Alt, the right button
 		};
 
 		// A block's title line: a rule in its hue, its name; rank 0 a block, 1 the page's first, 2 one that matters less

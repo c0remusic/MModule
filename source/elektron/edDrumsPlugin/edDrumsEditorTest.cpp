@@ -710,37 +710,45 @@ namespace
 		click(_editor, at(row, 9));
 		check(st(9).trig && st(9).slide, "VEL again: a click sets a trig, the step's slide kept");
 
-		// A lane (RESO): a click on an empty step locks it at the base, trig or not; a click on a Lock changes nothing; a
-		// vertical drag sets the Lock's value; a double-click takes it off; a horizontal drag paints at the base or erases
+		// A lane (RESO), drawn on (ticket 36): a press locks its step at the height pointed, trig or not; a drag locks
+		// each step crossed at the pointer's height; Alt takes them off; Shift moves the pressed step's Lock finely; a
+		// double-click takes a Lock off
 		click(_editor, _editor.seqButtonArea(SB::AddLock).getCentre());
 		click(_editor, _editor.lockMenuArea(index("t01_flt_res")).getCentre());
 		check(_editor.lockLanes() == 1, "+ LOCK: RESO's lane");
 		const auto lane = _editor.laneArea(0);
 		auto* reso = _processor.parameter("t01_flt_res");
-		const float base = reso->convertFrom0to1(reso->getValue());
-		click(_editor, at(lane, 1));
-		click(_editor, at(lane, 7));
-		check(lockOn(1, "t01_flt_res") && lockOn(1, "t01_flt_res")->value == base && lockOn(7, "t01_flt_res")
-			&& !st(7).trig, "a lane: a click on step 2 (a trig) and on step 8 (none, a Lock without a note) lock at the base");
-		drag(_editor, at(lane, 1), down(-8));
-		// The first 0.8 mm only make the press a drag (Editor::mouseDrag): 7.2 mm count, 0.225 of the range
-		const float raised = std::min(1.0f, reso->getValue() + 0.225f);
-		const float got = reso->convertTo0to1(lockOn(1, "t01_flt_res")->value);
-		check(std::abs(got - raised) < 0.01f && reso->convertFrom0to1(reso->getValue()) == base,
-			"a lane: 8 mm up on step 2's Lock raises it a quarter, to " + juce::String(got, 3) + ", RESO left as it was");
-		click(_editor, at(lane, 1));
-		check(std::abs(reso->convertTo0to1(lockOn(1, "t01_flt_res")->value) - got) < 1e-6f,
-			"a lane: a click on a Lock changes nothing");
-		doubleClick(_editor, at(lane, 10));
-		check(!lockOn(10, "t01_flt_res"), "a lane: a double-click on an empty step sets and takes off, one toggle");
-		doubleClick(_editor, at(lane, 7));
+		const float resoWas = reso->getValue();
+		// Step _s's centre at height _f of the lane, as the lane draws a value (0.6 mm inside its top and bottom)
+		const auto height = [&](const int _s, const float _f)
+		{
+			const float h = static_cast<float>(lane.getHeight()) / mm;
+			return juce::Point<int>(at(lane, _s).x, lane.getY() + juce::roundToInt((0.6f + (1 - _f) * (h - 1.2f)) * mm));
+		};
+		const auto lockValue = [&](const int _s)
+		{
+			const auto* l = lockOn(_s, "t01_flt_res");
+			return l ? reso->convertTo0to1(l->value) : -1.0f;
+		};
+		click(_editor, height(1, 0.75f));
+		click(_editor, height(7, 0.2f));
+		check(std::abs(lockValue(1) - 0.75f) < 0.03f && std::abs(lockValue(7) - 0.2f) < 0.03f && !st(7).trig
+			&& reso->getValue() == resoWas, "a lane: a click at three quarters of step 2 (a trig) locks it at "
+			+ juce::String(lockValue(1), 3) + ", at a fifth of step 8 (no trig) at " + juce::String(lockValue(7), 3)
+			+ ", RESO left as it was");
+		drag(_editor, height(10, 0.25f), steps(4));
+		check(all(10, 14, [&](int s) { return std::abs(lockValue(s) - 0.25f) < 0.03f; }),
+			"a lane: a drag at a quarter from step 11 to 15 draws them at " + juce::String(lockValue(12), 3));
+		drag(_editor, height(11, 0.5f), steps(2), juce::ModifierKeys::altModifier);
+		check(lockValue(10) >= 0 && lockValue(14) >= 0 && all(11, 13, [&](int s) { return !lockOn(s, "t01_flt_res"); }),
+			"a lane: Alt and a drag from step 12 to 14 takes their Locks off, 11 and 15 kept");
+		const float before = lockValue(1);
+		drag(_editor, height(1, 0.1f), down(-8), juce::ModifierKeys::shiftModifier);
+		// The first 0.8 mm only make the press a drag (Editor::mouseDrag): 7.2 mm count, 1/320 of the range each
+		check(std::abs(lockValue(1) - before - 0.0225f) < 0.003f, "a lane: Shift and 8 mm up raise step 2's Lock from "
+			+ juce::String(before, 3) + " to " + juce::String(lockValue(1), 3) + ", wherever the press");
+		doubleClick(_editor, height(7, 0.5f));
 		check(!lockOn(7, "t01_flt_res"), "a lane: a double-click on a Lock takes it off");
-		drag(_editor, at(lane, 11), steps(3));
-		check(all(11, 14, [&](int s) { return lockOn(s, "t01_flt_res") && lockOn(s, "t01_flt_res")->value == base; }),
-			"a lane: a drag from an empty step paints Locks at the base on 12-15");
-		drag(_editor, at(lane, 12), steps(2));
-		check(lockOn(11, "t01_flt_res") && all(12, 14, [&](int s) { return !lockOn(s, "t01_flt_res"); }),
-			"a lane: a drag from a Lock erases 13-15");
 		// A trig taken off takes its Locks with it (spec 7)
 		click(_editor, at(row, 1));
 		check(!st(1).trig && st(1).lockCount == 0, "VEL: the trig on step 2 taken off, its Lock goes too");

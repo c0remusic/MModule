@@ -1579,19 +1579,81 @@ namespace elektron::drums
 						_p.setLock(m_track, _n, static_cast<uint16_t>(_line), rp->convertFrom0to1(rp->getValue()));
 				});
 			};
+			// Ticket 36: a lock lane of a value or a list is drawn on. The press locks its step at the height pointed (the
+			// top the parameter's end, as the lane draws it), a drag locks each step it crosses at the pointer's height;
+			// Alt takes the Locks crossed off; Shift moves the pressed step's Lock finely, a tenth of the trig row's rate
+			const bool drawn = _line >= 0 && !isSampleLock(_line);
+			const auto lockAtHeight = [this, _line, _r](const int _n, const float _y)
+			{
+				auto* rp = dynamic_cast<juce::RangedAudioParameter*>(m_processor.getParameters()[_line]);
+				if(!rp)
+					return;
+				const float v = juce::jlimit(0.0f, 1.0f, 1 - (_y - _r.getY() - 0.6f) / (_r.getHeight() - 1.2f));
+				const float plain = rp->getNormalisableRange().snapToLegalValue(rp->convertFrom0to1(v));
+				editPattern([&](Pattern& _p) { _p.setLock(m_track, _n, static_cast<uint16_t>(_line), plain); });
+			};
+			const auto across = [this, stepAt](const std::function<void(int)>& _each)
+			{
+				const int q = stepAt(m_press.last.x);
+				for(int j = std::min(q, m_grid.last); j <= std::max(q, m_grid.last); ++j)
+					_each(j);
+				m_grid.last = q;
+			};
 			Hit h;
 			h.r = _r;
 			h.cursor = juce::MouseCursor::CrosshairCursor;
-			h.press = [this, stepAt, on, _line]
+			h.press = [this, stepAt, on, set, drawn, lockAtHeight, _line]
 			{
 				m_grid = {};
 				m_grid.line = _line;
 				m_grid.step = m_grid.last = stepAt(m_press.down.x);
 				m_grid.was = on(m_grid.step);
+				if(!drawn)
+					return;
+				m_seqStep = m_grid.step;
+				if(m_press.mods.isAltDown())
+				{
+					m_grid.direction = 'e';
+					set(m_grid.step, false);
+				}
+				else if(m_press.mods.isShiftDown())
+				{
+					m_grid.direction = 'f';
+					auto* rp = dynamic_cast<juce::RangedAudioParameter*>(m_processor.getParameters()[_line]);
+					const auto* lock = lockAt(pattern(), m_track, m_grid.step, _line);
+					m_grid.start = !rp ? 0 : lock ? rp->convertTo0to1(lock->value) : rp->getValue();
+				}
+				else
+				{
+					m_grid.direction = 'd';
+					lockAtHeight(m_grid.step, m_press.down.y);
+				}
 			};
-			h.drag = [this, stepAt, set, _line](const float _dx, const float _dy)
+			h.drag = [this, stepAt, set, lockAtHeight, across, _line](const float _dx, const float _dy)
 			{
 				m_grid.travel += {_dx, _dy};
+				if(m_grid.direction == 'd')
+				{
+					const float y = m_press.last.y;
+					across([&](const int _j) { lockAtHeight(_j, y); });
+					return;
+				}
+				if(m_grid.direction == 'e')
+				{
+					across([&](const int _j) { set(_j, false); });
+					return;
+				}
+				if(m_grid.direction == 'f')
+				{
+					auto* rp = dynamic_cast<juce::RangedAudioParameter*>(m_processor.getParameters()[_line]);
+					if(!rp)
+						return;
+					const float v = juce::jlimit(0.0f, 1.0f, m_grid.start - m_grid.travel.y / 320);
+					const float plain = rp->getNormalisableRange().snapToLegalValue(rp->convertFrom0to1(v));
+					const int n = m_grid.step;
+					editPattern([&](Pattern& _p) { _p.setLock(m_track, n, static_cast<uint16_t>(_line), plain); });
+					return;
+				}
 				if(!m_grid.direction)
 				{
 					if(m_grid.travel.getDistanceFromOrigin() < 2)
@@ -1641,15 +1703,14 @@ namespace elektron::drums
 			h.click = [this, set, _line]
 			{
 				m_seqStep = m_grid.step;
-				// The SAMPLE lane: Browse chooses the step's sample; a drag across its Locks takes them off
+				// The SAMPLE lane: Browse chooses the step's sample; a drag across its Locks takes them off. A lane drawn
+				// on wrote at its press
 				if(isSampleLock(_line))
 					pickSample(m_grid.step, _line);
 				else if(_line < 0 && m_seqMode == 0)
 					toggleTrig(m_track, m_grid.step);
 				else if(_line < 0)
 					set(m_grid.step, !m_grid.was);
-				else if(!m_grid.was)
-					set(m_grid.step, true);
 			};
 			// A double-click toggles once: the trig row leaves the first click's; a lock cell takes the Lock off (the
 			// SAMPLE lane's first click has shown Browse)

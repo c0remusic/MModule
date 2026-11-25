@@ -604,6 +604,11 @@ namespace elektron::drums
 			}
 			if(m_stepPage * 16 + k >= length)
 				_p.rect(x, 281.33f, KeyWidth, 28, juce::Colour(0x8c000000), 1.7f);
+			// Ticket 38: the step's number printed under its key and strip, 1 to 16 whatever the page (the page's
+			// lights say which), the beats' 1, 5, 9, 13 brighter
+			const bool beat = k % 4 == 0;
+			_p.text(x + KeyWidth / 2, 327.3f, juce::String(k + 1), 2.8f, beat ? colour::mid : colour::dim,
+				beat ? 600 : 500, Painter::Align::Centre);
 		}
 	}
 
@@ -727,6 +732,7 @@ namespace elektron::drums
 			return;
 		m_press.hit = found;
 		m_press.down = m_press.last = mm;
+		m_press.mods = _e.mods;
 		const auto& hit = m_hits[static_cast<size_t>(found)];
 		if(_e.getNumberOfClicks() >= 2 && samePage && hit.doubleClick)
 		{
@@ -761,6 +767,7 @@ namespace elektron::drums
 		if(m_press.hit < 0)
 			return;
 		const auto mm = toMm(_e.position);
+		m_press.mods = _e.mods;
 		if(!m_press.moved && mm.getDistanceFrom(m_press.down) > 0.8f)
 			m_press.moved = true;
 		if(m_press.moved)
