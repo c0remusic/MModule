@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sound remplie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  /* Ticket 33, v7: every value of the Sound page on one screen, the columns in the signal's order: the source (VOICE
+     and SAMPLE LAYER), the chain (EQ, FILTER, DRIVES), then AMP, SENDS and MOD. A stage turned off greys, in place.
+     Track 10's ROUND KICK as the editor shows it; ?full shows it in the whole window */
+  :root {
+    --page: #e9e7e2; --pageMid: #5b5b60;
+    --screen: #0c0c0e; --cell: #141417; --rule: #26262b; --ink: #e8e6e1; --mid: #8d8b86; --dim: #55534f;
+    --voice: #3a9cc8; --timbre: #e0784f; --amp: #8f7fe0; --lfo: #d77fc0; --layer: #8cc152; --eq: #4f7fe0;
+    --sends: #c8c0b0; --lfo1: #d9b441;
+  }
+  .waves { display: flex; gap: 4px; }
+  .waves .chip { flex: 1; text-align: center; padding: 4px 0; font-size: 13px; }
+  body { margin: 0; padding: 16px; background: var(--page); font: 14px/1.45 system-ui, sans-serif; }
+  p { max-width: 74ch; margin: 0 0 10px; color: var(--pageMid); }
+  .screen { width: 1400px; height: 690px; background: var(--screen); border-radius: 10px; position: relative;
+    font-family: "Barlow Semi Condensed", system-ui, sans-serif; color: var(--ink); overflow: hidden; }
+  .head { position: absolute; left: 14px; right: 14px; top: 10px; display: flex; gap: 14px; align-items: baseline;
+    font-size: 13px; color: var(--mid); letter-spacing: .04em; }
+  .head b { font-size: 18px; color: var(--ink); font-weight: 600; }
+  .head .right { margin-left: auto; }
+  .cols { position: absolute; left: 14px; right: 14px; top: 42px; bottom: 14px; display: grid;
+    grid-template-columns: 1fr 1fr 1fr; gap: 22px; }
+  .col { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+  .band { display: flex; align-items: baseline; gap: 10px; border-top: 3px solid; padding-top: 6px; }
+  .band .t { font-weight: 600; font-size: 17px; letter-spacing: .05em; }
+  .band .r { margin-left: auto; }
+  .sub { display: flex; align-items: baseline; gap: 10px; font-weight: 600; font-size: 14px; letter-spacing: .05em;
+    margin-top: 4px; }
+  .sub .r { margin-left: auto; }
+  .row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0 12px; }
+  .c { padding: 2px 2px 5px; border-bottom: 2px solid var(--rule); }
+  .c .n { font-size: 12px; color: var(--mid); letter-spacing: .05em; white-space: nowrap; overflow: hidden; }
+  .c .v { font-size: 21px; font-weight: 600; white-space: nowrap; }
+  .c.off .n, .c.off .v { color: var(--dim); }
+  .chip { display: inline-block; padding: 2px 8px; border-radius: 4px; background: var(--cell); color: var(--mid);
+    font-size: 12px; letter-spacing: .05em; font-weight: 500; }
+  .chip.on { background: #2a2a30; color: var(--ink); }
+  .name { font-size: 13px; color: var(--mid); font-weight: 500; letter-spacing: .05em; }
+  .pic { background: #08080a; border-radius: 4px; position: relative; flex: 1 1 0; min-height: 0; }
+  .pic svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .pic .t { position: absolute; right: 8px; top: 5px; font-size: 12px; color: var(--mid); z-index: 1; }
+  /* v8: each column's blocks spread over its whole height, the space shared between them, no block grown for it */
+  .col { justify-content: space-between; gap: 0; }
+  .blk { display: flex; flex-direction: column; gap: 6px; }
+  .blk.grow { flex: 1 1 auto; min-height: 0; margin-bottom: 14px; }
+  .c { padding: 3px 2px 7px; }
+  .c .v { font-size: 22px; }
+  /* No rule between values: only the sections' bands separate */
+  .c { border-bottom: none; }
+</style>
+</head>
+<body>
+<p>v8 : AMP en tête de la colonne du milieu, avant EQ ; SENDS en dernier ; les blocs de chaque colonne répartis sur
+toute sa hauteur.</p>
+<div class="screen" id="s">
+  <div class="head"><b>SOUND</b><span>10 ROUND KICK</span><span>COLOR IVORY</span><span class="right">A01 · HOST STOPPED · CPU 0 %</span></div>
+  <div class="cols">
+    <!-- The source: VOICE, then SAMPLE LAYER -->
+    <div class="col">
+      <div class="blk grow">
+        <div class="band" style="border-color:var(--voice)"><span class="t" style="color:var(--voice)">VOICE</span>
+          <span class="name" style="color:var(--ink)">ROUND KICK</span>
+          <span class="r"><span class="chip on">1</span> <span class="chip">2</span> <span class="chip">3</span></span></div>
+        <div class="pic" style="border:1px solid #1f3a48"><span class="t">317 MS</span><svg viewBox="0 0 560 300" preserveAspectRatio="none" data-hit></svg></div>
+        <div class="row">
+          <div class="c"><div class="n">PITCH</div><div class="v">C4</div></div>
+          <div class="c"><div class="n">DECAY</div><div class="v">64</div></div>
+          <div class="c"><div class="n">SWEEP</div><div class="v">64</div></div>
+          <div class="c"><div class="n">SWEEP TIME</div><div class="v">64</div></div>
+          <div class="c"><div class="n">CLICK</div><div class="v">64</div></div>
+          <div class="c"><div class="n">NOISE</div><div class="v">64</div></div>
+          <div class="c"><div class="n">HARMONICS</div><div class="v">64</div></div>
+          <div class="c"><div class="n">CLIP</div><div class="v">64</div></div>
+          <div class="c"><div class="n">CHOKES</div><div class="v">NONE</div></div>
+          <div class="c"><div class="n">VEL TARGET</div><div class="v">NONE</div></div>
+          <div class="c"><div class="n">VEL AMT</div><div class="v">0 %</div></div>
+        </div>
+      </div>
+      <div class="blk">
+        <div class="band" style="border-color:var(--layer)"><span class="t" style="color:var(--layer)">SAMPLE LAYER</span>
+          <span class="chip">OFF</span><span class="r"><span class="chip">LOAD</span> <span class="name">NO SAMPLE</span></span></div>
+        <div class="row" style="grid-template-columns: repeat(5, 1fr)">
+          <div class="c off"><div class="n">TUNE</div><div class="v">0 st</div></div>
+          <div class="c off"><div class="n">FINE</div><div class="v">+0.0 ct</div></div>
+          <div class="c off"><div class="n">PLAY</div><div class="v">FWD</div></div>
+          <div class="c off"><div class="n">START</div><div class="v">0 %</div></div>
+          <div class="c off"><div class="n">LENGTH</div><div class="v">100 %</div></div>
+          <div class="c off"><div class="n">LOOP</div><div class="v">0 %</div></div>
+          <div class="c off"><div class="n">KEY TRACK</div><div class="v">ON</div></div>
+          <div class="c off"><div class="n">LEVEL</div><div class="v">−4.2 dB</div></div>
+          <div class="c off"><div class="n">BR</div><div class="v">OFF</div></div>
+          <div class="c off"><div class="n">OFFSET</div><div class="v">0 ms</div></div>
+          <div class="c off"><div class="n">ATTACK</div><div class="v">0 ms</div></div>
+          <div class="c off"><div class="n">HOLD</div><div class="v">0 ms</div></div>
+          <div class="c off"><div class="n">DECAY</div><div class="v">INF</div></div>
+        </div>
+      </div>
+    </div>
+    <!-- AMP, then the chain: EQ, FILTER and its envelope, DRIVES (PRE or POST, as each is set) -->
+    <div class="col">
+      <div class="blk">
+        <div class="band" style="border-color:var(--amp)"><span class="t" style="color:var(--amp)">AMP</span>
+          <span class="r"><span class="chip on">AHD</span> <span class="chip">ADSR</span></span></div>
+        <div class="row">
+          <div class="c"><div class="n">LEVEL</div><div class="v">−4.2 dB</div></div>
+          <div class="c"><div class="n">PAN</div><div class="v">C</div></div>
+          <div class="c"><div class="n">ACCENT</div><div class="v">+0.1 dB</div></div>
+          <div class="c"><div class="n">AMP ENV</div><div class="v">OFF</div></div>
+          <div class="c off"><div class="n">ATTACK</div><div class="v">0 ms</div></div>
+          <div class="c off"><div class="n">HOLD</div><div class="v">INF</div></div>
+          <div class="c off"><div class="n">DECAY</div><div class="v">0.04 ms</div></div>
+        </div>
+      </div>
+      <div class="blk">
+        <div class="band" style="border-color:var(--eq)"><span class="t" style="color:var(--eq)">EQ</span>
+          <span class="name">PEAK</span><span class="r"><span class="chip on">PRE</span> <span class="chip">POST</span></span></div>
+        <div class="row" style="grid-template-columns: 1fr 1fr 2fr">
+          <div class="c"><div class="n">PEAK FREQ</div><div class="v">632 Hz</div></div>
+          <div class="c"><div class="n">PEAK GAIN</div><div class="v">63</div></div>
+          <div class="pic" style="height:56px">
+            <svg viewBox="0 0 300 100" preserveAspectRatio="none">
+              <line x1="0" y1="50" x2="300" y2="50" stroke="#26262b"/>
+              <path d="M0 50 L 120 50 C 140 50, 145 40, 155 40 S 170 50, 190 50 L 300 50" fill="none" stroke="#4f7fe0" stroke-width="2" vector-effect="non-scaling-stroke"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+      <div class="blk">
+        <div class="band" style="border-color:var(--timbre)"><span class="t" style="color:var(--timbre)">FILTER</span>
+          <span class="r"><span class="chip">MULTIMODE</span> <span class="chip on">WINDOW</span> <span class="chip">STATE VAR</span> <span class="chip">…</span></span></div>
+        <div class="row" style="grid-template-columns: 1fr 1fr 2fr">
+          <div class="c"><div class="n">CUTOFF</div><div class="v">5.00 Hz</div></div>
+          <div class="c"><div class="n">RESO</div><div class="v">Q 0.501</div></div>
+          <div class="pic" style="height:56px">
+            <svg viewBox="0 0 300 100" preserveAspectRatio="none">
+              <path d="M0 30 C 30 30, 35 33, 45 37 S 70 75, 90 90 L 300 90" fill="none" stroke="#e0784f" stroke-width="2" vector-effect="non-scaling-stroke"/>
+            </svg>
+          </div>
+          <div class="c"><div class="n">KEY TRACK</div><div class="v">0</div></div>
+          <div class="c"><div class="n">WIDTH</div><div class="v">11.9 oct</div></div>
+        </div>
+        <div class="sub" style="color:var(--timbre)">ENVELOPE <span class="name">ENV RETRIG</span></div>
+        <div class="row" style="grid-template-columns: repeat(6, 1fr)">
+          <div class="c"><div class="n">ENV AMT</div><div class="v">0</div></div>
+          <div class="c off"><div class="n">DELAY</div><div class="v">0 ms</div></div>
+          <div class="c off"><div class="n">ATTACK</div><div class="v">0.67</div></div>
+          <div class="c off"><div class="n">DECAY</div><div class="v">0 ms</div></div>
+          <div class="c off"><div class="n">SUSTAIN</div><div class="v">0 %</div></div>
+          <div class="c off"><div class="n">RELEASE</div><div class="v">0 ms</div></div>
+        </div>
+      </div>
+      <div class="blk">
+        <div class="band" style="border-color:var(--timbre)"><span class="t" style="color:var(--timbre)">DRIVES</span>
+          <span class="r name">1 DOWNSAMPLE POST · 2 DISTORT POST · OS 2X</span></div>
+        <div class="row">
+          <div class="c"><div class="n">1 AMOUNT</div><div class="v">44.1 kHz</div></div>
+          <div class="c"><div class="n">1 MIX</div><div class="v">100 %</div></div>
+          <div class="c"><div class="n">2 AMOUNT</div><div class="v">+18.1 dB</div></div>
+          <div class="c"><div class="n">2 MIX</div><div class="v">100 %</div></div>
+        </div>
+      </div>
+    </div>
+    <!-- MOD: the two LFOs in one block; SENDS last -->
+    <div class="col">
+      <div class="blk">
+        <div class="band" style="border-color:var(--lfo)"><span class="t" style="color:var(--lfo)">MOD</span>
+          <span class="r"><span class="chip">ASSIGN</span></span></div>
+        <div class="sub" style="color:var(--lfo1)">LFO 1 <span class="r"><span class="chip on">SYNC</span> <span class="chip">HZ</span></span></div>
+        <div class="waves"><span class="chip on">TRI</span><span class="chip">SIN</span><span class="chip">SQR</span><span class="chip">SAW</span><span class="chip">EXP</span><span class="chip">RMP</span><span class="chip">RND</span></div>
+        <div class="row">
+          <div class="c"><div class="n">RATE</div><div class="v">1/4</div></div>
+          <div class="c"><div class="n">FEEL</div><div class="v">STRAIGHT</div></div>
+          <div class="c"><div class="n">TRIG MODE</div><div class="v">FREE</div></div>
+          <div class="c"><div class="n">DEPTH</div><div class="v">0 %</div></div>
+          <div class="c"><div class="n">ON TRACK</div><div class="v">OWN</div></div>
+          <div class="c" style="grid-column: span 3"><div class="n">TARGET</div><div class="v">NONE</div></div>
+        </div>
+        <div class="sub" style="color:var(--lfo); margin-top:14px">LFO 2 <span class="r"><span class="chip on">SYNC</span> <span class="chip">HZ</span></span></div>
+        <div class="waves"><span class="chip on">TRI</span><span class="chip">SIN</span><span class="chip">SQR</span><span class="chip">SAW</span><span class="chip">EXP</span><span class="chip">RMP</span><span class="chip">RND</span></div>
+        <div class="row">
+          <div class="c"><div class="n">RATE</div><div class="v">1/4</div></div>
+          <div class="c"><div class="n">FEEL</div><div class="v">STRAIGHT</div></div>
+          <div class="c"><div class="n">TRIG MODE</div><div class="v">FREE</div></div>
+          <div class="c"><div class="n">DEPTH</div><div class="v">0 %</div></div>
+          <div class="c"><div class="n">ON TRACK</div><div class="v">OWN</div></div>
+          <div class="c" style="grid-column: span 3"><div class="n">TARGET</div><div class="v">NONE</div></div>
+        </div>
+      </div>
+      <div class="blk">
+        <div class="band" style="border-color:var(--sends)"><span class="t" style="color:var(--sends)">SENDS</span></div>
+        <div class="row">
+          <div class="c"><div class="n">DELAY</div><div class="v">0</div></div>
+          <div class="c"><div class="n">REVERB</div><div class="v">0</div></div>
+          <div class="c"><div class="n">CHORUS</div><div class="v">0</div></div>
+          <div class="c"><div class="n">PHASER</div><div class="v">0</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  // The kick's Hit, drawn by hand (not the engine's)
+  document.querySelectorAll('svg[data-hit]').forEach(svg => {
+    const [w, h] = svg.getAttribute('viewBox').split(' ').slice(2).map(Number);
+    const pts = [];
+    let ph = 0;
+    for (let i = 0; i <= 400; i++) {
+      const u = i / 400;
+      ph += (6 + 40 * Math.exp(-u * 8)) / 400 * 6.28;
+      const a = Math.exp(-u * 5) * (u < 0.01 ? u / 0.01 : 1);
+      pts.push((u * w).toFixed(1) + ',' + (h / 2 - a * Math.sin(ph) * h * 0.4).toFixed(1));
+    }
+    svg.innerHTML = '<line x1="0" y1="' + h / 2 + '" x2="' + w + '" y2="' + h / 2 + '" stroke="#26262b"/>' +
+      '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#3a9cc8" stroke-width="1.5" vector-effect="non-scaling-stroke"/>';
+  });
+  if (new URLSearchParams(location.search).has('full')) {
+    const screen = document.getElementById('s');
+    document.body.innerHTML = '';
+    document.body.style.cssText = 'margin:0; padding:0; width:1600px; height:1000px; position:relative; ' +
+      'background:url("v1-sound-now.png") 0 0 / 1600px 1000px';
+    screen.style.cssText += '; position:absolute; left:35px; top:35px; width:1400px; height:693px; border-radius:6px';
+    document.body.appendChild(screen);
+  }
+</script>
+</body>
+</html>

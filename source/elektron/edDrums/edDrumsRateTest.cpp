@@ -514,8 +514,9 @@ namespace
 
 	// What the scene rendered at 44.1 kHz before ticket 16, measured on the engine of commit 3413ea64: a change meant at
 	// 44.1 kHz gives this its new value, nothing else may. 2026-11-13: OPEN DRUM's REAL_FS from 44,140 to 44,100 (its
-	// oscillators 1.57 cent flat before); 0xbfc5a39c2d1d1e3a until then
-	constexpr uint64_t Golden = 0x43f3abf3f1df7256ull;
+	// oscillators 1.57 cent flat before); 0xbfc5a39c2d1d1e3a until then. 2026-11-25, ticket 39 of the v2 map (PITCH):
+	// SOPHIE and VINTAGE play their Track's NOTE, the scene's 61 and 63 on Tracks 14 and 16; 0x43f3abf3f1df7256 until then
+	constexpr uint64_t Golden = 0x7a3d71fe15f9f9bfull;
 
 	void unchanged(const Library& _library, const char* _dump)
 	{

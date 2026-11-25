@@ -42,7 +42,8 @@ namespace elektron::drums
 			m_keyChoices[static_cast<size_t>(t)] = {trackParameter("machine", t), trackParameter("lfo1_track", t),
 				trackParameter("lfo2_track", t), trackParameter("flt_type", t), trackParameter("band_type", t),
 				trackParameter("amp_mode", t), trackParameter("lfo1_sync", t), trackParameter("lfo2_sync", t),
-				trackParameter("note", t), trackParameter("gap_sync", t), trackParameter("lfo1_target", t)};
+				trackParameter("note", t), trackParameter("gap_sync", t), trackParameter("lfo1_target", t),
+				trackParameter("m1", t)};
 		using namespace LockstepAssets;
 		m_plates[B0] = {load(b0_1x_jpg, b0_1x_jpgSize), load(b0_2x_jpg, b0_2x_jpgSize)};
 		m_plates[B1] = {load(b1_1x_jpg, b1_1x_jpgSize), load(b1_2x_jpg, b1_2x_jpgSize)};
@@ -127,14 +128,6 @@ namespace elektron::drums
 		repaint();
 	}
 
-	void Editor::showLfo(const int _lfo)
-	{
-		m_lfo = juce::jlimit(0, 1, _lfo);
-		m_focus = _lfo ? "l2" : "l1";
-		layout();
-		repaint();
-	}
-
 	void Editor::showSeqTab(const int _tab)
 	{
 		m_seqTab = juce::jlimit(0, 2, _tab);
@@ -195,7 +188,7 @@ namespace elektron::drums
 	juce::String Editor::layoutKey() const
 	{
 		juce::String key;
-		key << static_cast<int>(m_page) << "/" << m_track << "/" << (m_menu ? 1 : 0) << "/" << m_lfo << "/"
+		key << static_cast<int>(m_page) << "/" << m_track << "/" << (m_menu ? 1 : 0) << "/"
 			<< m_machinePage << "/" << m_focus << "/" << m_stepPage << "/" << (m_follow ? 1 : 0) << "/"
 			<< (m_selector.open ? 1 : 0) << "/" << m_seqStep << "/" << m_seqMode << "/" << m_lockScroll << "/"
 			<< m_armedLine << "/" << (m_lockMenu ? 1 : 0) << "/" << m_browseItem << "/" << m_browseScroll << "/" << getWidth() << "/" << m_browseTree << "/"
@@ -228,6 +221,8 @@ namespace elektron::drums
 		key << choiceOf(*shown.lfo1Track) << "," << choiceOf(*shown.lfo2Track) << ",";
 		// LFO 1 on its LFO 2 shows no ON TRACK
 		key << (aimsAtLfo(static_cast<LfoTarget>(choiceOf(*shown.lfo1Target))) ? 1 : 0) << ",";
+		// PITCH shows NOTE plus TUNE's distance from its reference (ticket 39)
+		key << choiceOf(*shown.tune) << ",";
 		for(const auto& t : m_keyChoices)
 			key << choiceOf(*t.machine) << ",";
 		key << "/";
@@ -852,6 +847,18 @@ namespace elektron::drums
 
 	void Editor::cellDown(const Cell& _cell)
 	{
+		// PITCH over a TUNE away from its reference (ticket 39): NOTE takes the pitch shown and TUNE its reference, the
+		// sound unchanged, before the gesture moves NOTE alone
+		if(_cell.format == Cell::Format::Pitch && _cell.shift != 0 && !lockEdit() && _cell.parameter)
+		{
+			auto* note = _cell.parameter;
+			auto* tune = trackParameter("m1");
+			const int shown = juce::jlimit(0, 127, juce::roundToInt(note->convertFrom0to1(note->getValue())) + _cell.shift);
+			const int reference = juce::roundToInt(tune->convertFrom0to1(tune->getValue())) - _cell.shift;
+			setNormalised(*tune, tune->convertTo0to1(static_cast<float>(reference)));
+			setNormalised(*note, note->convertTo0to1(static_cast<float>(shown)));
+			m_cells[static_cast<size_t>(&_cell - m_cells.data())].shift = 0;
+		}
 		float lock = 0;
 		m_press.value = lockOf(_cell, lock) ? lock : _cell.normalised();
 		if(m_press.value < 0)
@@ -941,6 +948,12 @@ namespace elektron::drums
 					else
 						setNormalised(*cell.parameter, v);
 				});
+			}
+			// Segments of more than two (an LFO's shapes): the one clicked
+			else if(_cell.look == Cell::Look::Segments && count > 2)
+			{
+				const int at = static_cast<int>((m_press.down.x - _cell.x) / (_cell.w / static_cast<float>(count)));
+				cellSet(_cell, _cell.normalisedOf(juce::jlimit(0, count - 1, at)));
 			}
 			else if(_cell.isList() || _cell.look == Cell::Look::Button || _cell.look == Cell::Look::Segments)
 			{
@@ -1110,6 +1123,12 @@ namespace elektron::drums
 		// The Amp block's envelope, while AMP is off
 		if(_section == "ae")
 			return trackParameter("amp_on")->getValue() < 0.5f;
+		// The filter's envelope, while ENV AMT is 0
+		if(_section == "fe")
+		{
+			const auto* d = trackParameter("fenv_depth");
+			return juce::roundToInt(d->convertFrom0to1(d->getValue())) == 0;
+		}
 		// The sample layer's values, while LAYER is off
 		if(_section == "le")
 			return trackParameter("layer_on")->getValue() < 0.5f;

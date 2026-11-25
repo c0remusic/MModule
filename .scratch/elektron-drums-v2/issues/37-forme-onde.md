@@ -1,7 +1,7 @@
 # Voir la forme d'onde
 
 Type: HITL
-Status: in-progress
+Status: done (essai dans Live à venir)
 Assignee: Claude (session 2026-11-25)
 Blocked by: aucun
 
@@ -49,9 +49,9 @@ vide (« the hit's preview has no engine yet ») ; la maquette de référence (`
 
 ## Critère de fin
 
-- [ ] Test du rendu : le Hit rendu à part est celui que le moteur joue seul (mêmes échantillons, Hit pris à son
+- [x] Test du rendu : le Hit rendu à part est celui que le moteur joue seul (mêmes échantillons, Hit pris à son
   `HitDelay`) ; sends, LFO et Locks n'y sont pas ; deux demandes rapprochées n'en rendent que la dernière ; durée
   ajustée et bornée ; dépassement de 0 dBFS signalé. Coût mesuré : construction du moteur, rendu.
-- [ ] `edDrumsEditorTest` : le cadre VOICE dessine le Hit (snapshot), le sample et ses deux traits sur le Sampler, la
+- [x] `edDrumsEditorTest` : le cadre VOICE dessine le Hit (snapshot), le sample et ses deux traits sur le Sampler, la
   durée ; un clic fait écouter ; un réglage changé redemande le Hit.
 - [ ] Essai dans Live.

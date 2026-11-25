@@ -513,7 +513,6 @@ namespace
 		const auto& list = _processor.machines();
 		int velocityLists = 0;		// VEL TARGET cells seen on a Cycles machine
 		_editor.showPage(Editor::Page::Sound);
-		_editor.showLfo(0);
 		for(size_t k = 0; k < list.size(); ++k)
 		{
 			const auto& m = list[k];
@@ -609,10 +608,8 @@ namespace
 			fits();
 			draw();
 		}
-		_editor.showLfo(1);
 		fits();
 		draw();
-		_editor.showLfo(0);
 		ui::Painter::drawnTexts = nullptr;
 		machine->setValueNotifyingHost(machineWas);
 		target->setValueNotifyingHost(targetWas);
@@ -1198,21 +1195,29 @@ namespace
 			processor.removeListener(&gestures);
 		}
 
-		// Sound after u.html's variant 2: the LFO cards choose the LFO shown, no tabs; a drive's TYPE stays live while the
-		// drive is off, its list opening on a click
+		// Sound after the v9 mockup of ticket 33: both LFOs shown, a click on a shape sets WAVE; a drive's TYPE stays live
+		// while the drive is off, its list opening on a click
 		{
-			click(editor, editor.lfoCardArea(1).getCentre());
-			check(editor.lfo() == 1 && !editor.cellArea("t01_lfo2_depth").isEmpty() && editor.cellArea("t01_lfo1_depth").isEmpty(),
-				"a click on LFO 2's card shows LFO 2's cells");
-			click(editor, editor.lfoCardArea(0).getCentre());
-			check(editor.lfo() == 0, "a click on LFO 1's card shows LFO 1 again");
+			check(!editor.cellArea("t01_lfo1_depth").isEmpty() && !editor.cellArea("t01_lfo2_depth").isEmpty(),
+				"both LFOs' cells shown");
+			// LFO 2 aimed at LEVEL, its cells live: a click on SAW
+			auto* shape = processor.parameter("t01_lfo2_shape");
+			auto* aim2 = processor.parameter("t01_lfo2_target");
+			const float shapeWas = shape->getValue(), aim2Was = aim2->getValue();
+			aim2->setValueNotifyingHost(aim2->convertTo0to1(static_cast<float>(elektron::drums::LfoTarget::Level)));
+			editor.tick();
+			click(editor, editor.shapeArea(1, 3).getCentre());
+			check(juce::roundToInt(shape->convertFrom0to1(shape->getValue())) == 3, "a click on LFO 2's SAW sets its WAVE");
+			shape->setValueNotifyingHost(shapeWas);
+			aim2->setValueNotifyingHost(aim2Was);
+			editor.tick();
 
 			// ASSIGN: armed, a cell no LFO reaches leaves it armed and the target as it was, LEVEL sets TARGET and
 			// disarms; a second click on ASSIGN disarms, as does a click anywhere else
 			auto* target = processor.parameter("t01_lfo1_target");
 			const float aimed = target->getValue();
 			const auto targetIs = [&] { return juce::roundToInt(target->convertFrom0to1(target->getValue())); };
-			click(editor, editor.assignArea().getCentre());
+			click(editor, editor.assignArea(0).getCentre());
 			check(editor.assigning() == 0, "ASSIGN arms LFO 1");
 			click(editor, editor.cellArea("t01_lfo1_depth").getCentre());
 			check(editor.assigning() == 0 && target->getValue() == aimed, "a click on DEPTH, no target, leaves ASSIGN "
@@ -1220,19 +1225,21 @@ namespace
 			click(editor, editor.cellArea("t01_level").getCentre());
 			check(editor.assigning() == -1 && targetIs() == static_cast<int>(elektron::drums::LfoTarget::Level),
 				"a click on LEVEL aims LFO 1 at Level and disarms ASSIGN, TARGET " + juce::String(targetIs()));
-			click(editor, editor.assignArea().getCentre());
-			click(editor, editor.assignArea().getCentre());
+			click(editor, editor.assignArea(0).getCentre());
+			click(editor, editor.assignArea(0).getCentre());
 			check(editor.assigning() == -1, "a second click on ASSIGN disarms it");
-			click(editor, editor.assignArea().getCentre());
-			click(editor, editor.lfoCardArea(0).getCentre());
-			check(editor.assigning() == -1 && targetIs() == static_cast<int>(elektron::drums::LfoTarget::Level),
-				"a click on a card disarms ASSIGN, TARGET unchanged");
+			click(editor, editor.assignArea(0).getCentre());
+			click(editor, editor.assignArea(1).getCentre());
+			check(editor.assigning() == 1 && targetIs() == static_cast<int>(elektron::drums::LfoTarget::Level),
+				"LFO 2's ASSIGN arms LFO 2 in LFO 1's place, LFO 1's TARGET unchanged");
+			click(editor, editor.assignArea(1).getCentre());
+			check(editor.assigning() == -1, "a second click on LFO 2's ASSIGN disarms it");
 			// The band's A and B follow its type: 3 BAND's gains, not its frequencies
 			auto* band = processor.parameter("t01_band_type");
 			const float bandWas = band->getValue();
 			band->setValueNotifyingHost(band->convertTo0to1(3));
 			editor.tick();
-			click(editor, editor.assignArea().getCentre());
+			click(editor, editor.assignArea(0).getCentre());
 			click(editor, editor.cellArea("t01_band_4").getCentre());
 			check(targetIs() == static_cast<int>(elektron::drums::LfoTarget::BandB), "on 3 BAND, the middle band's gain "
 				"is EQ B, TARGET " + juce::String(targetIs()));
@@ -1250,16 +1257,15 @@ namespace
 				check(targetIs() == depth && editor.cellArea("t01_lfo1_track").isEmpty(),
 					"LFO 1's last entry: LFO 2 DEPTH, ON TRACK hidden, TARGET " + juce::String(targetIs()));
 				target->setValueNotifyingHost(aimed);
-				click(editor, editor.lfoCardArea(1).getCentre());
-				auto* second = processor.parameter("t01_lfo2_target");
-				const float secondWas = second->getValue();
-				click(editor, editor.cellArea("t01_lfo2_target").getCentre());
-				click(editor, editor.selectorItemArea(depth).getCentre());
 				editor.tick();
-				check(second->getValue() == secondWas, "LFO 2's list holds no LFO 2 DEPTH");
+				// LFO 2's list, read in its cell: it stops before LFO 2 SPEED
+				int secondCount = -1;
+				for(const auto& c : editor.cells())
+					if(c.parameter && c.parameter->getParameterID() == "t01_lfo2_target")
+						secondCount = c.count();
+				check(secondCount == static_cast<int>(elektron::drums::LfoTarget::Lfo2Speed),
+					"LFO 2's list holds no LFO 2 DEPTH: " + juce::String(secondCount) + " entries");
 				check(!editor.cellArea("t01_lfo2_track").isEmpty(), "LFO 2 shows ON TRACK");
-				click(editor, editor.lfoCardArea(0).getCentre());
-				editor.tick();
 			}
 			auto* type = processor.parameter("t01_drv2_type");
 			const float was = type->getValue();
@@ -1830,12 +1836,9 @@ namespace
 			drive->setValueNotifyingHost(driveWas);
 			editor.tick();
 		}
-		editor.showLfo(1);
-		snapshot(editor, _folder.getChildFile("sound-lfo2.png"));
-		editor.showLfo(0);
-		click(editor, editor.assignArea().getCentre());
+		click(editor, editor.assignArea(0).getCentre());
 		snapshot(editor, _folder.getChildFile("sound-assign.png"));
-		click(editor, editor.assignArea().getCentre());
+		click(editor, editor.assignArea(0).getCentre());
 
 		// REPEAT GAP in note values: Track 1's Sampler shows SYNC on REPEAT GAP's name line; on, the note takes its place
 		{
@@ -1864,6 +1867,51 @@ namespace
 				"LOFI KICK: SYNC puts the note in REPEAT GAP's place, Machine 7");
 			sync->setValueNotifyingHost(0.0f);
 			machine->setValueNotifyingHost(was);
+			editor.tick();
+		}
+
+		// Ticket 39: PITCH. On BD MODERN, which plays its NOTE at TUNE 88, TUNE is hidden and PITCH shows NOTE plus TUNE's
+		// distance from 88; a click on PITCH puts TUNE back at 88 and NOTE at the pitch shown. On ROUND KICK, a
+		// Machinedrum machine, TUNE stays and PITCH is NOTE
+		{
+			auto* machine = processor.parameter("t01_machine");
+			auto* tune = processor.parameter("t01_m1");
+			auto* note = processor.parameter("t01_note");
+			const float machineWas = machine->getValue(), tuneWas = tune->getValue(), noteWas = note->getValue();
+			const auto& list = processor.machines();
+			const auto indexOf = [&](const Machine& _m)
+			{
+				return static_cast<float>(std::find(list.begin(), list.end(), _m) - list.begin());
+			};
+			const auto pitchText = [&]
+			{
+				for(const auto& c : editor.cells())
+					if(c.parameter == note && c.visible)
+						return c.valueText(c.normalised());
+				return juce::String();
+			};
+			const auto plain = [](const juce::RangedAudioParameter* _p)
+			{
+				return juce::roundToInt(_p->convertFrom0to1(_p->getValue()));
+			};
+			machine->setValueNotifyingHost(machine->convertTo0to1(indexOf({Family::Syntakt, 0})));
+			tune->setValueNotifyingHost(tune->convertTo0to1(76.0f));
+			note->setValueNotifyingHost(note->convertTo0to1(60.0f));
+			editor.showMachinePage(0);
+			editor.tick();
+			check(editor.cellArea("t01_m1").isEmpty() && pitchText() == "C3",
+				"BD MODERN, TUNE 76, NOTE C4: TUNE hidden, PITCH C3 (" + pitchText() + ")");
+			click(editor, editor.cellArea("t01_note").getCentre());
+			editor.tick();
+			check(plain(tune) == 88 && plain(note) == 48 && pitchText() == "C3",
+				"a click on PITCH: TUNE 88, NOTE C3, PITCH still C3 (TUNE " + juce::String(plain(tune)) + ", NOTE "
+				+ juce::String(plain(note)) + ")");
+			machine->setValueNotifyingHost(machine->convertTo0to1(indexOf({Family::Machinedrum, 16})));
+			editor.tick();
+			check(!editor.cellArea("t01_m1").isEmpty() && pitchText() == "C3", "ROUND KICK: TUNE shown, PITCH is NOTE");
+			machine->setValueNotifyingHost(machineWas);
+			tune->setValueNotifyingHost(tuneWas);
+			note->setValueNotifyingHost(noteWas);
 			editor.tick();
 		}
 

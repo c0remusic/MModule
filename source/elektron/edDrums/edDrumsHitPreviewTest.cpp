@@ -118,6 +118,51 @@ namespace
 			preview.rendered());
 	}
 
+	// The period of _x from _from over _length samples: the first peak of its autocorrelation, 8 to 1500 samples, that
+	// reaches 85 % of the highest (a later peak at twice the period would score as high)
+	int periodOf(const std::vector<float>& _x, const int _from, const int _length)
+	{
+		std::vector<double> scores(1501, 0.0);
+		double top = 0;
+		for(int lag = 8; lag <= 1500; ++lag)
+		{
+			double sum = 0, energy = 0;
+			for(int n = _from; n < _from + _length && n + lag < static_cast<int>(_x.size()); ++n)
+			{
+				sum += _x[static_cast<size_t>(n)] * _x[static_cast<size_t>(n + lag)];
+				energy += _x[static_cast<size_t>(n + lag)] * _x[static_cast<size_t>(n + lag)];
+			}
+			scores[static_cast<size_t>(lag)] = energy > 0 ? sum / std::sqrt(energy) : 0;
+			top = std::max(top, scores[static_cast<size_t>(lag)]);
+		}
+		for(size_t lag = 9; lag < 1500; ++lag)
+			if(scores[lag] >= 0.85 * top && scores[lag] >= scores[lag - 1] && scores[lag] >= scores[lag + 1])
+				return static_cast<int>(lag);
+		return 0;
+	}
+
+	// Ticket 39 (PITCH): OPEN DRUM and SOPHIE, which played no NOTE, play it now, an octave up a period halved
+	void notes(const Library& _library)
+	{
+		for(const Machine machine : {Machine{Family::OpenDrum, 0}, Machine{Family::Sophie, 0}})
+		{
+			int periods[2]{};
+			for(int i = 0; i < 2; ++i)
+			{
+				Engine e(_library);
+				e.setMachine(Track, machine);
+				e.setNote(Track, i ? 72 : 60);
+				const auto p = HitPreview::render(e, Track);
+				require(static_cast<int>(p.mid.size()) > 2 * HitPreview::Rate / 10, "a Hit of 200 ms at least");
+				periods[i] = periodOf(p.mid, HitPreview::Rate / 20, HitPreview::Rate / 10);
+			}
+			const double ratio = static_cast<double>(periods[0]) / periods[1];
+			std::printf("  family %d: period %d samples at C4, %d at C5, ratio %.3f\n", static_cast<int>(machine.family),
+				periods[0], periods[1], ratio);
+			require(std::abs(ratio - 2) < 0.1, "NOTE an octave up does not halve the period");
+		}
+	}
+
 	void cost(const Library& _library)
 	{
 		double built = 1e9, rendered = 1e9;
@@ -144,6 +189,7 @@ int main()
 		const Library library;
 		sameHit(library);
 		latest(library);
+		notes(library);
 		cost(library);
 	}
 	catch(const std::exception& e)

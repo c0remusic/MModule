@@ -17,44 +17,55 @@ namespace elektron::drums
 
 	namespace
 	{
-		// Sound, after u.html's variant 2 (u-html-synthese-v19.md): three groups, SOURCE, TIMBRE, AMP & MOD, on 9, 8 and 7
-		// of the 24 columns, their names above; the blocks from y 30, 5 mm apart down a column, the bottom row's at 185.
-		// TIMBRE in halves of 4 columns: the drives, EQ and SENDS
-		constexpr float SoundY = 30, LowY = 185, FltY = SoundY + 27 + 5, LfoY = SoundY + 92 + 5;
+		// Sound, after the v9 mockup of ticket 33 (.scratch/elektron-drums-v2/mockup/v8-filled.html): every value on one
+		// page, three columns in the signal's order on 9, 8 and 7 of the 24 columns, their names above. SOURCE: VOICE,
+		// SAMPLE LAYER at 185. AMP & CHAIN: AMP, EQ, FILTER and its envelope, the two drives in halves. MOD & SENDS: MOD
+		// (both LFOs), SENDS at the bottom. Rows of 18 mm, cells of one size, no picture but the Hit and two curves
+		constexpr float SoundY = 30, LowY = 185, AmpY = SoundY, EqY = SoundY + 50, FltY = SoundY + 100,
+			DrvY = SoundY + 175.5f, SendY = SoundY + 181.5f;
 		constexpr float SrcX = cx(0) - 2, SrcW = 9 * Col + 2, TimX = cx(9) - 2, TimW = 8 * Col + 2, ModX = cx(17) - 2,
-			ModW = 7 * Col + 2, HalfW = 4 * Col + 2, SndX = TimX + 4 * Col;
-		// The pictures: VOICE's, the filter's response and envelope, the amp's envelope, the LFO's wave and its two cards
+			ModW = 7 * Col + 2, HalfW = 4 * Col + 2, Quarter = (TimW - 2) / 4;
+		// LFO _l's lines in MOD: its name, SYNC and ASSIGN; its shapes; its two rows of values
+		constexpr float lfoY(const int _l) { return SoundY + 9 + static_cast<float>(_l) * 57; }
+		// The pictures: VOICE's Hit, the filter's response right of CUTOFF and RESO
 		const juce::Rectangle<float> voicePicture{SrcX + 2, SoundY + 9, SrcW - 6, 84};
-		const juce::Rectangle<float> responsePicture{TimX + 66, FltY + 9, TimW - 70, 40};
-		const juce::Rectangle<float> envelopePicture{TimX + 35, FltY + 63, TimW - 39, 36};
-		const juce::Rectangle<float> ampPicture{ModX + 2, SoundY + 43, ModW - 6, 30};
-		const juce::Rectangle<float> lfoPicture{ModX + 2, LfoY + 47, ModW - 6, 33};
+		const juce::Rectangle<float> responsePicture{TimX + 2 + 2 * Quarter, FltY + 9, 2 * Quarter - 4, 32};
 
 		// SAMPLE LAYER's LOAD, 3 mm after the block's title (drawBlockTitle: 3.2 mm, 600)
 		float sampleLoadX(const float _x)
 		{
 			return _x + 2 + Painter::textWidth("SAMPLE LAYER", 3.2f, 600) + 3;
 		}
-		juce::Rectangle<float> lfoCard(const int _i)
+		// The TUNE (Machine 1) at which a machine plays its NOTE as it is, where the engine adds the two in semitones; -1
+		// where TUNE stays its own control (ticket 39 of the v2 map: PITCH). Syntakt: note - offset + TUNE, the offset 64
+		// but BD MODERN's 88 and CY ALLOY's 40 (stFastBdModern.cpp, stFastCyAlloy.cpp); FM DRUMS' PTCH about 64; the
+		// Sampler's CLEAN grain TUNE - 64 + note - 60
+		int tuneReference(const Machine& _machine, const int _grain)
 		{
-			const float w = (ModW - 8) / 2;
-			return {ModX + 2 + static_cast<float>(_i) * (w + 2), LfoY + 83, w, 28};
+			if(_machine.family == Family::Syntakt)
+				return _machine.id == 0 ? 88 : _machine.id == 2 ? 40 : 64;
+			if(_machine.family == Family::FmDrums || (_machine == Sampler && vintage::isDt2(_grain)))
+				return 64;
+			return -1;
 		}
 		// Sound's COLOR, in the screen's title line (t.js: 169, 28 mm)
 		const juce::Rectangle<float> ColourBox{169, ScreenY + 2, 28, 8};
-		// ASSIGN, left of SYNC on the LFO block's title line
-		const juce::Rectangle<float> assignBox{ModX + ModW - 54, LfoY + 1.8f, 20, 6};
-		// EQ's curve: under its row of cells, lower and shorter under 3 BAND's two rows
+		// LFO _l's ASSIGN, on its line left of SYNC
+		juce::Rectangle<float> assignBox(const int _l)
+		{
+			return {ModX + ModW - 54, lfoY(_l) + 0.5f, 20, 6};
+		}
+		// LFO _l's shapes, seven across the block
+		juce::Rectangle<float> shapeBox(const int _l, const int _shape)
+		{
+			const float w = (ModW - 6) / 7;
+			return {ModX + 2 + static_cast<float>(_shape) * w, lfoY(_l) + 8, w, 6};
+		}
+		// EQ's curve right of its values: beside its two, beside 3 BAND's six in the last quarter
 		juce::Rectangle<float> eqPicture(const int _type)
 		{
-			return _type == 3 ? juce::Rectangle<float>{TimX + 2, LowY + 38.5f, HalfW - 6, 13}
-				: juce::Rectangle<float>{TimX + 2, LowY + 27, HalfW - 6, 23};
-		}
-		// SENDS: a bar each send, its name above, its value's cell under it
-		juce::Rectangle<float> sendBar(const int _i)
-		{
-			const float gap = 3, w = (HalfW - 6 - 3 * gap) / 4;
-			return {SndX + 2 + static_cast<float>(_i) * (w + gap), LowY + 14.5f, w, 31};
+			return _type == 3 ? juce::Rectangle<float>{TimX + 2 + 3 * Quarter, EqY + 9, Quarter - 4, 32}
+				: juce::Rectangle<float>{TimX + 2 + 2 * Quarter, EqY + 9, 2 * Quarter - 4, 32};
 		}
 
 		constexpr float SG = cx(2), SC = (22 * Col - 4 + 1.2f) / 16;	// Seq's 16 columns
@@ -570,7 +581,7 @@ namespace elektron::drums
 				items = {_c.labels[1], _c.labels[0]};
 				on = 1 - on;
 			}
-			drawSegments(_p, _c.x, _c.y, _c.w / 2, items, on);
+			drawSegments(_p, _c.x, _c.y, _c.w / static_cast<float>(items.size()), items, on);
 			return;
 		}
 		case Look::Fader:
@@ -594,8 +605,6 @@ namespace elektron::drums
 		const bool aim = m_assign >= 0 && m_page == Page::Sound && lfoTargetOf(_c) != LfoTarget::None;
 		_p.text(_c.x, _c.y + 3.3f, _c.name, 3.2f, locked ? colour::lock : aim ? (m_assign ? hue::m : hue::y).c[0]
 			: edit ? colour::lockLight : off ? colour::dim : colour::mid);
-		if(m_page == Page::Sound && _c.parameter && _c.look == Look::Cell)
-			_p.rect(_c.x, _c.y + 4, static_cast<float>(_c.name.length()) * 1.72f + 0.2f, 0.15f, colour::rule);
 		_p.text(_c.x, _c.y + 10, text, valueCap(_p, text, _c.w), locked ? colour::lock : off ? colour::dim : colour::ink, 600);
 		if(_c.isList())
 		{
@@ -658,14 +667,14 @@ namespace elektron::drums
 		return toPx(grainBox(_i));
 	}
 
-	juce::Rectangle<int> Editor::lfoCardArea(const int _lfo) const
+	juce::Rectangle<int> Editor::shapeArea(const int _lfo, const int _shape) const
 	{
-		return toPx(lfoCard(_lfo));
+		return toPx(shapeBox(_lfo, _shape));
 	}
 
-	juce::Rectangle<int> Editor::assignArea() const
+	juce::Rectangle<int> Editor::assignArea(const int _lfo) const
 	{
-		return toPx(assignBox);
+		return toPx(assignBox(_lfo));
 	}
 
 	juce::Rectangle<int> Editor::colourArea() const
@@ -746,20 +755,30 @@ namespace elektron::drums
 			return addCell(c);
 		};
 
-		// VOICE: the machine, its name on the title line (a click opens Browse), its picture, NOTE and CHOKES, its eight
-		// values named by the machine
+		// VOICE: the machine, its name on the title line (a click opens Browse), its picture, its eight values named by
+		// the machine, then NOTE, CHOKES and the velocity's target and amount (VEL TARGET's list the chain's targets, and a
+		// Cycles machine's Machine 1-6)
 		{
 			const float x = SrcX, w = SrcW;
 			block(x, SoundY, w, "m", "VOICE", hue::k, 150, 1);
 			title(t("machine"), x + w - 4, SoundY, 34, hue::k, "m");
-			const float cw = (w - 2) / 4;
-			Cell note = cellOf(t("note"), "NOTE", x + 2, SoundY + 96, cw, hue::k, "");
-			note.look = Look::Plain;
-			addCell(note);
-			Cell chokes = cellOf(t("chokes"), "CHOKES", x + 2 + cw, SoundY + 96, 3 * cw, hue::k, "");
+			const float cw = (w - 2) / 4, low = SoundY + 132;
+			// PITCH (ticket 39): NOTE, shown as the pitch played, NOTE plus TUNE's distance from its reference on a machine
+			// that adds the two, whose TUNE is then hidden; a gesture on it puts TUNE back (Editor::foldPitch)
+			const int reference = tuneReference(trackMachine(m_track), trackGrain(m_track));
+			Cell pitch = cellOf(t("note"), "PITCH", x + 2, low, cw, hue::k, "m");
+			pitch.format = Format::Pitch;
+			if(reference >= 0)
+				pitch.shift = choiceOf(*t("m1")) - reference;
+			addCell(pitch);
+			Cell chokes = cellOf(t("chokes"), "CHOKES", x + 2 + cw, low, cw, hue::k, "");
 			chokes.look = Look::Plain;
 			chokes.format = Format::Chokes;
 			addCell(chokes);
+			const int velTarget = put(x, low, w, 4, 2, t("vel_target"), "VEL TARGET", hue::k, "m");
+			m_cells[static_cast<size_t>(velTarget)].labels = velocityLabels(
+				*dynamic_cast<const juce::AudioParameterChoice*>(t("vel_target")), trackMachine(m_track));
+			put(x, low, w, 4, 3, t("vel_depth"), "VEL AMT", hue::k, "m");
 			const int choice = choiceOf(*t("machine"));
 			m_machinePage = std::min(m_machinePage, machinePages() - 1);
 			const auto labels = machineLabels(trackMachine(m_track), m_machinePage, samplerPage(m_track));
@@ -767,9 +786,12 @@ namespace elektron::drums
 			{
 				const auto& l = labels[static_cast<size_t>(i)];
 				const int n = m_machinePage * 8 + i + 1;
-				const int c = put(x, SoundY + 113, w, 4, i, t(("m" + juce::String(n)).toRawUTF8()),
+				const int c = put(x, SoundY + 96, w, 4, i, t(("m" + juce::String(n)).toRawUTF8()),
 					l.isEmpty() ? "M" + juce::String(n) : l, hue::k, "m");
 				m_cells[static_cast<size_t>(c)].off = l.isEmpty();
+				// TUNE, which PITCH holds on a machine that adds NOTE to it
+				if(n == 1 && reference >= 0)
+					m_cells[static_cast<size_t>(c)].visible = false;
 			}
 			// REPEAT GAP, the Sampler's Machine 8 and a CRUNCH 12 machine's Machine 7 (Engine::repeatsInNotes): SYNC
 			// right of its value (its name leaves no room in Barlow), and while on, the note in its place. Off, or on
@@ -779,7 +801,7 @@ namespace elektron::drums
 				const bool here = Engine::repeatsInNotes(machine) && m_machinePage == 0;
 				const int slot = machine == Sampler ? 7 : 6;
 				const bool sync = choiceOf(*t("gap_sync")) != 0;
-				const int note = put(x, SoundY + 113, w, 4, slot, t("gap_note"), "REPEAT GAP", hue::k, "m", here && sync);
+				const int note = put(x, SoundY + 96, w, 4, slot, t("gap_note"), "REPEAT GAP", hue::k, "m", here && sync);
 				if(here && sync)
 					for(auto& c : m_cells)
 						if(c.parameter == t(slot == 7 ? "m8" : "m7"))
@@ -914,24 +936,25 @@ namespace elektron::drums
 			}
 		}
 
-		// Drive 1 and 2, side by side: TYPE and PLACE on the title line, AMOUNT and MIX; no picture, a sine through the
-		// curve said nothing of the sound. TYPE stays live while the drive is off, being what turns it on
+		// Drive 1 and 2, side by side under the filter: TYPE and PLACE on the title line, AMOUNT and MIX; no picture, a
+		// sine through the curve said nothing of the sound. TYPE stays live while the drive is off, being what turns it on
 		for(int d = 0; d < 2; ++d)
 		{
 			const float x = TimX + static_cast<float>(d) * 4 * Col, w = HalfW;
 			const juce::String s = d ? "d2" : "d1", pre = d ? "drv2_" : "drv1_";
-			block(x, SoundY, w, s, d ? "DRIVE 2" : "DRIVE 1", hue::a, 27);
-			title(t((pre + "type").toRawUTF8()), x + w - 30, SoundY, 30, hue::a, "");
-			segments(t((pre + "post").toRawUTF8()), "PLACE", x + w - 26, SoundY, 22, {"PRE", "POST"}, hue::a, s);
-			put(x, SoundY + 9, w, 2, 0, t((pre + "amount").toRawUTF8()), "AMOUNT", hue::a, s);
-			put(x, SoundY + 9, w, 2, 1, t((pre + "mix").toRawUTF8()), "MIX", hue::a, s);
+			block(x, DrvY, w, s, d ? "DRIVE 2" : "DRIVE 1", hue::a, 27);
+			title(t((pre + "type").toRawUTF8()), x + w - 30, DrvY, 30, hue::a, "");
+			segments(t((pre + "post").toRawUTF8()), "PLACE", x + w - 26, DrvY, 22, {"PRE", "POST"}, hue::a, s);
+			put(x, DrvY + 9, w, 2, 0, t((pre + "amount").toRawUTF8()), "AMOUNT", hue::a, s);
+			put(x, DrvY + 9, w, 2, 1, t((pre + "mix").toRawUTF8()), "MIX", hue::a, s);
 		}
 
-		// Filter: TYPE on the title line; CUTOFF, RESO, KEY TRACK and MODE (WIDTH with the window filter, which has no
-		// mode) beside the response; ENVELOPE under it, ENV AMT beside its picture, its five times in a row
+		// Filter: TYPE on the title line; CUTOFF and RESO, KEY TRACK and MODE (WIDTH with the window filter, which has no
+		// mode) left of the response; ENVELOPE under them, ENV RETRIG on its line, ENV AMT and its five times in a row,
+		// the times greyed while ENV AMT is 0
 		{
-			const float x = TimX, w = TimW, y = FltY, cw = 31;
-			block(x, y, w, "f", "FILTER", hue::s, 118);
+			const float x = TimX, w = TimW, y = FltY, cw = Quarter;
+			block(x, y, w, "f", "FILTER", hue::s, 70);
 			// The DT2's types (edDrumsDt2Filters.h) take the same four places: FREQ, its p70 under RESO's name or its own,
 			// and its p68 where MODE and WIDTH sit (LEGACY's LP/HP in MODE; LOWPASS 4 has none)
 			const auto type = static_cast<FilterType>(choiceOf(t("flt_type")->getParameterID()));
@@ -953,42 +976,34 @@ namespace elektron::drums
 			at(x + 2, y + 27, "flt_key", "KEY TRACK", true);
 			at(x + 2 + cw, y + 27, "flt_mode", "MODE", mode);
 			at(x + 2 + cw, y + 27, "flt_width", type == FilterType::Dt2Multimode ? "MORPH" : comb ? "LPF" : "WIDTH", width);
-			const float ey = y + 54;
-			Cell reset = cellOf(t("fenv_reset"), "ENV RETRIG", x + w - 34, ey + 1.2f, 30, hue::s, "f");
+			const float ey = y + 45;
+			Cell reset = cellOf(t("fenv_reset"), "ENV RETRIG", x + w - 34, ey + 0.5f, 30, hue::s, "f");
 			reset.look = Look::Button;
 			reset.h = 6;
 			addCell(reset);
-			at(x + 2, ey + 9, "fenv_depth", "ENV AMT", true);
+			put(x, ey + 7, w, 6, 0, t("fenv_depth"), "ENV AMT", hue::s, "f");
 			const char* ids[]{"fenv_delay", "fenv_attack", "fenv_decay", "fenv_sustain", "fenv_release"};
 			const char* names[]{"DELAY", "ATTACK", "DECAY", "SUSTAIN", "RELEASE"};
 			for(int i = 0; i < 5; ++i)
-				put(x, ey + 48, w, 5, i, t(ids[i]), names[i], hue::s, "f");
-			watch(responsePicture.getUnion(envelopePicture), [this, ids]
+				put(x, ey + 7, w, 6, i + 1, t(ids[i]), names[i], hue::s, "fe");
+			watch(responsePicture, [this]
 			{
-				std::vector<juce::RangedAudioParameter*> ps{trackParameter("flt_type"), trackParameter("flt_mode"),
-					trackParameter("flt_freq"), trackParameter("flt_res")};
-				for(const char* id : ids)
-					ps.push_back(trackParameter(id));
-				return hashOf(ps);
+				return hashOf({trackParameter("flt_type"), trackParameter("flt_mode"), trackParameter("flt_freq"),
+					trackParameter("flt_res")});
 			});
 		}
 
-		// Amp: MODE on the title line; LEVEL, PAN, ACCENT; VEL TARGET, VEL AMT, AMP ENV; the envelope's picture, then the
-		// times its mode has (AHD or ADSR), the others hidden. The envelope's cells, "ae", greyed while AMP ENV is off: a
-		// Machinedrum voice keeps its own
+		// Amp, first of the middle column: MODE on the title line; LEVEL, PAN, ACCENT, AMP ENV; then the times its mode
+		// has (AHD or ADSR), the others hidden, greyed ("ae") while AMP ENV is off: a Machinedrum voice keeps its own
 		{
-			const float x = ModX, w = ModW, y = SoundY;
-			block(x, y, w, "a", "AMP", hue::p, 92);
+			const float x = TimX, w = TimW, y = AmpY;
+			block(x, y, w, "a", "AMP", hue::p, 45);
 			segments(t("amp_mode"), "MODE", x + w - 34, y, 30, {"AHD", "ADSR"}, hue::p, "ae");
-			put(x, y + 9, w, 3, 0, t("level"), "LEVEL", hue::p, "a");
-			const int pan = put(x, y + 9, w, 3, 1, t("pan"), "PAN", hue::p, "a");
+			put(x, y + 9, w, 4, 0, t("level"), "LEVEL", hue::p, "a");
+			const int pan = put(x, y + 9, w, 4, 1, t("pan"), "PAN", hue::p, "a");
 			m_cells[static_cast<size_t>(pan)].format = Format::Pan;
-			put(x, y + 9, w, 3, 2, t("accent"), "ACCENT", hue::p, "a");
-			const int velTarget = put(x, y + 27, w, 3, 0, t("vel_target"), "VEL TARGET", hue::p, "a");
-			m_cells[static_cast<size_t>(velTarget)].labels = velocityLabels(
-				*dynamic_cast<const juce::AudioParameterChoice*>(t("vel_target")), trackMachine(m_track));
-			put(x, y + 27, w, 3, 1, t("vel_depth"), "VEL AMT", hue::p, "a");
-			put(x, y + 27, w, 3, 2, t("amp_on"), "AMP ENV", hue::p, "a");
+			put(x, y + 9, w, 4, 2, t("accent"), "ACCENT", hue::p, "a");
+			put(x, y + 9, w, 4, 3, t("amp_on"), "AMP ENV", hue::p, "a");
 			const bool adsr = choiceOf(t("amp_mode")->getParameterID()) == 1;
 			const char* ids[]{"amp_attack", "amp_hold", "amp_decay", "amp_sustain", "amp_release"};
 			const char* names[]{"ATTACK", "HOLD", "DECAY", "SUSTAIN", "RELEASE"};
@@ -996,41 +1011,15 @@ namespace elektron::drums
 			for(int i = 0; i < 5; ++i)
 			{
 				const int slot = adsr ? adsrSlot[i] : ahdSlot[i];
-				put(x, y + 75.5f, w, adsr ? 4 : 3, std::max(0, slot), t(ids[i]), names[i], hue::p, "ae", slot >= 0);
+				put(x, y + 27, w, 4, std::max(0, slot), t(ids[i]), names[i], hue::p, "ae", slot >= 0);
 			}
-			watch(ampPicture, [this, ids]
-			{
-				std::vector<juce::RangedAudioParameter*> ps{trackParameter("amp_mode")};
-				for(const char* id : ids)
-					ps.push_back(trackParameter(id));
-				ps.push_back(trackParameter("amp_on"));
-				return hashOf(ps);
-			});
 		}
 
-		// LFO: the one shown named on the title line, its ten values, its wave; two cards under it choose it, a dot on one
-		// whose LFO aims somewhere with a depth. RATE or HZ as SYNC says; MULT, FADE, PHASE have no engine. TARGET stays
-		// live while the LFO aims nowhere, being what turns it on
+		// MOD: both LFOs, each its name, ASSIGN and SYNC on a line, its seven shapes, then RATE (or HZ as SYNC says), FEEL,
+		// TRIG MODE, DEPTH, ON TRACK and TARGET; greyed while it aims nowhere, TARGET staying live, being what turns it on
 		{
-			const float x = ModX, w = ModW, cw = (w - 2) / 5;
-			const juce::String s = m_lfo ? "l2" : "l1";
-			block(x, LfoY, w, s, m_lfo ? "LFO 2" : "LFO 1", m_lfo ? hue::m : hue::y, 111.5f);
-			for(int i = 0; i < 2; ++i)
-			{
-				Hit card;
-				card.r = lfoCard(i);
-				card.click = [this, i] { showLfo(i); };
-				addHit(std::move(card));
-			}
-			Hit assign;
-			assign.r = assignBox;
-			assign.click = [this]
-			{
-				m_assign = m_press.assign == m_lfo ? -1 : m_lfo;
-				repaint();
-			};
-			addHit(std::move(assign));
-			const juce::StringArray shapes{"TRI", "SIN", "SQR", "SAW", "EXP", "RMP", "RND"};
+			const float x = ModX, w = ModW, cw = (w - 2) / 4;
+			block(x, SoundY, w, "mod", "MOD", hue::m, 116);
 			juce::StringArray tracks{"OWN"};
 			for(int i = 1; i <= 16; ++i)
 				tracks.add(juce::String(i));
@@ -1038,40 +1027,51 @@ namespace elektron::drums
 			{
 				const juce::String pre = "lfo" + juce::String(l + 1) + "_", sec = "l" + juce::String(l + 1);
 				const Hue& hl = l ? hue::m : hue::y;
-				const bool shown = l == m_lfo;
-				const bool sync = choiceOf(trackParameter(pre + "sync")->getParameterID()) != 0;
-				const auto at = [&](const int _n, const char* _suffix, const juce::String& _name)
+				const float y = lfoY(l);
+				Hit assign;
+				assign.r = assignBox(l);
+				assign.click = [this, l]
 				{
-					Cell c = cellOf(_suffix ? trackParameter(pre + _suffix) : nullptr, _name,
-						x + 2 + static_cast<float>(_n % 5) * cw, LfoY + 9 + static_cast<float>(_n / 5) * 18, cw, hl, sec);
-					c.visible = shown;
-					c.off = _suffix == nullptr;
-					return c;
+					m_assign = m_press.assign == l ? -1 : l;
+					repaint();
+				};
+				addHit(std::move(assign));
+				Cell syncCell = cellOf(trackParameter(pre + "sync"), "SYNC", x + w - 32, y + 0.5f, 28, hl, "");
+				syncCell.look = Look::Segments;
+				syncCell.labels = {"HZ", "SYNC"};
+				syncCell.reversed = true;
+				syncCell.h = 6;
+				addCell(syncCell);
+				const auto shapes = shapeBox(l, 0).getUnion(shapeBox(l, 6));
+				Cell shape = cellOf(trackParameter(pre + "shape"), "WAVE", shapes.getX(), shapes.getY(),
+					shapes.getWidth(), hl, sec);
+				shape.look = Look::Segments;
+				shape.labels = {"TRI", "SIN", "SQR", "SAW", "EXP", "RMP", "RND"};
+				shape.h = 6;
+				addCell(shape);
+				const bool sync = choiceOf(trackParameter(pre + "sync")->getParameterID()) != 0;
+				const auto at = [&](const int _n, const char* _suffix, const juce::String& _name, const float _w = 1)
+				{
+					return cellOf(trackParameter(pre + _suffix), _name, x + 2 + static_cast<float>(_n % 4) * cw,
+						y + 15 + static_cast<float>(_n / 4) * 18, cw * _w, hl, sec);
 				};
 				Cell speed = at(0, "speed", "RATE");
-				speed.visible = shown && sync;
+				speed.visible = sync;
 				addCell(speed);
 				Cell hz = at(0, "hz", "RATE");
-				hz.visible = shown && !sync;
+				hz.visible = !sync;
 				addCell(hz);
 				addCell(at(1, "feel", "FEEL"));
-				Cell shape = at(2, "shape", "WAVE");
-				shape.labels = shapes;
-				addCell(shape);
-				addCell(at(3, "mode", "TRIG MODE"));
-				addCell(at(4, "depth", "DEPTH"));
-				Cell track = at(5, "track", "ON TRACK");
+				addCell(at(2, "mode", "TRIG MODE"));
+				addCell(at(3, "depth", "DEPTH"));
+				Cell track = at(4, "track", "ON TRACK");
 				track.labels = tracks;
 				// LFO 1 on its LFO 2: its own Track's, whatever ON TRACK says
 				const auto aim = static_cast<LfoTarget>(choiceOf(trackParameter(pre + "target")->getParameterID()));
-				const bool onLfo = !l && aimsAtLfo(aim);
-				track.visible = shown && !onLfo;
+				track.visible = !(!l && aimsAtLfo(aim));
 				addCell(track);
-				addCell(at(6, nullptr, "MULT"));
-				addCell(at(7, nullptr, "FADE"));
-				addCell(at(8, nullptr, "PHASE"));
-				// Machine 1-24 named by the machine of the Track the LFO aims at; last in its row, its names the longest
-				Cell target = at(9, "target", "TARGET");
+				// Machine 1-24 named by the machine of the Track the LFO aims at, over the row's last three places
+				Cell target = at(5, "target", "TARGET", 3);
 				target.section = "";
 				const int aimed = choiceOf(trackParameter(pre + "track")->getParameterID()) - 1;
 				target.labels = targetLabels(*dynamic_cast<const juce::AudioParameterChoice*>(target.parameter),
@@ -1080,28 +1080,20 @@ namespace elektron::drums
 				if(l)
 					target.labels.removeRange(static_cast<int>(LfoTarget::Lfo2Speed), 2);
 				addCell(target);
-				Cell syncCell = cellOf(trackParameter(pre + "sync"), "SYNC", x + w - 32, LfoY + 1.8f, 28, hl, "");
-				syncCell.look = Look::Segments;
-				syncCell.labels = {"HZ", "SYNC"};
-				syncCell.reversed = true;
-				syncCell.h = 6;
-				syncCell.visible = shown;
-				addCell(syncCell);
 			}
-			watch(lfoPicture.getUnion(lfoCard(0)).getUnion(lfoCard(1)), [this]
+			// Each LFO's name and dot follow its TARGET and DEPTH
+			watch({ModX, lfoY(0), 20, lfoY(1) - lfoY(0) + 7}, [this]
 			{
-				std::vector<juce::RangedAudioParameter*> ps;
-				for(const char* p : {"lfo1_", "lfo2_"})
-					for(const char* v : {"shape", "depth", "target", "mode", "sync", "speed", "hz"})
-						ps.push_back(trackParameter(juce::String(p) + v));
-				return hashOf(ps);
+				return hashOf({trackParameter("lfo1_target"), trackParameter("lfo1_depth"),
+					trackParameter("lfo2_target"), trackParameter("lfo2_depth")});
 			});
 		}
 
-		// EQ: TYPE and PLACE on the title line, the values its type has named by it, its curve under them
+		// EQ, after AMP: TYPE and PLACE on the title line, the values its type has named by it, its curve right of them
+		// (3 BAND's six on two rows of three, the curve in the last quarter)
 		{
-			const float x = TimX, w = HalfW, y = LowY;
-			block(x, y, w, "b", "EQ", hue::b, 53.5f, 2);
+			const float x = TimX, w = TimW, y = EqY;
+			block(x, y, w, "b", "EQ", hue::b, 45);
 			const int type = choiceOf(t("band_type")->getParameterID());
 			const int t2 = title(t("band_type"), x + w - 28, y, 30, hue::b, "b");
 			m_cells[static_cast<size_t>(t2)].labels = {"OFF", "CUTS", "PEAK", "3 BAND", "FINE CUTS"};
@@ -1109,20 +1101,11 @@ namespace elektron::drums
 			const std::array<juce::StringArray, 5> names{{{}, {"HPF", "LPF"}, {"PEAK FREQ", "PEAK GAIN"},
 				{"LOW F", "LOW G", "MID F", "MID G", "HIGH F", "HIGH G"}, {"HPF", "LPF"}}};
 			const auto& n = names[static_cast<size_t>(juce::jlimit(0, 4, type))];
-			const float cw3 = (w - 2) / 3;
 			for(int i = 0; i < 6; ++i)
 			{
 				auto* p = t(("band_" + juce::String(i + 1)).toRawUTF8());
 				const juce::String name = i < n.size() ? n[i] : "EQ " + juce::String(i + 1);
-				if(type == 3)
-				{
-					Cell c = cellOf(p, name, x + 2 + static_cast<float>(i % 3) * cw3, y + 8.4f + static_cast<float>(i / 3) * 15.5f,
-						cw3, hue::b, "b");
-					c.h = 15.5f;
-					addCell(c);
-				}
-				else
-					put(x, y + 9, w, 2, i, p, name, hue::b, "b", i < n.size());
+				put(x, y + 9, w, 4, type == 3 ? i % 3 + i / 3 * 4 : i, p, name, hue::b, "b", i < n.size());
 			}
 			watch(eqPicture(type), [this]
 			{
@@ -1133,46 +1116,16 @@ namespace elektron::drums
 			});
 		}
 
-		// Sends: OUT on the title line; a bar each send, dragged vertically, its value's cell under it
+		// Sends, last of the MOD column: OUT on the title line, the four sends' values
 		{
-			const float x = SndX, w = HalfW, y = LowY;
-			block(x, y, w, "s", "SENDS", hue::w, 53.5f, 2);
+			const float x = ModX, w = ModW, y = SendY;
+			block(x, y, w, "s", "SENDS", hue::w, 27);
 			const int out = title(t("output"), x + w - 4, y, 24, hue::w, "s");
 			m_cells[static_cast<size_t>(out)].labels = outputs();
 			const char* ids[]{"send_delay", "send_reverb", "send_chorus", "send_phaser"};
 			const char* names[]{"DELAY", "REVERB", "CHORUS", "PHASER"};
 			for(int i = 0; i < 4; ++i)
-			{
-				const auto r = sendBar(i);
-				Cell value = cellOf(t(ids[i]), names[i], r.getX(), r.getBottom() + 0.3f, r.getWidth(), hue::w, "s");
-				value.look = Look::Small;
-				value.h = 6;
-				addCell(value);
-				Hit bar;
-				bar.r = r;
-				bar.cursor = juce::MouseCursor::UpDownResizeCursor;
-				bar.keepsLocks = true;
-				const juce::String id = ids[i];
-				const float bh = r.getHeight();
-				bar.press = [this, id]
-				{
-					m_press.value = trackParameter(id)->getValue();
-					trackParameter(id)->beginChangeGesture();
-				};
-				bar.drag = [this, id, bh](float, const float _dy)
-				{
-					m_press.value = juce::jlimit(0.0f, 1.0f, m_press.value - _dy / bh);
-					trackParameter(id)->setValueNotifyingHost(m_press.value);
-				};
-				bar.end = [this, id] { trackParameter(id)->endChangeGesture(); };
-				bar.click = bar.end;
-				addHit(std::move(bar));
-			}
-			watch(sendBar(0).getUnion(sendBar(3)), [this]
-			{
-				return hashOf({trackParameter("send_delay"), trackParameter("send_reverb"), trackParameter("send_chorus"),
-					trackParameter("send_phaser")});
-			});
+				put(x, y + 9, w, 4, i, t(ids[i]), names[i], hue::w, "s");
 		}
 	}
 
@@ -1184,10 +1137,10 @@ namespace elektron::drums
 			_p.frame(_r.getX(), _r.getY(), _r.getWidth(), _r.getHeight(), _c, 1.2f, 0.4f);
 		};
 
-		// The groups' names above their columns; the oversampling at TIMBRE's right
+		// The groups' names above their columns; the oversampling at the chain's right
 		_p.text(SrcX + 2, 27.6f, "SOURCE", 2.8f, colour::mid, 600);
-		_p.text(TimX + 2, 27.6f, "TIMBRE", 2.8f, colour::mid, 600);
-		_p.text(ModX + 2, 27.6f, "AMP & MOD", 2.8f, colour::mid, 600);
+		_p.text(TimX + 2, 27.6f, "AMP & CHAIN", 2.8f, colour::mid, 600);
+		_p.text(ModX + 2, 27.6f, "MOD & SENDS", 2.8f, colour::mid, 600);
 		{
 			const juce::String os[]{"OFF", "2X", "4X"};
 			_p.text(TimX + TimW - 4, 27.6f, "OS " + os[juce::jlimit(0, 2, choiceOf("oversampling"))], 2.8f, hue::a.c[4],
@@ -1327,99 +1280,26 @@ namespace elektron::drums
 			const float gx = x + w * v("flt_freq"), gy = juce::jlimit(y + 1, y + h - 1, y + h * 0.35f - f(fc) / 36 * h * 0.6f);
 			_p.dot(gx, gy, 1.5f, juce::Colours::black, hue::s.c[4], 0.5f);
 
-			_p.rect(TimX + 2, FltY + 54, TimW - 6, 0.25f, hue::s.c[1]);
-			_p.text(TimX + 2, FltY + 59, "ENVELOPE", 2.8f, hue::s.c[4], 600);
-			const auto e = envelopePicture;
-			const float ex = e.getX(), ey = e.getY(), ew = e.getWidth(), eh = e.getHeight();
-			const float d0 = v("fenv_delay") * 0.2f, at = v("fenv_attack") * 0.25f, dc = v("fenv_decay") * 0.25f,
-				su = v("fenv_sustain"), rl = v("fenv_release") * 0.25f, hd = 0.14f;
-			const float total = std::max(d0 + at + dc + hd + rl, 1.0f);
-			const auto X = [&](const float _u) { return ex + 1 + (ew - 2) * _u / total; };
-			const auto Y = [&](const float _l) { return ey + eh - 1.5f - _l * (eh - 4); };
-			const std::vector<juce::Point<float>> env{{X(0), Y(0)}, {X(d0), Y(0)}, {X(d0 + at), Y(1)},
-				{X(d0 + at + dc), Y(su)}, {X(d0 + at + dc + hd), Y(su)}, {X(d0 + at + dc + hd + rl), Y(0)}};
-			picture(_p, ex, ey, ew, eh, hue::s, {}, env, false);
-			for(const size_t i : {size_t(1), size_t(2), size_t(3), size_t(5)})
-				_p.dot(env[i].x, env[i].y, 1.5f, juce::Colours::black, hue::s.c[4], 0.5f);
+			// ENVELOPE's line under the filter's values: its rule and name, greyed with its times while ENV AMT is 0
+			const bool envOff = sectionOff("fe");
+			_p.rect(TimX + 2, FltY + 45, TimW - 6, 0.25f, envOff ? colour::rule : hue::s.c[1]);
+			_p.text(TimX + 2, FltY + 50, "ENVELOPE", 2.8f, envOff ? colour::dim : hue::s.c[4], 600);
 		}
-		// Amp: AHD or ADSR
+		// MOD's lines: each LFO's name, a dot while it aims somewhere with a depth, its ASSIGN
+		for(int l = 0; l < 2; ++l)
 		{
-			const auto r = ampPicture;
-			const float x = r.getX(), y = r.getY(), w = r.getWidth(), h = r.getHeight();
-			const auto X = [&](const float _u) { return x + 1 + (w - 2) * _u; };
-			const auto Y = [&](const float _l) { return y + h - 1.5f - _l * (h - 4); };
-			const float at = v("amp_attack") * 0.25f;
-			std::vector<juce::Point<float>> env;
-			if(choiceOf(trackParameter("amp_mode")->getParameterID()) == 1)
-			{
-				const float dc = at + v("amp_decay") * 0.25f, su = v("amp_sustain");
-				env = {{X(0), Y(0)}, {X(at), Y(1)}, {X(dc), Y(su)}, {X(dc + 0.15f), Y(su)},
-					{X(dc + 0.15f + v("amp_release") * 0.25f), Y(0)}, {X(1), Y(0)}};
-			}
-			else
-			{
-				const float hd = at + v("amp_hold") * 0.25f;
-				env = {{X(0), Y(0)}, {X(at), Y(1)}, {X(hd), Y(1)}, {X(hd + v("amp_decay") * 0.5f), Y(0)}, {X(1), Y(0)}};
-			}
-			const bool ampOff = sectionOff("ae");
-			picture(_p, x, y, w, h, hue::p, {}, env, ampOff);
-			for(size_t i = 1; !ampOff && i + 1 < env.size(); ++i)
-				_p.dot(env[i].x, env[i].y, 1.5f, juce::Colours::black, hue::p.c[4], 0.5f);
-		}
-		// LFO: the wave of the one shown, scaled by its depth; the two cards
-		{
-			const juce::String pre = "lfo" + juce::String(m_lfo + 1) + "_";
-			const Hue& h = m_lfo ? hue::m : hue::y;
-			const auto r = lfoPicture;
-			const float x = r.getX(), w = r.getWidth(), m = r.getCentreY(), a = r.getHeight() * 0.44f;
-			const auto* p = trackParameter(pre + "depth");
-			const float depth = p->convertFrom0to1(p->getValue()) / 127;
-			const auto shape = static_cast<LfoShape>(juce::jlimit(0, static_cast<int>(LfoShape::Random),
-				choiceOf(trackParameter(pre + "shape")->getParameterID())));
-			std::vector<juce::Point<float>> guide, curve;
-			for(int i = 0; i <= 160; ++i)
-			{
-				const float u = static_cast<float>(i) / 160, wv = wave(shape, u * 4);
-				guide.push_back({x + 1 + (w - 2) * u, m - wv * a});
-				curve.push_back({x + 1 + (w - 2) * u, m - wv * a * depth});
-			}
-			picture(_p, x, r.getY(), w, r.getHeight(), h, guide, curve, sectionOff(m_lfo ? "l2" : "l1"));
-			drawButton(_p, assignBox.getX(), assignBox.getY(), assignBox.getWidth(), assignBox.getHeight(), "ASSIGN",
-				m_assign == m_lfo);
-			// A card: its LFO's wave and mode, where it aims, its depth and rate, as its cells write them
-			for(int i = 0; i < 2; ++i)
-			{
-				const juce::String pi = "lfo" + juce::String(i + 1) + "_";
-				const Hue& hi = i ? hue::m : hue::y;
-				const auto c = lfoCard(i);
-				const bool shown = i == m_lfo;
-				const auto text = [&](const char* _suffix)
-				{
-					Cell cell;
-					cell.parameter = trackParameter(pi + _suffix);
-					return cell.valueText(cell.parameter->getValue());
-				};
-				auto* target = dynamic_cast<const juce::AudioParameterChoice*>(trackParameter(pi + "target"));
-				// LFO 2 on an LFO's target, which the host may set, aims at nothing
-				const bool active = target->getIndex() != 0
-					&& !(i && aimsAtLfo(static_cast<LfoTarget>(target->getIndex())));
-				const int aimed = choiceOf(trackParameter(pi + "track")->getParameterID()) - 1;
-				const auto aim = targetLabels(*target, trackMachine(aimed < 0 ? m_track : aimed),
-					samplerPage(aimed < 0 ? m_track : aimed))[target->getIndex()];
-				const auto* d = trackParameter(pi + "depth");
-				_p.rect(c.getX(), c.getY(), c.getWidth(), c.getHeight(), shown ? hi.c[2] : colour::cellBack, 1);
-				_p.frame(c.getX(), c.getY(), c.getWidth(), c.getHeight(), shown ? hi.c[0] : hi.c[1], 1, shown ? 0.5f : 0.3f);
-				_p.text(c.getX() + 3, c.getY() + 5.5f, "LFO " + juce::String(i + 1), 2.8f, hi.c[4], 600);
-				if(active && std::abs(d->convertFrom0to1(d->getValue())) > 1)
-					_p.rect(c.getX() + 14, c.getY() + 3.2f, 1.6f, 1.6f, hi.c[0], 0.8f);
-				_p.text(c.getRight() - 3, c.getY() + 5.5f, text("shape") + "  " + text("mode"), 2.8f, active ? hi.c[0]
-					: colour::dim, 500, Align::Right);
-				_p.text(c.getX() + 3, c.getY() + 14, active ? aim : juce::String("NONE"), 3.2f, active ? colour::ink
-					: colour::dim, 600);
-				const bool sync = choiceOf(trackParameter(pi + "sync")->getParameterID()) != 0;
-				_p.text(c.getX() + 3, c.getY() + 22, "DEPTH " + text("depth") + "  " + text(sync ? "speed" : "hz"), 2.8f,
-					colour::mid);
-			}
+			const juce::String pre = "lfo" + juce::String(l + 1) + "_";
+			const Hue& hl = l ? hue::m : hue::y;
+			const float y = lfoY(l);
+			auto* target = dynamic_cast<const juce::AudioParameterChoice*>(trackParameter(pre + "target"));
+			// LFO 2 on an LFO's target, which the host may set, aims at nothing
+			const bool active = target->getIndex() != 0 && !(l && aimsAtLfo(static_cast<LfoTarget>(target->getIndex())));
+			const auto* d = trackParameter(pre + "depth");
+			_p.text(ModX + 2, y + 5, "LFO " + juce::String(l + 1), 3.2f, active ? hl.c[4] : colour::dim, 600);
+			if(active && std::abs(d->convertFrom0to1(d->getValue())) > 1)
+				_p.rect(ModX + 15, y + 2.4f, 1.6f, 1.6f, hl.c[0], 0.8f);
+			const auto a = assignBox(l);
+			drawButton(_p, a.getX(), a.getY(), a.getWidth(), a.getHeight(), "ASSIGN", m_assign == l);
 		}
 		// EQ: its shape by type
 		{
@@ -1450,23 +1330,6 @@ namespace elektron::drums
 				curve.push_back({x + 1 + (w - 2) * u, m - juce::jlimit(-1.0f, 1.0f, l) * h * 0.42f});
 			}
 			picture(_p, x, r.getY(), w, h, hue::b, {}, curve, type == 0);
-		}
-		// Sends: a bar each, its name above
-		{
-			const char* names[]{"DLY", "REV", "CHO", "PHA"};
-			const char* ids[]{"send_delay", "send_reverb", "send_chorus", "send_phaser"};
-			for(int i = 0; i < 4; ++i)
-			{
-				const auto r = sendBar(i);
-				const float fh = r.getHeight() * v(ids[i]);
-				_p.text(r.getCentreX(), LowY + 12.6f, names[i], 2.8f, colour::mid, 600, Align::Centre);
-				_p.rect(r.getX(), r.getY(), r.getWidth(), r.getHeight(), juce::Colour(0xff17181A), 0.8f);
-				if(fh > 0.05f)
-				{
-					_p.rect(r.getX(), r.getBottom() - fh, r.getWidth(), fh, hue::w.c[3], 0.8f);
-					_p.rect(r.getX(), r.getBottom() - fh, r.getWidth(), 0.6f, hue::w.c[0]);
-				}
-			}
 		}
 	}
 

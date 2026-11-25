@@ -82,7 +82,9 @@ namespace elektron::drums::ui
 		// the value alone, right-aligned on a block's title line. Button: a toggle drawn as a button. Segments: a
 		// toggle drawn as two joined segments. Fader: a Master strip's vertical fader. Small: a strip's pan or output
 		enum class Look { Cell, Plain, Field, Title, Button, Segments, Fader, Small };
-		enum class Format { Plain, Pan, Pattern, Chokes, Bpm };
+		// Pitch: a note name, the value plus shift (ticket 39: PITCH shows NOTE plus TUNE's distance from its reference)
+		enum class Format { Plain, Pan, Pattern, Chokes, Bpm, Pitch };
+		int shift = 0;
 
 		juce::RangedAudioParameter* parameter = nullptr;	// nullptr: a greyed cell with no engine behind it
 		juce::String name;

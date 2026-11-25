@@ -857,6 +857,9 @@ namespace elektron::drums
 		m_mdLayers->setNote(_track, _note);
 		m_stLayers->setNote(_track, _note);
 		chainOf(t).setNote(_track, _note);
+		// SOPHIE adds it to its TUNE (OPEN DRUM takes it at its Hit, VINTAGE at each block)
+		if(t.machine.family == Family::Sophie)
+			playSophie(_track, SOPHIE_TUNE);
 	}
 
 	void Engine::setLevel(const int _track, const int _level)
@@ -1434,10 +1437,11 @@ namespace elektron::drums
 	{
 		if(_track.odTrig)
 		{
-			// The firmware's voice at full velocity, the Track's coming after
+			// The firmware's voice at full velocity, the Track's coming after; at the Track's NOTE, which its oscillators
+			// play relative to 60 (ticket 39 of the v2 map: PITCH)
 			if(_track.odSettle)
 				openDrum_settle(_track.od);
-			openDrum_trigger(_track.od, 127, 60, _track.odOpen);
+			openDrum_trigger(_track.od, 127, static_cast<uint8_t>(std::clamp(_track.note, 0, 127)), _track.odOpen);
 			_track.odTrig = false;
 			_track.odPending = false;
 		}
@@ -1464,8 +1468,13 @@ namespace elektron::drums
 			return;
 		auto& t = m_tracks[static_cast<size_t>(_track)];
 		const int offset = t.taken[static_cast<size_t>(machineTarget(_index))];
-		sophie::setMachineValue(m_sophie->v[static_cast<size_t>(_track)], _index,
-			static_cast<uint8_t>(wordOf(playedValue(t, _index), offset) >> 7));
+		const auto value = static_cast<uint8_t>(wordOf(playedValue(t, _index), offset) >> 7);
+		auto& s = m_sophie->v[static_cast<size_t>(_track)];
+		sophie::setMachineValue(s, _index, value);
+		// TUNE plus the Track's NOTE from 60, in its own -24 to 24 semitones (ticket 39 of the v2 map: PITCH)
+		if(_index == SOPHIE_TUNE)
+			sophie_set_param(&s, SOPHIE_TUNE, std::clamp(sophie::machineValue(SOPHIE_TUNE, value)
+				+ static_cast<float>(t.note - 60), -24.0f, 24.0f));
 	}
 
 	void Engine::renderSophie(const int _track, float* _x)
@@ -1557,7 +1566,9 @@ namespace elektron::drums
 			t.vt.setDac(vintage::bitsOf(grain(vintage::BitsSlot)), vintage::companding(grain(vintage::CompandingSlot)));
 			t.vt.trig(m_vtSource[i], begin, end, vintage::holdSeconds(value(2)) * SampleRate);
 		}
-		t.vt.setStep(m_vtRate[i] / SampleRate * std::exp2(vintage::semitones(smooth(0)) / 12));
+		// PTCH plus the Track's NOTE from 60, within PTCH's own -24 to 24 semitones (ticket 39 of the v2 map: PITCH)
+		const double semitones = std::clamp(static_cast<double>(vintage::semitones(smooth(0))) + (t.note - 60), -24.0, 24.0);
+		t.vt.setStep(m_vtRate[i] / SampleRate * std::exp2(semitones / 12));
 		t.vt.setDecay(vintage::decaySeconds(smooth(1)), SampleRate);
 		t.vt.setDac(vintage::bitsOf(grain(vintage::BitsSlot)), vintage::companding(grain(vintage::CompandingSlot)));
 		t.vt.setFilter(vintage::filterHz(grain(vintage::FilterSlot)), SampleRate);

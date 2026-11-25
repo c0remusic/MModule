@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "LockstepAssets.h"
+#include "edDrumsParameters.h"
 
 namespace elektron::drums::ui
 {
@@ -276,6 +277,8 @@ namespace elektron::drums::ui
 		}
 		case Format::Bpm:
 			return juce::String(plain, 1) + " BPM";
+		case Format::Pitch:
+			return parameters::noteName(juce::jlimit(0, 127, n + shift));
 		case Format::Plain:
 			break;
 		}

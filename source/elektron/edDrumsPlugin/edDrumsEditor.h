@@ -41,7 +41,6 @@ namespace elektron::drums
 		void showTrack(int _track);
 		int track() const { return m_track; }
 		void showMenu(bool _open);
-		void showLfo(int _lfo);
 		// Seq's tabs: 0 Detail, 1 Overview, 2 Patterns
 		void showSeqTab(int _tab);
 		// Sound's Machine block: page 0-2 of Machine 1-24, eight a page; one the Track's machine does not use stays shut
@@ -51,12 +50,11 @@ namespace elektron::drums
 		juce::Rectangle<int> machinePageArea(int _page) const;
 		// The Sampler's GRAIN segment _i (0 the ROM player's, 1 VINTAGE) in the Machine block's head
 		juce::Rectangle<int> grainArea(int _i) const;
-		// The LFO block's card of LFO _lfo, a click on which shows that LFO
-		juce::Rectangle<int> lfoCardArea(int _lfo) const;
-		int lfo() const { return m_lfo; }
-		// The LFO block's ASSIGN, and the LFO it armed, -1 for none: the next click on a cell that LFO can aim at sets
-		// its TARGET and disarms; a click on a cell it cannot aim at says so and stays armed; any other click disarms
-		juce::Rectangle<int> assignArea() const;
+		// MOD's shape _shape (0 TRI to 6 RND) of LFO _lfo, a click on which sets its WAVE
+		juce::Rectangle<int> shapeArea(int _lfo, int _shape) const;
+		// LFO _lfo's ASSIGN, and the LFO it armed, -1 for none: the next click on a cell that LFO can aim at sets its
+		// TARGET and disarms; a click on a cell it cannot aim at says so and stays armed; any other click disarms
+		juce::Rectangle<int> assignArea(int _lfo) const;
 		int assigning() const { return m_assign; }
 		// Sound's COLOR, and Overview's number of Track _track: a click opens the colours
 		juce::Rectangle<int> colourArea() const;
@@ -354,7 +352,6 @@ namespace elektron::drums
 		Page m_page = Page::Sound;
 		int m_track = 0;
 		bool m_menu = false;
-		int m_lfo = 0;
 		int m_assign = -1;
 		int m_machinePage = 0;
 		juce::String m_focus = "f";
@@ -410,7 +407,7 @@ namespace elektron::drums
 		struct KeyChoices
 		{
 			juce::RangedAudioParameter *machine, *lfo1Track, *lfo2Track, *fltType, *bandType, *ampMode, *lfo1Sync, *lfo2Sync,
-				*note, *gapSync, *lfo1Target;
+				*note, *gapSync, *lfo1Target, *tune;
 		};
 		std::array<KeyChoices, 16> m_keyChoices{};
 		// Seq's Detail, as layout() built it: its lines (lockLineList), refreshed by an edit of the pattern too; + LOCK's
