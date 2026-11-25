@@ -238,6 +238,8 @@ namespace elektron::drums
 		// Track, from the next block; false and why when it cannot be read. What it played last, nullptr for none
 		bool auditionSample(const juce::File& _file, juce::String& _error);
 		const Sample* auditioned() const { return m_auditioned.get(); }
+		// The sample a Track (or its layer, at layerSlot) holds, nullptr for none
+		const Sample* trackSample(const int _slot) const { return m_samples[static_cast<size_t>(_slot)].get(); }
 
 		// Message thread. What the user should hear of once, for the editor to show: a Library sample of an old ROM-n
 		// Track, replaced by the factory slot it played (takeRoms), which the log names by fingerprint. Taken, they are gone

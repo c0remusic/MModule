@@ -1787,6 +1787,28 @@ namespace
 			editor.showMachinePage(1);
 			snapshot(editor, _folder.getChildFile("sound-vintage.png"));
 			editor.showMachinePage(0);
+			// Ticket 37: the sample under the Hit, what it plays between two marks: VINTAGE's STRT 32 and END 96 at
+			// 32/128 and 96/127 of the picture; CLEAN's ONESHOT, STRT 32 and LEN 32, at 32/127 and 64/127
+			{
+				auto* mode = processor.parameter("t01_m3");
+				auto* start = processor.parameter("t01_m5");
+				auto* end = processor.parameter("t01_m6");
+				const float modeWas = mode->getValue(), startWas = start->getValue(), endWas = end->getValue();
+				start->setValueNotifyingHost(start->convertTo0to1(32.0f));
+				end->setValueNotifyingHost(end->convertTo0to1(96.0f));
+				editor.tick();
+				snapshot(editor, _folder.getChildFile("sound-sample-vintage.png"));
+				grain->setValueNotifyingHost(grain->convertTo0to1(static_cast<float>(vintage::GrainValues[2])));
+				mode->setValueNotifyingHost(0.0f);
+				end->setValueNotifyingHost(end->convertTo0to1(32.0f));
+				editor.tick();
+				snapshot(editor, _folder.getChildFile("sound-sample-clean.png"));
+				grain->setValueNotifyingHost(grain->convertTo0to1(static_cast<float>(vintage::GrainValues[1])));
+				mode->setValueNotifyingHost(modeWas);
+				start->setValueNotifyingHost(startWas);
+				end->setValueNotifyingHost(endWas);
+				editor.tick();
+			}
 			amount->setValueNotifyingHost(amountWas);
 			drive->setValueNotifyingHost(driveWas);
 			grain->setValueNotifyingHost(grainWas);

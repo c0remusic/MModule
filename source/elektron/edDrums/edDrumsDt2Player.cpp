@@ -109,6 +109,26 @@ namespace elektron::drums
 		return table;
 	}
 
+	std::optional<Dt2Player::Span> Dt2Player::span(const int _mode, const int _loop, const int _start,
+		const int _length)
+	{
+		const PlayerMode mode = modeOf(_mode >> 8);
+		if(mode == Werp)
+			return std::nullopt;
+		Span s;
+		if(mode == Grid)
+		{
+			const int grid = gridOf(_loop >> 8);
+			const int slice = sliceOf(_start >> 8, grid);
+			s.start = static_cast<double>(slice - 1) / grid;
+			s.end = std::min(static_cast<double>(slice + moreSlicesOf(_length >> 8, grid)) / grid, 1.0);
+			return s;
+		}
+		s.start = fraction(_start);
+		s.end = std::min(s.start + fraction(_length), 1.0);
+		return s;
+	}
+
 	Dt2Player::Dt2Player() : m_kernel(kernel())
 	{
 		std::memset(&m_out, 0, sizeof(m_out));

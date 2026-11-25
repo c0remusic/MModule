@@ -865,10 +865,17 @@ namespace elektron::drums
 			watch(voicePicture, [this]
 			{
 				const auto preview = m_processor.trackPreview();
-				return mix(mix(mix(static_cast<uint64_t>(choiceOf(trackParameter("machine")->getParameterID())),
+				// ... and the sample under it, its marks
+				const auto marks = hashOf({trackParameter("m3"), trackParameter("m4"), trackParameter("m5"),
+					trackParameter("m6"), trackParameter("m9"), trackParameter("layer_on"),
+					trackParameter("layer_loop"), trackParameter("layer_start"), trackParameter("layer_length")});
+				const auto samples = mix(reinterpret_cast<uintptr_t>(m_processor.trackSample(m_track)),
+					reinterpret_cast<uintptr_t>(m_processor.trackSample(Processor::layerSlot(m_track))));
+				const auto shown = mix(mix(static_cast<uint64_t>(choiceOf(trackParameter("machine")->getParameterID())),
 					static_cast<uint64_t>(m_processor.sampleName(m_track).hashCode64())),
-					static_cast<uint64_t>(m_processor.sophieSound(m_track) + 1)),
-					(preview ? preview->serial : 0) * 2 + (m_processor.previewPending() ? 1 : 0));
+					static_cast<uint64_t>(m_processor.sophieSound(m_track) + 1));
+				return mix(mix(marks, samples), mix(shown,
+					(preview ? preview->serial : 0) * 2 + (m_processor.previewPending() ? 1 : 0)));
 			});
 		}
 
@@ -1195,6 +1202,58 @@ namespace elektron::drums
 				machinePages());
 			const auto r = voicePicture;
 			frame(r, hue::k.c[1]);
+			// Under the Hit, the Sampler's sample, else the layer's while it is on: the whole sample across the
+			// picture, what a Hit plays brighter between two marks where the grain's rule places them for sure
+			// (VINTAGE, CLEAN but WERP, the layer); 12-BIT's and WERP's unmarked
+			{
+				const auto plain = [&](const char* _id)
+				{
+					const auto* p = trackParameter(_id);
+					return juce::roundToInt(p->convertFrom0to1(p->getValue()));
+				};
+				const Sample* sample = nullptr;
+				std::optional<Dt2Player::Span> span;
+				if(choiceOf(trackParameter("machine")->getParameterID()) == m_processor.samplerChoice())
+				{
+					sample = m_processor.trackSample(m_track);
+					const auto grain = vintage::grainOf(trackGrain(m_track));
+					if(grain == vintage::Grain::Vintage)
+						span = Dt2Player::Span{vintage::startOf(plain("m5")), vintage::endOf(plain("m6"))};
+					else if(grain == vintage::Grain::Dt2)
+						span = Dt2Player::span(plain("m3") << 8, plain("m4") << 8, plain("m5") << 8,
+							plain("m6") << 8);
+				}
+				else if(plain("layer_on") != 0 && m_processor.trackSample(Processor::layerSlot(m_track)))
+				{
+					sample = m_processor.trackSample(Processor::layerSlot(m_track));
+					span = Dt2Player::span(0, plain("layer_loop") << 8, plain("layer_start") << 8,
+						plain("layer_length") << 8);
+				}
+				if(sample && !sample->pcm.empty())
+				{
+					const auto& pcm = sample->pcm;
+					const float cy = r.getCentreY(), a = r.getHeight() / 2 - 1, w = r.getWidth() - 2;
+					const size_t columns = static_cast<size_t>(juce::roundToInt(w / 0.4f));
+					for(size_t c = 0; c < columns; ++c)
+					{
+						const size_t from = pcm.size() * c / columns;
+						const size_t to = std::min(pcm.size(), std::max(from + 1, pcm.size() * (c + 1) / columns));
+						const auto [lo, hi] = std::minmax_element(pcm.begin() + static_cast<std::ptrdiff_t>(from),
+							pcm.begin() + static_cast<std::ptrdiff_t>(to));
+						const float u = (static_cast<float>(c) + 0.5f) / static_cast<float>(columns);
+						const bool played = span && u >= span->start && u <= span->end;
+						const float top = static_cast<float>(*hi) / 32768, bottom = static_cast<float>(*lo) / 32768;
+						_p.rect(r.getX() + 1 + static_cast<float>(c) * 0.4f, cy - top * a, 0.3f,
+							std::max(0.2f, (top - bottom) * a), played ? hue::g.c[1] : colour::rule);
+					}
+					if(span)
+						for(const double at : {span->start, span->end})
+						{
+							const float x = r.getX() + 1 + static_cast<float>(at) * w;
+							_p.line(x, r.getY() + 1, x, r.getBottom() - 1, hue::g.c[4], 0.3f);
+						}
+				}
+			}
 			if(const auto preview = m_processor.trackPreview(); preview && !preview->mid.empty())
 			{
 				const float cy = r.getCentreY(), a = r.getHeight() / 2 - 1;

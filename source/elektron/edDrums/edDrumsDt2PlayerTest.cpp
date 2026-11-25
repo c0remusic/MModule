@@ -571,6 +571,24 @@ namespace
 		}
 		std::printf("PASS: the kernel is even, of unit gain, within +-3; the half-band's branch is all-pass\n");
 	}
+
+	// The portion a Hit plays, as the editor marks it (ticket 37 of the v2 map): trig's rules before its floors
+	void spans()
+	{
+		const auto near = [](const double _a, const double _b) { return std::abs(_a - _b) < 1e-12; };
+		const auto at = [](const Dt2Player::PlayerMode _mode) { return (static_cast<int>(_mode) * 128 / 6 + 1) << 8; };
+		auto s = Dt2Player::span(at(Dt2Player::OneShot), 0, 0, 127 << 8);
+		require(s && near(s->start, 0) && near(s->end, 1), "ONESHOT, STRT 0 LEN 127: the whole sample");
+		s = Dt2Player::span(at(Dt2Player::OneShot), 0, 64 << 8, 127 << 8);
+		require(s && near(s->start, 64 / 127.0) && near(s->end, 1), "STRT 64: from 64/127, LEN held to the end");
+		s = Dt2Player::span(at(Dt2Player::Stretch), 0, 32 << 8, 32 << 8);
+		require(s && near(s->start, 32 / 127.0) && near(s->end, 64 / 127.0), "STRETCH, STRT 32 LEN 32");
+		// GRID of 16 (LOOP 52), slice 5 (STRT 32), 2 more (LEN 16): 4/16 to 7/16
+		s = Dt2Player::span(at(Dt2Player::Grid), 52 << 8, 32 << 8, 16 << 8);
+		require(s && near(s->start, 4 / 16.0) && near(s->end, 7 / 16.0), "GRID 16, slice 5 and 2 more");
+		require(!Dt2Player::span(at(Dt2Player::Werp), 0, 0, 127 << 8), "WERP's window walks: no span");
+		std::printf("PASS: a Hit's portion in ONESHOT, STRETCH and GRID; none in WERP\n");
+	}
 }
 
 int main()
@@ -579,6 +597,7 @@ int main()
 	try
 	{
 		kernel();
+		spans();
 		cost(Dt2Player::OneShot);
 		cost(Dt2Player::Stretch);
 		stretchLaws();

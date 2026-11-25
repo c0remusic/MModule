@@ -36,12 +36,16 @@ vide (« the hit's preview has no engine yet ») ; la maquette de référence (`
 
 ## Avancement
 
-- Tranche 1 (commit à venir) : le Hit dessiné, sa durée, le rouge au-delà de 0 dBFS, l'écoute au clic, le fil à part.
+- Tranche 1 (541cef2b) : le Hit dessiné, sa durée, le rouge au-delà de 0 dBFS, l'écoute au clic, le fil à part.
   Mesuré (`edDrumsHitPreviewTest`) : un moteur construit en 4,1 ms, un Hit de 2 s rendu en 9,7 ms.
-- Tranche 2 (à faire) : le sample en vert et les traits START et fin de LENGTH, sur le Sampler (12-BIT, VINTAGE,
-  CLEAN) et sur la couche SAMPLE LAYER.
+- Tranche 2 : le sample sous le Hit, tout le sample sur la largeur du cadre, ce qu'un Hit joue plus clair entre
+  deux traits là où leur place est sûre (décidé 2026-11-25) : VINTAGE (STRT/128, END/127), CLEAN en ONESHOT, GRID,
+  REPITCH et STRETCH (`Dt2Player::span`), la couche SAMPLE LAYER. 12-BIT (règle du DSP non portée) et WERP (fenêtre
+  qui avance) : le sample sans traits. Le sample du Sampler, sinon celui de la couche allumée. Vérifié à l'écran : les
+  traits à 0,249 et 0,755 de la largeur pour VINTAGE STRT 32 END 96 (attendu 0,25 et 0,756), à 0,251 et 0,503 pour
+  CLEAN STRT 32 LEN 32 (0,252 et 0,504).
 - Non testé : l'absence des sends et des LFO dans le Hit (la préparation est dans le Processor) ; le rouge, aucun son
-  du test ne dépassant 0 dBFS.
+  du test ne dépassant 0 dBFS ; la couche SAMPLE LAYER à l'écran.
 
 ## Critère de fin
 

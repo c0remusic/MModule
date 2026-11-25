@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <optional>
 
 #include "stFastStages.h"
 
@@ -82,6 +83,15 @@ namespace elektron::drums
 			Forward, Reverse, ForwardLoop, ReverseLoop
 		};
 		static PlayMode playModeOf(const int _value) { return static_cast<PlayMode>(_value * 4 / 128); }
+
+		// The portion a Hit plays, in fractions of the sample, from MODE, LOOP, STRT and LEN's words (a value << 8
+		// and its fine part), as trig places it before its floors; none for WERP, whose window walks (ticket 37 of
+		// the v2 map: what the editor marks on the sample)
+		struct Span
+		{
+			double start = 0, end = 1;
+		};
+		static std::optional<Span> span(int _mode, int _loop, int _start, int _length);
 
 		Dt2Player();
 

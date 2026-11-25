@@ -63,6 +63,11 @@ namespace elektron::drums::vintage
 	inline bool isVintage(const int _grain) { return grainOf(_grain) == Grain::Vintage; }
 	inline bool isDt2(const int _grain) { return grainOf(_grain) == Grain::Dt2; }
 
+	// Where VINTAGE plays a Hit from and to, in fractions of the sample, from STRT and END (0-127) as
+	// Engine::renderVintage places them: STRT 128ths, END 127ths (ticket 37 of the v2 map: what the editor marks)
+	inline double startOf(const int _start) { return _start / 128.0; }
+	inline double endOf(const int _end) { return _end / 127.0; }
+
 	// What the Sampler's page follows besides the Sampler itself, the Track's own values: its grain (Machine 9) and, on
 	// the CLEAN grain, its MODE (Machine 3) and GRID (Machine 4), which name and scale Machine 4 to 6 (edDrumsDt2Player.h)
 	struct SamplerPage
