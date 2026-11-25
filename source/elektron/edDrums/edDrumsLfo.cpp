@@ -103,7 +103,13 @@ namespace elektron::drums
 
 	bool Lfo::onTransport() const
 	{
-		return m_rate.sync && (m_mode == LfoMode::Free || m_mode == LfoMode::Hold);
+		return m_rate.sync && !m_modulated && (m_mode == LfoMode::Free || m_mode == LfoMode::Hold);
+	}
+
+	void Lfo::modulate(const double _speed, const bool _modulated)
+	{
+		m_speed = _speed;
+		m_modulated = _modulated;
 	}
 
 	double Lfo::end() const
@@ -138,7 +144,7 @@ namespace elektron::drums
 			m_cycles = _position / m_length;
 			return;
 		}
-		m_cycles += m_rate.sync ? _quarters / m_length : m_rate.hz * _seconds;
+		m_cycles += (m_rate.sync ? _quarters / m_length : m_rate.hz * _seconds) * m_speed;
 		const double stop = end();
 		if(stop != 0 && m_cycles >= stop)
 		{
@@ -183,15 +189,22 @@ namespace elektron::drums
 			m_waiting &= ~(1u << _track);
 	}
 
-	// Its output into its target's sum
-	void LfoBank::move(Run& _run)
+	// Its output into its target's sum. An LFO 2 adds what its LFO 1 gives its depth to its own. A sum for an LFO 2 waits
+	// for no Track: the bank takes it itself
+	void LfoBank::move(const int _lfo)
 	{
-		const int offset = static_cast<int>(std::lround(_run.lfo.value() * _run.depth * 128));
-		if(offset == _run.offset || _run.target == LfoTarget::None)
+		auto& run = m_runs[static_cast<size_t>(_lfo)];
+		int depth = run.depth * 128;
+		if(_lfo & 1)
+			depth = std::clamp(depth + m_sum[static_cast<size_t>(_lfo / 2)][static_cast<size_t>(LfoTarget::Lfo2Depth)],
+				-127 * 128, 127 * 128);
+		const int offset = static_cast<int>(std::lround(run.lfo.value() * depth));
+		if(offset == run.offset || run.target == LfoTarget::None)
 			return;
-		m_sum[static_cast<size_t>(_run.track)][static_cast<size_t>(_run.target)] += offset - _run.offset;
-		_run.offset = offset;
-		wait(_run.track, static_cast<int>(_run.target));
+		m_sum[static_cast<size_t>(run.track)][static_cast<size_t>(run.target)] += offset - run.offset;
+		run.offset = offset;
+		if(!aimsAtLfo(run.target))
+			wait(run.track, static_cast<int>(run.target));
 	}
 
 	void LfoBank::leave(Run& _run)
@@ -200,24 +213,39 @@ namespace elektron::drums
 			return;
 		m_sum[static_cast<size_t>(_run.track)][static_cast<size_t>(_run.target)] -= _run.offset;
 		_run.offset = 0;
-		wait(_run.track, static_cast<int>(_run.target));
+		if(!aimsAtLfo(_run.target))
+			wait(_run.track, static_cast<int>(_run.target));
 	}
 
 	void LfoBank::set(const int _track, const int _index, const LfoSettings& _settings)
 	{
 		const int lfo = 2 * _track + _index;
 		auto& run = m_runs[static_cast<size_t>(lfo)];
-		const int track = _settings.track < 0 ? _track : std::min(_settings.track, Tracks - 1);
-		const int depth = _settings.target == LfoTarget::None ? 0 : std::clamp(_settings.depth, -127, 127);
+		// An LFO 2 aims at no LFO; LFO 1 at its own Track's
+		const auto target = aimsAtLfo(_settings.target) && _index ? LfoTarget::None : _settings.target;
+		const int track = _settings.track < 0 || aimsAtLfo(target) ? _track : std::min(_settings.track, Tracks - 1);
+		const int depth = target == LfoTarget::None ? 0 : std::clamp(_settings.depth, -127, 127);
 		run.lfo.set(_settings, static_cast<uint64_t>(lfo));
 		run.depth = depth;
-		if(!depth || track != run.track || _settings.target != run.target)
+		// An LFO 2 at depth 0 whose LFO 1 moves its depth keeps its share
+		const bool depthMoved = _index && running(lfo - 1)
+			&& m_runs[static_cast<size_t>(lfo - 1)].target == LfoTarget::Lfo2Depth;
+		if((!depth && !depthMoved) || track != run.track || target != run.target)
 		{
 			leave(run);
 			run.track = track;
-			run.target = _settings.target;
+			run.target = target;
 		}
 		m_on = depth ? m_on | 1u << lfo : m_on & ~(1u << lfo);
+
+		// LFO 2 runs at depth 0 too while LFO 1 moves its depth
+		const int first = 2 * _track;
+		auto& second = m_runs[static_cast<size_t>(first + 1)];
+		const bool on = second.target != LfoTarget::None
+			&& (second.depth || (running(first) && m_runs[static_cast<size_t>(first)].target == LfoTarget::Lfo2Depth));
+		if(!on)
+			leave(second);
+		m_on = on ? m_on | 2u << first : m_on & ~(2u << first);
 	}
 
 	void LfoBank::trig(const int _track, const double _position)
@@ -226,21 +254,28 @@ namespace elektron::drums
 		{
 			if(!running(lfo))
 				continue;
-			auto& run = m_runs[static_cast<size_t>(lfo)];
-			run.lfo.trig(_position);
-			move(run);
+			m_runs[static_cast<size_t>(lfo)].lfo.trig(_position);
+			move(lfo);
 		}
 	}
 
+	// LFO 1 before LFO 2: what LFO 1 gives its LFO 2 is the block's own
 	void LfoBank::step(const uint32_t _tracks, const double _position, const double _quarters, const double _seconds)
 	{
+		constexpr double SpeedOctaves = 2;		// each way, at depth 127
 		for(uint32_t bits = m_on, i = 0; bits; bits >>= 1, ++i)
 		{
 			if(!(bits & 1) || !(_tracks >> (i / 2) & 1))
 				continue;
 			auto& run = m_runs[i];
+			if(i & 1)
+			{
+				const int speed = m_sum[i / 2][static_cast<size_t>(LfoTarget::Lfo2Speed)];
+				run.lfo.modulate(std::exp2(SpeedOctaves * speed / (127.0 * 128)),
+					running(static_cast<int>(i) - 1) && m_runs[i - 1].target == LfoTarget::Lfo2Speed);
+			}
 			run.lfo.advance(_position, _quarters, _seconds);
-			move(run);
+			move(static_cast<int>(i));
 		}
 	}
 

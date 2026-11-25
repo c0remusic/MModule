@@ -1045,6 +1045,10 @@ namespace elektron::drums
 				addCell(at(4, "depth", "DEPTH"));
 				Cell track = at(5, "track", "ON TRACK");
 				track.labels = tracks;
+				// LFO 1 on its LFO 2: its own Track's, whatever ON TRACK says
+				const auto aim = static_cast<LfoTarget>(choiceOf(trackParameter(pre + "target")->getParameterID()));
+				const bool onLfo = !l && aimsAtLfo(aim);
+				track.visible = shown && !onLfo;
 				addCell(track);
 				addCell(at(6, nullptr, "MULT"));
 				addCell(at(7, nullptr, "FADE"));
@@ -1055,6 +1059,9 @@ namespace elektron::drums
 				const int aimed = choiceOf(trackParameter(pre + "track")->getParameterID()) - 1;
 				target.labels = targetLabels(*dynamic_cast<const juce::AudioParameterChoice*>(target.parameter),
 					trackMachine(aimed < 0 ? m_track : aimed), samplerPage(aimed < 0 ? m_track : aimed));
+				// LFO 2 aims at no LFO: its list stops before them
+				if(l)
+					target.labels.removeRange(static_cast<int>(LfoTarget::Lfo2Speed), 2);
 				addCell(target);
 				Cell syncCell = cellOf(trackParameter(pre + "sync"), "SYNC", x + w - 32, LfoY + 1.8f, 28, hl, "");
 				syncCell.look = Look::Segments;
@@ -1300,7 +1307,9 @@ namespace elektron::drums
 					return cell.valueText(cell.parameter->getValue());
 				};
 				auto* target = dynamic_cast<const juce::AudioParameterChoice*>(trackParameter(pi + "target"));
-				const bool active = target->getIndex() != 0;
+				// LFO 2 on an LFO's target, which the host may set, aims at nothing
+				const bool active = target->getIndex() != 0
+					&& !(i && aimsAtLfo(static_cast<LfoTarget>(target->getIndex())));
 				const int aimed = choiceOf(trackParameter(pi + "track")->getParameterID()) - 1;
 				const auto aim = targetLabels(*target, trackMachine(aimed < 0 ? m_track : aimed),
 					samplerPage(aimed < 0 ? m_track : aimed))[target->getIndex()];

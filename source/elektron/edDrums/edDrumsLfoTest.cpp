@@ -348,6 +348,76 @@ namespace
 		std::printf("  an LFO bank: sums, clocks, what waits, leaving, a Hit\n");
 	}
 
+	// LFO 1 on its LFO 2's speed and depth (ticket 34 of .scratch/elektron-drums-v2): no engine
+	void lfoOnLfo()
+	{
+		constexpr int Level = static_cast<int>(LfoTarget::Level), Speed = static_cast<int>(LfoTarget::Lfo2Speed),
+			Depth = static_cast<int>(LfoTarget::Lfo2Depth);
+		constexpr int FourBars = 8;
+		const auto near = [](const double _a, const double _b) { return std::abs(_a - _b) < 1e-9; };
+		// Blocks of 0.01 quarter from _from, _count of them
+		const auto run = [](LfoBank& _bank, const double _from, const int _count)
+		{
+			for(int k = 0; k < _count; ++k)
+				_bank.step(1, _from + k * 0.01, 0.01, 0);
+		};
+
+		// A square of four bars at 127 on SPEED: four times as fast over its high half, four times slower over its low
+		{
+			LfoBank bank;
+			bank.set(0, 0, aimed(LfoTarget::Lfo2Speed, 127, LfoShape::Square, FourBars));
+			bank.set(0, 1, aimed(LfoTarget::Level, 127, LfoShape::Saw, LfoQuarterNote));
+			run(bank, 0, 10);
+			require(near(bank.phase(0, 1), 0.4), "LFO 1 high: LFO 2 four times as fast ("
+				+ std::to_string(bank.phase(0, 1)) + ")");
+			require(!(bank.waiting(0) >> Speed & 1), "a sum for an LFO 2 waits for no Track");
+			const double before = bank.phase(0, 1);
+			run(bank, 8, 10);
+			require(near(bank.phase(0, 1) - before, 0.025), "LFO 1 low: four times slower, from where it stood ("
+				+ std::to_string(bank.phase(0, 1) - before) + ")");
+			// LFO 1 elsewhere: LFO 2 reads its phase in the transport's position again
+			bank.set(0, 0, aimed(LfoTarget::Level, 127, LfoShape::Square, FourBars));
+			bank.step(1, 9.3, 0.01, 0);
+			require(near(bank.phase(0, 1), 0.3), "nothing on its speed: LFO 2 on the transport again");
+		}
+
+		// DEPTH: added to LFO 2's own, within 127; an LFO 2 at depth 0 runs while LFO 1 moves its depth
+		{
+			LfoBank bank;
+			bank.set(0, 1, aimed(LfoTarget::Level, 0, LfoShape::Saw, LfoQuarterNote));
+			bank.set(0, 0, aimed(LfoTarget::Lfo2Depth, 64, LfoShape::Square, FourBars));
+			bank.step(1, 0.25, 0, 0);
+			require(bank.offset(0, Depth) == 64 * 128 && bank.offset(0, Level) == 32 * 128,
+				"depth 0 and LFO 1 at 64: LFO 2's saw at a quarter, half of 64");
+			bank.set(0, 1, aimed(LfoTarget::Level, 100, LfoShape::Saw, LfoQuarterNote));
+			bank.step(1, 0.25, 0, 0);
+			require(bank.offset(0, Level) == 8128, "100 and 64: within 127");
+			// LFO 2 set again at depth 0 while its depth is moved keeps its share
+			bank.set(0, 1, aimed(LfoTarget::Level, 0, LfoShape::Saw, LfoQuarterNote));
+			bank.step(1, 0.25, 0, 0);
+			bank.set(0, 1, aimed(LfoTarget::Level, 0, LfoShape::Saw, LfoQuarterNote));
+			require(bank.offset(0, Level) == 32 * 128, "set again, LFO 2 keeps its share");
+			bank.set(0, 0, LfoSettings{});
+			bank.set(0, 1, aimed(LfoTarget::Level, 0, LfoShape::Saw, LfoQuarterNote));
+			require(bank.offset(0, Level) == 0 && bank.offset(0, Depth) == 0, "LFO 1 off: LFO 2 at depth 0 gives its share back");
+
+			// LFO 1 aimed at another Track's LFO 2 moves its own Track's
+			bank.set(0, 0, aimed(LfoTarget::Lfo2Depth, 64, LfoShape::Square, FourBars, LfoMode::Free, 5));
+			bank.step(~0u, 0.25, 0, 0);
+			require(bank.offset(0, Depth) == 64 * 128 && bank.offset(5, Depth) == 0, "ON TRACK left aside");
+		}
+
+		// LFO 2 on an LFO's target moves nothing
+		{
+			LfoBank bank;
+			bank.set(0, 1, aimed(LfoTarget::Lfo2Speed, 127, LfoShape::Square, FourBars));
+			bank.set(0, 0, aimed(LfoTarget::Level, 10, LfoShape::Square, FourBars));
+			bank.step(1, 0, 0, 0);
+			require(bank.offset(0, Speed) == 0 && bank.offset(0, Level) == 10 * 128, "LFO 2 aims at no LFO");
+		}
+		std::printf("  LFO 1 on LFO 2: four times as fast or slower, off the transport and back, depth added within 127\n");
+	}
+
 	void modes()
 	{
 		const LfoSettings base = aimed(LfoTarget::Level, 127, LfoShape::Saw, LfoQuarterNote);
@@ -1658,6 +1728,7 @@ int main()
 	run(machinedrumSpeeds);
 	run(modes);
 	run(routing);
+	run(lfoOnLfo);
 	run(envelopeUnderARise);
 
 	const Library library(flash);

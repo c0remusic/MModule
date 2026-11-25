@@ -675,7 +675,8 @@ namespace elektron::drums::parameters
 			"|Machine 5|Machine 6|Machine 7|Machine 8|Level|Pan|Drive A|Drive B|EQ A|EQ B|Cutoff|Resonance|Width"
 			"|Env Depth|Machine 9|Machine 10|Machine 11|Machine 12|Machine 13|Machine 14|Machine 15|Machine 16|Machine 17"
 			"|Machine 18|Machine 19|Machine 20|Machine 21|Machine 22|Machine 23|Machine 24|Lyr Tune|Lyr Fine|Lyr Play"
-			"|Lyr Start|Lyr Length|Lyr Loop|Lyr Level|Lyr BR|Lyr Attack|Lyr Hold|Lyr Decay|Lyr Offset"},
+			"|Lyr Start|Lyr Length|Lyr Loop|Lyr Level|Lyr BR|Lyr Attack|Lyr Hold|Lyr Decay|Lyr Offset|LFO 2 Speed"
+			"|LFO 2 Depth"},
 	}};
 
 	const std::array<Spec, SendCount> sendSpecs{{

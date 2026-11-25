@@ -409,7 +409,7 @@ namespace elektron::drums
 		struct KeyChoices
 		{
 			juce::RangedAudioParameter *machine, *lfo1Track, *lfo2Track, *fltType, *bandType, *ampMode, *lfo1Sync, *lfo2Sync,
-				*note, *gapSync;
+				*note, *gapSync, *lfo1Target;
 		};
 		std::array<KeyChoices, 16> m_keyChoices{};
 		// Seq's Detail, as layout() built it: its lines (lockLineList), refreshed by an edit of the pattern too; + LOCK's

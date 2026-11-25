@@ -42,7 +42,7 @@ namespace elektron::drums
 			m_keyChoices[static_cast<size_t>(t)] = {trackParameter("machine", t), trackParameter("lfo1_track", t),
 				trackParameter("lfo2_track", t), trackParameter("flt_type", t), trackParameter("band_type", t),
 				trackParameter("amp_mode", t), trackParameter("lfo1_sync", t), trackParameter("lfo2_sync", t),
-				trackParameter("note", t), trackParameter("gap_sync", t)};
+				trackParameter("note", t), trackParameter("gap_sync", t), trackParameter("lfo1_target", t)};
 		using namespace LockstepAssets;
 		m_plates[B0] = {load(b0_1x_jpg, b0_1x_jpgSize), load(b0_2x_jpg, b0_2x_jpgSize)};
 		m_plates[B1] = {load(b1_1x_jpg, b1_1x_jpgSize), load(b1_2x_jpg, b1_2x_jpgSize)};
@@ -226,6 +226,8 @@ namespace elektron::drums
 			<< m_processor.sampleName(m_track) << "/" << m_processor.sampleName(Processor::layerSlot(m_track)) << "/";
 		// The LFOs' TARGET lists name Machine 1-24 by the machine of the Track each aims at
 		key << choiceOf(*shown.lfo1Track) << "," << choiceOf(*shown.lfo2Track) << ",";
+		// LFO 1 on its LFO 2 shows no ON TRACK
+		key << (aimsAtLfo(static_cast<LfoTarget>(choiceOf(*shown.lfo1Target))) ? 1 : 0) << ",";
 		for(const auto& t : m_keyChoices)
 			key << choiceOf(*t.machine) << ",";
 		key << "/";

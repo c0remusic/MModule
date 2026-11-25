@@ -1239,6 +1239,28 @@ namespace
 			band->setValueNotifyingHost(bandWas);
 			target->setValueNotifyingHost(aimed);
 			editor.tick();
+
+			// Ticket 34: LFO 1's TARGET lists LFO 2 DEPTH last, which hides ON TRACK; LFO 2's list stops before it
+			{
+				constexpr int depth = static_cast<int>(elektron::drums::LfoTarget::Lfo2Depth);
+				check(!editor.cellArea("t01_lfo1_track").isEmpty(), "LFO 1 on its own target shows ON TRACK");
+				click(editor, editor.cellArea("t01_lfo1_target").getCentre());
+				click(editor, editor.selectorItemArea(depth).getCentre());
+				editor.tick();
+				check(targetIs() == depth && editor.cellArea("t01_lfo1_track").isEmpty(),
+					"LFO 1's last entry: LFO 2 DEPTH, ON TRACK hidden, TARGET " + juce::String(targetIs()));
+				target->setValueNotifyingHost(aimed);
+				click(editor, editor.lfoCardArea(1).getCentre());
+				auto* second = processor.parameter("t01_lfo2_target");
+				const float secondWas = second->getValue();
+				click(editor, editor.cellArea("t01_lfo2_target").getCentre());
+				click(editor, editor.selectorItemArea(depth).getCentre());
+				editor.tick();
+				check(second->getValue() == secondWas, "LFO 2's list holds no LFO 2 DEPTH");
+				check(!editor.cellArea("t01_lfo2_track").isEmpty(), "LFO 2 shows ON TRACK");
+				click(editor, editor.lfoCardArea(0).getCentre());
+				editor.tick();
+			}
 			auto* type = processor.parameter("t01_drv2_type");
 			const float was = type->getValue();
 			type->setValueNotifyingHost(0.0f);

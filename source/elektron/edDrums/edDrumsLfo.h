@@ -57,8 +57,17 @@ namespace elektron::drums
 		// Appended: the sample layer's values but ON and KEY TRACK, in LayerMove's order (edDrumsLayer.h)
 		LayerTune, LayerFine, LayerPlay, LayerStart, LayerLength, LayerLoop, LayerLevel, LayerBr, LayerAttack,
 		LayerHold, LayerDecay, LayerOffset,
+		// Appended: LFO 1's aims at its own Track's LFO 2 (ticket 34 of .scratch/elektron-drums-v2), its speed (from a
+		// quarter to four times, 2 octaves each way at depth 127) and its depth (added, within -127 to 127). LFO 2 aiming at
+		// them moves nothing, and so does a Track aimed at but the LFO's own
+		Lfo2Speed, Lfo2Depth,
 		Count
 	};
+
+	constexpr bool aimsAtLfo(const LfoTarget _target)
+	{
+		return _target == LfoTarget::Lfo2Speed || _target == LfoTarget::Lfo2Depth;
+	}
 
 	// The target of Machine _index + 1 (_index 0-23), and the Machine (0-23) a target is, -1 for none
 	constexpr LfoTarget machineTarget(const int _index)
@@ -120,6 +129,10 @@ namespace elektron::drums
 		// A block: _position the transport's at its start, _quarters and _seconds its length
 		void advance(double _position, double _quarters, double _seconds);
 
+		// Its speed times _speed from the next advance on. _modulated, one on the transport counts its cycles from where it
+		// stands instead of reading them in the position, which it does again once nothing modulates it
+		void modulate(double _speed, bool _modulated);
+
 		double value() const;		// the output, -1 to 1
 		double phase() const;		// 0 to 1
 
@@ -138,6 +151,8 @@ namespace elektron::drums
 		double m_held = 0;
 		bool m_holding = false;
 		bool m_atStop = false;		// a stopped ONE or HALF: its output needs no shape any more
+		double m_speed = 1;
+		bool m_modulated = false;
 	};
 
 	// The LFOs of 16 Tracks, two each, and what they add up to on each target. A target's sum waits, by its bit, until its Track
@@ -178,7 +193,7 @@ namespace elektron::drums
 		};
 
 		bool running(const int _lfo) const { return m_on >> _lfo & 1; }
-		void move(Run& _run);
+		void move(int _lfo);
 		void leave(Run& _run);
 
 		std::array<Run, 2 * Tracks> m_runs;
