@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <set>
 #include <utility>
@@ -3167,6 +3168,107 @@ namespace elektron::drums
 		for(size_t n = 0; n < mono.size(); ++n)
 			mono[n] = 0.5f * (left[n] + right[n]);
 		auto made = makeSample(sound->getStringAttribute("name").toStdString(), mono, SampleRate);
+		if(!std::holds_alternative<Sample>(made))
+			return false;
+		m_auditioned = std::make_unique<Sample>(std::move(std::get<Sample>(made)));
+		sendAudition();
+		return true;
+	}
+
+	void Processor::previewTrack(const int _track)
+	{
+		jassert(juce::MessageManager::existsAndIsCurrentThread());
+		const auto t = static_cast<size_t>(_track);
+		auto& parameters = m_previewParameters[t];
+		if(parameters.empty())
+			for(const auto& id : trackIds(_track))
+				if(soundSuffix(id.substring(4)))
+					parameters.push_back(parameter(id));
+
+		// What the Hit is made of: the sound's values, its two samples, the tempo
+		uint64_t key = static_cast<uint64_t>(_track) + 1;
+		const auto mixIn = [&](const uint64_t _v) { key = (key ^ _v) * 0x100000001b3ull; };
+		const auto bitsOf = [](const float _f)
+		{
+			uint32_t bits;
+			std::memcpy(&bits, &_f, sizeof bits);
+			return bits;
+		};
+		for(const auto* p : parameters)
+			mixIn(bitsOf(p->getValue()));
+		const int slots[]{_track, layerSlot(_track)};
+		for(const int s : slots)
+		{
+			auto& copy = m_previewSamples[static_cast<size_t>(s)];
+			const auto* from = m_samples[static_cast<size_t>(s)].get();
+			if(from != copy.from || m_sampleRefs[static_cast<size_t>(s)] != copy.ref)
+			{
+				copy.from = from;
+				copy.ref = m_sampleRefs[static_cast<size_t>(s)];
+				copy.copy = from ? std::make_shared<const Sample>(*from) : nullptr;
+			}
+			mixIn(reinterpret_cast<uintptr_t>(copy.copy.get()));
+		}
+		const float tempo = m_tempo->get();
+		mixIn(bitsOf(tempo));
+		// A change waits until PreviewGap has passed since the last request, which then takes the values of that moment
+		if(key != m_previewKey)
+		{
+			m_previewKey = key;
+			m_previewDue = true;
+		}
+		const auto now = juce::Time::getMillisecondCounter();
+		if(!m_previewDue || (m_hitPreview && now - m_previewAt < PreviewGap))
+			return;
+		m_previewDue = false;
+		m_previewAt = now;
+
+		std::vector<float> values(static_cast<size_t>(getParameters().size()));
+		for(const auto* p : parameters)
+			values[static_cast<size_t>(p->getParameterIndex())] = p->getValue();
+		if(!m_hitPreview)
+			m_hitPreview = std::make_unique<HitPreview>(*m_library);
+		// On the preview's thread: the Track's parameters and the machines are made once, and read alone there
+		HitPreview::Request request;
+		request.track = _track;
+		request.prepare = [this, _track, values = std::move(values), tempo,
+			sample = m_previewSamples[static_cast<size_t>(slots[0])].copy,
+			layer = m_previewSamples[static_cast<size_t>(slots[1])].copy](Engine& _e)
+		{
+			KitValues kitValues{values};
+			auto& p = m_tracks[static_cast<size_t>(_track)];
+			_e.setTempo(tempo);
+			_e.setMachine(_track, m_machines[static_cast<size_t>(juce::roundToInt(kitValues.value(p.machine)))]);
+			giveTrack(_e, _track, p, kitValues, nullptr);
+			for(int l = 0; l < 2; ++l)
+				_e.setLfo(_track, l, LfoSettings{});
+			for(int s = 0; s < SendCount; ++s)
+				_e.setSend(_track, static_cast<Send>(s), 0);
+			_e.setSample(_track, sample.get());
+			_e.setLayerSample(_track, layer.get());
+		};
+		m_hitPreview->request(std::move(request));
+	}
+
+	std::shared_ptr<const HitPreview::Picture> Processor::trackPreview() const
+	{
+		return m_hitPreview ? m_hitPreview->picture() : nullptr;
+	}
+
+	bool Processor::previewPending() const
+	{
+		if(!m_hitPreview)
+			return false;
+		const auto picture = m_hitPreview->picture();
+		return m_previewDue || !picture || picture->serial != m_hitPreview->requested();
+	}
+
+	bool Processor::auditionPreview()
+	{
+		const auto picture = trackPreview();
+		if(!picture || picture->mid.empty())
+			return false;
+		auto made = makeSample("Hit", picture->mid, SampleRate);
 		if(!std::holds_alternative<Sample>(made))
 			return false;
 		m_auditioned = std::make_unique<Sample>(std::move(std::get<Sample>(made)));

@@ -337,6 +337,9 @@ namespace elektron::drums
 			if(const int row = m_processor.playingRowStep(m_track); row >= 0 && m_page == Page::Seq && m_seqTab == 1)
 				m_overviewPage = row / 32;
 		}
+		// The Hit of the Track shown, rendered apart for VOICE's picture, asked again as its sound changes (ticket 37)
+		if(m_page == Page::Sound)
+			m_processor.previewTrack(m_track);
 		m_repainted = 0;
 		if(m_press.hit < 0 && layoutKey() != m_key)
 		{

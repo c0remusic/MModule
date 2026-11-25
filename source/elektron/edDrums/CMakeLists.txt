@@ -9,7 +9,7 @@ add_library(edDrums STATIC edDrumsAnalog.h edDrumsAnalogPort.h edDrumsAnalogShar
 	edDrumsRytm.h edDrumsRytmControl.cpp edDrumsRytmVoice.h edDrumsRytmVoice.cpp
 	edDrumsChain.h edDrumsChain.cpp edDrumsDt2Stages.h edDrumsDt2Stages.cpp edDrumsDt2Filters.h edDrumsDt2Filters.cpp
 	edDrumsDt2Player.h edDrumsDt2Player.cpp edDrumsLayer.h edDrumsLayer.cpp
-	edDrumsEngine.h edDrumsEngine.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
+	edDrumsEngine.h edDrumsEngine.cpp edDrumsHitPreview.h edDrumsHitPreview.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
 	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
 	edDrumsOversamplerKernel.h edDrumsOversamplerAvx2.cpp edDrumsMasterAvx2.cpp
 	edDrumsMaster.h edDrumsMaster.cpp edDrumsRate.h edDrumsRate.cpp edDrumsRateAvx2.cpp edDrumsSamples.h edDrumsSamples.cpp
@@ -129,6 +129,13 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsSampleLockTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsSampleLockTest COMMAND edDrumsSampleLockTest)
 	set_tests_properties(edDrumsSampleLockTest PROPERTIES TIMEOUT 120)
+
+	# The Hit preview (ticket 37 of the v2 map): the engine's Hit, the latest request alone, its cost; no flash image
+	add_executable(edDrumsHitPreviewTest edDrumsHitPreviewTest.cpp)
+	target_link_libraries(edDrumsHitPreviewTest PRIVATE edDrums)
+	set_property(TARGET edDrumsHitPreviewTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsHitPreviewTest COMMAND edDrumsHitPreviewTest)
+	set_tests_properties(edDrumsHitPreviewTest PROPERTIES TIMEOUT 120)
 
 	# Two LFOs a Track on the transport, aimed at any Track; their laws against syntakt::main's and mdDrums::Lfo
 	# (GEARMULATOR_MD_FIRMWARE_BIN: exit 77 without it)

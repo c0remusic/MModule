@@ -854,11 +854,21 @@ namespace elektron::drums
 				};
 				addHit(std::move(sound));
 			}
+			// Elsewhere a click plays the Hit drawn (ticket 37)
+			else
+			{
+				Hit listen;
+				listen.r = voicePicture;
+				listen.click = [this] { m_processor.auditionPreview(); };
+				addHit(std::move(listen));
+			}
 			watch(voicePicture, [this]
 			{
-				return mix(mix(static_cast<uint64_t>(choiceOf(trackParameter("machine")->getParameterID())),
+				const auto preview = m_processor.trackPreview();
+				return mix(mix(mix(static_cast<uint64_t>(choiceOf(trackParameter("machine")->getParameterID())),
 					static_cast<uint64_t>(m_processor.sampleName(m_track).hashCode64())),
-					static_cast<uint64_t>(m_processor.sophieSound(m_track) + 1));
+					static_cast<uint64_t>(m_processor.sophieSound(m_track) + 1)),
+					(preview ? preview->serial : 0) * 2 + (m_processor.previewPending() ? 1 : 0));
 			});
 		}
 
@@ -1177,23 +1187,47 @@ namespace elektron::drums
 				500, Align::Right);
 		}
 
-		// VOICE: the page selector; the Sampler's GRAIN and file, SOPHIE's factory sound; the hit's preview has no
-		// engine yet
+		// VOICE: the page selector; the Hit rendered apart (ticket 37), greyed while a later one is on its way, what passes
+		// full scale red, its length; the Sampler's GRAIN and file, SOPHIE's factory sound
 		{
 			const auto box = machinePageBox(0);
 			drawSegments(_p, box.getX(), box.getY(), box.getWidth(), {"1", "2", "3"}, m_machinePage, &hue::k,
 				machinePages());
 			const auto r = voicePicture;
 			frame(r, hue::k.c[1]);
+			if(const auto preview = m_processor.trackPreview(); preview && !preview->mid.empty())
+			{
+				const float cy = r.getCentreY(), a = r.getHeight() / 2 - 1;
+				_p.line(r.getX() + 1, cy, r.getRight() - 1, cy, colour::rule, 0.2f);
+				const auto& mid = preview->mid;
+				const size_t columns = static_cast<size_t>(juce::roundToInt((r.getWidth() - 2) / 0.4f));
+				const auto ink = m_processor.previewPending() ? colour::dim : hue::k.c[0];
+				for(size_t c = 0; c < columns; ++c)
+				{
+					const size_t from = mid.size() * c / columns;
+					const size_t to = std::max(from + 1, mid.size() * (c + 1) / columns);
+					const auto [lo, hi] = std::minmax_element(mid.begin() + static_cast<std::ptrdiff_t>(from),
+						mid.begin() + static_cast<std::ptrdiff_t>(std::min(to, mid.size())));
+					const float top = std::min(*hi, 1.0f), bottom = std::max(*lo, -1.0f);
+					const bool over = *hi > 1 || *lo < -1;
+					// At least a hairline, so that silence shows
+					_p.rect(r.getX() + 1 + static_cast<float>(c) * 0.4f, cy - top * a, 0.3f,
+						std::max(0.2f, (top - bottom) * a), over ? colour::meterRed : ink);
+				}
+				const double ms = static_cast<double>(mid.size()) * 1000 / HitPreview::Rate;
+				_p.text(r.getRight() - 2, r.getY() + 4.4f, ms < 1000 ? juce::String(juce::roundToInt(ms)) + " MS"
+					: juce::String(ms / 1000, 2) + " S", 2.4f, colour::mid, 500, Align::Right);
+			}
 			if(choiceOf(trackParameter("machine")->getParameterID()) == m_processor.samplerChoice())
 			{
 				const auto grain = grainBox(0);
 				_p.text(SrcX + 34, SoundY + 5.2f, "GRAIN", 2.8f, colour::mid);
 				drawSegments(_p, grain.getX(), grain.getY(), grain.getWidth(), {"12-BIT", "VINTAGE", "CLEAN"},
 					static_cast<int>(vintage::grainOf(trackGrain(m_track))), &hue::k);
+				// The file in the picture's corner, the Hit under it
 				const auto name = m_processor.sampleName(m_track);
-				_p.text(r.getCentreX(), r.getCentreY() + 1.6f, name.isEmpty() ? "NO SAMPLE" : name.toUpperCase(), 3.2f,
-					name.isEmpty() ? colour::mid : hue::k.c[4], 500, Align::Centre);
+				_p.text(r.getX() + 2, r.getY() + 4.4f, name.isEmpty() ? "NO SAMPLE" : name.toUpperCase(), 2.4f,
+					name.isEmpty() ? colour::mid : hue::k.c[4], 500);
 			}
 			else if(choiceOf(trackParameter("machine")->getParameterID()) == m_processor.sophieChoice())
 			{
@@ -3838,6 +3872,11 @@ namespace elektron::drums
 	{
 		const float segment = browseSegment(browseFilters().size());
 		return toPx({cx(6) + static_cast<float>(_segment) * segment, 33, segment, 6});
+	}
+
+	juce::Rectangle<int> Editor::voiceArea() const
+	{
+		return toPx(voicePicture);
 	}
 
 	juce::Rectangle<int> Editor::selectorItemArea(const int _item) const

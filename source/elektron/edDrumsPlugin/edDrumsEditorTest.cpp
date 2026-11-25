@@ -1715,7 +1715,44 @@ namespace
 		machinesMasterFx(editor, processor);
 
 		editor.showPage(Editor::Page::Sound);
-		snapshot(editor, _folder.getChildFile("sound.png"));
+		// Ticket 37: VOICE draws the Hit of the Track shown, rendered apart; a value changed asks it again, the old one
+		// greyed meanwhile; a click plays it
+		{
+			const auto waitPicture = [&](const char* _what)
+			{
+				for(int i = 0; i < 2000 && (processor.previewPending() || !processor.trackPreview()); ++i)
+				{
+					editor.tick();
+					juce::Thread::sleep(5);
+				}
+				check(processor.trackPreview() && !processor.previewPending(), juce::String("the Hit rendered: ") + _what);
+			};
+			editor.tick();
+			waitPicture("Track 1");
+			const auto first = processor.trackPreview();
+			check(!first->mid.empty(), "the Hit has samples");
+			auto* level = processor.parameter("t01_level");
+			const float levelWas = level->getValue();
+			level->setValueNotifyingHost(0.2f);
+			juce::Thread::sleep(static_cast<int>(Processor::PreviewGap) + 10);
+			editor.tick();
+			check(processor.previewPending() || processor.trackPreview()->serial != first->serial,
+				"LEVEL changed: a later Hit asked");
+			waitPicture("LEVEL changed");
+			check(processor.trackPreview()->serial != first->serial, "LEVEL changed: another Hit");
+			level->setValueNotifyingHost(levelWas);
+			waitPicture("LEVEL back");
+			snapshot(editor, _folder.getChildFile("sound.png"));
+			click(editor, editor.voiceArea().getCentre());
+			check(processor.auditioned() != nullptr && processor.auditioned()->name == "Hit", "a click plays the Hit drawn");
+			// Track 10's ROUND KICK, which the tests before leave as the Kit has it
+			editor.showTrack(9);
+			editor.tick();
+			waitPicture("Track 10");
+			snapshot(editor, _folder.getChildFile("sound-hit.png"));
+			editor.showTrack(0);
+			editor.tick();
+		}
 		{
 			// SOPHIE: its factory sound in the Machine block; page 3 with AMP off, the amp's envelope greyed
 			auto* machine = processor.parameter("t01_machine");

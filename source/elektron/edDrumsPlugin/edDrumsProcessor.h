@@ -11,6 +11,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "edDrumsEngine.h"
+#include "edDrumsHitPreview.h"
 #include "edDrumsKits.h"
 #include "edDrumsLockerImport.h"
 #include "edDrumsLocks.h"
@@ -309,6 +310,16 @@ namespace elektron::drums
 		bool auditionTrackSound(const juce::File& _file);
 		// The name of the machine _sound plays, as the list names it now: not the name it was saved with (ticket 27)
 		juce::String trackSoundMachine(const TrackSounds::Entry& _sound) const;
+
+		// Message thread (ticket 37 of .scratch/elektron-drums-v2). The Hit of _track's sound rendered apart, for the Sound
+		// page's VOICE picture: asked again when the sound changes, at most every PreviewGap ms; without Locks, accent,
+		// sends or LFOs, at velocity 100. The last picture rendered, or nullptr; whether a later one is on its way; its Hit
+		// played on Main as a sample's audition plays
+		static constexpr juce::uint32 PreviewGap = 50;
+		void previewTrack(int _track);
+		std::shared_ptr<const HitPreview::Picture> trackPreview() const;
+		bool previewPending() const;
+		bool auditionPreview();
 
 		// Any thread: what the audio thread last played. The step under the transport, -1 stopped; the pattern playing,
 		// 0-127; the Tracks whose voice sounds, a bit each; an output bus's peak, both channels, falling 20 dB/s
@@ -677,5 +688,21 @@ namespace elektron::drums
 		std::array<std::atomic<float>, Tracks> m_trackPeak{};
 		std::atomic<float> m_reduction{0};
 		std::atomic<float> m_cpu{0};
+
+		// The Hit preview (previewTrack): made at its first request; what each Track's sound is; the key of the last
+		// request, whether a later one waits for PreviewGap, when the last left; the samples it plays, copied as the
+		// Tracks' change. Last, so that its thread stops before anything it reads goes
+		struct PreviewSample
+		{
+			const Sample* from = nullptr;
+			juce::String ref;
+			std::shared_ptr<const Sample> copy;
+		};
+		std::array<std::vector<const juce::RangedAudioParameter*>, Tracks> m_previewParameters;
+		uint64_t m_previewKey = 0;
+		bool m_previewDue = false;
+		juce::uint32 m_previewAt = 0;
+		std::array<PreviewSample, SampleSlots> m_previewSamples;
+		std::unique_ptr<HitPreview> m_hitPreview;
 	};
 }

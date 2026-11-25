@@ -94,6 +94,7 @@ namespace elektron::drums
 		juce::Rectangle<int> machineSourceArea(int _chip) const;
 		std::vector<int> machinesListed() const { return machineList(); }
 		juce::Rectangle<int> selectorItemArea(int _item) const;
+		juce::Rectangle<int> voiceArea() const;		// Sound's VOICE picture, the Hit drawn (ticket 37)
 		// Seq's Detail: + LOCK, LANES (the lanes' page, past five), LIVE and the trig row's modes, the trig row of the
 		// 16 steps shown, a lane's row shown and its X, the + LOCK menu's entry of a parameter (by its index; empty when
 		// the menu is shut or the parameter has a lane already)
