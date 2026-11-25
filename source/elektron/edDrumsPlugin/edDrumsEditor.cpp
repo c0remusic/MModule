@@ -769,7 +769,7 @@ namespace elektron::drums
 			const auto delta = mm - m_press.last;
 			m_press.last = mm;
 			if(hit.cell >= 0)
-				cellDrag(m_cells[static_cast<size_t>(hit.cell)], delta);
+				cellDrag(m_cells[static_cast<size_t>(hit.cell)], delta, _e.mods.isShiftDown());
 			else if(hit.steps && hit.stepMm > 0)
 			{
 				m_press.accumulated += delta.x;
@@ -846,7 +846,7 @@ namespace elektron::drums
 			m_press.value = 0;
 	}
 
-	void Editor::cellDrag(const Cell& _cell, const juce::Point<float> _delta)
+	void Editor::cellDrag(const Cell& _cell, const juce::Point<float> _delta, const bool _fine)
 	{
 		if(!_cell.parameter || _cell.off || sectionOff(_cell.section))
 			return;
@@ -856,9 +856,13 @@ namespace elektron::drums
 			cellSet(_cell, m_press.value);
 			return;
 		}
+		// Up and right raise, down and left lower: the gesture's longer way so far moves it, so that a drag along one
+		// way that strays across the other does not undo itself
+		const auto gone = m_press.last - m_press.down;
+		const float move = std::abs(gone.x) >= std::abs(gone.y) ? _delta.x : -_delta.y;
 		if(_cell.isList())
 		{
-			m_press.accumulated += _delta.x;
+			m_press.accumulated += move * (_fine ? 0.25f : 1.0f);
 			const int n = static_cast<int>(m_press.accumulated / 4);
 			if(!n)
 				return;
@@ -869,11 +873,9 @@ namespace elektron::drums
 			cellSet(_cell, m_press.value);
 			return;
 		}
-		// Fine when the mouse goes 6 mm and more away from the line
-		const float away = std::abs(m_press.last.y - m_press.down.y);
-		const float gain = std::max(0.1f, 1 / (1 + std::max(0.0f, away - 6) / 6));
+		// The cell's width for the whole range (40 mm for a small one), ten times that with Shift
 		const float width = _cell.look == Cell::Look::Small ? 40 : std::max(_cell.w - 4, 20.0f);
-		m_press.value = juce::jlimit(0.0f, 1.0f, m_press.value + _delta.x / width * gain);
+		m_press.value = juce::jlimit(0.0f, 1.0f, m_press.value + move / width * (_fine ? 0.1f : 1.0f));
 		cellSet(_cell, m_press.value);
 	}
 
@@ -979,7 +981,17 @@ namespace elektron::drums
 		}
 		else
 			setNormalised(*p, _normalised);
+		wakeMaster(*p);
 		repaint(toPx(_cell.area().expanded(0.5f)));
+	}
+
+	void Editor::wakeMaster(const juce::RangedAudioParameter& _p)
+	{
+		static const juce::StringArray woken{"master_threshold", "master_ratio", "master_attack", "master_release",
+			"master_makeup", "master_mix", "master_filter", "master_drive"};
+		auto* on = m_processor.parameter("master_on");
+		if(on && on->getValue() < 0.5f && woken.contains(_p.getParameterID()))
+			setNormalised(*on, 1);
 	}
 
 	// One host gesture

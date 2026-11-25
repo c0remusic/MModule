@@ -45,11 +45,11 @@ namespace
 	};
 
 	juce::MouseEvent mouse(juce::Component& _c, const juce::Point<int> _down, const juce::Point<int> _now,
-		const int _clicks = 1)
+		const int _clicks = 1, const int _mods = 0)
 	{
 		const auto now = juce::Time::getCurrentTime();
 		return juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(), _now.toFloat(),
-			juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &_c, &_c, now,
+			juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier | _mods), 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &_c, &_c, now,
 			_down.toFloat(), now, _clicks, _now != _down);
 	}
 
@@ -71,12 +71,12 @@ namespace
 		_e.mouseUp(mouse(_e, _at, _at));
 	}
 
-	void drag(Editor& _e, const juce::Point<int> _from, const juce::Point<int> _by)
+	void drag(Editor& _e, const juce::Point<int> _from, const juce::Point<int> _by, const int _mods = 0)
 	{
-		_e.mouseDown(mouse(_e, _from, _from));
+		_e.mouseDown(mouse(_e, _from, _from, 1, _mods));
 		for(int i = 1; i <= 10; ++i)
-			_e.mouseDrag(mouse(_e, _from, _from + _by * i / 10));
-		_e.mouseUp(mouse(_e, _from, _from + _by));
+			_e.mouseDrag(mouse(_e, _from, _from + _by * i / 10, 1, _mods));
+		_e.mouseUp(mouse(_e, _from, _from + _by, 1, _mods));
 	}
 
 	void doubleClick(Editor& _e, const juce::Point<int> _at)
@@ -905,6 +905,9 @@ namespace
 			_editor.tick();
 
 			Gestures gestures;
+			auto* on = _processor.parameter("master_on");
+			const float onWas = on->getValue();
+			on->setValueNotifyingHost(0);
 			_processor.addListener(&gestures);
 			auto* thr = _processor.parameter("master_threshold");
 			const float was = thr->getValue();
@@ -912,11 +915,48 @@ namespace
 			const float before = thr->getValue();
 			const float a = ui::cx(15) - 2 + 8;
 			drag(_editor, px(a + 48, 186), px(20, 0));
-			check(thr->getValue() - before > 0.15f && gestures.begun == 1 && gestures.ended == 1,
+			// Ticket 29: Master off, the drag turns it on, a gesture of its own
+			check(thr->getValue() - before > 0.15f && on->getValue() > 0.5f && gestures.begun == 2 && gestures.ended == 2,
 				"Master: THR dragged 20 mm right on the curve raises the threshold from " + juce::String(before, 3) + " to "
-				+ juce::String(thr->getValue(), 3) + ", in one gesture");
+				+ juce::String(thr->getValue(), 3) + " in one gesture, and turns Master on in another");
 			_processor.removeListener(&gestures);
+			// A compressor's cell dragged turns it on too; Main's volume does not
+			on->setValueNotifyingHost(0);
+			drag(_editor, _editor.cellArea("master_ratio").getCentre(), {30, 0});
+			const bool byRatio = on->getValue() > 0.5f;
+			on->setValueNotifyingHost(0);
+			auto* volume = _processor.parameter("master_volume");
+			const float volumeWas = volume->getValue();
+			drag(_editor, _editor.cellArea("master_volume").getCentre(), {0, 30});
+			check(byRatio && on->getValue() < 0.5f && volume->getValue() != volumeWas,
+				"Master: RATIO dragged turns Master on, MAIN's fader does not");
+			volume->setValueNotifyingHost(volumeWas);
+			on->setValueNotifyingHost(onWas);
 			thr->setValueNotifyingHost(was);
+		}
+		{
+			// Ticket 31: a knob dragged up raises it as far as dragged right, down lowers it; Shift a tenth as far; a
+			// drag up that strays sideways moves it as far as a straight one
+			_editor.showPage(Editor::Page::Fx);
+			_editor.tick();
+			auto* depth = _processor.parameter("chorus_depth");
+			const float was = depth->getValue();
+			const auto at = _editor.cellArea("chorus_depth").getCentre();
+			const auto moved = [&](const juce::Point<int> _by, const int _mods)
+			{
+				depth->setValueNotifyingHost(0.5f);
+				const float from = depth->getValue();
+				drag(_editor, at, _by, _mods);
+				return depth->getValue() - from;
+			};
+			const float right = moved({20, 0}, 0), up = moved({0, -20}, 0), down = moved({0, 20}, 0);
+			const float upFine = moved({0, -20}, juce::ModifierKeys::shiftModifier);
+			const float stray = moved({6, -20}, 0);
+			check(right > 0.05f && std::abs(up - right) < 0.01f && std::abs(down + right) < 0.01f
+				&& std::abs(upFine - right / 10) < 0.005f && std::abs(stray - up) < 0.01f,
+				"a knob: right " + juce::String(right, 3) + ", up " + juce::String(up, 3) + ", down " + juce::String(down, 3)
+				+ ", up with Shift " + juce::String(upFine, 3) + ", up straying right " + juce::String(stray, 3));
+			depth->setValueNotifyingHost(was);
 		}
 		{
 			_editor.showPage(Editor::Page::Fx);

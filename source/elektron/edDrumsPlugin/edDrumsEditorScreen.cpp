@@ -3074,7 +3074,9 @@ namespace elektron::drums
 			thr.drag = [this](const float _dx, float)
 			{
 				m_press.value = juce::jlimit(0.0f, 1.0f, m_press.value + _dx / 96);
-				m_processor.parameter("master_threshold")->setValueNotifyingHost(m_press.value);
+				auto* p = m_processor.parameter("master_threshold");
+				p->setValueNotifyingHost(m_press.value);
+				wakeMaster(*p);
 			};
 			thr.end = [this] { m_processor.parameter("master_threshold")->endChangeGesture(); };
 			thr.click = thr.end;

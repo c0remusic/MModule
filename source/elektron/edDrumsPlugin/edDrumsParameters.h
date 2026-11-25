@@ -148,7 +148,7 @@ namespace elektron::drums::parameters
 	extern const std::array<int, StReverbBytes> syntaktReverbDefaults;
 	extern const std::array<int, ChorusBytes> chorusDefaults;
 	extern const std::array<int, PhaserBytes> phaserDefaults;
-	extern const std::array<int, MasterBytes> masterDefaults;	// Master's own, which leave Main as it is
+	extern const std::array<int, MasterBytes> masterDefaults;	// Master's own; Master On is off by default
 
 	// The chain a machine's family brings, as Engine::setMachine loads it; Off brings none, value-initialised
 	ChainSettings familyChain(const Machine& _machine);

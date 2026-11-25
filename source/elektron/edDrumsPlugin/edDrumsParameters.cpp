@@ -841,7 +841,9 @@ namespace elektron::drums::parameters
 	const std::array<int, StReverbBytes> syntaktReverbDefaults{0, 64, 64, 0, 0, 127};
 	const std::array<int, ChorusBytes> chorusDefaults{64, 64, 64, 64, 127, 1};
 	const std::array<int, PhaserBytes> phaserDefaults{0, 6, 64, 64, 64, 64, 64, 127, 1, 0, 0, 64};
-	const std::array<int, MasterBytes> masterDefaults{127, 0, 0, 64, 0, 127, 64, 0, 127};
+	// THRESHOLD 85, -19.8 dB: under Main, which goes in at -10 dB, so that the compressor acts once Master is on (ticket
+	// 29 of .scratch/elektron-drums-v2); 127 (0 dB) left it silent
+	const std::array<int, MasterBytes> masterDefaults{85, 0, 0, 64, 0, 127, 64, 0, 127};
 
 	ChainSettings familyChain(const Machine& _machine)
 	{

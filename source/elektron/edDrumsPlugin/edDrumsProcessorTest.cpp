@@ -637,8 +637,9 @@ namespace
 		std::printf("PASS: every Track's peak, the least %.4f, none at level 0, falling\n", least);
 	}
 
-	// Ticket 29: the master's compressor, on, reduces a kit's Main once its threshold comes under it; at its default
-	// threshold, 0 dB, it leaves Main as it is (Main goes in at -10 dB), and off it does nothing
+	// Ticket 29: the master's compressor, on, reduces a kit's Main once its threshold comes under it, its default
+	// threshold (-19.8 dB, under a Main that goes in at -10 dB) included; at 0 dB it leaves Main as it is, and off it
+	// does nothing
 	void compressor()
 	{
 		const auto deepest = [](Processor& _p)
@@ -658,15 +659,19 @@ namespace
 			}
 			return least;
 		};
-		Processor off, idle, low;
-		set(find(idle, "master_on"), 1);
+		Processor off, top, byDefault, low;
+		set(find(top, "master_on"), 1);
+		set(find(top, "master_threshold"), 127);
+		set(find(byDefault, "master_on"), 1);
 		set(find(low, "master_on"), 1);
 		set(find(low, "master_threshold"), 64);
 		set(find(low, "master_ratio"), 127);
-		const float offDb = deepest(off), idleDb = deepest(idle), lowDb = deepest(low);
-		require(offDb == 0 && idleDb == 0, "the compressor acts off or at its default threshold");
+		const float offDb = deepest(off), topDb = deepest(top), defaultDb = deepest(byDefault), lowDb = deepest(low);
+		require(offDb == 0 && topDb == 0, "the compressor acts off or at 0 dB");
+		require(defaultDb < -0.5f, "the compressor at its default reduces " + std::to_string(defaultDb) + " dB");
 		require(lowDb < -6, "the compressor at -30 dB reduces " + std::to_string(lowDb) + " dB");
-		std::printf("PASS: the compressor reduces %.1f dB at -30 dB, nothing at 0 dB or off\n", lowDb);
+		std::printf("PASS: the compressor reduces %.1f dB at its default, %.1f at -30 dB, nothing at 0 dB or off\n",
+			defaultDb, lowDb);
 	}
 
 	Take play(Engine& _engine, const int _samples = Samples)

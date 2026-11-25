@@ -209,7 +209,8 @@ namespace elektron::drums
 
 		// A cell's gestures
 		void cellDown(const ui::Cell& _cell);
-		void cellDrag(const ui::Cell& _cell, juce::Point<float> _delta);
+		// Ticket 31: a knob or a list moves up and right, down and left; _fine (Shift) a tenth as fast
+		void cellDrag(const ui::Cell& _cell, juce::Point<float> _delta, bool _fine = false);
 		void cellUp(const ui::Cell& _cell);
 		bool lockable(const ui::Cell& _cell) const;
 		bool sectionOff(const juce::String& _section) const;
@@ -261,6 +262,8 @@ namespace elektron::drums
 		float valueOf(const juce::String& _id) const;
 		void setNormalised(juce::RangedAudioParameter& _p, float _value);
 		void cellSet(const ui::Cell& _cell, float _normalised);
+		// Ticket 29: a gesture on the master's compressor or drive turns Master on, which they need to be heard
+		void wakeMaster(const juce::RangedAudioParameter& _p);
 		bool lockOf(const ui::Cell& _cell, float& _normalised) const;
 		void removeLocks(const ui::Cell& _cell);
 		bool lockEdit() const { return !m_lockSteps.empty() && m_page == Page::Sound; }
