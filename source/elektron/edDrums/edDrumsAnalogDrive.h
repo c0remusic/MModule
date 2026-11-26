@@ -39,21 +39,31 @@ namespace elektron::drums
 
 		void set(int _lane, int _amountWord);	// a Kit value << 7, an LFO's move in it
 		void process(Block& _buf, uint16_t _lanes = 0xffff);
+		// One sample of _lane, for a caller that runs sample by sample (the master's two channels)
+		float sample(int _lane, float _x);
+		// Its state back to silence; the hiss's generator from a seed of the lane's own, or from _seed: two lanes of one
+		// seed hiss alike, the master's two channels identical under a mono input
 		void clear(int _lane);
+		void clear(int _lane, uint32_t _seed);
 
 	private:
-		void setPoles(int _lane);
+		struct Lane
+		{
+			double cutoff = 0;
+			float pole = 0;
+			float gain = 1, gainTo = 1, step = 0;	// gain ramps to gainTo by step, over ramp samples more
+			int ramp = 0;							// over the chain's block at its raised rate
+			float hpX = 0, hpY = 0, dcX = 0, dcY = 0, envelope = 0;
+			uint32_t noise = 0;
+		};
+
+		float tick(Lane& _lane, float _x) const;
+		void setPole(Lane& _lane) const;
 
 		double m_rate;
 		int m_factor = 1;
 		float m_dcPole = 0;
 		float m_envelopeFall = 0;					// a sample's fall of the hiss's envelope, 100 ms to -60 dB
-		double m_cutoff[Lanes]{};
-		float m_pole[Lanes]{};
-		float m_gain[Lanes]{}, m_gainTo[Lanes]{};	// at the start of the next block, and where it ramps to
-		float m_step[Lanes]{};
-		int m_ramp[Lanes]{};						// the ramp's samples left, over the chain's block at its raised rate
-		float m_hpX[Lanes]{}, m_hpY[Lanes]{}, m_dcX[Lanes]{}, m_dcY[Lanes]{}, m_envelope[Lanes]{};
-		uint32_t m_noise[Lanes]{};
+		Lane m_lanes[Lanes];
 	};
 }

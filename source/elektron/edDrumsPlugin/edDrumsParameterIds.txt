@@ -1865,3 +1865,4 @@ reverb_dt2_gain
 reverb_dt2_hpf
 reverb_dt2_lpf
 reverb_dt2_vol
+master_drive_model

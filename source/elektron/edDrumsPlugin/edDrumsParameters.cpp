@@ -500,7 +500,12 @@ namespace elektron::drums::parameters
 		if(is("master_filter"))
 			return (_v < 64 ? "LP " : "HP ") + hertz(masterFilterHz(byte));
 		if(is("master_drive"))
+		{
+			// ANALOG ≈ (Master::setAnalog): the gain into its clip, which colours at 0 too
+			if(_other("master_drive_model"))
+				return decibels(AnalogDrive::gainDb(_v), true);
 			return _v == 0 ? "OFF" : gain(masterDriveGain(byte));
+		}
 		if(is("master_volume"))
 			return squared(_v);
 
@@ -766,6 +771,7 @@ namespace elektron::drums::parameters
 		{"reverb_dt2_vol", "Dense Volume"},
 	}};
 	const std::array<int, DenseBytes> denseDefaults{16, 31, 64, 50, 32, 96, 110};
+	const Spec masterModelSpec{"master_drive_model", "Drive Model", 0, 1, "Overdrive|Analog \xE2\x89\x88"};
 
 	double delayNoteQuarters(const int _choice)
 	{

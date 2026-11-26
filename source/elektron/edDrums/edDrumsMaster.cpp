@@ -14,6 +14,7 @@ namespace elektron::drums
 		constexpr double Floor = 1.1920928955078125e-7;		// 2^-23, the detector's
 		constexpr double DbToLog = 0.11512925464970229;		// ln 10 / 20
 		constexpr double MakeupRange = 24.0823996531;		// 20 log10(16) dB
+		constexpr uint32_t AnalogSeed = 0x9e3779b9u;		// ANALOG ≈'s hiss, the same on both channels
 
 		double fraction(const uint8_t _value) { return _value / 127.0; }
 
@@ -142,7 +143,7 @@ namespace elektron::drums
 	}
 
 	Master::Master(const double _rate, const int _block)
-		: m_rate(_rate), m_mixPole(std::pow(0.995, 48000 / _rate)), m_block(_block)
+		: m_rate(_rate), m_mixPole(std::pow(0.995, 48000 / _rate)), m_block(_block), m_analog(_rate)
 	{
 		m_bytes = {127, 0, 0, 64, 0, 127, 64, 0, 127};
 		settle();
@@ -159,6 +160,8 @@ namespace elektron::drums
 		m_x1[0] = m_x1[1] = m_y1[0] = m_y1[1] = 0;
 		m_releaseDb = m_attackDb = 0;
 		m_reduction.store(0, std::memory_order_relaxed);
+		m_analog.clear(0, AnalogSeed);
+		m_analog.clear(1, AnalogSeed);
 	}
 
 	void Master::startBlock()
@@ -204,6 +207,15 @@ namespace elektron::drums
 		const double drive = fraction(b[MasterDrive]);
 		m_satGain.next(masterDriveGain(b[MasterDrive]));
 		m_satMix.next(driveMix(drive));
+		// ANALOG ≈ ramps its own gain; a stage that comes on starts from silence
+		if(m_analogTo && !m_analogOn)
+		{
+			m_analog.clear(0, AnalogSeed);
+			m_analog.clear(1, AnalogSeed);
+		}
+		m_analogOn = m_analogTo;
+		for(int c = 0; c < 2; ++c)
+			m_analog.set(c, b[MasterDrive] << 7);
 		const double volume = fraction(b[MasterVolume]);
 		m_volume.next(volume * volume);
 	}
@@ -236,8 +248,19 @@ namespace elektron::drums
 		const D wet = clampPair(_mm_mul_pd(_mm_set1_pd(gain), in));
 		const D y = clampPair(_mm_mul_pd(_mm_set1_pd(Lift), _mm_add_pd(_mm_mul_pd(_mm_set1_pd(m_wet), wet),
 			_mm_mul_pd(_mm_set1_pd(m_dry), in))));
-		const D u = saturatePair(y, _mm_set1_pd(satGain));
-		const D out = _mm_mul_pd(_mm_set1_pd(volume), _mm_add_pd(y, _mm_mul_pd(_mm_set1_pd(satMix), _mm_sub_pd(u, y))));
+		D out;
+		if(m_analogOn)
+		{
+			alignas(16) double v[2];
+			_mm_store_pd(v, y);
+			out = _mm_mul_pd(_mm_set1_pd(volume), _mm_set_pd(m_analog.sample(1, static_cast<float>(v[1])),
+				m_analog.sample(0, static_cast<float>(v[0]))));
+		}
+		else
+		{
+			const D u = saturatePair(y, _mm_set1_pd(satGain));
+			out = _mm_mul_pd(_mm_set1_pd(volume), _mm_add_pd(y, _mm_mul_pd(_mm_set1_pd(satMix), _mm_sub_pd(u, y))));
+		}
 		const __m128 out32 = _mm_cvtpd_ps(out);
 		_left = _mm_cvtss_f32(out32);
 		_right = _mm_cvtss_f32(_mm_shuffle_ps(out32, out32, 1));

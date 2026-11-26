@@ -83,6 +83,9 @@ namespace elektron::drums::parameters
 	// the DT2's oracle's knobs
 	extern const std::array<Spec, DenseBytes> denseSpecs;
 	extern const std::array<int, DenseBytes> denseDefaults;
+	// The master's saturation stage: the DT2's overdrive (0, the default) or ANALOG ≈ (Master::setAnalog), appended
+	// after the DT2 reverb's
+	extern const Spec masterModelSpec;
 	constexpr int DefaultDelayNote = 9, DefaultLfoNote = 6;		// 1/4, 1 Bar
 	// Beats of delayNoteSpec's and lfoNoteSpecs' choices
 	double delayNoteQuarters(int _choice);

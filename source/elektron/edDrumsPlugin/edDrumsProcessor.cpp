@@ -747,6 +747,8 @@ namespace elektron::drums
 		// ... then the DT2 reverb's seven
 		for(size_t i = 0; i < m_dense.size(); ++i)
 			shared(m_dense[i], denseSpecs[i], denseDefaults[i], Section::Effects);
+		// ... then the master saturation's model
+		shared(m_masterModel, masterModelSpec, 0, Section::Master);
 
 		m_edited = std::make_unique<Sequencer>();
 		for(auto& s : m_sequencers)
@@ -2042,6 +2044,8 @@ namespace elektron::drums
 		for(size_t i = 0; i < m_master.size(); ++i)
 			if(m_master[i].changed())
 				e.master().set(static_cast<int>(i), byte(m_master[i]));
+		if(m_masterModel.changed())
+			e.master().setAnalog(m_masterModel.integer() != 0);
 		if(m_masterOn.changed())
 			e.setMasterOn(m_masterOn.integer() != 0);
 		if(m_oversampling.changed())

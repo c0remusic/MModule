@@ -1,7 +1,8 @@
 // The master on Main, in float: the Digitakt II's compressor, its +10 dB and clip, its overdrive and its volume, in the
 // firmware's order. Laws fitted on the firmware's tables and code, about 40 numbers; against the firmware run in an
 // emulator, a model of them errs by -100 dB or less. Main goes in at -10 dB, where a Digitakt II's Track sits under its
-// +10 dB, so that a Main under the threshold leaves as it came; but it leaves clipped at full scale, as the firmware's.
+// +10 dB, so that a Main under the threshold leaves as it came; but it leaves clipped at full scale, as the firmware's
+// (on ANALOG ≈, setAnalog, the saturation stage's own ceilings instead: +0.8 and -1.2).
 // The settings take effect at the engine's blocks (32 samples at 44.1 kHz, as long elsewhere), where their ramps start.
 #pragma once
 
@@ -13,6 +14,7 @@
 
 #include <emmintrin.h>
 
+#include "edDrumsAnalogDrive.h"
 #include "elektronBlock.h"
 
 namespace elektron::drums
@@ -101,6 +103,11 @@ namespace elektron::drums
 			m_changed = true;
 		}
 
+		// The saturation stage's model from the next block: the Digitakt II's overdrive (false, the default) or ANALOG ≈
+		// (ticket 03 of .scratch/elektron-drums-v2: AnalogDrive on each channel under the one DRIVE, at its AMOUNT, wet
+		// alone; at DRIVE 0 it still colours, as the Syntakt's Analog FX DRIVE at 0 does)
+		void setAnalog(const bool _analog) { m_analogTo = _analog; m_changed = true; }
+
 		// Nothing held, at the settings at once: for a master that comes on
 		void settle();
 
@@ -134,6 +141,8 @@ namespace elektron::drums
 		double m_x1[2] = {}, m_y1[2] = {}, m_releaseDb = 0, m_attackDb = 0, m_wet = 1, m_dry = 0;
 		int m_n = 0;			// in the block
 		bool m_changed = true;	// a byte since the last block: its laws to work out again
+		AnalogDrive m_analog;	// lanes 0 and 1, left and right
+		bool m_analogOn = false, m_analogTo = false;
 		std::atomic<float> m_reduction{0};
 	};
 }

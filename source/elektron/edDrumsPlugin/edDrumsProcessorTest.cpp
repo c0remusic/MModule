@@ -279,6 +279,7 @@ namespace
 			afterRelays.add(spec.id);
 		for(const auto& spec : parameters::denseSpecs)
 			afterRelays.add(spec.id);
+		afterRelays.add(parameters::masterModelSpec.id);
 		const auto& relays = _processor.ids(Processor::Section::Relays);
 		require(relays.size() == parameters::RelayCount
 			&& ids.indexOf(relays[0]) == ids.size() - parameters::RelayCount - afterRelays.size(),
@@ -497,6 +498,7 @@ namespace
 			master("master_attack", MasterAttack); master("master_release", MasterRelease);
 			master("master_makeup", MasterMakeup); master("master_mix", MasterMix); master("master_filter", MasterFilter);
 			master("master_drive", MasterDrive); master("master_volume", MasterVolume);
+			m["master_drive_model"] = [](Engine& _e, const double _v) { _e.master().setAnalog(whole(_v) != 0); };
 			m["oversampling"] = [](Engine& _e, const double _v) { _e.setOversampling(1 << whole(_v)); };
 			m["delay_sync"] = [](Engine& _e, const double _v) { _e.sends().setDelaySync(whole(_v) != 0); };
 			m["delay_note"] = [](Engine& _e, const double _v) { _e.sends().setDelayNote(parameters::delayNoteQuarters(whole(_v))); };

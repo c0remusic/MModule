@@ -8,14 +8,18 @@ namespace elektron::drums
 	namespace
 	{
 		constexpr double Pi = 3.14159265358979323846;
+		constexpr float BiasF = static_cast<float>(AnalogDrive::Bias);
+		constexpr float HissScale = static_cast<float>(AnalogDrive::Hiss / 2147483648.0);	// of a signed 32-bit word
 
 		// tanh's Padé approximant, exact at 0 and at 3 where its slope reaches 0, then held at 1
-		float clip(const float _x)
+		constexpr float clip(const float _x)
 		{
 			const float x = std::clamp(_x, -3.0f, 3.0f);
 			const float x2 = x * x;
 			return x * (27 + x2) / (27 + 9 * x2);
 		}
+
+		constexpr float Offset = clip(BiasF);		// the clip's output at rest, taken away
 
 		float onePole(const double _hz, const double _rate)
 		{
@@ -28,9 +32,8 @@ namespace elektron::drums
 		setFactor(1);
 		for(int l = 0; l < Lanes; ++l)
 		{
-			m_cutoff[l] = cutoff(0);
-			setPoles(l);
-			m_gain[l] = m_gainTo[l] = 1;
+			m_lanes[l].cutoff = cutoff(0);
+			setPole(m_lanes[l]);
 			clear(l);
 		}
 	}
@@ -54,71 +57,72 @@ namespace elektron::drums
 		const double rate = m_rate * m_factor;
 		m_dcPole = onePole(DcCutoff, rate);
 		m_envelopeFall = static_cast<float>(std::pow(1e-3, 1 / (0.1 * rate)));
-		for(int l = 0; l < Lanes; ++l)
-			setPoles(l);
+		for(auto& lane : m_lanes)
+			setPole(lane);
 	}
 
-	void AnalogDrive::setPoles(const int _lane)
+	void AnalogDrive::setPole(Lane& _lane) const
 	{
-		m_pole[_lane] = onePole(m_cutoff[_lane], m_rate * m_factor);
+		_lane.pole = onePole(_lane.cutoff, m_rate * m_factor);
 	}
 
 	void AnalogDrive::set(const int _lane, const int _amountWord)
 	{
+		auto& lane = m_lanes[_lane];
 		const double value = _amountWord / 128.0;
-		m_cutoff[_lane] = cutoff(value);
-		setPoles(_lane);
-		m_gainTo[_lane] = static_cast<float>(std::pow(10.0, gainDb(value) / 20));
+		lane.cutoff = cutoff(value);
+		setPole(lane);
+		lane.gainTo = static_cast<float>(std::pow(10.0, gainDb(value) / 20));
 		// Over the chain's block, which the stage sees as m_factor blocks when the chain raises it
-		m_ramp[_lane] = BlockSize * m_factor;
-		m_step[_lane] = (m_gainTo[_lane] - m_gain[_lane]) / static_cast<float>(m_ramp[_lane]);
+		lane.ramp = BlockSize * m_factor;
+		lane.step = (lane.gainTo - lane.gain) / static_cast<float>(lane.ramp);
 	}
 
 	void AnalogDrive::clear(const int _lane)
 	{
-		m_gain[_lane] = m_gainTo[_lane];
-		m_ramp[_lane] = 0;
-		m_hpX[_lane] = m_hpY[_lane] = m_dcX[_lane] = m_dcY[_lane] = m_envelope[_lane] = 0;
-		m_noise[_lane] = 0x9e3779b9u * static_cast<uint32_t>(_lane + 1);
+		clear(_lane, 0x9e3779b9u * static_cast<uint32_t>(_lane + 1));
+	}
+
+	void AnalogDrive::clear(const int _lane, const uint32_t _seed)
+	{
+		auto& lane = m_lanes[_lane];
+		lane.gain = lane.gainTo;
+		lane.ramp = 0;
+		lane.hpX = lane.hpY = lane.dcX = lane.dcY = lane.envelope = 0;
+		lane.noise = _seed;
+	}
+
+	inline float AnalogDrive::tick(Lane& _lane, const float _x) const
+	{
+		_lane.hpY = _lane.pole * (_lane.hpY + _x - _lane.hpX);
+		_lane.hpX = _x;
+		_lane.envelope = std::max(std::abs(_x), _lane.envelope * m_envelopeFall);
+		_lane.noise = _lane.noise * 1664525u + 1013904223u;
+		const float n = static_cast<float>(static_cast<int32_t>(_lane.noise)) * HissScale * _lane.envelope;
+		if(_lane.ramp > 0)
+			_lane.gain = --_lane.ramp ? _lane.gain + _lane.step : _lane.gainTo;
+		const float y = clip(_lane.gain * (_lane.hpY + n) + BiasF) - Offset;
+		_lane.dcY = m_dcPole * (_lane.dcY + y - _lane.dcX);
+		_lane.dcX = y;
+		return _lane.dcY;
 	}
 
 	void AnalogDrive::process(Block& _buf, const uint16_t _lanes)
 	{
-		const float bias = static_cast<float>(Bias), offset = clip(bias);
-		const float hiss = static_cast<float>(Hiss / 2147483648.0);
 		for(int l = 0; l < _buf.lanes; ++l)
 		{
 			if(!(_lanes >> l & 1))
 				continue;
-			const float pole = m_pole[l], dcPole = m_dcPole, fall = m_envelopeFall;
-			const float step = m_step[l];
-			int ramp = m_ramp[l];
-			float gain = m_gain[l], hpX = m_hpX[l], hpY = m_hpY[l], dcX = m_dcX[l], dcY = m_dcY[l];
-			float envelope = m_envelope[l];
-			uint32_t noise = m_noise[l];
+			// A copy the loop keeps in registers
+			Lane lane = m_lanes[l];
 			for(int s = 0; s < BlockSize; ++s)
-			{
-				const float x = _buf.s[s][l];
-				hpY = pole * (hpY + x - hpX);
-				hpX = x;
-				envelope = std::max(std::abs(x), envelope * fall);
-				noise = noise * 1664525u + 1013904223u;
-				const float n = static_cast<float>(static_cast<int32_t>(noise)) * hiss * envelope;
-				if(ramp > 0)
-					gain = --ramp ? gain + step : m_gainTo[l];
-				const float y = clip(gain * (hpY + n) + bias) - offset;
-				dcY = dcPole * (dcY + y - dcX);
-				dcX = y;
-				_buf.s[s][l] = dcY;
-			}
-			m_gain[l] = gain;
-			m_ramp[l] = ramp;
-			m_hpX[l] = hpX;
-			m_hpY[l] = hpY;
-			m_dcX[l] = dcX;
-			m_dcY[l] = dcY;
-			m_envelope[l] = envelope;
-			m_noise[l] = noise;
+				_buf.s[s][l] = tick(lane, _buf.s[s][l]);
+			m_lanes[l] = lane;
 		}
+	}
+
+	float AnalogDrive::sample(const int _lane, const float _x)
+	{
+		return tick(m_lanes[_lane], _x);
 	}
 }

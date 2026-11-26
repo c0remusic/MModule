@@ -2124,6 +2124,13 @@ namespace
 			for(int t = 0; t < 16; ++t)
 				put(juce::String::formatted("t%02d_output", t + 1), 1);
 			snapshot(editor, _folder.getChildFile("master-widest.png"));
+			// Ticket 03: DRIVE on ANALOG ≈, at 127: its model on MASTER's title line, its gain in dB
+			put("master_drive_model", 1);
+			snapshot(editor, _folder.getChildFile("master-analog.png"));
+			auto* drive = processor.parameter("master_drive");
+			const auto text = drive->getText(drive->getValue(), 32);
+			check(text == "+30.0 dB" && processor.parameter("master_drive_model")->getCurrentValueAsText()
+				== juce::String::fromUTF8("Analog \xE2\x89\x88"), "Master DRIVE on ANALOG: 127 reads \"" + text + "\"");
 			for(const auto& [id, value] : kept)
 				processor.parameter(id)->setValueNotifyingHost(value);
 		}

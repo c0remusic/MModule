@@ -9,6 +9,8 @@
 //   - 16 lanes at their own DRIVEs give the samples of each lane alone;
 //   - rates: a chain at 44.1 kHz and one at 48, direct and raised 2x, within 0.05 dB on the tone and 1 dB on its THD+N;
 //   - its cost, reported.
+// Then on the master (ticket 03): the same behaviours on its saturation stage, which is never raised, its two channels
+// the same sample for sample under a mono input; its overdrive the same after ANALOG ≈ was on; the master's cost.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -45,10 +47,39 @@ namespace
 		return s;
 	}
 
-	// _in through lane 0 of a chain of _settings at _rate, raised _factor times, from silence
+	// Ticket 03: the master's saturation stage on ANALOG ≈ in place of the chain's drive, its compressor dry, at full
+	// volume; both channels fed the same, which must leave them the same
+	bool g_master = false;
+
+	std::vector<double> master(const std::vector<double>& _in, const int _amount, const double _rate)
+	{
+		auto m = std::make_unique<Master>(_rate);
+		m->set(MasterMix, 0);
+		m->set(MasterDrive, static_cast<uint8_t>(_amount));
+		m->set(MasterVolume, 127);
+		m->setAnalog(true);
+		m->settle();
+		std::vector<double> y(_in.size());
+		float left[BlockSize], right[BlockSize];
+		for(size_t at = 0; at + BlockSize <= _in.size(); at += BlockSize)
+		{
+			for(int n = 0; n < BlockSize; ++n)
+				left[n] = right[n] = static_cast<float>(_in[at + static_cast<size_t>(n)]);
+			m->block();
+			m->process(left, right, BlockSize);
+			require(std::memcmp(left, right, sizeof left) == 0, "the master's channels differ under a mono input");
+			for(int n = 0; n < BlockSize; ++n)
+				y[at + static_cast<size_t>(n)] = left[n];
+		}
+		return y;
+	}
+
+	// _in through lane 0 of a chain of _settings at _rate, raised _factor times, from silence; or through the master
 	std::vector<double> through(const std::vector<double>& _in, const ChainSettings& _settings, const double _rate,
 		const int _factor = 1)
 	{
+		if(g_master)
+			return master(_in, _settings.drive[0].amount, _rate);
 		auto chain = std::make_unique<Chain>(_rate, _rate == 48000);
 		chain->setOversampling(_factor);
 		chain->configure(0, _settings);
@@ -232,6 +263,7 @@ namespace
 		double worstLevel = 0, worstThd = 0;
 		for(const int factor : {1, 2})
 			for(const int amount : {32, 64, 127})
+				if(factor == 1 || !g_master)		// the master is never raised
 				for(const double level : {0.05, 0.5})
 				{
 					const auto a = tone(level, 1000, amount, 44100, factor);
@@ -239,8 +271,8 @@ namespace
 					worstLevel = std::max(worstLevel, std::abs(dbOf(a.amplitude / b.amplitude)));
 					worstThd = std::max(worstThd, std::abs(a.thd - b.thd));
 				}
-		std::printf("  rates: 44.1 against 48 kHz, direct and raised 2x: the tone within %.3f dB, THD+N within %.2f dB"
-			" (thresholds 0.05, 1)\n", worstLevel, worstThd);
+		std::printf("  rates: 44.1 against 48 kHz, direct%s: the tone within %.3f dB, THD+N within %.2f dB"
+			" (thresholds 0.05, 1)\n", g_master ? "" : " and raised 2x", worstLevel, worstThd);
 		require(worstLevel < 0.05 && worstThd < 1, "44.1 and 48 kHz differ");
 	}
 
@@ -266,6 +298,58 @@ namespace
 		std::printf("  cost: 16 lanes, %.3f %% of a core at 44.1 kHz, %.4f %% a Track (guide 0.1 %%, before "
 			"oversampling)\n", percent, percent / Lanes);
 	}
+
+	// Main through the master, DRIVE 100, on the DT2's overdrive or on ANALOG ≈ (switched on, or on then off again),
+	// and the time it took at best of 5, in seconds
+	std::vector<float> masterRun(const int _analog, double& _seconds)
+	{
+		Master m(44100);
+		m.set(MasterDrive, 100);
+		if(_analog)
+			m.setAnalog(true);
+		m.settle();
+		if(_analog == 2)
+		{
+			m.setAnalog(false);
+			m.block();
+		}
+		std::vector<float> out;
+		float left[BlockSize], right[BlockSize];
+		_seconds = 1e9;
+		for(int pass = 0; pass < 5; ++pass)
+		{
+			const auto t0 = std::chrono::steady_clock::now();
+			for(int b = 0; b < 2000; ++b)
+			{
+				for(int n = 0; n < BlockSize; ++n)
+				{
+					left[n] = 0.5f * static_cast<float>(std::sin(0.05 * (b * BlockSize + n)));
+					right[n] = 0.5f * static_cast<float>(std::sin(0.07 * (b * BlockSize + n)));
+				}
+				m.block();
+				m.process(left, right, BlockSize);
+				if(pass == 0)
+				{
+					out.insert(out.end(), left, left + BlockSize);
+					out.insert(out.end(), right, right + BlockSize);
+				}
+			}
+			_seconds = std::min(_seconds, std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+		}
+		return out;
+	}
+
+	// Ticket 03: the DT2's overdrive stays the master's default, and comes back the same after ANALOG ≈; the cost
+	void masterModel()
+	{
+		double never = 0, back = 0, analog = 0;
+		const auto a = masterRun(0, never), b = masterRun(2, back);
+		masterRun(1, analog);
+		require(a == b, "the master's overdrive is not the same after ANALOG ≈");
+		const double block = 2000 * BlockSize / 44100.0;
+		std::printf("  master: the overdrive the same after ANALOG \xE2\x89\x88; the master costs %.3f %% of a core on it,"
+			" %.3f %% on ANALOG \xE2\x89\x88 (guide 0.2 %% for the stage)\n", 100 * never / block, 100 * analog / block);
+	}
 }
 
 int main()
@@ -282,6 +366,15 @@ int main()
 		lanes();
 		rates();
 		cost();
+		std::printf("ANALOG \xE2\x89\x88 on the master (ticket 03), both channels the same under a mono input:\n");
+		g_master = true;
+		monotone();
+		distortion();
+		compression();
+		lowEnd();
+		hiss();
+		rates();
+		masterModel();
 	}
 	catch(const std::exception& _e)
 	{

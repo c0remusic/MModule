@@ -3056,6 +3056,15 @@ namespace elektron::drums
 			addCell(cellOf(m_processor.parameter(ids[i]), names[i], x1 + 2 + static_cast<float>(i % 3) * cw,
 				32 + static_cast<float>(i / 3) * 18, cw, hue::k, "k"));
 		block(x1, 72, w, "ms", "MASTER", hue::s);
+		// DRIVE's model on the title line (ticket 03 of .scratch/elektron-drums-v2): the DT2's overdrive or ANALOG ≈
+		{
+			Cell model = cellOf(m_processor.parameter("master_drive_model"), "MODEL", x1 + w - 48, 72 + 1.8f, 44, hue::s,
+				"ms");
+			model.look = Look::Segments;
+			model.labels = {"OVERDRIVE", juce::String::fromUTF8("ANALOG \xE2\x89\x88")};
+			model.h = 6;
+			addCell(model);
+		}
 		const char* ids2[]{"master_on", "master_drive", "master_filter"};
 		const char* names2[]{"MASTER", "DRIVE", "SC FILTER"};
 		for(int i = 0; i < 3; ++i)
