@@ -6,7 +6,7 @@
 //   - compression: the output's level over the input's, its slope near 1 when quiet and under 0.3 near full scale;
 //   - the low end: 50 Hz against 1 kHz kept within 2 dB at DRIVE 64, lost by 10 dB or more at 127;
 //   - hiss: rising with DRIVE under a held input, and the output falling to silence once the input does;
-//   - 16 lanes at their own DRIVEs give the samples of each lane alone;
+//   - 16 lanes at their own DRIVEs, in vectors, give the samples of each lane alone, sample by sample;
 //   - rates: a chain at 44.1 kHz and one at 48, direct and raised 2x, within 0.05 dB on the tone and 1 dB on its THD+N;
 //   - its cost, reported.
 // Then on the master (ticket 03): the same behaviours on its saturation stage, which is never raised, its two channels
@@ -217,21 +217,31 @@ namespace
 		std::printf(" silent 0.5 s after the input stops\n");
 	}
 
+	// The block's 16 lanes, in vectors, against each lane alone sample by sample (sample(), the scalar kernel), through
+	// DRIVE moves that ramp across blocks, masks that leave lanes out of a vector, and the chain raised 4x half way
 	void lanes()
 	{
 		std::mt19937 random(2);
-		AnalogDrive all(44100);
-		std::vector<AnalogDrive> alone(Lanes, AnalogDrive(44100));
-		for(int l = 0; l < Lanes; ++l)
+		AnalogDrive all(44100), alone(44100);
+		const auto move = [&](const int _lane)
 		{
 			const int amount = static_cast<int>(random() % 128);
-			all.set(l, amount << 7);
-			alone[static_cast<size_t>(l)].set(l, amount << 7);
-		}
+			all.set(_lane, amount << 7);
+			alone.set(_lane, amount << 7);
+		};
+		for(int l = 0; l < Lanes; ++l)
+			move(l);
 		const uint16_t masks[] = {0xffff, 0x0ff0, 0x00f3, 0x8001, 0xf0f0};
 		int64_t compared = 0;
 		for(int b = 0; b < 200; ++b)
 		{
+			if(b == 100)
+			{
+				all.setFactor(4);
+				alone.setFactor(4);
+			}
+			if(b % 3 == 0)
+				move(static_cast<int>(random() % Lanes));
 			const uint16_t lanes = masks[static_cast<size_t>(b / 8) % std::size(masks)];
 			Block in;
 			for(auto& row : in.s)
@@ -247,14 +257,15 @@ namespace
 						require(out.s[n][l] == in.s[n][l], "a lane outside the mask changed");
 					continue;
 				}
-				Block one = in;
-				alone[static_cast<size_t>(l)].process(one, static_cast<uint16_t>(1 << l));
 				for(int n = 0; n < BlockSize; ++n, ++compared)
-					require(std::memcmp(&out.s[n][l], &one.s[n][l], sizeof(float)) == 0,
+				{
+					const float one = alone.sample(l, in.s[n][l]);
+					require(std::memcmp(&out.s[n][l], &one, sizeof(float)) == 0,
 						"a lane among 16 is not the lane alone");
+				}
 			}
 		}
-		std::printf("  lanes: 16 at their own DRIVEs, %lld samples, each the lane alone's\n",
+		std::printf("  lanes: 16 at their own DRIVEs, moved and raised, %lld samples, each the lane alone's\n",
 			static_cast<long long>(compared));
 	}
 

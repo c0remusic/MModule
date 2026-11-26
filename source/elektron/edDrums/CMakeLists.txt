@@ -28,12 +28,13 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
 	# AVX without FMA, so that nothing fuses a multiply and an add the SSE build keeps apart
 	set_source_files_properties(edDrumsOversamplerAvx2.cpp edDrumsMasterAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2;-ffp-contract=off")
 endif()
-# The DT2's filters' setters, its chorus and its reverb in the order the DSP computes them, nothing reordered or fused
+# The DT2's filters' setters, its chorus and its reverb in the order the DSP computes them, nothing reordered or fused;
+# ANALOG ≈, whose vector kernel and scalar one must give the same samples
 if(MSVC)
-	set_source_files_properties(edDrumsDt2Filters.cpp edDrumsDt2Chorus.cpp edDrumsDt2Reverb.cpp
+	set_source_files_properties(edDrumsDt2Filters.cpp edDrumsDt2Chorus.cpp edDrumsDt2Reverb.cpp edDrumsAnalogDrive.cpp
 		PROPERTIES COMPILE_OPTIONS "/fp:precise")
 else()
-	set_source_files_properties(edDrumsDt2Filters.cpp edDrumsDt2Chorus.cpp edDrumsDt2Reverb.cpp
+	set_source_files_properties(edDrumsDt2Filters.cpp edDrumsDt2Chorus.cpp edDrumsDt2Reverb.cpp edDrumsAnalogDrive.cpp
 		PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
 target_link_libraries(edDrums PUBLIC mdVoice mdFast stFast cyFast sophie PRIVATE mdEngine opendrum)
