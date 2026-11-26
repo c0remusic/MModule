@@ -1792,6 +1792,21 @@ namespace
 			amount->setValueNotifyingHost(amount->convertTo0to1(64.0f));
 			editor.showMachinePage(1);
 			snapshot(editor, _folder.getChildFile("sound-vintage.png"));
+			// Ticket 02: Drive 2 ANALOG ≈, its name and its gain (Drive 1's title lies under the last toast)
+			{
+				auto* drive2 = processor.parameter("t01_drv2_type");
+				auto* amount2 = processor.parameter("t01_drv2_amount");
+				const float drive2Was = drive2->getValue(), amount2Was = amount2->getValue();
+				drive2->setValueNotifyingHost(drive2->convertTo0to1(static_cast<float>(DriveType::SyntaktAnalog)));
+				amount2->setValueNotifyingHost(amount2->convertTo0to1(127.0f));
+				editor.tick();
+				snapshot(editor, _folder.getChildFile("sound-analog-drive.png"));
+				const auto text = amount2->getText(amount2->getValue(), 32);
+				check(text == "+30.0 dB", "Drive 2 ANALOG: its type named \"" + drive2->getCurrentValueAsText()
+					+ "\", its AMOUNT 127 \"" + text + "\"");
+				drive2->setValueNotifyingHost(drive2Was);
+				amount2->setValueNotifyingHost(amount2Was);
+			}
 			editor.showMachinePage(0);
 			// Ticket 37: the sample under the Hit, what it plays between two marks: VINTAGE's STRT 32 and END 96 at
 			// 32/128 and 96/127 of the picture; CLEAN's ONESHOT, STRT 32 and LEN 32, at 32/127 and 64/127

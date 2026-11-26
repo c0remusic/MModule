@@ -1,7 +1,7 @@
 # Couche sample par piste
 
 Type: AFK puis HITL (écoute)
-Status: ready-for-agent
+Status: done (écoute de la BR à venir)
 Assignee:
 Blocked by: 04, 26
 

@@ -18,7 +18,7 @@ namespace elektron::drums::parameters
 	namespace
 	{
 		constexpr const char* DriveTypes = "Off|Saturate|Distort|Downsample|DAC|Overdrive|Cycles dist|Bit reduce"
-			"|SR reduce";
+			"|SR reduce|Saturate \xE2\x89\x88";
 		constexpr const char* OutputNames = "Main|Out 01|Out 02|Out 03|Out 04|Out 05|Out 06|Out 07|Out 08|Out 09"
 			"|Out 10|Out 11|Out 12|Out 13|Out 14|Out 15";
 		// VelocityTarget's: the chain's, then a Cycles machine's Machine 1-6, which the editor offers on a Cycles Track
@@ -313,6 +313,8 @@ namespace elektron::drums::parameters
 			// The DT2's BR: the bits it keeps; its SRR: the mixed hold, in samples at 48 kHz
 			case DriveType::Dt2Br:		return _v == 0 ? "OFF" : withUnit(Dt2Br::bits(_v), "BIT");
 			case DriveType::Dt2Srr:		return _v == 0 ? "OFF" : withUnit(Dt2Srr::hold(_v) + 1, "x");
+			// ANALOG ≈ (AnalogDrive): the gain into its clip
+			case DriveType::SyntaktAnalog:	return decibels(AnalogDrive::gainDb(_v), true);
 			default:					return std::to_string(_v);
 			}
 		}
@@ -626,11 +628,11 @@ namespace elektron::drums::parameters
 	}
 
 	const std::array<Spec, ChainValues> chainSpecs{{
-		{"drv1_type", "Drive 1 Type", 0, 8, DriveTypes},
+		{"drv1_type", "Drive 1 Type", 0, 9, DriveTypes},
 		{"drv1_post", "Drive 1 Place", 0, 1, nullptr, true},
 		{"drv1_amount", "Drive 1 Amount"},
 		{"drv1_mix", "Drive 1 Mix"},
-		{"drv2_type", "Drive 2 Type", 0, 8, DriveTypes},
+		{"drv2_type", "Drive 2 Type", 0, 9, DriveTypes},
 		{"drv2_post", "Drive 2 Place", 0, 1, nullptr, true},
 		{"drv2_amount", "Drive 2 Amount"},
 		{"drv2_mix", "Drive 2 Mix"},

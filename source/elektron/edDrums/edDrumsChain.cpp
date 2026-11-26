@@ -295,11 +295,11 @@ namespace elektron::drums
 
 	Chain::DriveStages::DriveStages(const double _rate)
 		: dist(rate::fastFir()), srr(_rate), dac(_rate), overdrive(rate::fastFir()), cyclesDist(rate::fastFir()),
-		  dt2Srr(_rate),
+		  dt2Srr(_rate), analog(_rate),
 		  rates{Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()),
 			Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()),
 			Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir()),
-			Oversampler(_rate, rate::fastFir())}
+			Oversampler(_rate, rate::fastFir()), Oversampler(_rate, rate::fastFir())}
 	{
 	}
 
@@ -333,6 +333,8 @@ namespace elektron::drums
 	void Chain::setOversampling(const int _factor)
 	{
 		m_factor = _factor;
+		for(auto& d : m_drives)
+			d.analog.setFactor(_factor);
 	}
 
 	Chain::DriveStages& Chain::driveAt(const int _place)
@@ -402,6 +404,8 @@ namespace elektron::drums
 				_function(s.dt2Br, StageLevel{1, 1});
 			else if(_type == static_cast<int>(DriveType::Dt2Srr))
 				_function(s.dt2Srr, StageLevel{1, 1});
+			else if(_type == static_cast<int>(DriveType::SyntaktAnalog))
+				_function(s.analog, StageLevel{1, 1});
 		}
 	}
 
@@ -495,6 +499,7 @@ namespace elektron::drums
 		case DriveType::CyclesDist:	s.cyclesDist.set(_lane, amount); break;
 		case DriveType::Dt2Br:		s.dt2Br.set(_lane, amount); break;
 		case DriveType::Dt2Srr:		s.dt2Srr.set(_lane, amount); break;
+		case DriveType::SyntaktAnalog:	s.analog.set(_lane, amount); break;
 		default:					break;
 		}
 		m_mix[_place][_lane] = static_cast<float>(_drive.mix) / 127.0f;

@@ -7,7 +7,7 @@ add_library(edDrums STATIC edDrumsAnalog.h edDrumsAnalogPort.h edDrumsAnalogShar
 	edDrumsAnalogSynth.cpp edDrumsAnalogSynthVoice.cpp edDrumsAnalogUtility.cpp edDrumsAnalogUtilityVoice.cpp
 	edDrumsAnalogRates.h edDrumsAnalogRates.cpp edDrumsAnalogMetal.cpp edDrumsAnalogMetalVoice.cpp
 	edDrumsRytm.h edDrumsRytmControl.cpp edDrumsRytmVoice.h edDrumsRytmVoice.cpp
-	edDrumsChain.h edDrumsChain.cpp edDrumsDt2Stages.h edDrumsDt2Stages.cpp edDrumsDt2Filters.h edDrumsDt2Filters.cpp
+	edDrumsAnalogDrive.h edDrumsAnalogDrive.cpp edDrumsChain.h edDrumsChain.cpp edDrumsDt2Stages.h edDrumsDt2Stages.cpp edDrumsDt2Filters.h edDrumsDt2Filters.cpp
 	edDrumsDt2Player.h edDrumsDt2Player.cpp edDrumsLayer.h edDrumsLayer.cpp
 	edDrumsEngine.h edDrumsEngine.cpp edDrumsHitPreview.h edDrumsHitPreview.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
 	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
@@ -64,6 +64,13 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsChainTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsChainTest COMMAND edDrumsChainTest)
 	set_tests_properties(edDrumsChainTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
+
+	# ANALOG ≈: the behaviours its model is to give, its 16 lanes against 1, 44.1 against 48 kHz, its cost
+	add_executable(edDrumsAnalogDriveTest edDrumsAnalogDriveTest.cpp)
+	target_link_libraries(edDrumsAnalogDriveTest PRIVATE edDrums)
+	set_property(TARGET edDrumsAnalogDriveTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsAnalogDriveTest COMMAND edDrumsAnalogDriveTest)
+	set_tests_properties(edDrumsAnalogDriveTest PROPERTIES TIMEOUT 120)
 
 	# The Cycles dist drive against the Model:Cycles' VOL+DIST stage run in its OS (CYCLES_DIST_VECTORS: exit 77 without
 	# them), its 16 lanes against 1, 44.1 against 48 kHz

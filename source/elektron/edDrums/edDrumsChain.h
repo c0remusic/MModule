@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "edDrumsAnalogDrive.h"
 #include "edDrumsDt2Filters.h"
 #include "edDrumsDt2Stages.h"
 #include "edDrumsMaster.h"
@@ -39,6 +40,7 @@ namespace elektron::drums
 		CyclesDist,	// the Model:Cycles' VOL+DIST stage, AMOUNT its one knob (edDrumsMaster.h)
 		Dt2Br,		// the Digitakt II's BR and SRR (edDrumsDt2Stages.h)
 		Dt2Srr,
+		SyntaktAnalog,	// ANALOG ≈, the Syntakt's Analog FX DRIVE approached (edDrumsAnalogDrive.h)
 		Count
 	};
 
@@ -249,7 +251,8 @@ namespace elektron::drums
 	private:
 		enum Place { Pre0, Pre1, BandBefore, FilterPlace, BandAfter, Post0, Post1, Places };
 
-		// Off, then the stages of a place: the drives' eight, the band's four, the filter's eight and the Syntakt's other
+		// Off, then the stages of a place: the drives' nine (Types full: a tenth needs Types raised), the band's four,
+		// the filter's eight and the Syntakt's other
 		static constexpr int Types = 10;
 		static constexpr int8_t NoPending = -1;
 
@@ -264,6 +267,7 @@ namespace elektron::drums
 			CyclesDist cyclesDist;
 			Dt2Br dt2Br;
 			Dt2Srr dt2Srr;
+			AnalogDrive analog;
 			std::array<Oversampler, static_cast<size_t>(DriveType::Count)> rates;	// by DriveType: a raised drive's history is its own
 		};
 
