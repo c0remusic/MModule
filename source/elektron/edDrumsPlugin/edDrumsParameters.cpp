@@ -517,10 +517,11 @@ namespace elektron::drums::parameters
 		if(vintage::isDt2(_page.grain) && _index < vintage::GrainSlot)
 		{
 			// The CLEAN grain's page (Dt2Player::Slot), as its MODE lays it out
-			// SLICE plays as ONESHOT until its ticket (12), and says so
-			static constexpr const char* Modes[]{"ONESHOT", "GRID", "REPITCH", "WERP", "ONESHOT", "STRETCH"};
+			static constexpr const char* Modes[]{"ONESHOT", "GRID", "REPITCH", "WERP", "SLICE", "STRETCH"};
 			const auto mode = Dt2Player::modeOf(_page.mode);
-			const int slices = Dt2Player::gridOf(_page.grid);
+			const bool sliced = mode == Dt2Player::Grid || mode == Dt2Player::SliceMode;
+			// GRID's equal slices, or the Track's (SamplerPage::slices)
+			const int slices = mode == Dt2Player::SliceMode ? std::max(_page.slices, 1) : Dt2Player::gridOf(_page.grid);
 			switch(_index)
 			{
 			case Dt2Player::Tune:	return semitones(_value - 64);
@@ -538,9 +539,10 @@ namespace elektron::drums::parameters
 			case Dt2Player::Start:
 				if(mode == Dt2Player::Werp)
 					return "1/" + std::to_string(32 >> Dt2Player::werpSegmentOf(_value));
-				return mode == Dt2Player::Grid ? std::to_string(Dt2Player::sliceOf(_value, slices)) : withUnit(100.0 * _value / 127, "%");
+				return sliced ? std::to_string(Dt2Player::sliceOf(_value, slices))
+					: withUnit(100.0 * _value / 127, "%");
 			case Dt2Player::Length:
-				return mode == Dt2Player::Grid ? std::to_string(1 + Dt2Player::moreSlicesOf(_value, slices))
+				return sliced ? std::to_string(1 + Dt2Player::moreSlicesOf(_value, slices))
 					: withUnit(100.0 * _value / 127, "%");
 			default:				return std::to_string(_value);
 			}

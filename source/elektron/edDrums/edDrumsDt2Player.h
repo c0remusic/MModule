@@ -20,6 +20,22 @@ namespace elektron::drums
 	// The samples the player reads, one per lane: nullptr or a length of 0 plays silence. Kept by the caller while it
 	// renders, changed between blocks; a lane reads its slot again at each block: a sample replaced under a fading voice
 	// is read from the next block, at the voice's position, the old one being the caller's to free
+	// A Track's slices for MODE SLICE (ticket 12 of the v2 map): contiguous, each ending where the next starts, cut at
+	// the marks, in sample frames ascending; no mark, one slice, the whole sample. A mark at or past a sample's end (a
+	// locked sample shorter than the Track's) cuts nothing
+	struct Slices
+	{
+		static constexpr int Max = 64;
+		std::array<uint32_t, Max - 1> marks{};
+		int count = 0;
+
+		bool operator==(const Slices& _o) const
+		{
+			return count == _o.count && std::equal(marks.begin(), marks.begin() + count, _o.marks.begin());
+		}
+		bool operator!=(const Slices& _o) const { return !(*this == _o); }
+	};
+
 	struct Dt2Samples
 	{
 		struct Slot
@@ -27,6 +43,7 @@ namespace elektron::drums
 			const int16_t* pcm = nullptr;
 			uint32_t length = 0;
 			double rate = 48000.0;
+			const Slices* slices = nullptr;		// the Track's, which its owner keeps; none, one slice
 		};
 		std::array<Slot, Lanes> slots{};
 	};
@@ -59,8 +76,10 @@ namespace elektron::drums
 		// read passes the window's end; PLAY's direction and loop; the Digitakt II's ColdFire and SHARC run at the
 		// oracle, ticket 11); STRETCH (STRT and LEN over 2^BARS bars at the tempo, Machine 4 BARS, at TUNE's pitch: a
 		// grain of the sample read every 2048 outputs from where the time has reached, faded in over 128 as the last fades
-		// out, rendered at the output rate without the kernel; PLAY's direction and loop; ticket 13); SLICE plays as
-		// ONESHOT until its ticket (12)
+		// out, rendered at the output rate without the kernel; PLAY's direction and loop; ticket 13); SLICE (the
+		// Track's slices, Dt2Samples::Slot::slices; Machine 5 the slice played, 6 how many more follow it, as
+		// GRID's: the portion the Digitakt II's ColdFire hands its SHARC in frames, bounded as ONESHOT's, a loop
+		// the whole portion; ticket 12)
 		enum PlayerMode : int
 		{
 			OneShot, Grid, Repitch, Werp, SliceMode, Stretch
@@ -91,7 +110,13 @@ namespace elektron::drums
 		{
 			double start = 0, end = 1;
 		};
-		static std::optional<Span> span(int _mode, int _loop, int _start, int _length);
+		// SLICE's from _slices over a sample _length frames long
+		static std::optional<Span> span(int _mode, int _loop, int _start, int _length, const Slices* _slices = nullptr,
+			uint32_t _sampleLength = 0);
+		// SLICE: the slices _slices cuts a sample _length frames long into, and where the k-th of them starts (k
+		// from 0; k = count, the sample's end)
+		static int sliceCount(const Slices* _slices, uint32_t _length);
+		static uint32_t sliceStart(const Slices* _slices, uint32_t _length, int _k);
 
 		Dt2Player();
 
@@ -144,6 +169,7 @@ namespace elektron::drums
 			uint32_t length = 0;
 			bool playing = false, reverse = false, loop = false;
 			bool repitch = false;	// the step from the portion's length and the bars, not from TUNE
+			bool slice = false;		// SLICE: its REV LOOP wraps as WERP's (sl_hit_1200_2400_revloop)
 			double bars = 1;		// REPITCH: 2^BARS, the bars the portion takes
 			// WERP: the ColdFire's sequencer in its own units (a whole sample is WerpWhole), its step (the window's length)
 			// and the step clock's accumulator in them too; the window, start and end, from the position at the last step

@@ -93,6 +93,7 @@ namespace elektron::drums
 		std::vector<int> machinesListed() const { return machineList(); }
 		juce::Rectangle<int> selectorItemArea(int _item) const;
 		juce::Rectangle<int> voiceArea() const;		// Sound's VOICE picture, the Hit drawn (ticket 37)
+		juce::Rectangle<int> sliceGridArea() const;	// its GRID in MODE SLICE (ticket 12 of the v2 map)
 		// Seq's Detail: + LOCK, LANES (the lanes' page, past five), LIVE and the trig row's modes, the trig row of the
 		// 16 steps shown, a lane's row shown and its X, the + LOCK menu's entry of a parameter (by its index; empty when
 		// the menu is shut or the parameter has a lane already)
@@ -402,6 +403,14 @@ namespace elektron::drums
 		std::vector<Lock> m_undoLocks;
 		Selector m_selector;
 		Press m_press;
+		int m_sliceMark = -1;				// the slice mark the press in VOICE's picture holds, -1 for none
+
+		// SLICE's editor in VOICE's picture (ticket 12 of the v2 map): the Track shown on the Sampler's CLEAN grain in
+		// MODE SLICE with a sample; the mark within a mm of _x, -1 for none; the frame of the sample at _x, inside it
+		bool slicing() const;
+		int sliceMarkAt(float _x) const;
+		uint32_t sliceFrameAt(float _x) const;
+		void setEvenSlices(int _slices);
 		juce::String m_key;
 		// Each Track's parameters that layoutKey reads every frame, and NOTE, which laneSteps compares with
 		struct KeyChoices

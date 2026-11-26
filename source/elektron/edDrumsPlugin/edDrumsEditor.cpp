@@ -210,7 +210,8 @@ namespace elektron::drums
 		// The Sampler's grain and, on CLEAN, its mode: its page's controls follow them (names::control)
 		{
 			const auto page = samplerPage(m_track);
-			key << "/" << static_cast<int>(vintage::grainOf(page.grain)) << "," << static_cast<int>(Dt2Player::modeOf(page.mode));
+			key << "/" << static_cast<int>(vintage::grainOf(page.grain)) << ","
+				<< static_cast<int>(Dt2Player::modeOf(page.mode)) << "," << page.slices;
 		}
 		key << "/" << choiceOf(*shown.machine) << "/" << choiceOf(*shown.fltType) << "/" << choiceOf(*shown.bandType) << "/"
 			<< choiceOf(*shown.ampMode) << "/" << choiceOf(*shown.lfo1Sync) << "/" << choiceOf(*shown.lfo2Sync) << "/"
@@ -1102,7 +1103,10 @@ namespace elektron::drums
 			const auto* p = trackParameter(_id, _track);
 			return p ? juce::roundToInt(p->convertFrom0to1(p->getValue())) : 0;
 		};
-		return {at("m9"), at("m3"), at("m4")};
+		const auto* sample = m_processor.trackSample(_track);
+		const auto frames = sample && sample->source
+			? static_cast<uint32_t>(std::min<size_t>(sample->source->size(), Sample::MaxSourceLength)) : 0u;
+		return {at("m9"), at("m3"), at("m4"), Dt2Player::sliceCount(&m_processor.slices(_track), frames)};
 	}
 
 	juce::String Editor::lockName(const juce::RangedAudioParameter& _parameter) const

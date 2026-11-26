@@ -1824,6 +1824,48 @@ namespace
 				end->setValueNotifyingHost(end->convertTo0to1(32.0f));
 				editor.tick();
 				snapshot(editor, _folder.getChildFile("sound-sample-clean.png"));
+				// Ticket 12: in MODE SLICE the picture edits the Track's slices. A click puts a mark where it falls, a
+				// drag moves it, a double click takes it away; the state keeps them
+				{
+					const auto slice = static_cast<float>(Dt2Player::SliceMode * 128 / 6 + 10);
+					mode->setValueNotifyingHost(mode->convertTo0to1(slice));
+					processor.setSlices(0, {});
+					editor.tick();
+					const auto area = editor.voiceArea();
+					const auto frames = static_cast<double>(processor.trackSample(0)->pcm.size());
+					const auto at = [&](const double _u)
+					{
+						return juce::Point<int>(area.getX() + juce::roundToInt(_u * area.getWidth()),
+							area.getCentreY());
+					};
+					const auto near = [&](const int _i, const double _u)
+					{
+						const auto& s = processor.slices(0);
+						return _i < s.count && std::abs(s.marks[static_cast<size_t>(_i)] / frames - _u) < 0.02;
+					};
+					click(editor, at(0.25));
+					click(editor, at(0.5));
+					check(processor.slices(0).count == 2 && near(0, 0.25) && near(1, 0.5),
+						"SLICE: two clicks, two marks");
+					drag(editor, at(0.5), {juce::roundToInt(0.1 * area.getWidth()), 0});
+					check(processor.slices(0).count == 2 && near(1, 0.6), "SLICE: a mark dragged does not follow");
+					editor.tick();
+					snapshot(editor, _folder.getChildFile("sound-slice.png"));
+					doubleClick(editor, at(0.25));
+					check(processor.slices(0).count == 1 && near(0, 0.6),
+						"SLICE: a double click does not take its mark");
+					juce::MemoryBlock state;
+					processor.getStateInformation(state);
+					Processor other;
+					other.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+					check(other.slices(0) == processor.slices(0), "SLICE: the state does not keep the marks");
+					// GRID 8: seven marks at the eighths, in place of the others
+					click(editor, editor.sliceGridArea().getCentre());
+					click(editor, editor.selectorItemArea(2).getCentre());
+					check(processor.slices(0).count == 7 && near(0, 0.125) && near(6, 0.875),
+						"SLICE: GRID 8 not eight slices");
+					processor.setSlices(0, {});
+				}
 				grain->setValueNotifyingHost(grain->convertTo0to1(static_cast<float>(vintage::GrainValues[1])));
 				mode->setValueNotifyingHost(modeWas);
 				start->setValueNotifyingHost(startWas);

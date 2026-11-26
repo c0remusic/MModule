@@ -29,6 +29,11 @@ namespace elektron::drums
 		constexpr float lfoY(const int _l) { return SoundY + 9 + static_cast<float>(_l) * 57; }
 		// The pictures: VOICE's Hit, the filter's response right of CUTOFF and RESO
 		const juce::Rectangle<float> voicePicture{SrcX + 2, SoundY + 9, SrcW - 6, 84};
+		// SLICE's GRID, in the picture's bottom right corner
+		juce::Rectangle<float> sliceGrid()
+		{
+			return {voicePicture.getRight() - 12, voicePicture.getBottom() - 5.4f, 11, 4.4f};
+		}
 		const juce::Rectangle<float> responsePicture{TimX + 2 + 2 * Quarter, FltY + 9, 2 * Quarter - 4, 32};
 
 		// SAMPLE LAYER's LOAD, 3 mm after the block's title (drawBlockTitle: 3.2 mm, 600)
@@ -876,6 +881,64 @@ namespace elektron::drums
 				};
 				addHit(std::move(sound));
 			}
+			// SLICE (ticket 12 of the v2 map): the picture edits the Track's slices. A click adds a mark where it
+			// falls, a drag moves the mark pressed between its neighbours, a double click takes it away; GRID,
+			// bottom right, cuts the sample in equal slices
+			else if(slicing())
+			{
+				Hit grid;
+				grid.r = sliceGrid();
+				grid.click = [this]
+				{
+					openSelector(voicePicture.getRight() - 12, voicePicture.getY() + 6,
+						{"2", "4", "8", "16", "32", "64"},
+						[](int) { return false; }, [this](const int _i) { setEvenSlices(2 << _i); repaint(); });
+				};
+				Hit edit;
+				edit.r = voicePicture;
+				edit.cursor = juce::MouseCursor::IBeamCursor;
+				edit.press = [this] { m_sliceMark = sliceMarkAt(m_press.down.x); };
+				edit.click = [this]
+				{
+					auto s = m_processor.slices(m_track);
+					if(m_sliceMark >= 0)
+						return;
+					if(s.count >= Slices::Max - 1)
+					{
+						toast(juce::String(Slices::Max) + " SLICES AT MOST");
+						return;
+					}
+					s.marks[static_cast<size_t>(s.count++)] = sliceFrameAt(m_press.down.x);
+					m_processor.setSlices(m_track, s);
+					repaint();
+				};
+				edit.drag = [this](float, float)
+				{
+					if(m_sliceMark < 0)
+						return;
+					auto s = m_processor.slices(m_track);
+					const auto i = static_cast<size_t>(m_sliceMark);
+					const uint32_t low = m_sliceMark > 0 ? s.marks[i - 1] + 1 : 1;
+					const uint32_t high = m_sliceMark + 1 < s.count ? s.marks[i + 1] - 1
+						: std::numeric_limits<uint32_t>::max();
+					s.marks[i] = std::clamp(sliceFrameAt(m_press.last.x), low, std::max(low, high));
+					m_processor.setSlices(m_track, s);
+				};
+				edit.end = [this] { m_sliceMark = -1; };
+				edit.doubleClick = [this]
+				{
+					const int at = sliceMarkAt(m_press.down.x);
+					if(at < 0)
+						return;
+					auto s = m_processor.slices(m_track);
+					std::copy(s.marks.begin() + at + 1, s.marks.begin() + s.count, s.marks.begin() + at);
+					--s.count;
+					m_processor.setSlices(m_track, s);
+					repaint();
+				};
+				addHit(std::move(edit));
+				addHit(std::move(grid));
+			}
 			// Elsewhere a click plays the Hit drawn (ticket 37)
 			else
 			{
@@ -896,7 +959,12 @@ namespace elektron::drums
 				const auto shown = mix(mix(static_cast<uint64_t>(choiceOf(trackParameter("machine")->getParameterID())),
 					static_cast<uint64_t>(m_processor.sampleName(m_track).hashCode64())),
 					static_cast<uint64_t>(m_processor.sophieSound(m_track) + 1));
-				return mix(mix(marks, samples), mix(shown,
+				// ... and the Track's slices
+				const auto& s = m_processor.slices(m_track);
+				uint64_t cuts = static_cast<uint64_t>(s.count);
+				for(int i = 0; i < s.count; ++i)
+					cuts = mix(cuts, s.marks[static_cast<size_t>(i)]);
+				return mix(mix(mix(marks, samples), cuts), mix(shown,
 					(preview ? preview->serial : 0) * 2 + (m_processor.previewPending() ? 1 : 0)));
 			});
 		}
@@ -1129,6 +1197,53 @@ namespace elektron::drums
 		}
 	}
 
+	bool Editor::slicing() const
+	{
+		const auto* sample = m_processor.trackSample(m_track);
+		if(!sample || sample->pcm.empty()
+			|| choiceOf(trackParameter("machine")->getParameterID()) != m_processor.samplerChoice())
+			return false;
+		const auto page = samplerPage(m_track);
+		return vintage::isDt2(page.grain) && Dt2Player::modeOf(page.mode) == Dt2Player::SliceMode;
+	}
+
+	uint32_t Editor::sliceFrameAt(const float _x) const
+	{
+		const auto frames = static_cast<uint32_t>(m_processor.trackSample(m_track)->pcm.size());
+		const float u = std::clamp((_x - voicePicture.getX() - 1) / (voicePicture.getWidth() - 2), 0.0f, 1.0f);
+		return std::clamp(static_cast<uint32_t>(std::lround(u * static_cast<float>(frames))), 1u,
+			std::max(1u, frames - 1));
+	}
+
+	int Editor::sliceMarkAt(const float _x) const
+	{
+		const auto frames = static_cast<float>(m_processor.trackSample(m_track)->pcm.size());
+		const auto& s = m_processor.slices(m_track);
+		int best = -1;
+		float nearest = 1.0f;	// mm
+		for(int i = 0; i < s.count; ++i)
+		{
+			const float x = voicePicture.getX() + 1
+				+ static_cast<float>(s.marks[static_cast<size_t>(i)]) / frames * (voicePicture.getWidth() - 2);
+			if(std::abs(x - _x) <= nearest)
+			{
+				nearest = std::abs(x - _x);
+				best = i;
+			}
+		}
+		return best;
+	}
+
+	void Editor::setEvenSlices(const int _slices)
+	{
+		const auto frames = static_cast<uint64_t>(m_processor.trackSample(m_track)->pcm.size());
+		Slices s;
+		for(int k = 1; k < _slices && k < Slices::Max; ++k)
+			s.marks[static_cast<size_t>(s.count++)] = static_cast<uint32_t>(frames * static_cast<uint64_t>(k)
+				/ static_cast<uint64_t>(_slices));
+		m_processor.setSlices(m_track, s);
+	}
+
 	void Editor::drawSoundPictures(Painter& _p)
 	{
 		const auto v = [this](const char* _s) { return trackParameter(_s)->getValue(); };
@@ -1172,9 +1287,9 @@ namespace elektron::drums
 					const auto grain = vintage::grainOf(trackGrain(m_track));
 					if(grain == vintage::Grain::Vintage)
 						span = Dt2Player::Span{vintage::startOf(plain("m5")), vintage::endOf(plain("m6"))};
-					else if(grain == vintage::Grain::Dt2)
+					else if(grain == vintage::Grain::Dt2 && sample)
 						span = Dt2Player::span(plain("m3") << 8, plain("m4") << 8, plain("m5") << 8,
-							plain("m6") << 8);
+							plain("m6") << 8, &m_processor.slices(m_track), static_cast<uint32_t>(sample->pcm.size()));
 				}
 				else if(plain("layer_on") != 0 && m_processor.trackSample(Processor::layerSlot(m_track)))
 				{
@@ -1198,6 +1313,19 @@ namespace elektron::drums
 						const float top = static_cast<float>(*hi) / 32768, bottom = static_cast<float>(*lo) / 32768;
 						_p.rect(r.getX() + 1 + static_cast<float>(c) * 0.4f, cy - top * a, 0.3f,
 							std::max(0.2f, (top - bottom) * a), played ? hue::g.c[1] : colour::rule);
+					}
+					// SLICE: every mark, the played slice's two brighter over them; GRID in the corner
+					if(slicing())
+					{
+						const auto& s = m_processor.slices(m_track);
+						for(int i = 0; i < s.count; ++i)
+						{
+							const float x = r.getX() + 1 + static_cast<float>(s.marks[static_cast<size_t>(i)])
+								/ static_cast<float>(pcm.size()) * w;
+							_p.line(x, r.getY() + 1, x, r.getBottom() - 1, hue::g.c[2], 0.2f);
+						}
+						_p.text(r.getRight() - 1.5f, r.getBottom() - 1.8f, "GRID", 2.8f, hue::g.c[4], 500,
+							Align::Right);
 					}
 					if(span)
 						for(const double at : {span->start, span->end})
@@ -3808,6 +3936,11 @@ namespace elektron::drums
 	juce::Rectangle<int> Editor::voiceArea() const
 	{
 		return toPx(voicePicture);
+	}
+
+	juce::Rectangle<int> Editor::sliceGridArea() const
+	{
+		return toPx(sliceGrid());
 	}
 
 	juce::Rectangle<int> Editor::selectorItemArea(const int _item) const

@@ -20,8 +20,9 @@ namespace elektron::drums
 	public:
 		static constexpr int Slots = 64;
 		// 2: Machine's choices of state version 4; 3: of state version 5; 4: a Syntakt machine's Machine 1-8 in its SYN
-		// page's order, as state version 6; 5: the Sampler's GRAIN in thirds, as state version 7
-		static constexpr int Version = 5;
+		// page's order, as state version 6; 5: the Sampler's GRAIN in thirds, as state version 7; 6: SLICE and the
+		// Tracks' slices, as state version 8
+		static constexpr int Version = 6;
 		static constexpr const char* Tag = "ElektronDrumsKit";
 
 		struct Slot

@@ -117,15 +117,26 @@ namespace
 		{"st_noise_strt60_len6_rev", 60, false}, {"st_hit_short_loop", 60, false}, {"st_hit_short_revloop", 60, false},
 		{"st_noise_short_loop_frac", 60, false}, {"st_noise_short_revloop_frac", 60, false},
 		{"st_noise_strt60_len6_loop", 60, false},
+		// SLICE (ticket 12): the portion the ColdFire hands the SHARC in frames, which the Track's slices give
+		{"sl_hit_0_1200", 45, false}, {"sl_hit_1200_2400", 45, false}, {"sl_hit_2400_4800", 45, false},
+		{"sl_hit_1037_3011", 45, false}, {"sl_hit_1200_2400_up12", 45, false}, {"sl_hit_1200_2400_note48", 45, false},
+		{"sl_hit_1200_2400_rev", 45, false, true}, {"sl_hit_1200_2400_loop", 45, false},
+		// Its REV LOOP wraps as WERP's REV.L, ReverseLoopLag below its start (5, the best of 0 to 12 here too); the
+		// blocks that go round differ as WERP's do, not identified: 28.5 dB over its three wraps
+		{"sl_hit_1200_2400_revloop", 25, false}, {"sl_hit_4700_4800", 45, false}, {"sl_noise_1037_3011", 27, false},
 	};
 
 	struct Settings
 	{
 		double tune = 64, note = 60, strt = 0, len = 120, loopPos = 0, bpm = 120;
 		bool reverse = false, loop = false;
-		int blocks = 0, selector = 0, bars = 0;	// selector 0 ONESHOT, 1 WERP, 2 STRETCH, 3 REPITCH, 4 GRID; bars BARS, or GRID's G
+		// selector 0 ONESHOT, 1 WERP, 2 STRETCH, 3 REPITCH, 4 GRID, 5 SLICE; bars BARS, or GRID's G
+		int blocks = 0, selector = 0, bars = 0;
 		// WERP: PLAY as the Digitakt II numbers it (0 REV, 1 REV.L, 2 FWD.L, 3 FWD), SEG and BARS
 		int werpPlay = 3, werpSegment = 0, werpBars = 0;
+		// SLICE: the portion the ColdFire hands the SHARC, in frames; its loop point is its start in every case
+		uint32_t sliceFrom = 0, sliceTo = 0;
+		int slice = 1, slices = 1;		// the Track's slices that give it (load), and the one played
 	};
 
 	Settings settingsOf(const std::string& _json)
@@ -142,7 +153,19 @@ namespace
 		s.selector = static_cast<int>(number(_json, "selector"));
 		s.bars = static_cast<int>(number(_json, "bars"));
 		s.bpm = number(_json, "bpm");
-		require(s.selector >= 0 && s.selector <= 4, "not an ONESHOT, WERP, STRETCH, REPITCH or GRID case");
+		require(s.selector >= 0 && s.selector <= 5, "not an ONESHOT, WERP, STRETCH, REPITCH, GRID or SLICE case");
+		if(s.selector == 5)
+		{
+			const auto at = _json.find("\"slice\":");
+			require(at != std::string::npos, "a SLICE case without its portion");
+			const char* c = _json.c_str() + _json.find('[', at) + 1;
+			char* next = nullptr;
+			const double from = std::strtod(c, &next), to = std::strtod(next + 1, &next);
+			const double loopAt = std::strtod(next + 1, &next);
+			require(loopAt == from, "a SLICE case whose loop point is not its start");
+			s.sliceFrom = static_cast<uint32_t>(from);
+			s.sliceTo = static_cast<uint32_t>(to);
+		}
 		if(s.selector == 1)
 		{
 			const auto werp = _json.substr(_json.find("\"werp\":"));
@@ -177,7 +200,8 @@ namespace
 		_p.setParameter(_lane, Dt2Player::Play, static_cast<uint8_t>(play * 32), 0);
 		// MODE a sixth of the range each (Dt2Player::modeOf): ONESHOT 0, GRID 1, REPITCH 2, WERP 3, STRETCH 5
 		const int mode = _s.selector == 1 ? Dt2Player::Werp : _s.selector == 2 ? Dt2Player::Stretch
-			: _s.selector == 3 ? Dt2Player::Repitch : _s.selector == 4 ? Dt2Player::Grid : Dt2Player::OneShot;
+			: _s.selector == 3 ? Dt2Player::Repitch : _s.selector == 4 ? Dt2Player::Grid
+			: _s.selector == 5 ? Dt2Player::SliceMode : Dt2Player::OneShot;
 		_p.setParameter(_lane, Dt2Player::Mode, static_cast<uint8_t>(mode * 128 / 6 + 10), 0);
 		if(_s.selector == 1)
 		{
@@ -188,6 +212,15 @@ namespace
 				"the test's SEGMENT or BARS value does not give the case's");
 			_p.setParameter(_lane, Dt2Player::Start, segment, 0);
 			_p.setParameter(_lane, Dt2Player::Loop, bars, 0);
+			return;
+		}
+		if(_s.selector == 5)
+		{
+			// The slice that is the case's portion among the marks load() cut, alone (LEN 0)
+			_p.setParameter(_lane, Dt2Player::Start, static_cast<uint8_t>((_s.slice - 1) * 128 / _s.slices + 1), 0);
+			_p.setParameter(_lane, Dt2Player::Length, 0, 0);
+			require(Dt2Player::sliceOf((_s.slice - 1) * 128 / _s.slices + 1, _s.slices) == _s.slice,
+				"the test's SLICE value does not give the case's slice");
 			return;
 		}
 		if(_s.selector == 4)
@@ -246,6 +279,7 @@ namespace
 		Dt2Samples samples;
 		Settings settings;
 		std::vector<double> voice;
+		std::unique_ptr<Slices> slices = std::make_unique<Slices>();	// a SLICE case's, where the slots point
 	};
 
 	Loaded load(const std::string& _folder, const char* _case)
@@ -259,8 +293,17 @@ namespace
 		l.voice.resize(f32.size() / 3);
 		for(size_t n = 0; n < l.voice.size(); ++n)
 			l.voice[n] = f32[3 * n];
+		// SLICE: marks where the case's portion starts and ends, inside the sample; it is the second slice if it does
+		// not start at 0
+		auto& s = l.settings;
+		const auto frames = static_cast<uint32_t>(l.pcm.size());
+		for(const uint32_t mark : {s.sliceFrom, s.sliceTo})
+			if(s.selector == 5 && mark > 0 && mark < frames)
+				l.slices->marks[static_cast<size_t>(l.slices->count++)] = mark;
+		s.slices = l.slices->count + 1;
+		s.slice = s.sliceFrom > 0 ? 2 : 1;
 		for(auto& slot : l.samples.slots)
-			slot = {l.pcm.data(), static_cast<uint32_t>(l.pcm.size()), 48000.0};
+			slot = {l.pcm.data(), frames, 48000.0, l.slices.get()};
 		return l;
 	}
 
@@ -587,7 +630,17 @@ namespace
 		s = Dt2Player::span(at(Dt2Player::Grid), 52 << 8, 32 << 8, 16 << 8);
 		require(s && near(s->start, 4 / 16.0) && near(s->end, 7 / 16.0), "GRID 16, slice 5 and 2 more");
 		require(!Dt2Player::span(at(Dt2Player::Werp), 0, 0, 127 << 8), "WERP's window walks: no span");
-		std::printf("PASS: a Hit's portion in ONESHOT, STRETCH and GRID; none in WERP\n");
+		// SLICE: marks at 1000, 2000 and 9000 over 4000 frames cut 3 slices (9000 lies past the end); slice 2 (STRT 43)
+		// and 1 more (LEN 43): 1000 to 4000
+		Slices cuts;
+		cuts.marks[0] = 1000, cuts.marks[1] = 2000, cuts.marks[2] = 9000, cuts.count = 3;
+		require(Dt2Player::sliceCount(&cuts, 4000) == 3 && Dt2Player::sliceCount(nullptr, 4000) == 1,
+			"SLICE: the marks inside the sample cut it");
+		s = Dt2Player::span(at(Dt2Player::SliceMode), 0, 43 << 8, 43 << 8, &cuts, 4000);
+		require(s && near(s->start, 0.25) && near(s->end, 1), "SLICE, slice 2 and 1 more");
+		s = Dt2Player::span(at(Dt2Player::SliceMode), 0, 0, 0, nullptr, 4000);
+		require(s && near(s->start, 0) && near(s->end, 1), "SLICE without marks: the whole sample");
+		std::printf("PASS: a Hit's portion in ONESHOT, STRETCH, GRID and SLICE; none in WERP\n");
 	}
 }
 

@@ -264,6 +264,9 @@ namespace elektron::drums
 		// bank as setSample's, without allocating, and its source is read where it lies until another sample takes its
 		// place
 		void lockSample(int _track, const Sample* _sample);
+		// The Track's slices for the CLEAN grain's SLICE (ticket 12 of the v2 map), read at each Hit on the sample it
+		// plays, its own or a Lock's: copied, nothing cut, nothing allocated
+		void setSlices(int _track, const Slices& _slices) { m_slices[static_cast<size_t>(_track)] = _slices; }
 		// The same for the sample layer's sample (ticket 08 of the v2 map), on whichever path the Track plays: the Hit
 		// that follows plays _sample on its layer, the next without one the layer's own (setLayerSample)
 		void lockLayerSample(int _track, const Sample* _sample);
@@ -642,6 +645,7 @@ namespace elektron::drums
 		std::array<uint32_t, Tracks> m_vtLength{};
 		std::array<double, Tracks> m_vtRate{};
 		std::array<Dt2Samples::Slot, Tracks> m_dt2Slot{};	// the same sample as the DT2 player reads it, per Track
+		std::array<Slices, Tracks> m_slices{};				// what m_dt2Slot's point at (setSlices)
 
 		// Syntakt
 		std::vector<std::unique_ptr<Source>> m_sources;

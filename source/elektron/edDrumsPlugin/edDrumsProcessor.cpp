@@ -26,8 +26,9 @@ namespace elektron::drums
 		constexpr int FirstNote = 36;	// notes 36-51: Tracks 1-16
 		constexpr int DefaultLevel = 100, DefaultNote = 60, Centre = 64;
 
-		// 7: the Sampler's GRAIN in thirds (takeGrain)
-		constexpr int StateVersion = 7;
+		// 7: the Sampler's GRAIN in thirds (takeGrain). 8: the CLEAN grain's SLICE no longer ONESHOT
+		// (takeSliceMode), the Tracks' slices
+		constexpr int StateVersion = 8;
 		// The compressed state's header (getStateInformation): "LKSZ", the container's format, the XML's size in bytes
 		constexpr int StateMagic = 0x5a534b4c;
 		constexpr int StateFormat = 1;
@@ -1629,6 +1630,57 @@ namespace elektron::drums
 		publishSample(_track);
 	}
 
+	void Processor::setSlices(const int _track, const Slices& _slices)
+	{
+		jassert(juce::MessageManager::existsAndIsCurrentThread());
+		Slices s;
+		std::vector<uint32_t> marks(_slices.marks.begin(), _slices.marks.begin() + juce::jlimit(0, Slices::Max - 1,
+			_slices.count));
+		std::sort(marks.begin(), marks.end());
+		marks.erase(std::unique(marks.begin(), marks.end()), marks.end());
+		marks.erase(std::remove(marks.begin(), marks.end(), 0u), marks.end());
+		s.count = static_cast<int>(marks.size());
+		std::copy(marks.begin(), marks.end(), s.marks.begin());
+		auto& held = m_slices[static_cast<size_t>(juce::jlimit(0, Tracks - 1, _track))];
+		if(held == s)
+			return;
+		held = s;
+		publishSlices(_track);
+		// The set's state keeps them: the host saves it again
+		updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
+	}
+
+	// The Track's slices in their mailbox, as publishSample's
+	void Processor::publishSlices(const int _track)
+	{
+		const auto t = static_cast<size_t>(_track);
+		auto mail = std::make_unique<SliceMail>();
+		mail->slices = m_slices[t];
+		mail->serial = ++m_sliceSerial;
+		auto* sent = mail.get();
+		auto& flight = m_sliceFlight[t];
+		flight.push_back(std::move(mail));
+		if(const auto* old = m_sliceMail[t].exchange(sent, std::memory_order_acq_rel))
+			flight.erase(std::find_if(flight.begin(), flight.end(), [old](const auto& _m) { return _m.get() == old; }));
+		const uint32_t done = m_sliceDone[t].load(std::memory_order_acquire);
+		flight.erase(std::remove_if(flight.begin(), flight.end(),
+			[done, sent](const auto& _m) { return _m->serial <= done && _m.get() != sent; }), flight.end());
+	}
+
+	Slices Processor::slicesIn(const juce::XmlElement& _xml, const int _track)
+	{
+		Slices s;
+		const auto id = juce::String::formatted("t%02d_slices", _track + 1);
+		for(const auto& mark : juce::StringArray::fromTokens(_xml.getStringAttribute(id), false))
+		{
+			const auto frame = mark.getLargeIntValue();
+			if(s.count < Slices::Max - 1 && frame > 0 && frame <= std::numeric_limits<uint32_t>::max()
+				&& (s.count == 0 || frame > s.marks[static_cast<size_t>(s.count - 1)]))
+				s.marks[static_cast<size_t>(s.count++)] = static_cast<uint32_t>(frame);
+		}
+		return s;
+	}
+
 	// A copy of the Track's sample, an empty one for none, in its mailbox. One the audio thread had not taken yet goes at
 	// once; one it took, once it has given the engine that one or a later one
 	void Processor::publishSample(const int _track)
@@ -1895,12 +1947,16 @@ namespace elektron::drums
 		m_locks.forgetAll();
 		m_now = 0;
 		if(m_engine)
+		{
 			for(int t = 0; t < SampleSlots; ++t)
 			{
 				const auto* sample = m_samples[static_cast<size_t>(t)].get();
 				holdSource(sample);
 				giveSample(t, sample);
 			}
+			for(int t = 0; t < Tracks; ++t)
+				m_engine->setSlices(t, m_slices[static_cast<size_t>(t)]);
+		}
 		else
 			m_engineSources.fill(nullptr);
 		for(int t = 0; t < SampleSlots; ++t)
@@ -2088,6 +2144,13 @@ namespace elektron::drums
 				m_sampleDone[t].store(mail->serial, std::memory_order_release);
 			}
 		}
+		for(size_t t = 0; t < m_sliceMail.size(); ++t)
+			if(m_sliceMail[t].load(std::memory_order_acquire))
+				if(auto* mail = m_sliceMail[t].exchange(nullptr, std::memory_order_acq_rel))
+				{
+					m_engine->setSlices(static_cast<int>(t), mail->slices);
+					m_sliceDone[t].store(mail->serial, std::memory_order_release);
+				}
 		if(m_auditionMail.load(std::memory_order_acquire))
 			if(auto* mail = m_auditionMail.exchange(nullptr, std::memory_order_acq_rel))
 			{
@@ -2284,6 +2347,18 @@ namespace elektron::drums
 		for(int t = 0; t < SampleSlots; ++t)
 			if(auto* element = writeSample(_xml, t))
 				element->setAttribute("track", trackOfSlot(t));
+		// The Tracks' slices (ticket 12 of the v2 map), their marks in frames; none, nothing written
+		for(int t = 0; t < Tracks; ++t)
+			if(const auto& s = m_slices[static_cast<size_t>(t)]; s.count)
+				_xml.setAttribute(juce::String::formatted("t%02d_slices", t + 1), slicesText(s));
+	}
+
+	juce::String Processor::slicesText(const Slices& _slices)
+	{
+		juce::StringArray marks;
+		for(int i = 0; i < _slices.count; ++i)
+			marks.add(juce::String(static_cast<juce::int64>(_slices.marks[static_cast<size_t>(i)])));
+		return marks.joinIntoString(" ");
 	}
 
 	// The Track's sample as a child of _xml: its copy, which file of the Library it is beside it; a factory sample only
@@ -2461,6 +2536,72 @@ namespace elektron::drums
 		}
 	}
 
+	// A state of a version before 8 or a Kit before 6 played the CLEAN grain's MODE SLICE as ONESHOT (ticket 12 of the
+	// v2 map, which ports SLICE): such a Track's MODE, and a state's Locks of it, become ONESHOT, which they played
+	void Processor::takeSliceMode(juce::XmlElement& _xml, const bool _state, const int _sound) const
+	{
+		// The versions that brought SLICE, as literals: a later version must not run this again
+		const int version = _xml.getIntAttribute("version");
+		if(_state ? version >= 8 : version >= 6)
+			return;
+		const auto slice = [](const double _plain)
+		{
+			return Dt2Player::modeOf(juce::jlimit(0, 127, juce::roundToInt(_plain))) == Dt2Player::SliceMode;
+		};
+		std::array<bool, Tracks> clean{};
+		for(int t = 0; t < Tracks; ++t)
+		{
+			if(_sound >= 0 && t != _sound)
+				continue;
+			const auto grain = juce::String::formatted("t%02d_m%d", t + 1, vintage::GrainSlot + 1);
+			clean[static_cast<size_t>(t)] = machineIn(_xml, t, _state) == Sampler && _xml.hasAttribute(grain)
+				&& vintage::isDt2(_xml.getIntAttribute(grain));
+			const auto mode = juce::String::formatted("t%02d_m%d", t + 1, Dt2Player::Mode + 1);
+			if(clean[static_cast<size_t>(t)] && slice(_xml.getDoubleAttribute(mode)))
+				_xml.setAttribute(mode, 0);
+		}
+		if(!_state)
+			return;
+		for(auto* pattern : _xml.getChildWithTagNameIterator("pattern"))
+		{
+			// A pattern that loads a Kit at its start plays that Kit's machines, as takePageOrderLocks reads them
+			auto onClean = clean;
+			if(const int slot = pattern->getIntAttribute("kit", -1); KitBank::valid(slot))
+				if(const auto kit = readKit(slot))
+					for(int t = 0; t < Tracks; ++t)
+					{
+						const auto grain = juce::String::formatted("t%02d_m%d", t + 1, vintage::GrainSlot + 1);
+						onClean[static_cast<size_t>(t)] = machineIn(*kit, t, false) == Sampler
+							&& kit->hasAttribute(grain) && vintage::isDt2(kit->getIntAttribute(grain));
+					}
+			for(auto* step : pattern->getChildWithTagNameIterator("step"))
+			{
+				juce::StringArray locks;
+				bool moved = false;
+				for(const auto& pair : juce::StringArray::fromTokens(step->getStringAttribute("locks"), false))
+				{
+					const int colon = pair.indexOfChar(':');
+					const int parameter = colon > 0 ? pair.substring(0, colon).getIntValue() : -1;
+					if(parameter >= 0 && parameter < m_locks.size())
+					{
+						const auto& target = m_locks.target(parameter);
+						const float value = std::strtof(pair.substring(colon + 1).toRawUTF8(), nullptr);
+						if(target.kind == LockKind::Machine && target.a == Dt2Player::Mode
+							&& onClean[static_cast<size_t>(target.track)] && slice(value * 127))
+						{
+							locks.add(juce::String(parameter) + ":0");
+							moved = true;
+							continue;
+						}
+					}
+					locks.add(pair);
+				}
+				if(moved)
+					step->setAttribute("locks", locks.joinIntoString(" "));
+			}
+		}
+	}
+
 	// The machine _xml (a state's if _state, else a Kit's) puts Track _track on, as readSound reads it: one it lacks the
 	// parameter's default
 	Machine Processor::machineIn(const juce::XmlElement& _xml, const int _track, const bool _state) const
@@ -2617,6 +2758,11 @@ namespace elektron::drums
 				sample = readSample(*samples[static_cast<size_t>(t)], m_sampleRefs[static_cast<size_t>(t)]);
 			publishSample(t);
 		}
+		for(int t = 0; t < Tracks; ++t)
+		{
+			m_slices[static_cast<size_t>(t)] = slicesIn(_xml, t);
+			publishSlices(t);
+		}
 	}
 
 	void Processor::setStateInformation(const void* _data, const int _size)
@@ -2628,6 +2774,7 @@ namespace elektron::drums
 		takeRoms(*xml, true);
 		takePageOrder(*xml, true);
 		takeGrain(*xml, true);
+		takeSliceMode(*xml, true);
 		// No block meanwhile: the audio thread sees the state whole
 		suspendProcessing(true);
 		readSound(*xml, true);
@@ -2697,6 +2844,8 @@ namespace elektron::drums
 		for(size_t t = 0; t < samples.size(); ++t)
 			if(samples[t])
 				m_kitSamples[t] = readSample(*samples[t], m_kitRefs[t]);
+		for(int t = 0; t < Tracks; ++t)
+			m_kitSlices[static_cast<size_t>(t)] = slicesIn(*_kit, t);
 	}
 
 	// A Slot's Kit as it plays: a Kit of a version before 3 on a ROM machine plays the Sampler (takeRoms)
@@ -2708,6 +2857,7 @@ namespace elektron::drums
 			takeRoms(*kit, false);
 			takePageOrder(*kit, false);
 			takeGrain(*kit, false);
+			takeSliceMode(*kit, false);
 		}
 		return kit;
 	}
@@ -2820,6 +2970,8 @@ namespace elektron::drums
 						kit->sampleHash[t] = sampleHash(kit->samples[t].get());
 						holdSource(kit->samples[t].get());
 					}
+					for(int t = 0; t < Tracks; ++t)
+						kit->slices[static_cast<size_t>(t)] = slicesIn(*xml, t);
 					kit->xml = std::move(xml);
 				}
 			m_prepared[static_cast<size_t>(s)].store(kit.get(), std::memory_order_release);
@@ -2847,6 +2999,10 @@ namespace elektron::drums
 			m_samples[t] = kit->samples[t] ? std::make_unique<Sample>(*kit->samples[t]) : nullptr;
 			m_sampleRefs[t] = kit->refs[t];
 		}
+		// Again to the engine: a slice edit on its way when the Kit switched would otherwise outlast it
+		m_slices = kit->slices;
+		for(int t = 0; t < Tracks; ++t)
+			publishSlices(t);
 		m_kitSlot = kit->slot;
 		rememberKit(kit->xml.get());
 	}
@@ -2870,6 +3026,8 @@ namespace elektron::drums
 			giveSample(t, _kit.samples[static_cast<size_t>(t)].get());
 			hash = _kit.sampleHash[static_cast<size_t>(t)];
 		}
+		for(int t = 0; t < Tracks; ++t)
+			m_engine->setSlices(t, _kit.slices[static_cast<size_t>(t)]);
 		m_kitSwitched.store(const_cast<PreparedKit*>(&_kit), std::memory_order_release);
 		m_reread = true;
 	}
@@ -3051,6 +3209,9 @@ namespace elektron::drums
 		}
 		writeSample(*xml, _track);
 		writeSample(*xml, layerSlot(_track));
+		// Its slices as a Kit holds them (writeSound), without the Track's prefix
+		if(const auto& s = m_slices[static_cast<size_t>(_track)]; s.count)
+			xml->setAttribute("slices", slicesText(s));
 		return xml;
 	}
 
@@ -3062,7 +3223,8 @@ namespace elektron::drums
 		kit->setAttribute("version", _sound.getIntAttribute("version"));
 		const auto prefix = juce::String::formatted("t%02d_", _track + 1);
 		for(int i = 0; i < _sound.getNumAttributes(); ++i)
-			if(const auto name = _sound.getAttributeName(i); parameter(prefix + name) && soundSuffix(name))
+			if(const auto name = _sound.getAttributeName(i);
+				name == "slices" || (parameter(prefix + name) && soundSuffix(name)))
 				kit->setAttribute(prefix + name, _sound.getAttributeValue(i));
 		for(const auto* tag : {"sample", "layerSample"})
 			if(const auto* sample = _sound.getChildByName(tag))
@@ -3074,6 +3236,7 @@ namespace elektron::drums
 		takeRoms(*kit, false);
 		takePageOrder(*kit, false, _track);
 		takeGrain(*kit, false, _track);
+		takeSliceMode(*kit, false, _track);
 		return kit;
 	}
 
@@ -3123,6 +3286,8 @@ namespace elektron::drums
 				sample = readSample(*element, m_sampleRefs[static_cast<size_t>(s)]);
 			publishSample(s);
 		}
+		m_slices[static_cast<size_t>(_track)] = slicesIn(*kit, _track);
+		publishSlices(_track);
 		m_stateSerial.fetch_add(1, std::memory_order_acq_rel);
 		suspendProcessing(false);
 		tellHostAll();
@@ -3154,6 +3319,7 @@ namespace elektron::drums
 			layer = readSample(*element, ref);
 		e.setSample(0, sample.get());
 		e.setLayerSample(0, layer.get());
+		e.setSlices(0, slicesIn(*kit, 0));
 		e.noteOn(0, 100);
 		// The ROM player's 1.29 s; on VINTAGE the sample at its pitch and a little tail, at most what a Sample holds
 		size_t length = Sample::MaxLength;
@@ -3215,6 +3381,11 @@ namespace elektron::drums
 		}
 		const float tempo = m_tempo->get();
 		mixIn(bitsOf(tempo));
+		// ... and its slices
+		const auto& cuts = m_slices[t];
+		mixIn(static_cast<uint64_t>(cuts.count));
+		for(int i = 0; i < cuts.count; ++i)
+			mixIn(cuts.marks[static_cast<size_t>(i)]);
 		// A change waits until PreviewGap has passed since the last request, which then takes the values of that moment
 		if(key != m_previewKey)
 		{
@@ -3236,6 +3407,7 @@ namespace elektron::drums
 		HitPreview::Request request;
 		request.track = _track;
 		request.prepare = [this, _track, values = std::move(values), tempo,
+			slices = m_slices[static_cast<size_t>(_track)],
 			sample = m_previewSamples[static_cast<size_t>(slots[0])].copy,
 			layer = m_previewSamples[static_cast<size_t>(slots[1])].copy](Engine& _e)
 		{
@@ -3250,6 +3422,7 @@ namespace elektron::drums
 				_e.setSend(_track, static_cast<Send>(s), 0);
 			_e.setSample(_track, sample.get());
 			_e.setLayerSample(_track, layer.get());
+			_e.setSlices(_track, slices);
 		};
 		m_hitPreview->request(std::move(request));
 	}
@@ -3357,7 +3530,7 @@ namespace elektron::drums
 			if(m_sampleRefs[t] != m_kitRefs[t] || !a != !b || (a && (a->name != b->name || a->rate != b->rate || a->pcm != b->pcm)))
 				return true;
 		}
-		return false;
+		return m_slices != m_kitSlices;
 	}
 
 	juce::AudioProcessorEditor* Processor::createEditor()

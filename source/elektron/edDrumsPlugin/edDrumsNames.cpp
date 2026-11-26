@@ -116,7 +116,7 @@ namespace elektron::drums::names
 		constexpr std::array<const char*, vintage::SamplerParameters> samplerControls{"TUNE", "DECAY", "HOLD", "BIT CRUSH",
 			"START", "END", "REPEATS", "REPEAT GAP", "GRAIN", "BITS", "COMPANDING", "OUTPUT LPF"};
 		// The CLEAN grain's controls (Dt2Player::Slot), on the ROM player's slots whose defaults suit them, then GRAIN; by
-		// MODE: ONESHOT (and the mode not ported yet), GRID, REPITCH (which reads no TUNE), WERP, STRETCH
+		// MODE: ONESHOT, GRID, REPITCH (which reads no TUNE), WERP, SLICE, STRETCH
 		constexpr std::array<const char*, vintage::SamplerParameters> dt2Controls{"TUNE", nullptr, "MODE", "LOOP",
 			"START", "LENGTH", "PLAY", nullptr, "GRAIN", nullptr, nullptr, nullptr};
 		constexpr std::array<const char*, vintage::SamplerParameters> dt2GridControls{"TUNE", nullptr, "MODE", "GRID",
@@ -125,6 +125,8 @@ namespace elektron::drums::names
 			"START", "LENGTH", "PLAY", nullptr, "GRAIN", nullptr, nullptr, nullptr};
 		constexpr std::array<const char*, vintage::SamplerParameters> dt2WerpControls{"TUNE", nullptr, "MODE", "BARS",
 			"SEGMENT", nullptr, "PLAY", nullptr, "GRAIN", nullptr, nullptr, nullptr};
+		constexpr std::array<const char*, vintage::SamplerParameters> dt2SliceControls{"TUNE", nullptr, "MODE", nullptr,
+			"SLICE", "LENGTH", "PLAY", nullptr, "GRAIN", nullptr, nullptr, nullptr};
 		constexpr std::array<const char*, vintage::SamplerParameters> dt2StretchControls{"TUNE", nullptr, "MODE", "BARS",
 			"START", "LENGTH", "PLAY", nullptr, "GRAIN", nullptr, nullptr, nullptr};
 
@@ -350,7 +352,8 @@ namespace elektron::drums::names
 				return nullptr;
 			const auto mode = Dt2Player::modeOf(_page.mode);
 			const auto& controls = mode == Dt2Player::Grid ? dt2GridControls : mode == Dt2Player::Repitch ? dt2RepitchControls
-				: mode == Dt2Player::Werp ? dt2WerpControls : mode == Dt2Player::Stretch ? dt2StretchControls : dt2Controls;
+				: mode == Dt2Player::Werp ? dt2WerpControls : mode == Dt2Player::Stretch ? dt2StretchControls
+				: mode == Dt2Player::SliceMode ? dt2SliceControls : dt2Controls;
 			return controls[static_cast<size_t>(_index)];
 		}
 		return control(_machine, _index);

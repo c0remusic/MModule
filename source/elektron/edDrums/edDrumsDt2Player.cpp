@@ -32,7 +32,7 @@ namespace elektron::drums
 		constexpr double ReverseFrom = 6, ReverseBelow = 32;
 		// A reversed loop goes round this far below its loop point: the DSP's read position runs 5 samples above ours
 		// (its reversed read starts at the end less 1), and it wraps where that reaches the loop point (WERP's REV.L at
-		// the oracle, ticket 11: the best of 0 to 7; applied to WERP alone, render96)
+		// the oracle, ticket 11: the best of 0 to 7; SLICE's, ticket 12: of 0 to 12; applied to those two, render96)
 		constexpr double ReverseLoopLag = 5;
 		// A block sounds while its last output's position plus a sample (the step where it is more) lies within the end;
 		// the last that sounds is faded out (probe_end2.py at the oracle, steps 0.25 to 2, and GRID's slice ends)
@@ -109,13 +109,39 @@ namespace elektron::drums
 		return table;
 	}
 
+	int Dt2Player::sliceCount(const Slices* _slices, const uint32_t _length)
+	{
+		// The marks ascend: those inside the sample come first
+		int n = 0;
+		if(_slices)
+			while(n < _slices->count && _slices->marks[static_cast<size_t>(n)] < _length)
+				++n;
+		return n + 1;
+	}
+
+	uint32_t Dt2Player::sliceStart(const Slices* _slices, const uint32_t _length, const int _k)
+	{
+		if(_k <= 0)
+			return 0;
+		return _k < sliceCount(_slices, _length) ? _slices->marks[static_cast<size_t>(_k - 1)] : _length;
+	}
+
 	std::optional<Dt2Player::Span> Dt2Player::span(const int _mode, const int _loop, const int _start,
-		const int _length)
+		const int _length, const Slices* _slices, const uint32_t _sampleLength)
 	{
 		const PlayerMode mode = modeOf(_mode >> 8);
 		if(mode == Werp)
 			return std::nullopt;
 		Span s;
+		if(mode == SliceMode && _sampleLength)
+		{
+			const int slices = sliceCount(_slices, _sampleLength);
+			const int slice = sliceOf(_start >> 8, slices);
+			const double length = _sampleLength;
+			s.start = sliceStart(_slices, _sampleLength, slice - 1) / length;
+			s.end = sliceStart(_slices, _sampleLength, slice + moreSlicesOf(_length >> 8, slices)) / length;
+			return s;
+		}
 		if(mode == Grid)
 		{
 			const int grid = gridOf(_loop >> 8);
@@ -158,8 +184,10 @@ namespace elektron::drums
 	{
 		const auto word = [this, _track](const int _i) { return m_controls.words[_i][_track]; };
 		// The pitch: (TUNE - 64 + fine / 256) + (note - 60) semitones, the sum held to +-64, source samples an output at
-		// 96 kHz: half a 48 kHz sample at unison, the sample's own rate over 96 kHz
-		const double semitones = std::clamp((word(Tune) - (64 << 8)) / 256.0 + (m_controls.notes[_track] - 60), -64.0, 64.0);
+		// 96 kHz: half a 48 kHz sample at unison, the sample's own rate over 96 kHz. SLICE does not read the note
+		// (sl_hit_1200_2400_note48): on the Digitakt II a note there chooses a slice, the ColdFire's doing
+		const int note = modeOf(word(Mode) >> 8) == SliceMode ? 60 : m_controls.notes[_track];
+		const double semitones = std::clamp((word(Tune) - (64 << 8)) / 256.0 + (note - 60), -64.0, 64.0);
 		m_stepOf[_track] = std::exp2(semitones / 12) / 2;
 	}
 
@@ -192,6 +220,17 @@ namespace elektron::drums
 			v.end = std::min(std::floor((slice + more) * length / grid), length);
 			v.loopAt = v.start;
 		}
+		else if(mode == SliceMode)
+		{
+			// The Track's slices, Machine 5 the one played, 6 how many more follow: the portion in frames the ColdFire
+			// hands the SHARC (probe_slice2.py), its start bounded as ONESHOT's, the loop going round the whole of it
+			const int slices = sliceCount(slot->slices, v.length);
+			const int slice = sliceOf(word(Start) >> 8, slices);
+			const int more = moreSlicesOf(word(Length) >> 8, slices);
+			v.start = std::min(static_cast<double>(sliceStart(slot->slices, v.length, slice - 1)), bound);
+			v.end = sliceStart(slot->slices, v.length, slice + more);
+			v.loopAt = v.start;
+		}
 		else if(mode != Werp)
 		{
 			const double startOf = fraction(word(Start)), loopOf = fraction(word(Loop));
@@ -212,6 +251,7 @@ namespace elektron::drums
 			v.loopAt = v.start;
 		}
 		v.werp = mode == Werp;
+		v.slice = mode == SliceMode;
 		if(v.werp)
 		{
 			// Machine 5 SEGMENT, 4 BARS: the step, which is also the window's length
@@ -314,8 +354,9 @@ namespace elektron::drums
 		const auto& kernel = m_kernel;
 		const bool reverse = v.reverse, loop = v.loop;
 		const double move = reverse ? -step : step, end = v.end, loopAt = v.loopAt, span = end - loopAt;
-		// Measured on WERP alone: ONESHOT's and GRID's REV LOOP keep their wrap until a vector of theirs says otherwise
-		const double lag = v.werp ? ReverseLoopLag : 0;
+		// Measured on WERP and SLICE: ONESHOT's and GRID's REV LOOP keep their wrap, so that no set changes, until a
+		// vector of theirs says otherwise
+		const double lag = v.werp || v.slice ? ReverseLoopLag : 0;
 		double position = v.position;
 		for(int m = 0; m < Work; ++m)
 		{

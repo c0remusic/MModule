@@ -73,6 +73,7 @@ namespace elektron::drums::vintage
 	struct SamplerPage
 	{
 		int grain = 0, mode = 0, grid = 0;
+		int slices = 1;		// the slices MODE SLICE plays from (Dt2Player::sliceCount), one without marks
 	};
 	inline bool companding(const int _value) { return _value >= 64; }
 	// BITS: 6 to 12, about 18 values each

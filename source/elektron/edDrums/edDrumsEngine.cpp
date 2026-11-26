@@ -799,6 +799,7 @@ namespace elektron::drums
 		// The DT2 player's, the same values at the same rate. The cut above freed the lane, whose voice fades over the
 		// next blocks: it reads this slot from its next block, the old sample's memory being the caller's to free
 		m_dt2Slot[t] = slotOf(_sample);
+		m_dt2Slot[t].slices = &m_slices[t];
 		m_vtSource[t] = m_dt2Slot[t].pcm;
 		m_vtLength[t] = m_dt2Slot[t].length;
 		m_vtRate[t] = m_dt2Slot[t].rate;

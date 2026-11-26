@@ -175,6 +175,12 @@ namespace elektron::drums
 		juce::String sampleName(int _track) const;
 		void clearSample(int _track);
 
+		// Message thread. The Track's slices, which the CLEAN grain's MODE SLICE plays (ticket 12 of the v2 map),
+		// kept in the state and in Kits with the Track's sound, whatever sample it holds. setSlices sorts the marks,
+		// drops those at 0 and the repeated, holds Slices::Max - 1 at most, and reaches the engine from the next block
+		const Slices& slices(const int _track) const { return m_slices[static_cast<size_t>(_track)]; }
+		void setSlices(int _track, const Slices& _slices);
+
 		// Message thread. The LOCKER's sources (edDrumsSampleLibrary.h), which the timer follows. A sample of the Locker
 		// on a Track by its fingerprint, as loadSample loads its file: one of a source, of FACTORY or IN THIS SET. A
 		// Track's sample's fingerprint, which the state and a Kit keep beside its copy: empty for none
@@ -399,8 +405,20 @@ namespace elektron::drums
 			std::array<std::unique_ptr<Sample>, SampleSlots> samples;
 			std::array<uint64_t, SampleSlots> sampleHash{};
 			std::array<juce::String, SampleSlots> refs;
+			std::array<Slices, Tracks> slices{};
 			std::unique_ptr<juce::XmlElement> xml;
 		};
+
+		// A Track's slices on their way to the audio thread, as a SampleMail
+		struct SliceMail
+		{
+			Slices slices;
+			uint32_t serial = 0;
+		};
+		void publishSlices(int _track);
+		// The slices a state or a Kit holds for _track, as writeSound writes them: none where it has none
+		static Slices slicesIn(const juce::XmlElement& _xml, int _track);
+		static juce::String slicesText(const Slices& _slices);	// the marks in frames, a space between
 
 		static BusesProperties buses();
 		void timerCallback() override;
@@ -450,6 +468,7 @@ namespace elektron::drums
 		// A state of a version before 7 or a Kit before 5 (_state false) held a Sampler Track's GRAIN in two halves:
 		// its value goes to the middle of its grain's third (vintage::GrainValues), so that the set sounds as it did
 		void takeGrain(juce::XmlElement& _xml, bool _state, int _sound = -1) const;
+		void takeSliceMode(juce::XmlElement& _xml, bool _state, int _sound = -1) const;
 		void takePageOrderLocks(juce::XmlElement& _pattern, const std::function<bool(int)>& _syntakt) const;
 		Machine machineIn(const juce::XmlElement& _xml, int _track, bool _state) const;
 		std::unique_ptr<juce::XmlElement> readKit(int _slot) const;
@@ -527,6 +546,11 @@ namespace elektron::drums
 		std::array<std::atomic<SampleMail*>, SampleSlots> m_sampleMail{};
 		std::array<std::atomic<uint32_t>, SampleSlots> m_sampleDone{};
 		std::array<std::vector<std::unique_ptr<SampleMail>>, SampleSlots> m_sampleFlight;
+		std::array<Slices, Tracks> m_slices{};
+		std::array<std::atomic<SliceMail*>, Tracks> m_sliceMail{};
+		std::array<std::atomic<uint32_t>, Tracks> m_sliceDone{};
+		std::array<std::vector<std::unique_ptr<SliceMail>>, Tracks> m_sliceFlight;
+		uint32_t m_sliceSerial = 0;
 		uint32_t m_sampleSerial = 0;
 		std::array<juce::String, SampleSlots> m_sampleRefs;	// the fingerprints
 		// The values the engine's VINTAGE grain reads where they lie (Sample::source): the message thread holds every one it
@@ -637,6 +661,7 @@ namespace elektron::drums
 		bool m_kitHeld = false;		// m_kitValues and m_kitSamples hold the Slot's Kit: false for an empty Slot
 		std::vector<float> m_kitValues;
 		std::array<std::unique_ptr<Sample>, SampleSlots> m_kitSamples;
+		std::array<Slices, Tracks> m_kitSlices{};
 		std::array<juce::String, SampleSlots> m_kitRefs;		// their references, as m_sampleRefs
 
 		// takeNotices's, and every one given, so that a Kit read again does not give its own twice

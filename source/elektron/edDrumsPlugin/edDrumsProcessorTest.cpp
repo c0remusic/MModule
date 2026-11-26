@@ -1373,7 +1373,7 @@ namespace
 				require(element->getIntAttribute("track") == 2 && element->getIntAttribute("factory") == 5
 					&& element->getAllSubText().isEmpty(), "the state holds factory audio, or another sample");
 			}
-			require(back->getIntAttribute("version") == 7 && samples == 1, "the state saved again: no factory slot");
+			require(back->getIntAttribute("version") == 8 && samples == 1, "the state saved again: no factory slot");
 			Processor q;
 			q.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
 			played(q, "a state of version 5");
@@ -1611,6 +1611,83 @@ namespace
 		text.deleteFile();
 		std::printf("PASS: a WAV loaded plays on the Sampler, peak %.2f; the state keeps it; cleared, silence\n",
 			peakOf(loaded, 0));
+	}
+
+	// SLICE (ticket 12 of the v2 map): the Track's slices reach the engine and choose what the CLEAN grain's MODE SLICE
+	// plays; setSlices keeps them sorted and whole; the state, a Kit and its Save light keep them; a set of before
+	// SLICE in that MODE plays ONESHOT as it did
+	void slices(const juce::File& _wav)
+	{
+		Processor processor;
+		allOutputs(processor);
+		set(find(processor, "t03_machine"), processor.samplerChoice());
+		juce::String error;
+		require(processor.loadSample(2, _wav, error), "the WAV refused: " + error.toStdString());
+		const auto frames = static_cast<uint32_t>(processor.trackSample(2)->pcm.size());
+		// A block first: the Sampler taken gives its Machine 1-12 its defaults there
+		play(processor, {}, Block);
+		set(find(processor, "t03_m9"), vintage::GrainValues[2]);
+		set(find(processor, "t03_m3"), Dt2Player::SliceMode * 128 / 6 + 10);
+		set(find(processor, "t03_m6"), 0);
+		const auto slice = [&](const int _k, const int _of)
+		{
+			set(find(processor, "t03_m5"), (_k - 1) * 128 / _of + 1);
+		};
+		slice(1, 1);
+		const std::vector<Hit> hits{{1000, 2, 100}};
+		constexpr int Length = 469 * Block;
+		const auto entire = play(processor, hits, Length);
+		require(peakOf(entire, 0) > 0.1f, "SLICE without marks: the whole sample does not sound");
+
+		Slices s;
+		s.marks[0] = frames / 2, s.marks[1] = 0, s.marks[2] = frames / 2, s.marks[3] = frames / 4, s.count = 4;
+		processor.setSlices(2, s);
+		const auto& kept = processor.slices(2);
+		require(kept.count == 2 && kept.marks[0] == frames / 4 && kept.marks[1] == frames / 2,
+			"setSlices: the marks not sorted, 0 and the repeated not dropped");
+		const auto first = play(processor, hits, Length);
+		slice(2, 3);
+		const auto second = play(processor, hits, Length);
+		require(!same(first, entire) && !same(second, first) && peakOf(second, 0) > 0.01f,
+			"the slices do not choose what SLICE plays");
+
+		// The state keeps them, and plays them the same
+		juce::MemoryBlock state;
+		processor.getStateInformation(state);
+		Processor other;
+		allOutputs(other);
+		other.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+		require(other.slices(2) == kept, "the state does not keep the slices");
+		require(same(play(other, hits, Length), second), "the slices restored do not play the same");
+
+		// A Kit keeps them; one moved lights Save; loaded, they come back
+		require(processor.saveKit(41), "Slot 42 saved");
+		require(!processor.kitDiffers(), "the Kit saved differs");
+		auto moved = kept;
+		moved.marks[1] += 100;
+		processor.setSlices(2, moved);
+		require(processor.kitDiffers(), "a slice moved does not light Save");
+		require(processor.loadKit(41) && processor.slices(2) == kept, "the Kit does not keep the slices");
+		KitBank(Processor::dataFolder().getChildFile("Kits")).clear(41);
+
+		// A state of version 7 on CLEAN in MODE SLICE played ONESHOT: it plays it still; version 8 keeps SLICE
+		const auto modeAfter = [](const int _version)
+		{
+			Processor p;
+			juce::XmlElement xml("ElektronDrums");
+			xml.setAttribute("version", _version);
+			xml.setAttribute("t01_machine", p.samplerChoice());
+			xml.setAttribute("t01_m9", vintage::GrainValues[2]);
+			xml.setAttribute("t01_m3", Dt2Player::SliceMode * 128 / 6 + 10);
+			juce::MemoryBlock data;
+			juce::AudioProcessor::copyXmlToBinary(xml, data);
+			p.setStateInformation(data.getData(), static_cast<int>(data.getSize()));
+			return Dt2Player::modeOf(whole(plain(find(p, "t01_m3"))));
+		};
+		require(modeAfter(7) == Dt2Player::OneShot, "a state of version 7 in MODE SLICE no longer ONESHOT");
+		require(modeAfter(8) == Dt2Player::SliceMode, "a state of version 8 lost MODE SLICE");
+		std::printf("PASS: SLICE plays the Track's slices, kept sorted; the state and a Kit keep them, a move lights"
+			" Save; a state of version 7 in MODE SLICE plays ONESHOT\n");
 	}
 
 	// The sample layer (ticket 06 of the v2 map): its 14 parameters reach the engine; its own sample, beside the
@@ -3767,7 +3844,7 @@ namespace
 		juce::MemoryBlock saved;
 		_p.getStateInformation(saved);
 		const auto xml = Processor::readState(saved.getData(), static_cast<int>(saved.getSize()));
-		require(xml != nullptr && xml->getIntAttribute("version") == 7, std::string(_what) + ": the state's XML");
+		require(xml != nullptr && xml->getIntAttribute("version") == 8, std::string(_what) + ": the state's XML");
 		juce::MemoryBlock old;
 		juce::AudioProcessor::copyXmlToBinary(*xml, old);
 		std::printf("  %s: %zu bytes as version 7 wrote it, %zu compressed (%.1f %%)\n", _what, old.getSize(),
@@ -3904,6 +3981,7 @@ int main(const int _argc, char** _argv)
 		const auto wav = writeWav(juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsSample.wav"));
 		samples(wav);
 		layer(wav);
+		slices(wav);
 		kits(wav);
 		kitFiles(library, wav);
 		machineKits();
