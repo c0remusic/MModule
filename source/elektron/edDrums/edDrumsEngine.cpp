@@ -817,6 +817,12 @@ namespace elektron::drums
 		m_stLayers->setSettings(_track, _settings);
 	}
 
+	void Engine::setLayerRytmEnd(const int _track, const bool _on)
+	{
+		m_mdLayers->setRytmEnd(_track, _on);
+		m_stLayers->setRytmEnd(_track, _on);
+	}
+
 	void Engine::setLayerSample(const int _track, const Sample* _sample)
 	{
 		const auto slot = slotOf(_sample);

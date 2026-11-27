@@ -8,7 +8,7 @@ add_library(edDrums STATIC edDrumsAnalog.h edDrumsAnalogPort.h edDrumsAnalogShar
 	edDrumsAnalogRates.h edDrumsAnalogRates.cpp edDrumsAnalogMetal.cpp edDrumsAnalogMetalVoice.cpp
 	edDrumsRytm.h edDrumsRytmControl.cpp edDrumsRytmVoice.h edDrumsRytmVoice.cpp
 	edDrumsAnalogDrive.h edDrumsAnalogDrive.cpp edDrumsChain.h edDrumsChain.cpp edDrumsDt2Stages.h edDrumsDt2Stages.cpp edDrumsDt2Filters.h edDrumsDt2Filters.cpp
-	edDrumsDt2Player.h edDrumsDt2Player.cpp edDrumsLayer.h edDrumsLayer.cpp
+	edDrumsDt2Player.h edDrumsDt2Player.cpp edDrumsLayer.h edDrumsLayer.cpp edDrumsRytmSound.h edDrumsRytmSound.cpp
 	edDrumsEngine.h edDrumsEngine.cpp edDrumsHitPreview.h edDrumsHitPreview.cpp edDrumsHouseWaves.h edDrumsHouseWaves.cpp
 	edDrumsLfo.h edDrumsLfo.cpp edDrumsLibrary.h edDrumsLibrary.cpp edDrumsOversampler.h edDrumsOversampler.cpp
 	edDrumsOversamplerKernel.h edDrumsOversamplerAvx2.cpp edDrumsMasterAvx2.cpp
@@ -128,6 +128,14 @@ if(BUILD_TESTING)
 	set_property(TARGET edDrumsLayerTest PROPERTY FOLDER "Elektron/test")
 	add_test(NAME edDrumsLayerTest COMMAND edDrumsLayerTest)
 	set_tests_properties(edDrumsLayerTest PROPERTIES TIMEOUT 120)
+
+	# A Rytm sound's dump read and made a layer, against the Rytm's sample layer run in its OS (RYTM_LAYER_VECTORS,
+	# vectors-rytm-layer: exit 77 without them)
+	add_executable(edDrumsRytmSoundTest edDrumsRytmSoundTest.cpp)
+	target_link_libraries(edDrumsRytmSoundTest PRIVATE edDrums)
+	set_property(TARGET edDrumsRytmSoundTest PROPERTY FOLDER "Elektron/test")
+	add_test(NAME edDrumsRytmSoundTest COMMAND edDrumsRytmSoundTest)
+	set_tests_properties(edDrumsRytmSoundTest PROPERTIES LABELS "FirmwareTest" SKIP_RETURN_CODE 77 TIMEOUT 120)
 
 	# A Lock of the Sampler's sample on each grain, the host's samples sample for sample, nothing allocated, the cost of
 	# 16 locked Hits in a block; neither flash image nor vectors

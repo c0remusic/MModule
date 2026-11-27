@@ -153,6 +153,7 @@ namespace elektron::drums
 		give(Dt2Player::Start, LayerMove::Start, s.start);
 		give(Dt2Player::Length, LayerMove::Length, s.length);
 		give(Dt2Player::Loop, LayerMove::Loop, s.loop);
+		player.setRytmEnd(_track, m_rytmEnd[i]);
 		m_current[i] = v;
 		m_sounding |= 1u << _track;
 	}

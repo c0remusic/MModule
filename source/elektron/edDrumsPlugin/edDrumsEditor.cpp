@@ -4,6 +4,8 @@
 
 #include "LockstepAssets.h"
 #include "edDrumsNames.h"
+#include "edDrumsParameters.h"
+#include "edDrumsRytmSound.h"
 
 // The frame: the plates, the hardware under the screen and beside it, the mouse, the timer, a dropped file. The
 // screen's pages are in edDrumsEditorScreen.cpp. Positions in mm come from t_assets/t.js and HANDOFF.md
@@ -30,6 +32,11 @@ namespace elektron::drums
 		bool isSampleFile(const juce::String& _path)
 		{
 			return juce::File(_path).hasFileExtension("wav;aif;aiff;flac");
+		}
+
+		bool isSoundDump(const juce::String& _path)
+		{
+			return juce::File(_path).hasFileExtension("syx");
 		}
 	}
 
@@ -99,7 +106,10 @@ namespace elektron::drums
 		if(_page != Page::Sound)
 			m_lockSteps.clear();
 		if(_page != Page::Browse)
+		{
 			m_pickStep = -1;
+			m_pickLayer = false;
+		}
 		layout();
 		repaint();
 	}
@@ -116,6 +126,7 @@ namespace elektron::drums
 		m_lockScroll = 0;
 		m_lockMenu = false;
 		m_pickStep = -1;
+		m_pickLayer = false;
 		layout();
 		repaint();
 	}
@@ -166,6 +177,12 @@ namespace elektron::drums
 	juce::Rectangle<int> Editor::stepKeyArea(const int _key) const
 	{
 		return toPx({keyX(_key), 281.33f, KeyWidth, 28});
+	}
+
+	juce::Rectangle<int> Editor::layerBlockArea() const
+	{
+		// edDrumsEditorScreen.cpp's SrcX, LowY, SrcW
+		return toPx({cx(0) - 2, 185, 9 * Col + 2, 53.5f});
 	}
 
 	void Editor::resized()
@@ -1196,7 +1213,8 @@ namespace elektron::drums
 	bool Editor::isInterestedInFileDrag(const juce::StringArray& _files)
 	{
 		for(const auto& f : _files)
-			if(isSampleFile(f) || (m_page == Page::Browse && juce::File(f).isDirectory()))
+			if(isSampleFile(f) || (m_page == Page::Sound && isSoundDump(f))
+				|| (m_page == Page::Browse && juce::File(f).isDirectory()))
 				return true;
 		return false;
 	}
@@ -1219,7 +1237,7 @@ namespace elektron::drums
 		}
 		juce::String file;
 		for(const auto& f : _files)
-			if(isSampleFile(f))
+			if(isSampleFile(f) || isSoundDump(f))
 			{
 				file = f;
 				break;
@@ -1227,6 +1245,16 @@ namespace elektron::drums
 		if(file.isEmpty())
 			return;
 		const auto mm = toMm({static_cast<float>(_x), static_cast<float>(_y)});
+		// On the SAMPLE LAYER block, the layer's own
+		const bool onLayer = m_page == Page::Sound && layerBlockArea().contains(_x, _y);
+		if(isSoundDump(file))
+		{
+			if(onLayer)
+				importRytmSound(m_track, juce::File(file));
+			else
+				toast("A RYTM SOUND GOES ON THE SAMPLE LAYER BLOCK");
+			return;
+		}
 		for(int k = 0; k < 16; ++k)
 			if(juce::Rectangle<float>(10 + KeyPitch * static_cast<float>(k), 249.33f, KeyPitch, 27.5f).contains(mm))
 			{
@@ -1235,8 +1263,7 @@ namespace elektron::drums
 			}
 		if(m_page == Page::Sound && juce::Rectangle<float>(cx(0) - 2, 23, 16 * Col + 2, 70).contains(mm))
 			loadSample(m_track, juce::File(file));
-		// On the SAMPLE LAYER block (edDrumsEditorScreen.cpp's SrcX, LowY, SrcW), the layer's own
-		else if(m_page == Page::Sound && juce::Rectangle<float>(cx(0) - 2, 185, 9 * Col + 2, 53.5f).contains(mm))
+		else if(onLayer)
 			loadSample(Processor::layerSlot(m_track), juce::File(file));
 	}
 
@@ -1313,11 +1340,67 @@ namespace elektron::drums
 		showPage(Page::Seq);
 	}
 
+	void Editor::importRytmSound(const int _track, const juce::File& _file)
+	{
+		juce::MemoryBlock data;
+		if(_file.getSize() > 4096 || !_file.loadFileAsData(data))
+		{
+			toast(_file.getFileName().toUpperCase() + ": NOT A RYTM SOUND");
+			return;
+		}
+		std::string error;
+		const auto sound = rytm::readSound(static_cast<const uint8_t*>(data.getData()), data.getSize(), error);
+		if(!sound)
+		{
+			toast(_file.getFileName().toUpperCase() + ": " + juce::String(error).toUpperCase());
+			return;
+		}
+		const juce::String name = sound->name.empty() ? _file.getFileNameWithoutExtension() : juce::String(sound->name);
+		if(!sound->sample)
+		{
+			toast("RYTM SOUND " + name.toUpperCase() + " PLAYS NO SAMPLE");
+			return;
+		}
+		const auto values = parameters::valuesOf(rytm::layerOf(*sound));
+		for(size_t i = 0; i < values.size(); ++i)
+			if(auto* p = trackParameter(parameters::layerSpecs[i].id, _track))
+				setNormalised(*p, p->convertTo0to1(static_cast<float>(values[i])));
+		// Without LOOP it ends as the Rytm's
+		m_processor.setRytmEnd(_track, true);
+		// Its sample from the Locker: the dump holds the +Drive's slot alone
+		if(!browseSamples())
+		{
+			m_browseTree = 2;
+			m_browseFilter = 0;
+			m_browseScroll = 0;
+		}
+		m_browseItem = -1;
+		showTrack(_track);
+		showPage(Page::Browse);
+		m_pickLayer = true;
+		toast("RYTM SOUND " + name.toUpperCase() + " ON TRACK " + juce::String(_track + 1)
+			+ "'S LAYER: CHOOSE ITS SAMPLE (+DRIVE SLOT " + juce::String(sound->sample) + ")");
+		layout();
+		repaint();
+	}
+
+	void Editor::layerPicked(const SampleLibrary::Entry& _entry)
+	{
+		m_pickLayer = false;
+		loadSample(Processor::layerSlot(m_track), _entry);
+		// The sample loaded ends as the Rytm sound imported says, not as another sample loaded would (sampleLoaded)
+		m_processor.setRytmEnd(m_track, true);
+		showPage(Page::Sound);
+	}
+
 	void Editor::sampleLoaded(const int _track)
 	{
-		// A sample loaded puts the Track on the Sampler; a layer's leaves the machine as it is
+		// A sample loaded puts the Track on the Sampler; a layer's leaves the machine as it is, and ends as the DT2's
+		// (a Rytm sound imported gives its own end again, layerPicked)
 		const bool layer = Processor::isLayerSlot(_track);
-		if(!layer)
+		if(layer)
+			m_processor.setRytmEnd(Processor::trackOfSlot(_track), false);
+		else
 		{
 			auto* machine = trackParameter("machine", _track);
 			const float sampler = machine->convertTo0to1(static_cast<float>(m_processor.samplerChoice()));
@@ -1332,12 +1415,19 @@ namespace elektron::drums
 
 	void Editor::chooseSample(const int _track)
 	{
-		m_chooser = std::make_unique<juce::FileChooser>("Load a sample", juce::File(), "*.wav;*.aif;*.aiff;*.flac");
+		// The layer's LOAD takes a Rytm sound's dump too (ticket 21 of the v2 map)
+		const bool layer = Processor::isLayerSlot(_track);
+		m_chooser = std::make_unique<juce::FileChooser>(layer ? "Load a sample, or a Rytm sound" : "Load a sample",
+			juce::File(), layer ? "*.wav;*.aif;*.aiff;*.flac;*.syx" : "*.wav;*.aif;*.aiff;*.flac");
 		juce::Component::SafePointer<Editor> self(this);
 		m_chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-			[self, _track](const juce::FileChooser& _c)
+			[self, _track, layer](const juce::FileChooser& _c)
 			{
-				if(self && _c.getResult().existsAsFile())
+				if(!self || !_c.getResult().existsAsFile())
+					return;
+				if(layer && isSoundDump(_c.getResult().getFullPathName()))
+					self->importRytmSound(Processor::trackOfSlot(_track), _c.getResult());
+				else
 					self->loadSample(_track, _c.getResult());
 			});
 	}

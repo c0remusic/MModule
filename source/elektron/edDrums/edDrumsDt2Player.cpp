@@ -30,6 +30,10 @@ namespace elektron::drums
 		constexpr uint32_t StartMargin = 141;
 		// Where a reversed read starts, from the end; how far below its start it may read
 		constexpr double ReverseFrom = 6, ReverseBelow = 32;
+		// ... the Rytm's (setRytmEnd): its reversed read sounds as ours started this far below the end (the best of 10
+		// to 18 at the oracle, its reversed Hits nulled at 44 dB)
+		constexpr double RytmReverseFrom = 14;
+		constexpr float RytmEndSilent = 1e-6f;
 		// A reversed loop goes round this far below its loop point: the DSP's read position runs 5 samples above ours
 		// (its reversed read starts at the end less 1), and it wraps where that reaches the loop point (WERP's REV.L at
 		// the oracle, ticket 11: the best of 0 to 7; SLICE's, ticket 12: of 0 to 12; applied to those two, render96)
@@ -200,6 +204,8 @@ namespace elektron::drums
 		v.playing = v.length != 0;
 		if(!v.playing)
 			return;
+		v.rytmEnd = m_rytmEnd[static_cast<size_t>(_l)];
+		v.endFrom = v.endTo = 1;
 		// MODE, STRT, LEN, LOOP and PLAY as they stand at the trig; TUNE, the note and the tempo follow block by block
 		// (render96)
 		const auto word = [this, _l](const int _i) { return m_controls.words[_i][_l]; };
@@ -259,7 +265,7 @@ namespace elektron::drums
 			v.werpStride = (WerpWhole >> (5 - werpSegmentOf(word(Start) >> 8))) >> v.werpBars;
 			werpFrame(v, true);
 		}
-		v.position = v.reverse ? v.end - ReverseFrom : v.start;
+		v.position = v.reverse ? v.end - (v.rytmEnd ? RytmReverseFrom : ReverseFrom) : v.start;
 		if(v.end <= v.start)
 			v.playing = false;
 		if(v.stretch)
@@ -339,7 +345,24 @@ namespace elektron::drums
 			: m_stepOf[_l] * v.rate;
 		// The block that reaches the end is the last: faded out linearly, the voice over after it
 		bool fade = false;
-		if(!v.loop)
+		if(v.rytmEnd && !v.loop)
+		{
+			// The Rytm's, from where its DMA has reached (forward a block ahead of the read, reversed the read
+			// itself): over once that lies past the end (the portion's start, reversed); a quarter of the gain by the
+			// block's end while it lies within RytmEndAhead
+			const double left = v.reverse ? v.position - v.start : v.end - (v.position + step * Work);
+			v.endFrom = v.endTo;
+			// ... or once its gain lies below -120 dB, a slow step going on to the end with nothing heard
+			if(left < 0 || v.endFrom < RytmEndSilent)
+			{
+				v.playing = false;
+				std::fill_n(_work, Work, 0.0f);
+				return;
+			}
+			if(left <= RytmEndAhead)
+				v.endTo = v.endFrom / 4;
+		}
+		else if(!v.loop)
 		{
 			// The next block's last read, 127 steps on: if that block would not sound, this one is the last. A reversed read
 			// goes on below its start by up to ReverseBelow, never below the sample's first (five reversed cases at the
@@ -566,6 +589,10 @@ namespace elektron::drums
 			alignas(16) float work[Work];
 			render96(_lane, work);
 			decimate(_lane, work, _fadeOut, _out);
+			// The Rytm's end: from the gain the block starts at to the one it ends at, a 32nd of the way a sample
+			if(v.endFrom != 1 || v.endTo != 1)
+				for(int n = 0; n < BlockSize; ++n)
+					_out[n] *= v.endFrom + (v.endTo - v.endFrom) * static_cast<float>(n) / BlockSize;
 		}
 		if(_fadeOut)
 			v.playing = false;

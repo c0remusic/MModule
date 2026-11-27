@@ -181,6 +181,15 @@ namespace elektron::drums
 		const Slices& slices(const int _track) const { return m_slices[static_cast<size_t>(_track)]; }
 		void setSlices(int _track, const Slices& _slices);
 
+		// Message thread. The Track's layer ends as the Rytm's sample layer does (SampleLayers::setRytmEnd): a Rytm
+		// sound imported (ticket 21 of the v2 map). No host parameter: kept in the state, Kits and Track sounds,
+		// reaching the engine from the next block
+		bool rytmEnd(const int _track) const
+		{
+			return m_rytmEnds[static_cast<size_t>(_track)].load(std::memory_order_relaxed);
+		}
+		void setRytmEnd(int _track, bool _on);
+
 		// Message thread. The LOCKER's sources (edDrumsSampleLibrary.h), which the timer follows. A sample of the Locker
 		// on a Track by its fingerprint, as loadSample loads its file: one of a source, of FACTORY or IN THIS SET. A
 		// Track's sample's fingerprint, which the state and a Kit keep beside its copy: empty for none
@@ -406,6 +415,7 @@ namespace elektron::drums
 			std::array<uint64_t, SampleSlots> sampleHash{};
 			std::array<juce::String, SampleSlots> refs;
 			std::array<Slices, Tracks> slices{};
+			std::array<bool, Tracks> rytmEnds{};
 			std::unique_ptr<juce::XmlElement> xml;
 		};
 
@@ -418,6 +428,8 @@ namespace elektron::drums
 		void publishSlices(int _track);
 		// The slices a state or a Kit holds for _track, as writeSound writes them: none where it has none
 		static Slices slicesIn(const juce::XmlElement& _xml, int _track);
+		static bool rytmEndIn(const juce::XmlElement& _xml, int _track);
+		std::array<bool, Tracks> rytmEnds() const;
 		static juce::String slicesText(const Slices& _slices);	// the marks in frames, a space between
 
 		static BusesProperties buses();
@@ -550,6 +562,8 @@ namespace elektron::drums
 		std::array<std::atomic<SliceMail*>, Tracks> m_sliceMail{};
 		std::array<std::atomic<uint32_t>, Tracks> m_sliceDone{};
 		std::array<std::vector<std::unique_ptr<SliceMail>>, Tracks> m_sliceFlight;
+		// setRytmEnd; the audio thread gives the engine each block, and a pattern's Kit switched there sets them
+		std::array<std::atomic<bool>, Tracks> m_rytmEnds{};
 		uint32_t m_sliceSerial = 0;
 		uint32_t m_sampleSerial = 0;
 		std::array<juce::String, SampleSlots> m_sampleRefs;	// the fingerprints
@@ -662,6 +676,7 @@ namespace elektron::drums
 		std::vector<float> m_kitValues;
 		std::array<std::unique_ptr<Sample>, SampleSlots> m_kitSamples;
 		std::array<Slices, Tracks> m_kitSlices{};
+		std::array<bool, Tracks> m_kitRytmEnds{};
 		std::array<juce::String, SampleSlots> m_kitRefs;		// their references, as m_sampleRefs
 
 		// takeNotices's, and every one given, so that a Kit read again does not give its own twice

@@ -20,6 +20,7 @@
 
 #include "edDrumsEditor.h"
 #include "edDrumsNames.h"
+#include "edDrumsRytmSound.h"
 #include "mdProtocol/mdmachines.h"
 
 namespace
@@ -1453,6 +1454,59 @@ namespace
 			click(editor, editor.browseButtonArea(B::Load).getCentre());
 			check(processor.sampleName(0) == "hh closed.wav", "LOAD ON TRACK loads " + processor.sampleName(0));
 			snapshot(editor, _folder.getChildFile("browse-samples.png"));
+
+			// A Rytm sound (ticket 21 of the v2 map) dropped on the SAMPLE LAYER block: its SAMPLE page as the
+			// layer's values, its end the Rytm's, Browse chosen for its sample, which a double-click loads on the layer
+			// and shows Sound again; a sample dropped there after ends as the DT2's; a file not a Rytm sound changes
+			// nothing
+			{
+				rytm::Sound sound;
+				sound.name = "RYTM KICK";
+				sound.tune = 71;
+				sound.fine = 84;
+				sound.sample = 6;
+				sound.start = 30 << 8;
+				sound.end = 90 << 8;
+				sound.level = 100;
+				sound.bitReduction = 12;
+				const auto bytes = rytm::writeSound(sound);
+				const auto syx = temp.getChildFile("edDrumsRytmKick.syx");
+				syx.replaceWithData(bytes.data(), bytes.size());
+				editor.showTrack(0);
+				editor.showPage(Editor::Page::Sound);
+				editor.tick();
+				const auto at = editor.layerBlockArea().getCentre();
+				check(editor.isInterestedInFileDrag({syx.getFullPathName()}), "a .syx not taken on Sound");
+				editor.filesDropped({syx.getFullPathName()}, at.x, at.y);
+				const auto value = [&](const char* _id)
+				{
+					auto* parameter = processor.parameter(juce::String("t01_") + _id);
+					return juce::roundToInt(parameter->convertFrom0to1(parameter->getValue()));
+				};
+				check(value("layer_on") == 1 && value("layer_tune") == 71 && value("layer_fine") == 104
+					&& value("layer_start") == 32 && value("layer_length") == 63 && value("layer_level") == 100
+					&& value("layer_br") == 12 && value("layer_play") == 0,
+					"the Rytm sound's SAMPLE page not the layer's");
+				check(processor.rytmEnd(0) && editor.page() == Editor::Page::Browse,
+					"the Rytm sound imported: its end not the Rytm's, or Browse not shown for its sample");
+				snapshot(editor, _folder.getChildFile("browse-rytm-sound.png"));
+				doubleClick(editor, editor.browseRowArea(0).getCentre());
+				const int layer = Processor::layerSlot(0);
+				check(processor.sampleName(layer).isNotEmpty() && processor.rytmEnd(0)
+					&& editor.page() == Editor::Page::Sound, "the double-click does not load the layer's sample, "
+					+ processor.sampleName(layer));
+				editor.tick();
+				editor.filesDropped({samples.getChildFile("kick_01.wav").getFullPathName()}, at.x, at.y);
+				check(processor.sampleName(layer) == "kick_01.wav" && !processor.rytmEnd(0),
+					"a sample dropped on the layer after keeps the Rytm's end");
+				const auto other = temp.getChildFile("edDrumsNotRytm.syx");
+				other.replaceWithData("\xF0\x43\x00\xF7", 4);
+				editor.filesDropped({other.getFullPathName()}, at.x, at.y);
+				check(processor.sampleName(layer) == "kick_01.wav" && value("layer_tune") == 71
+					&& editor.page() == Editor::Page::Sound, "a .syx not a Rytm sound changes the layer");
+				syx.deleteFile();
+				other.deleteFile();
+			}
 
 			// A step's sample (ticket 07 of the v2 map): + LOCK's SAMPLE, on the Sampler's Track, adds its lane; a
 			// click on a step shows Browse choosing its sample, the pointer over a row auditions it, LOCK ON STEP or a

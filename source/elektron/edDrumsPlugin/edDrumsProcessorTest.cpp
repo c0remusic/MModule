@@ -1767,6 +1767,57 @@ namespace
 			peakOf(on, 0));
 	}
 
+	// A Rytm sound's end (ticket 21 of the v2 map): the layer that ends as the Rytm's plays its portion's end otherwise
+	// than the DT2's; the state, a Kit (whose Save it lights) and a Track sound keep it
+	void rytmEnd(const juce::File& _wav)
+	{
+		Processor processor;
+		allOutputs(processor);
+		const int slot = Processor::layerSlot(2);
+		juce::String error;
+		require(processor.loadSample(slot, _wav, error), "the layer's WAV refused: " + error.toStdString());
+		set(find(processor, "t03_layer_on"), 1);
+		set(find(processor, "t03_layer_length"), 20);
+		const std::vector<Hit> hits{{1000, 2, 100}};
+		constexpr int Length = 200 * Block;
+		const auto dt2 = play(processor, hits, Length);
+		require(!processor.rytmEnd(2), "a layer ends as the Rytm's unasked");
+		processor.setRytmEnd(2, true);
+		const auto rytm = play(processor, hits, Length);
+		// The two differ only at the portion's end (20 127ths of the 0.3 s sample, 47 ms), the Rytm's over more blocks
+		size_t first = 0, last = 0;
+		for(size_t n = 0; n < rytm[0].size(); ++n)
+			if(std::abs(rytm[0][n] - dt2[0][n]) > 1e-6f)
+			{
+				first = first ? first : n;
+				last = n;
+			}
+		require(first > 1000 + 30 * 44100 / 1000 && last > first + 2 * Block, "the Rytm's end not at the portion's "
+			"end, or no longer than a block: samples " + std::to_string(first) + " to " + std::to_string(last));
+
+		juce::MemoryBlock state;
+		processor.getStateInformation(state);
+		Processor other;
+		allOutputs(other);
+		other.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+		require(other.rytmEnd(2) && !other.rytmEnd(3), "the state does not keep the Rytm's end");
+		require(same(play(other, hits, Length), rytm), "the Rytm's end restored does not play the same");
+
+		require(processor.saveKit(41), "Slot 42 saved");
+		require(!processor.kitDiffers(), "the Kit saved differs");
+		processor.setRytmEnd(2, false);
+		require(processor.kitDiffers(), "the Rytm's end dropped does not light Save");
+		require(processor.loadKit(41) && processor.rytmEnd(2), "the Kit does not keep the Rytm's end");
+		KitBank(Processor::dataFolder().getChildFile("Kits")).clear(41);
+
+		const auto file = processor.saveTrackSound(2, "Rytm end");
+		require(other.loadTrackSound(6, file) && other.rytmEnd(6), "the Track sound does not carry the Rytm's end");
+		file.deleteFile();
+		std::printf("PASS: the Rytm's end differs from the DT2's from %.1f to %.1f ms after the Hit; the state, a Kit"
+			" and a Track sound keep it\n", (static_cast<double>(first) - 1000) / 44.1,
+			(static_cast<double>(last) - 1000) / 44.1);
+	}
+
 	// ---- the samples' Library ----
 
 	// A sound of _frames at _rate on _channels, in _format's file
@@ -3981,6 +4032,7 @@ int main(const int _argc, char** _argv)
 		const auto wav = writeWav(juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("edDrumsSample.wav"));
 		samples(wav);
 		layer(wav);
+		rytmEnd(wav);
 		slices(wav);
 		kits(wav);
 		kitFiles(library, wav);

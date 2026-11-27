@@ -65,6 +65,8 @@ namespace elektron::drums
 		const std::vector<ui::Cell>& cells() const { return m_cells; }
 		juce::Rectangle<int> cellArea(const juce::String& _parameterId) const;
 		juce::Rectangle<int> stepKeyArea(int _key) const;
+		// The SAMPLE LAYER block, where a sample or a Rytm sound dropped goes to the layer
+		juce::Rectangle<int> layerBlockArea() const;
 		// Kits: a Slot's row, and an action's button (LOAD, SAVE HERE, RENAME, DELETE, IMPORT, EXPORT)
 		juce::Rectangle<int> kitSlotArea(int _slot) const;
 		juce::Rectangle<int> kitActionArea(int _action) const;
@@ -310,6 +312,10 @@ namespace elektron::drums
 		// layer's
 		void lockDropped(int _step, const SampleLibrary::Entry& _entry);
 		void lockPicked(const SampleLibrary::Entry& _entry);
+		// A Rytm sound's dump (ticket 21 of the v2 map) on the layer of _track: its SAMPLE page as the layer's
+		// parameters, then Browse chosen for its sample (m_pickLayer), which the dump does not hold
+		void importRytmSound(int _track, const juce::File& _file);
+		void layerPicked(const SampleLibrary::Entry& _entry);
 		// Browse's samples: the list shown, indices in the Locker's entries, then past them in FACTORY's, then past
 		// those in IN THIS SET's (browseEntry), filtered by the segment and the search; for KITS the Slots that hold
 		// one, for TRACK SOUNDS indices in their Library's entries, filtered by the search. LOCKER's segments: what
@@ -367,6 +373,7 @@ namespace elektron::drums
 		int m_pickStep = -1;				// pickStep()
 		int m_pickPattern = 0;				// ... its pattern
 		int m_pickLine = SampleLock;		// ... and its lane
+		bool m_pickLayer = false;			// Browse chosen for the sample of the Track shown's layer
 		Page m_pressPage = Page::Sound;		// the page the last press fell on
 		int m_browseItem = 0, m_browseScroll = 0;	// in the list shown
 		int m_browseTree = 3, m_browseFilter = 0;	// LIBRARY's entry, the list's segment

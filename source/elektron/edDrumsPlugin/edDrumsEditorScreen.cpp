@@ -4282,6 +4282,8 @@ namespace elektron::drums
 				m_browseItem = item;
 				if(picking)
 					lockPicked(e);
+				else if(m_pickLayer)
+					layerPicked(e);
 				else
 					loadSample(m_track, e);
 			};
@@ -4292,11 +4294,15 @@ namespace elektron::drums
 				const int k = static_cast<int>((m_press.last.x - 10) / KeyPitch);
 				if(k < 0 || k >= 16)
 					return;
-				// On a step's strip, a Lock of it there (ticket 08); on a Track's pad or keys, its sample
+				// On a step's strip, a Lock of it there (ticket 08); on a Track's pad or keys, its sample, which gives
+				// up choosing the layer's (a Rytm sound imported)
 				if(m_press.last.y >= StripY)
 					lockDropped(m_stepPage * 16 + k, e);
 				else if(m_press.last.y >= 244)
+				{
+					m_pickLayer = false;
 					loadSample(k, e);
+				}
 			};
 			addHit(std::move(row));
 		}
@@ -4313,6 +4319,8 @@ namespace elektron::drums
 			{
 				if(picking)
 					lockPicked(e);
+				else if(m_pickLayer)
+					layerPicked(e);
 				else
 					loadSample(m_track, e);
 			};
@@ -4461,7 +4469,7 @@ namespace elektron::drums
 			const bool picking = m_pickStep >= 0 && samples;
 			const juce::String hints[]{picking ? "POINT: LISTEN" : "CLICK: LISTEN", picking
 				? "DOUBLE CLICK: LOCK ON STEP " + juce::String(m_pickStep + 1)
-				: "DOUBLE CLICK: LOAD ON TRACK " + juce::String(m_track + 1),
+				: "DOUBLE CLICK: LOAD ON TRACK " + juce::String(m_track + 1) + (m_pickLayer ? "'S LAYER" : ""),
 				samples ? "DRAG: ON A TRACK, OR A STEP'S STRIP" : "DRAG: DROP ON ANY TRACK"};
 			for(int i = 0; i < 3; ++i)
 				_p.text(x, 202 + static_cast<float>(i) * 5.6f, hints[i], 2.6f, colour::dim);
@@ -4634,7 +4642,8 @@ namespace elektron::drums
 		else
 			drawLockerSource(_p, x, c);
 		drawButton(_p, x, 222, BrowseInfoW, 12.5f, m_pickStep >= 0 ? "LOCK ON STEP " + juce::String(m_pickStep + 1)
-			: "LOAD ON TRACK " + juce::String(m_track + 1), e != nullptr, e != nullptr);
+			: m_pickLayer ? "LOAD ON LAYER " + juce::String(m_track + 1) : "LOAD ON TRACK " + juce::String(m_track + 1),
+			e != nullptr, e != nullptr);
 	}
 
 	// The card of the segment chosen while no sample is: ALL the Locker's, a source's, FACTORY's or IN THIS SET's

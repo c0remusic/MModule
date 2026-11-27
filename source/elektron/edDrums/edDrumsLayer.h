@@ -44,6 +44,9 @@ namespace elektron::drums
 		// Off cuts what sounds; the others reach the next Hit, TUNE, FINE, LEVEL and BR the voices sounding too
 		void setSettings(int _track, const LayerSettings& _settings);
 		void setNote(int _track, int _note);
+		// Without LOOP, the Track's layer ends as the Rytm's sample layer ends (Dt2Player::setRytmEnd), from its next
+		// Hit: a Rytm sound imported (ticket 21 of the v2 map), which no host parameter holds
+		void setRytmEnd(const int _track, const bool _on) { m_rytmEnd[static_cast<size_t>(_track)] = _on; }
 		// An LFO's move of _move on _track, in 1/128 of a value, inside the value's range, reaching what setSettings
 		// says
 		void modulate(int _track, LayerMove _move, int _offset);
@@ -112,6 +115,7 @@ namespace elektron::drums
 		std::array<LayerSettings, Lanes> m_settings{};
 		std::array<std::array<int, static_cast<size_t>(LayerMove::Count)>, Lanes> m_moves{};
 		std::array<int, Lanes> m_note{};
+		std::array<bool, Lanes> m_rytmEnd{};
 		std::array<int, Lanes> m_current{};		// the voice the last Hit took
 		std::array<std::array<Voice, Lanes>, Voices> m_voices{};
 		std::array<float, Lanes> m_level{}, m_step{};

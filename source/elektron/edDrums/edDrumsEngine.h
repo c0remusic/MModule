@@ -276,6 +276,8 @@ namespace elektron::drums
 		// fades out
 		void setLayer(int _track, const LayerSettings& _settings);
 		void setLayerSample(int _track, const Sample* _sample);
+		// The layer's end the Rytm's (SampleLayers::setRytmEnd)
+		void setLayerRytmEnd(int _track, bool _on);
 
 		uint8_t parameter(const int _track, const int _index) const
 		{

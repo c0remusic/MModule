@@ -1650,6 +1650,27 @@ namespace elektron::drums
 		updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
 	}
 
+	void Processor::setRytmEnd(const int _track, const bool _on)
+	{
+		auto& held = m_rytmEnds[static_cast<size_t>(juce::jlimit(0, Tracks - 1, _track))];
+		if(held.exchange(_on, std::memory_order_relaxed) == _on)
+			return;
+		updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
+	}
+
+	bool Processor::rytmEndIn(const juce::XmlElement& _xml, const int _track)
+	{
+		return _xml.getBoolAttribute(juce::String::formatted("t%02d_rytmEnd", _track + 1));
+	}
+
+	std::array<bool, Tracks> Processor::rytmEnds() const
+	{
+		std::array<bool, Tracks> ends{};
+		for(int t = 0; t < Tracks; ++t)
+			ends[static_cast<size_t>(t)] = rytmEnd(t);
+		return ends;
+	}
+
 	// The Track's slices in their mailbox, as publishSample's
 	void Processor::publishSlices(const int _track)
 	{
@@ -2144,6 +2165,8 @@ namespace elektron::drums
 				m_sampleDone[t].store(mail->serial, std::memory_order_release);
 			}
 		}
+		for(int t = 0; t < Tracks; ++t)
+			m_engine->setLayerRytmEnd(t, m_rytmEnds[static_cast<size_t>(t)].load(std::memory_order_relaxed));
 		for(size_t t = 0; t < m_sliceMail.size(); ++t)
 			if(m_sliceMail[t].load(std::memory_order_acquire))
 				if(auto* mail = m_sliceMail[t].exchange(nullptr, std::memory_order_acq_rel))
@@ -2351,6 +2374,10 @@ namespace elektron::drums
 		for(int t = 0; t < Tracks; ++t)
 			if(const auto& s = m_slices[static_cast<size_t>(t)]; s.count)
 				_xml.setAttribute(juce::String::formatted("t%02d_slices", t + 1), slicesText(s));
+		// The layers that end as the Rytm's (ticket 21); the others, nothing written
+		for(int t = 0; t < Tracks; ++t)
+			if(rytmEnd(t))
+				_xml.setAttribute(juce::String::formatted("t%02d_rytmEnd", t + 1), 1);
 	}
 
 	juce::String Processor::slicesText(const Slices& _slices)
@@ -2762,6 +2789,7 @@ namespace elektron::drums
 		{
 			m_slices[static_cast<size_t>(t)] = slicesIn(_xml, t);
 			publishSlices(t);
+			m_rytmEnds[static_cast<size_t>(t)].store(rytmEndIn(_xml, t), std::memory_order_relaxed);
 		}
 	}
 
@@ -2845,7 +2873,10 @@ namespace elektron::drums
 			if(samples[t])
 				m_kitSamples[t] = readSample(*samples[t], m_kitRefs[t]);
 		for(int t = 0; t < Tracks; ++t)
+		{
 			m_kitSlices[static_cast<size_t>(t)] = slicesIn(*_kit, t);
+			m_kitRytmEnds[static_cast<size_t>(t)] = rytmEndIn(*_kit, t);
+		}
 	}
 
 	// A Slot's Kit as it plays: a Kit of a version before 3 on a ROM machine plays the Sampler (takeRoms)
@@ -2971,7 +3002,10 @@ namespace elektron::drums
 						holdSource(kit->samples[t].get());
 					}
 					for(int t = 0; t < Tracks; ++t)
+					{
 						kit->slices[static_cast<size_t>(t)] = slicesIn(*xml, t);
+						kit->rytmEnds[static_cast<size_t>(t)] = rytmEndIn(*xml, t);
+					}
 					kit->xml = std::move(xml);
 				}
 			m_prepared[static_cast<size_t>(s)].store(kit.get(), std::memory_order_release);
@@ -3027,7 +3061,11 @@ namespace elektron::drums
 			hash = _kit.sampleHash[static_cast<size_t>(t)];
 		}
 		for(int t = 0; t < Tracks; ++t)
+		{
 			m_engine->setSlices(t, _kit.slices[static_cast<size_t>(t)]);
+			m_rytmEnds[static_cast<size_t>(t)].store(_kit.rytmEnds[static_cast<size_t>(t)], std::memory_order_relaxed);
+			m_engine->setLayerRytmEnd(t, _kit.rytmEnds[static_cast<size_t>(t)]);
+		}
 		m_kitSwitched.store(const_cast<PreparedKit*>(&_kit), std::memory_order_release);
 		m_reread = true;
 	}
@@ -3212,6 +3250,8 @@ namespace elektron::drums
 		// Its slices as a Kit holds them (writeSound), without the Track's prefix
 		if(const auto& s = m_slices[static_cast<size_t>(_track)]; s.count)
 			xml->setAttribute("slices", slicesText(s));
+		if(rytmEnd(_track))
+			xml->setAttribute("rytmEnd", 1);
 		return xml;
 	}
 
@@ -3224,7 +3264,7 @@ namespace elektron::drums
 		const auto prefix = juce::String::formatted("t%02d_", _track + 1);
 		for(int i = 0; i < _sound.getNumAttributes(); ++i)
 			if(const auto name = _sound.getAttributeName(i);
-				name == "slices" || (parameter(prefix + name) && soundSuffix(name)))
+				name == "slices" || name == "rytmEnd" || (parameter(prefix + name) && soundSuffix(name)))
 				kit->setAttribute(prefix + name, _sound.getAttributeValue(i));
 		for(const auto* tag : {"sample", "layerSample"})
 			if(const auto* sample = _sound.getChildByName(tag))
@@ -3288,6 +3328,7 @@ namespace elektron::drums
 		}
 		m_slices[static_cast<size_t>(_track)] = slicesIn(*kit, _track);
 		publishSlices(_track);
+		m_rytmEnds[static_cast<size_t>(_track)].store(rytmEndIn(*kit, _track), std::memory_order_relaxed);
 		m_stateSerial.fetch_add(1, std::memory_order_acq_rel);
 		suspendProcessing(false);
 		tellHostAll();
@@ -3320,6 +3361,7 @@ namespace elektron::drums
 		e.setSample(0, sample.get());
 		e.setLayerSample(0, layer.get());
 		e.setSlices(0, slicesIn(*kit, 0));
+		e.setLayerRytmEnd(0, rytmEndIn(*kit, 0));
 		e.noteOn(0, 100);
 		// The ROM player's 1.29 s; on VINTAGE the sample at its pitch and a little tail, at most what a Sample holds
 		size_t length = Sample::MaxLength;
@@ -3386,6 +3428,8 @@ namespace elektron::drums
 		mixIn(static_cast<uint64_t>(cuts.count));
 		for(int i = 0; i < cuts.count; ++i)
 			mixIn(cuts.marks[static_cast<size_t>(i)]);
+		const bool rytm = rytmEnd(_track);
+		mixIn(rytm ? 1 : 0);
 		// A change waits until PreviewGap has passed since the last request, which then takes the values of that moment
 		if(key != m_previewKey)
 		{
@@ -3407,7 +3451,7 @@ namespace elektron::drums
 		HitPreview::Request request;
 		request.track = _track;
 		request.prepare = [this, _track, values = std::move(values), tempo,
-			slices = m_slices[static_cast<size_t>(_track)],
+			slices = m_slices[static_cast<size_t>(_track)], rytm,
 			sample = m_previewSamples[static_cast<size_t>(slots[0])].copy,
 			layer = m_previewSamples[static_cast<size_t>(slots[1])].copy](Engine& _e)
 		{
@@ -3423,6 +3467,7 @@ namespace elektron::drums
 			_e.setSample(_track, sample.get());
 			_e.setLayerSample(_track, layer.get());
 			_e.setSlices(_track, slices);
+			_e.setLayerRytmEnd(_track, rytm);
 		};
 		m_hitPreview->request(std::move(request));
 	}
@@ -3530,7 +3575,7 @@ namespace elektron::drums
 			if(m_sampleRefs[t] != m_kitRefs[t] || !a != !b || (a && (a->name != b->name || a->rate != b->rate || a->pcm != b->pcm)))
 				return true;
 		}
-		return m_slices != m_kitSlices;
+		return m_slices != m_kitSlices || rytmEnds() != m_kitRytmEnds;
 	}
 
 	juce::AudioProcessorEditor* Processor::createEditor()

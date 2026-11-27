@@ -132,6 +132,13 @@ namespace elektron::drums
 		// _track 0-15 (a lane). The note in semitones, 60 the sample's own pitch at TUNE 64
 		void setNote(int _track, int _note);
 		void setParameter(int _track, int _index, uint8_t _value, uint8_t _fine);
+		// A lane's end without LOOP as the Analog Rytm's sample layer ends (a Rytm sound imported into the sample
+		// layer, ticket 21 of the v2 map), from its next voice: no early last block; each block whose DMA (a block
+		// ahead, forward) lies within RytmEndAhead source samples of the end ramps to a quarter of the gain it starts
+		// at, reading on past the end, and the voice is over once it lies past it; a reversed read starts where the
+		// Rytm's does (rytm_end_probe.py and rytm_layer_vectors.py at the Rytm's OS 1.74, both ways, steps 0.25 to 1)
+		void setRytmEnd(const int _track, const bool _on) { m_rytmEnd[static_cast<size_t>(_track)] = _on; }
+		static constexpr double RytmEndAhead = 139;	// its DMA window, 0x8C, less one: cmp against the end less 0x8B
 
 		// For the next block rendered only, which sees the trig (the lane fades out) and sounds it from the one after
 		void trig(const int _track) { m_controls.trig(_track); }
@@ -168,6 +175,8 @@ namespace elektron::drums
 			const int16_t* pcm = nullptr;	// read again from the slot each block: the sample may change under a fading voice
 			uint32_t length = 0;
 			bool playing = false, reverse = false, loop = false;
+			bool rytmEnd = false;	// setRytmEnd, as its voice started
+			float endFrom = 1, endTo = 1;	// the Rytm's end: the gain over the block render96 gave, from and to
 			bool repitch = false;	// the step from the portion's length and the bars, not from TUNE
 			bool slice = false;		// SLICE: its REV LOOP wraps as WERP's (sl_hit_1200_2400_revloop)
 			double bars = 1;		// REPITCH: 2^BARS, the bars the portion takes
@@ -213,6 +222,7 @@ namespace elektron::drums
 		syntakt::fast::Controls m_controls;
 		int m_lanes = Lanes;
 		std::array<Lane, Lanes> m_lane{};
+		std::array<bool, Lanes> m_rytmEnd{};
 		// What TUNE and the note convert to (convert): source samples an output at twice the output rate, at a
 		// sample of the output's rate
 		double m_stepOf[Lanes]{};
