@@ -642,6 +642,7 @@ namespace elektron::drums
 			int pattern, track, step, parameter;
 			float value;
 		};
+		static constexpr int HeldSteps = -1;	// a LiveLock's pattern: for each step the companion holds on its Track
 		std::vector<LiveLock> m_liveLocks;
 		std::vector<int> m_gestures;
 		// The host's moves the audio thread recorded, for the timer. On the heap, as m_relayTargets
@@ -739,6 +740,14 @@ namespace elektron::drums
 		std::atomic<int> m_pushHelloPort{0};
 		std::unique_ptr<PushLink> m_pushLink;
 		std::vector<int> m_pushView, m_pushTracks;
+		// The steps the companion holds (ticket 24: pattern, Track, step), whose Locks the relays turn while any is
+		// held, which the audio thread reads; the steps given a Lock since the companion was last told; the hold the
+		// relays last showed, -1 for none
+		std::vector<std::array<int, 3>> m_pushHolds, m_pushLocked;
+		std::atomic<bool> m_holding{false};
+		int m_relaysHold = -1;
+		juce::uint32 m_pushHelloAt = 0;				// the companion's last hello, in ms
+		static constexpr juce::uint32 HoldTimeout = 5000;
 		int m_pushPlay = -2;
 		std::atomic<uint32_t> m_liveTracks{0};
 		std::array<std::atomic<float>, Outputs> m_outputPeak{};

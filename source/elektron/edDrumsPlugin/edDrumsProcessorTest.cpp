@@ -2620,6 +2620,93 @@ namespace
 		std::printf("  Push companion's Track pads: Track 4 shown, Track 1 muted and kept in the state\n");
 	}
 
+	// A step held on the companion (ticket 24): the relays turned lock it, the Kit untouched
+	void companionLocks()
+	{
+		constexpr int Length = 300 * Block;
+		Processor a, editor;
+		for(auto* p : {&a, &editor})
+		{
+			allOutputs(*p);
+			p->prepareToPlay(SampleRate, Block);
+			p->editSequencer([](Sequencer& _s)
+			{
+				_s.pattern(0).setTrig(0, 0, true);
+				_s.pattern(0).setTrig(0, 4, true);
+			});
+		}
+		Companion c;
+		c.hello(a);
+		const int port = a.companionLinkPort();
+		const auto turn = [&](std::initializer_list<osc::Message> _messages)
+		{
+			for(const auto& m : _messages)
+				c.send(port, m);
+			std::vector<osc::Message> got;
+			const auto by = juce::Time::getMillisecondCounter() + 300;
+			while(juce::Time::getMillisecondCounter() < by)
+			{
+				a.serviceCompanion();
+				for(auto& m : c.receive(10))
+					got.push_back(m);
+			}
+			a.syncRelays(false);
+			return got;
+		};
+		auto& relay = find(a, "push_flt_freq");
+		auto& kit = find(a, "t01_flt_freq");
+		const double kitValue = plain(kit);
+
+		// Held: the relay shows the Kit's value; turned, a Lock of step 4 and the Kit as it was
+		turn({{"/lockstep/hold", {0, 0, 4, 1}}});
+		require(std::abs(plain(relay) - kitValue) < 1e-3, "the relay as a step without Locks is held");
+		set(relay, 33);
+		block(a);
+		a.takeLive();
+		const auto got = turn({});
+		const auto* locked = lastOf(got, "/lockstep/locked");
+		require(locked && locked->args == std::vector<int>{0, 0, 4}, "the companion told of the Lock");
+		const auto& step = a.sequencer().pattern(0).step(0, 4);
+		const auto* locks = a.sequencer().pattern(0).locks(0, 4);
+		require(step.lockCount == 1 && locks[0].parameter == kit.getParameterIndex()
+			&& std::abs(locks[0].value - 33) < 1e-3, "the Lock of the step held");
+		require(std::abs(plain(kit) - kitValue) < 1e-3, "the Kit turned by a relay while a step is held");
+
+		// Let go: the relay back on the Kit's value; held again, on the Lock's
+		turn({{"/lockstep/hold", {0, 0, 4, 0}}});
+		require(std::abs(plain(relay) - kitValue) < 1e-3, "the relay after the step is let go");
+		turn({{"/lockstep/hold", {0, 0, 4, 1}}});
+		require(std::abs(plain(relay) - 33) < 1e-3, "the relay as a step with a Lock is held");
+		turn({{"/lockstep/hold", {0, 0, 4, 0}}});
+
+		// It plays as the editor's Lock does, sample for sample
+		editor.editSequencer([&](Sequencer& _s) { _s.pattern(0).setLock(0, 4, indexOf(editor, "t01_flt_freq"), 33); });
+		const auto take = playSequenced(a, Length);
+		requireSame(take, playSequenced(editor, Length), "a Lock of the step held: ");
+		Processor plainKit;
+		allOutputs(plainKit);
+		plainKit.editSequencer([](Sequencer& _s)
+		{
+			_s.pattern(0).setTrig(0, 0, true);
+			_s.pattern(0).setTrig(0, 4, true);
+		});
+		const int from = firstDifference(take, playSequenced(plainKit, Length));
+		require(from >= stepSample(1.0) && from < stepSample(1.0) + 200, "the Lock heard from " + std::to_string(from));
+
+		// A hold whose release was lost: let go once the companion has said nothing past HoldTimeout, the Kit turned
+		turn({{"/lockstep/hold", {0, 0, 9, 1}}});
+		std::this_thread::sleep_for(std::chrono::milliseconds(5200));
+		a.serviceCompanion();
+		a.syncRelays(false);
+		set(relay, 50);
+		block(a);
+		a.takeLive();
+		require(std::abs(plain(kit) - 50) < 1e-3 && a.sequencer().pattern(0).step(0, 9).lockCount == 0,
+			"a hold kept past the companion's silence");
+		std::printf("  Push companion's held step: a relay turned locks it (Cutoff 33), the Kit untouched, played as "
+			"the editor's Lock\n");
+	}
+
 	void sequencer(const Library& _library)
 	{
 		constexpr int Length = 846 * Block;	// a pattern of 16 steps, 88200 samples, and its start again
@@ -4188,6 +4275,7 @@ int main(const int _argc, char** _argv)
 		everyParameter(library);
 		sequencer(library);
 		companion(library);
+		companionLocks();
 		analogState();
 		sequencerFunctions(library);
 		familyChange();

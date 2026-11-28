@@ -5,7 +5,8 @@
 // protocol is edDrumsPushLink.h's. Armed, it takes Push's pad matrix (Button_Matrix) and shows the Track's first 16
 // steps on its top two rows; a pad on an empty step sets a trig at the pad's velocity, a short press on a trig removes
 // it. Its third and fourth rows are the 16 Tracks (ticket 23): a pad shows its Track; with Push's Mute key held, or
-// latched by a short press, it mutes or unmutes it instead. The encoders stay Live's, on Lockstep's relays. It plays
+// latched by a short press, it mutes or unmutes it instead. The encoders stay Live's, on Lockstep's relays; while a
+// step pad is held, Lockstep makes a relay turned a Lock of the steps held (ticket 24). It plays
 // no note: Lockstep's sequencer does. One companion arms Push at a time, the last one armed.
 //
 // Inlets: "start" (live.thisdevice), "arm 0|1" (the Push key), OSC from udpreceive, "otherarmed id" (the global send).
@@ -97,6 +98,12 @@ function anything()
 	{
 		view = a;
 		repaint(false);
+	}
+	else if(messagename === "/lockstep/locked" && a.length === 3)
+	{
+		var held = presses[a[2]];
+		if(held && held.pattern === a[0] && held.track === a[1])
+			held.locked = true;
 	}
 	else if(messagename === "/lockstep/tracks" && a.length === 16)
 	{
@@ -226,6 +233,10 @@ function release()
 	matrixId = muteId = 0;
 	muteHeld = muteUsed = muteLatched = false;
 	shown = [];
+	// The steps held let go, else Lockstep's relays would go on locking them
+	for(var s in presses)
+		if(lockstepPort)
+			outlet(0, "/lockstep/hold", presses[s].pattern, presses[s].track, Number(s), 0);
 	presses = {};
 	if(started)
 		status(lockstepPort ? "Lockstep on port " + lockstepPort : "waiting for Lockstep");
@@ -354,14 +365,20 @@ function pad(args)
 	if(velocity > 0)
 	{
 		var empty = !view[3 + s];
-		presses[s] = {at: Date.now(), added: empty, pattern: pattern, track: track};
+		presses[s] = {at: Date.now(), added: empty, locked: false, pattern: pattern, track: track};
 		if(empty)
 			setTrig(pattern, track, s, velocity);
+		// Held, the relays Push turns lock it (ticket 24)
+		outlet(0, "/lockstep/hold", pattern, track, s, 1);
 		return;
 	}
 	var p = presses[s];
 	delete presses[s];
-	if(p && !p.added && Date.now() - p.at < ShortPress)
+	if(!p)
+		return;
+	outlet(0, "/lockstep/hold", p.pattern, p.track, s, 0);
+	// A short press removes a trig it neither set nor locked
+	if(!p.added && !p.locked && Date.now() - p.at < ShortPress)
 		setTrig(p.pattern, p.track, s, 0);
 }
 

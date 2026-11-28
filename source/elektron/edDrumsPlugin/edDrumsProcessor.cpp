@@ -1143,6 +1143,21 @@ namespace elektron::drums
 	// Message thread: a Lock recorded, replacing the value of one already at its step
 	void Processor::addLiveLock(const LiveLock& _lock)
 	{
+		// A relay turned while the companion holds steps: a Lock of each held on the parameter's Track
+		if(_lock.pattern == HeldSteps)
+		{
+			if(m_locks.target(_lock.parameter).kind == LockKind::None)
+				return;
+			for(const auto& [pattern, track, step] : m_pushHolds)
+				if(track == _lock.track)
+				{
+					addLiveLock({pattern, track, step, _lock.parameter, _lock.value});
+					if(std::find(m_pushLocked.begin(), m_pushLocked.end(), std::array{pattern, track, step})
+						== m_pushLocked.end())
+						m_pushLocked.push_back({pattern, track, step});
+				}
+			return;
+		}
 		for(auto& l : m_liveLocks)
 			if(l.pattern == _lock.pattern && l.track == _lock.track && l.step == _lock.step && l.parameter == _lock.parameter)
 			{
@@ -1212,6 +1227,10 @@ namespace elektron::drums
 		{
 			if(!m_pushLink)
 				m_pushLink = std::make_unique<PushLink>();
+			// A companion's port changed: it was reloaded, and holds nothing
+			if(port != m_pushLink->companionPort())
+				m_pushHolds.clear();
+			m_pushHelloAt = juce::Time::getMillisecondCounter();
 			m_pushLink->setCompanionPort(port);
 			m_pushLink->send({"/lockstep/hello", {m_pushLink->port()}});
 			resend = true;
@@ -1233,7 +1252,29 @@ namespace elektron::drums
 				edits.push_back(std::move(m));
 			else if(m.address == "/lockstep/track" && a.size() == 1 && inRange(a[0], Tracks))
 				setShownTrack(a[0]);
+			// A step held or let go (ticket 24): while one is held, the relays turned lock it
+			else if(m.address == "/lockstep/hold" && a.size() == 4 && inRange(a[0], SeqPatterns)
+				&& inRange(a[1], Tracks) && inRange(a[2], SeqSteps) && inRange(a[3], 2))
+			{
+				const std::array<int, 3> h{a[0], a[1], a[2]};
+				const auto at = std::find(m_pushHolds.begin(), m_pushHolds.end(), h);
+				if(a[3] && at == m_pushHolds.end())
+					m_pushHolds.push_back(h);
+				else if(!a[3] && at != m_pushHolds.end())
+					m_pushHolds.erase(at);
+			}
 		}
+		// A companion silent past a few of its hellos (every 2 s) let go of what it held, whatever was lost on the way
+		if(juce::Time::getMillisecondCounter() - m_pushHelloAt > HoldTimeout)
+			m_pushHolds.clear();
+		// Only a step held on the Track shown, whose parameters the relays turn, keeps them from the Kit
+		const int shown = shownTrack();
+		m_holding.store(std::any_of(m_pushHolds.begin(), m_pushHolds.end(),
+			[&](const std::array<int, 3>& _h) { return _h[1] == shown; }), std::memory_order_release);
+		// The steps a relay locked, so that a short press there keeps its trig
+		for(const auto& [pattern, track, step] : m_pushLocked)
+			m_pushLink->send({"/lockstep/locked", {pattern, track, step}});
+		m_pushLocked.clear();
 		if(!edits.empty())
 			editSequencer([&](Sequencer& _s)
 			{
@@ -1985,6 +2026,18 @@ namespace elektron::drums
 			if(r == parameters::TrackRelay || v == relay.taken.load(std::memory_order_relaxed))
 				continue;
 			relay.taken.store(v, std::memory_order_relaxed);
+			// A step held on the companion (ticket 24): a Lock of the steps held, for the timer, and the Kit untouched;
+			// a parameter that takes no Lock is set as ever
+			if(m_holding.load(std::memory_order_acquire)
+				&& m_locks.target(targets[r]->getParameterIndex()).kind != LockKind::None)
+			{
+				const auto* p = targets[r];
+				const juce::AbstractFifo::ScopedWrite write(m_hostLockFifo, 1);
+				if(write.blockSize1 > 0)
+					m_hostLocks[static_cast<size_t>(write.startIndex1)] = {HeldSteps, shownTrack(), -1,
+						p->getParameterIndex(), p->convertFrom0to1(v)};
+				continue;
+			}
 			static_cast<juce::AudioProcessorParameter&>(*targets[r]).setValue(v);
 			// A turn on Push is a controller's move: LIVE records it on the parameter it moved
 			liveHostChange(targets[r]->getParameterIndex(), v);
@@ -2000,8 +2053,35 @@ namespace elektron::drums
 	void Processor::syncRelays(const bool _reread)
 	{
 		const int shown = shownTrack();
-		const bool edits = shown != m_relaysTrack && !_reread;
+		// A step held on the companion (ticket 24): the relays show its Locks, else the Kit's values, as the hold
+		// starts, and are left to the turns while it lasts; they reach the host as edits as a hold starts and ends, so
+		// that Push shows them
+		const std::array<int, 3>* hold = nullptr;
+		for(const auto& h : m_pushHolds)
+			if(h[1] == shown)
+			{
+				hold = &h;
+				break;
+			}
+		const int holdKey = hold ? ((*hold)[0] * Tracks + (*hold)[1]) * SeqSteps + (*hold)[2] : -1;
+		if(hold && holdKey == m_relaysHold && shown == m_relaysTrack && !_reread)
+			return;
+		const bool edits = (shown != m_relaysTrack || holdKey != m_relaysHold) && !_reread;
 		m_relaysTrack = shown;
+		m_relaysHold = holdKey;
+		const auto valueOf = [&](const size_t _r)
+		{
+			const auto* target = m_relayTargets[static_cast<size_t>(shown)][_r];
+			if(hold)
+			{
+				const auto& p = m_edited->pattern((*hold)[0]);
+				const auto* locks = p.locks(shown, (*hold)[2]);
+				for(int i = 0; locks && i < p.step(shown, (*hold)[2]).lockCount; ++i)
+					if(locks[i].parameter == target->getParameterIndex())
+						return target->convertTo0to1(locks[i].value);
+			}
+			return target->getValue();
+		};
 		for(size_t r = 0; r < m_relays.size(); ++r)
 		{
 			auto& relay = m_relays[r];
@@ -2010,7 +2090,7 @@ namespace elektron::drums
 			if(p.getValue() != taken)
 				continue;
 			const float v = r == parameters::TrackRelay ? relay.parameter->convertTo0to1(static_cast<float>(shown + 1))
-				: m_relayTargets[static_cast<size_t>(shown)][r]->getValue();
+				: valueOf(r);
 			// A skewed range (an LFO's rate) may not give back the bit it was set to
 			if(std::abs(v - taken) <= 1e-6f)
 				continue;
