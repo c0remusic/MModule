@@ -16,12 +16,14 @@
 #include "edDrumsLockerImport.h"
 #include "edDrumsLocks.h"
 #include "edDrumsParameters.h"
+#include "edDrumsPushLink.h"
 #include "edDrumsSampleLibrary.h"
 #include "edDrumsSequencer.h"
 #include "edDrumsTrackSounds.h"
 
 // The instrument: the engine (elektron::drums::Engine) as a plain JUCE AudioProcessor, VST3. Notes 36-51 on any channel
-// hit Tracks 1-16 with their velocity, their note-off ends a held voice; outputs Main and Out 01-15, stereo. It runs at
+// hit Tracks 1-16 with their velocity, their note-off ends a held voice (notes 124-127 are the Push companion's hello,
+// edDrumsPushLink.h); outputs Main and Out 01-15, stereo. It runs at
 // 44.1, 48, 88.2, 96 and 192 kHz (ticket 16: each family at its own rate, edDrumsRate.h), reporting the engine's
 // hitDelay as its latency; at any other it plays silence, reporting none. As the instrument loads it reads the factory bank's words the LOCKER keeps in the data folder
 // (edDrumsLockerImport.h), else its flash image, from the variable GEARMULATOR_MD_FIRMWARE_BIN or the data folder's roms.
@@ -273,6 +275,12 @@ namespace elektron::drums
 		void setLive(const bool _on) { m_live.store(_on); }
 		bool live() const { return m_live.load(); }
 		void takeLive();
+		// The Push companion (ticket 22 of the v2 map, edDrumsPushLink.h), which the timer serves and a test calls: a
+		// hello the audio thread heard opens the link if none is open, and answers; the companion's writes go into the
+		// patterns; the view it shows (the pattern playing, the Track shown) and the step playing go to it as they
+		// change. companionLinkPort() is Lockstep's port, 0 before a hello
+		void serviceCompanion();
+		int companionLinkPort() const { return m_pushLink ? m_pushLink->port() : 0; }
 		// The chain asked for (Sequencer::requestChain), from the next block
 		void requestChain() { m_chainAsked.store(true); }
 		// Any thread: the chain's entry playing, -1 for none, and its pass; fill playing, held or the chain entry's
@@ -725,6 +733,13 @@ namespace elektron::drums
 
 		std::array<std::atomic<int>, Tracks> m_playingStep{};
 		std::atomic<int> m_currentPattern{0};
+
+		// The Push companion: the hello the audio thread reads and the port it last gave; the link, what was last sent
+		PushHello m_pushHello;
+		std::atomic<int> m_pushHelloPort{0};
+		std::unique_ptr<PushLink> m_pushLink;
+		std::vector<int> m_pushView;
+		int m_pushPlay = -2;
 		std::atomic<uint32_t> m_liveTracks{0};
 		std::array<std::atomic<float>, Outputs> m_outputPeak{};
 		std::array<std::atomic<float>, SendCount> m_returnPeak{};

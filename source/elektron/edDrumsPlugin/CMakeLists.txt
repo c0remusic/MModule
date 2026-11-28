@@ -9,7 +9,7 @@ project(edDrumsPlugin VERSION ${CMAKE_PROJECT_VERSION})
 set(SOURCES edDrumsProcessor.cpp edDrumsProcessor.h edDrumsParameters.cpp edDrumsParameters.h edDrumsSampleFiles.cpp
 	edDrumsSampleFiles.h edDrumsSampleLibrary.cpp edDrumsSampleLibrary.h edDrumsKits.cpp edDrumsKits.h
 	edDrumsTrackSounds.cpp edDrumsTrackSounds.h edDrumsLockerImport.cpp edDrumsLockerImport.h edDrumsMachineFiles.cpp edDrumsMachineFiles.h edDrumsNames.cpp edDrumsNames.h
-	edDrumsLocks.cpp edDrumsLocks.h)
+	edDrumsLocks.cpp edDrumsLocks.h edDrumsPushLink.cpp edDrumsPushLink.h)
 
 juce_add_plugin(edDrumsPlugin
 	COMPANY_NAME "c0remusic"
@@ -75,6 +75,14 @@ if(BUILD_TESTING)
 	add_test(NAME edDrumsLocksTest COMMAND edDrumsLocksTest)
 	set_tests_properties(edDrumsLocksTest PROPERTIES TIMEOUT 60)
 	set_property(TARGET edDrumsLocksTest PROPERTY FOLDER "Elektron/test")
+
+	# The Push companion's link alone (ticket 22 of the v2 map): its OSC, its hello, two links on 127.0.0.1
+	add_executable(edDrumsPushLinkTest edDrumsPushLinkTest.cpp edDrumsPushLink.cpp edDrumsPushLink.h)
+	target_link_libraries(edDrumsPushLinkTest PRIVATE juce_plugin_modules)
+	target_compile_definitions(edDrumsPushLinkTest PRIVATE JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1)
+	add_test(NAME edDrumsPushLinkTest COMMAND edDrumsPushLinkTest)
+	set_tests_properties(edDrumsPushLinkTest PROPERTIES TIMEOUT 60)
+	set_property(TARGET edDrumsPushLinkTest PROPERTY FOLDER "Elektron/test")
 
 	# The host's transport, the frozen IDs, every parameter against the engine, the state (GEARMULATOR_MD_FIRMWARE_BIN:
 	# exit 77 without it)

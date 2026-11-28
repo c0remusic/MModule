@@ -25,7 +25,10 @@
 //     blocks, nothing allocated; no glide without SLIDE; a host note ends it;
 //   - the relays for Push follow the Track shown, set its parameter, choose it, and stay out of the state; the state
 //     compressed, its sizes on the default and a full set, restores the same set and samples, as a version 6 state
-//     uncompressed does.
+//     uncompressed does;
+//   - the Push companion's link without Push (ticket 22 of the v2 map): a companion's hello by notes, two instances
+//     each on its own port, trigs written over UDP into the pattern and played at their samples, the other instance
+//     neither written nor told.
 //
 // GEARMULATOR_MD_FIRMWARE_BIN names the flash image; exit 77 without it. With --print-ids, it prints the IDs, one a line.
 
@@ -33,6 +36,8 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_events/juce_events.h>
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -2454,6 +2459,135 @@ namespace
 			differs, stepSample(1.0));
 	}
 
+	// ---- the Push companion's link (ticket 22 of the v2 map) ----
+
+	// A companion without Push: its own port on 127.0.0.1, OSC both ways
+	class Companion
+	{
+	public:
+		Companion() { require(m_socket.bindToPort(0, "127.0.0.1"), "a companion's port"); }
+		int port() const { return m_socket.getBoundPort(); }
+
+		void send(const int _to, const osc::Message& _message)
+		{
+			const auto data = osc::encode(_message);
+			require(m_socket.write("127.0.0.1", _to, data.data(), static_cast<int>(data.size()))
+				== static_cast<int>(data.size()), "a companion's write");
+		}
+
+		// What arrives within _ms
+		std::vector<osc::Message> receive(const int _ms)
+		{
+			std::vector<osc::Message> got;
+			const auto until = juce::Time::getMillisecondCounter() + static_cast<juce::uint32>(_ms);
+			std::array<uint8_t, 2048> buffer{};
+			while(juce::Time::getMillisecondCounter() < until)
+			{
+				if(m_socket.waitUntilReady(true, 10) != 1)
+					continue;
+				juce::String from;
+				int fromPort = 0;
+				const int n = m_socket.read(buffer.data(), static_cast<int>(buffer.size()), false, from, fromPort);
+				if(const auto m = n > 0 ? osc::decode(buffer.data(), static_cast<size_t>(n)) : std::nullopt)
+					got.push_back(*m);
+			}
+			return got;
+		}
+
+		// The hello's four notes, as the companion plays them, in one block; then the timer's turn
+		void hello(Processor& _processor)
+		{
+			juce::AudioBuffer<float> buffer(Channels, Block);
+			juce::MidiBuffer midi;
+			const auto velocities = PushHello::velocities(port());
+			for(int i = 0; i < 4; ++i)
+			{
+				const auto v = static_cast<juce::uint8>(velocities[static_cast<size_t>(i)]);
+				midi.addEvent(juce::MidiMessage::noteOn(1, PushHello::FirstNote + i, v), i);
+				midi.addEvent(juce::MidiMessage::noteOff(1, PushHello::FirstNote + i), i);
+			}
+			_processor.processBlock(buffer, midi);
+			_processor.serviceCompanion();
+		}
+
+	private:
+		juce::DatagramSocket m_socket;
+	};
+
+	const osc::Message* lastOf(const std::vector<osc::Message>& _messages, const std::string& _address)
+	{
+		const osc::Message* last = nullptr;
+		for(const auto& m : _messages)
+			if(m.address == _address)
+				last = &m;
+		return last;
+	}
+
+	void companion(const Library& _library)
+	{
+		constexpr int Length = 400 * Block;		// steps 4 and 9 and their tails
+		Processor a, b;
+		for(auto* p : {&a, &b})
+		{
+			allOutputs(*p);
+			p->prepareToPlay(SampleRate, Block);
+		}
+		Companion ca, cb;
+		require(a.companionLinkPort() == 0, "a link before a hello");
+		ca.hello(a);
+		cb.hello(b);
+		const int portA = a.companionLinkPort(), portB = b.companionLinkPort();
+		require(portA > 0 && portB > 0 && portA != portB, "two instances, two ports: " + std::to_string(portA) + " and "
+			+ std::to_string(portB));
+		for(auto [c, port] : {std::pair{&ca, portA}, std::pair{&cb, portB}})
+		{
+			const auto got = c->receive(300);
+			const auto* hello = lastOf(got, "/lockstep/hello");
+			require(hello && hello->args == std::vector<int>{port}, "the answer to a hello");
+			const auto* view = lastOf(got, "/lockstep/view");
+			require(view && view->args.size() == 19 && view->args[0] == 0 && view->args[1] == 0 && view->args[2] == 16,
+				"the view after a hello");
+			require(std::all_of(view->args.begin() + 3, view->args.end(), [](const int _v) { return _v == 0; }),
+				"a blank pattern's view");
+			require(lastOf(got, "/lockstep/play") != nullptr, "the step playing after a hello");
+		}
+
+		// A's companion sets steps 4 and 9 and sets and removes 12, in that order; B hears nothing of it
+		ca.send(portA, {"/lockstep/trig", {0, 0, 4, 90}});
+		ca.send(portA, {"/lockstep/trig", {0, 0, 12, 100}});
+		ca.send(portA, {"/lockstep/trig", {0, 0, 12, 0}});
+		ca.send(portA, {"/lockstep/trig", {0, 0, 99, 100}});	// past the steps: nothing
+		ca.send(portA, {"/lockstep/trig", {0, 0, 9, 127}});
+		const auto until = juce::Time::getMillisecondCounter() + 2000;
+		while(!a.sequencer().pattern(0).step(0, 9).trig && juce::Time::getMillisecondCounter() < until)
+		{
+			a.serviceCompanion();
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+		const auto& pa = a.sequencer().pattern(0);
+		require(pa.step(0, 9).trig && pa.step(0, 9).velocity == 127, "a trig written by the companion");
+		require(pa.step(0, 4).trig && pa.step(0, 4).velocity == 90 && !pa.step(0, 12).trig,
+			"the writes in their order");
+		for(int s = 0; s < SeqSteps; ++s)
+			require(!b.sequencer().pattern(0).step(0, s).trig, "another instance's pattern written");
+		b.serviceCompanion();
+		require(cb.receive(200).empty(), "another instance's companion told");
+		const auto got = ca.receive(300);
+		const auto* view = lastOf(got, "/lockstep/view");
+		require(view && view->args[3 + 4] == 90 && view->args[3 + 9] == 127 && view->args[3 + 12] == 0,
+			"the view after the writes");
+
+		// What was written plays, at its samples, and the hello played nothing
+		Calls calls;
+		calls.emplace(stepSample(1.0), hitOf(0, 90));
+		calls.emplace(stepSample(9 * 0.25), hitOf(0, 127));
+		const auto take = playSequenced(a, Length);
+		requireSame(take, playEngine(_library, a, calls, Length), "the companion's trigs: ");
+		require(peakOf(take, 0) > 0.05f, "the companion's trigs are silent");
+		std::printf("  Push companion: ports %d and %d, steps 4 and 9 written over UDP and played, the other instance "
+			"untouched\n", portA, portB);
+	}
+
 	void sequencer(const Library& _library)
 	{
 		constexpr int Length = 846 * Block;	// a pattern of 16 steps, 88200 samples, and its start again
@@ -4021,6 +4155,7 @@ int main(const int _argc, char** _argv)
 		const Library library(Library::findFlashImage({}));
 		everyParameter(library);
 		sequencer(library);
+		companion(library);
 		analogState();
 		sequencerFunctions(library);
 		familyChange();

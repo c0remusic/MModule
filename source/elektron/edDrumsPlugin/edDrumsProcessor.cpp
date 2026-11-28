@@ -1204,6 +1204,61 @@ namespace elektron::drums
 		m_liveLocks.clear();
 	}
 
+	void Processor::serviceCompanion()
+	{
+		constexpr int PadSteps = 16;
+		bool resend = false;
+		if(const int port = m_pushHelloPort.exchange(0, std::memory_order_acquire))
+		{
+			if(!m_pushLink)
+				m_pushLink = std::make_unique<PushLink>();
+			m_pushLink->setCompanionPort(port);
+			m_pushLink->send({"/lockstep/hello", {m_pushLink->port()}});
+			resend = true;
+		}
+		if(!m_pushLink)
+			return;
+
+		// Its writes: a trig set or removed on a step of a pattern, everything in range or nothing
+		std::vector<std::array<int, 4>> trigs;
+		for(const auto& m : m_pushLink->take())
+		{
+			const auto& a = m.args;
+			if(m.address == "/lockstep/trig" && a.size() == 4 && a[0] >= 0 && a[0] < SeqPatterns && a[1] >= 0
+				&& a[1] < Tracks && a[2] >= 0 && a[2] < SeqSteps && a[3] >= 0 && a[3] <= 127)
+				trigs.push_back({a[0], a[1], a[2], a[3]});
+		}
+		if(!trigs.empty())
+			editSequencer([&](Sequencer& _s)
+			{
+				for(const auto& [pattern, track, step, velocity] : trigs)
+					_s.pattern(pattern).setTrig(track, step, velocity > 0, std::max(velocity, 1));
+			});
+
+		// What its pads show, sent when it changes
+		const int pattern = currentPattern(), track = shownTrack();
+		const auto& p = m_edited->pattern(pattern);
+		std::vector<int> view{pattern, track, p.trackLength[static_cast<size_t>(track)]};
+		for(int s = 0; s < PadSteps; ++s)
+		{
+			const auto& step = p.step(track, s);
+			view.push_back(step.trig ? step.velocity : 0);
+		}
+		if(resend || view != m_pushView)
+		{
+			m_pushLink->send({"/lockstep/view", view});
+			m_pushView = std::move(view);
+		}
+		int play = playingStep(track);
+		if(play >= PadSteps)
+			play = -1;
+		if(resend || play != m_pushPlay)
+		{
+			m_pushLink->send({"/lockstep/play", {play}});
+			m_pushPlay = play;
+		}
+	}
+
 	bool Processor::loadSample(const int _track, const juce::File& _file, juce::String& _error)
 	{
 		auto result = readSampleFile(_file);
@@ -1865,6 +1920,7 @@ namespace elektron::drums
 		syncRelays(false);
 		pruneSamples();
 		takeLive();
+		serviceCompanion();
 		takeKitSwitch();
 		m_sampleLibrary->update();
 		takeLockSamples();
@@ -2274,6 +2330,13 @@ namespace elektron::drums
 			const int status = metadata.data[0] & 0xf0;
 			const int track = metadata.data[1] - FirstNote;
 			const int velocity = metadata.data[2];
+			// Notes 124-127: the Push companion's hello, which plays nothing
+			if(status == 0x90 && velocity > 0 && metadata.data[1] >= PushHello::FirstNote)
+			{
+				if(const int port = m_pushHello.note(metadata.data[1], velocity))
+					m_pushHelloPort.store(port, std::memory_order_release);
+				continue;
+			}
 			if((status != 0x90 && status != 0x80) || track < 0 || track >= Tracks)
 				continue;
 			const int at = std::clamp(metadata.samplePosition, 0, count);
