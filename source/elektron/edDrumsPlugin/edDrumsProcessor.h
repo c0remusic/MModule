@@ -738,7 +738,7 @@ namespace elektron::drums
 		PushHello m_pushHello;
 		std::atomic<int> m_pushHelloPort{0};
 		std::unique_ptr<PushLink> m_pushLink;
-		std::vector<int> m_pushView;
+		std::vector<int> m_pushView, m_pushTracks;
 		int m_pushPlay = -2;
 		std::atomic<uint32_t> m_liveTracks{0};
 		std::array<std::atomic<float>, Outputs> m_outputPeak{};

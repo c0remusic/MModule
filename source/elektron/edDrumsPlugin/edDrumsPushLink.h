@@ -15,11 +15,14 @@
 //
 // Companion to Lockstep:
 //   /lockstep/trig pattern track step velocity    the step's trig at velocity 1-127, or removed at 0 (all from 0)
+//   /lockstep/track track                         the Track shown, as the editor shows one (ticket 23)
+//   /lockstep/mute track 0|1                      the Track muted or not, kept in the state (ticket 23)
 // Lockstep to companion:
 //   /lockstep/hello port                          Lockstep's port, at each hello
 //   /lockstep/view pattern track length v1..v16   the pattern playing, the Track shown, its length and its first 16
 //                                                 steps' velocities (0 for none), when one of them changes
 //   /lockstep/play step                           the step playing among the 16, -1 stopped or past them
+//   /lockstep/tracks s1..s16                      each Track: 2 muted, 1 with trigs in the pattern playing, else 0
 namespace elektron::drums
 {
 	namespace osc

@@ -1219,25 +1219,51 @@ namespace elektron::drums
 		if(!m_pushLink)
 			return;
 
-		// Its writes: a trig set or removed on a step of a pattern, everything in range or nothing
-		std::vector<std::array<int, 4>> trigs;
-		for(const auto& m : m_pushLink->take())
+		// Its writes, in their order, each in range or ignored: a trig set or removed on a step of a pattern, a Track
+		// muted or not (ticket 23), into the patterns at once; the Track shown, as the editor shows one
+		const auto inRange = [](const int _v, const int _end) { return _v >= 0 && _v < _end; };
+		std::vector<osc::Message> edits;
+		for(auto& m : m_pushLink->take())
 		{
 			const auto& a = m.args;
-			if(m.address == "/lockstep/trig" && a.size() == 4 && a[0] >= 0 && a[0] < SeqPatterns && a[1] >= 0
-				&& a[1] < Tracks && a[2] >= 0 && a[2] < SeqSteps && a[3] >= 0 && a[3] <= 127)
-				trigs.push_back({a[0], a[1], a[2], a[3]});
+			if(m.address == "/lockstep/trig" && a.size() == 4 && inRange(a[0], SeqPatterns) && inRange(a[1], Tracks)
+				&& inRange(a[2], SeqSteps) && inRange(a[3], 128))
+				edits.push_back(std::move(m));
+			else if(m.address == "/lockstep/mute" && a.size() == 2 && inRange(a[0], Tracks) && inRange(a[1], 2))
+				edits.push_back(std::move(m));
+			else if(m.address == "/lockstep/track" && a.size() == 1 && inRange(a[0], Tracks))
+				setShownTrack(a[0]);
 		}
-		if(!trigs.empty())
+		if(!edits.empty())
 			editSequencer([&](Sequencer& _s)
 			{
-				for(const auto& [pattern, track, step, velocity] : trigs)
-					_s.pattern(pattern).setTrig(track, step, velocity > 0, std::max(velocity, 1));
+				for(const auto& m : edits)
+				{
+					const auto& a = m.args;
+					if(m.address == "/lockstep/mute")
+						_s.setMute(a[0], a[1] != 0);
+					else
+						_s.pattern(a[0]).setTrig(a[1], a[2], a[3] > 0, std::max(a[3], 1));
+				}
 			});
 
 		// What its pads show, sent when it changes
 		const int pattern = currentPattern(), track = shownTrack();
 		const auto& p = m_edited->pattern(pattern);
+		// Each Track: 2 muted, 1 with a trig in its length in the pattern playing, else 0
+		std::vector<int> tracks;
+		for(int t = 0; t < Tracks; ++t)
+		{
+			bool trigs = false;
+			for(int s = 0; s < p.trackLength[static_cast<size_t>(t)] && !trigs; ++s)
+				trigs = p.step(t, s).trig;
+			tracks.push_back(m_edited->mute(t) ? 2 : trigs ? 1 : 0);
+		}
+		if(resend || tracks != m_pushTracks)
+		{
+			m_pushLink->send({"/lockstep/tracks", tracks});
+			m_pushTracks = std::move(tracks);
+		}
 		std::vector<int> view{pattern, track, p.trackLength[static_cast<size_t>(track)]};
 		for(int s = 0; s < PadSteps; ++s)
 		{

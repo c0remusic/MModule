@@ -172,6 +172,9 @@ Ticket « Compagnon Push ».
   l'échantillon près.
 - Rien sur l'écran de Push : les pas se lisent par la couleur des pads, les réglages en mode Device. Live garde
   transport, automation, clips et arrangement.
+- Amendé le 2026-11-28 (tickets 22 et 23 de `../elektron-drums-v2/`) : armé, le compagnon prend `Button_Matrix` et
+  la touche Mute ; les encodeurs restent à Live sur les relais, que l'écran de Push nomme, et ne sont pris que le temps
+  d'un pas tenu (ticket 24) ; `Track_Select_Buttons` ne sont pas pris. Texte d'origine :
 - Armé, le compagnon prend `Button_Matrix`, `Track_Controls` et `Track_Select_Buttons`, et les lâche désarmé ; il suit
   `pad_layout` et repeint. Un seul compagnon arme Push à la fois.
 

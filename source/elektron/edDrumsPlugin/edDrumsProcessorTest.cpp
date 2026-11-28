@@ -2586,6 +2586,38 @@ namespace
 		require(peakOf(take, 0) > 0.05f, "the companion's trigs are silent");
 		std::printf("  Push companion: ports %d and %d, steps 4 and 9 written over UDP and played, the other instance "
 			"untouched\n", portA, portB);
+
+		// Its Track pads (ticket 23): Track 4 shown, Track 1 muted, Track 2 muted and unmuted, the mute in the state
+		ca.receive(100);
+		ca.send(portA, {"/lockstep/track", {3}});
+		ca.send(portA, {"/lockstep/mute", {0, 1}});
+		ca.send(portA, {"/lockstep/mute", {1, 1}});
+		ca.send(portA, {"/lockstep/mute", {1, 0}});
+		ca.send(portA, {"/lockstep/track", {16}});		// past the Tracks: nothing
+		ca.send(portA, {"/lockstep/mute", {2, 2}});		// not a mute's value: nothing
+		std::vector<osc::Message> told;
+		// Long enough for every message to arrive, whatever the order they are taken in
+		const auto by = juce::Time::getMillisecondCounter() + 500;
+		while(juce::Time::getMillisecondCounter() < by)
+		{
+			a.serviceCompanion();
+			for(auto& m : ca.receive(10))
+				told.push_back(m);
+		}
+		require(a.shownTrack() == 3 && b.shownTrack() == 0, "the Track shown by the companion");
+		require(a.sequencer().mute(0) && !a.sequencer().mute(1) && !a.sequencer().mute(2) && !b.sequencer().mute(0),
+			"the mutes by the companion");
+		const auto* tracks = lastOf(told, "/lockstep/tracks");
+		require(tracks && tracks->args.size() == 16 && tracks->args[0] == 2 && tracks->args[1] == 0,
+			"the Tracks told after the mutes");
+		const auto* shown = lastOf(told, "/lockstep/view");
+		require(shown && shown->args[1] == 3, "the view of the Track shown");
+		juce::MemoryBlock saved;
+		a.getStateInformation(saved);
+		Processor restored;
+		restored.setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+		require(restored.sequencer().mute(0) && !restored.sequencer().mute(1), "the companion's mute in the state");
+		std::printf("  Push companion's Track pads: Track 4 shown, Track 1 muted and kept in the state\n");
 	}
 
 	void sequencer(const Library& _library)

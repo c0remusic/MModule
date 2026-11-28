@@ -4,7 +4,9 @@
 // playing in /lockstep/play) and writes trigs (/lockstep/trig), OSC on 127.0.0.1 through udpsend and udpreceive; the
 // protocol is edDrumsPushLink.h's. Armed, it takes Push's pad matrix (Button_Matrix) and shows the Track's first 16
 // steps on its top two rows; a pad on an empty step sets a trig at the pad's velocity, a short press on a trig removes
-// it. It plays no note: Lockstep's sequencer does. One companion arms Push at a time, the last one armed.
+// it. Its third and fourth rows are the 16 Tracks (ticket 23): a pad shows its Track; with Push's Mute key held, or
+// latched by a short press, it mutes or unmutes it instead. The encoders stay Live's, on Lockstep's relays. It plays
+// no note: Lockstep's sequencer does. One companion arms Push at a time, the last one armed.
 //
 // Inlets: "start" (live.thisdevice), "arm 0|1" (the Push key), OSC from udpreceive, "otherarmed id" (the global send).
 // Outlets: 0 udpsend, 1 udpreceive, 2 MIDI bytes, 3 the global send, 4 the Push key, 5 the status line.
@@ -25,7 +27,10 @@ var helloTask = null;
 var view = null;				// [pattern, track, length, v1..v16]
 var playStep = -1;
 var armed = false;
+var tracks = null;			// each Track: 2 muted, 1 with trigs, 0 none (/lockstep/tracks)
 var surface = null, matrix = null, matrixId = 0, matrixObserver = null, layoutObserver = null;
+var mute = null, muteId = 0, muteObserver = null;
+var muteHeld = false, muteUsed = false, muteLatched = false;
 var shown = [];				// the colour each pad shows, by row * 8 + column
 var presses = {};			// a step held: {at, added}
 var repaintTask = null, repaints = 0;
@@ -91,6 +96,11 @@ function anything()
 	else if(messagename === "/lockstep/view" && a.length === 3 + PadSteps)
 	{
 		view = a;
+		repaint(false);
+	}
+	else if(messagename === "/lockstep/tracks" && a.length === 16)
+	{
+		tracks = a;
 		repaint(false);
 	}
 	else if(messagename === "/lockstep/play" && a.length === 1)
@@ -183,7 +193,17 @@ function grab()
 			repaintSoon();
 	}, "control_surfaces " + index);
 	layoutObserver.property = "pad_layout";
-	status("Push armed" + (lockstepPort ? "" : ", waiting for Lockstep"));
+	// Push's Mute key, for the Track pads; without it the pads only show Tracks
+	muteId = idOf(surface.call("get_control", "Global_Mute_Button"));
+	if(muteId)
+	{
+		surface.call("release_control", "id", muteId);
+		surface.call("grab_control", "id", muteId);
+		mute = new LiveAPI(noop, "id " + muteId);
+		muteObserver = new LiveAPI(muteKey, "id " + muteId);
+		muteObserver.property = "value";
+	}
+	status("Push armed" + (muteId ? "" : ", no Mute key") + (lockstepPort ? "" : ", waiting for Lockstep"));
 	repaintSoon();
 }
 
@@ -195,11 +215,16 @@ function release()
 		matrixObserver.property = "";
 	if(layoutObserver)
 		layoutObserver.property = "";
-	matrixObserver = layoutObserver = null;
+	if(muteObserver)
+		muteObserver.property = "";
+	matrixObserver = layoutObserver = muteObserver = null;
 	if(surface && matrixId)
 		surface.call("release_control", "id", matrixId);
-	surface = matrix = null;
-	matrixId = 0;
+	if(surface && muteId)
+		surface.call("release_control", "id", muteId);
+	surface = matrix = mute = null;
+	matrixId = muteId = 0;
+	muteHeld = muteUsed = muteLatched = false;
 	shown = [];
 	presses = {};
 	if(started)
@@ -241,6 +266,16 @@ function stepColour(s)
 	return v >= 64 ? Green : Blue;
 }
 
+// A Track's pad: the Track shown white, a Track muted dark, one with trigs green, else blue
+function trackColour(t)
+{
+	if(!view || !tracks)
+		return Black;
+	if(t === view[1])
+		return White;
+	return tracks[t] === 2 ? DarkGrey : tracks[t] === 1 ? Green : Blue;
+}
+
 function repaint(force)
 {
 	if(!matrix)
@@ -248,13 +283,54 @@ function repaint(force)
 	for(var row = 0; row < 8; ++row)
 		for(var col = 0; col < 8; ++col)
 		{
-			var c = row < 2 ? stepColour(row * 8 + col) : Black;
+			var c = row < 2 ? stepColour(row * 8 + col) : row < 4 ? trackColour((row - 2) * 8 + col) : Black;
 			var k = row * 8 + col;
 			if(!force && shown[k] === c)
 				continue;
 			shown[k] = c;
 			matrix.call("send_value", col, row, c);
 		}
+	// The Mute key lit while the mode is latched
+	var m = muteLatched ? 127 : 0;
+	if(mute && (force || shown[64] !== m))
+	{
+		shown[64] = m;
+		mute.call("send_value", m);
+	}
+}
+
+// Push's Mute key: held, the Track pads mute; pressed and released without one, it latches the mode or leaves it
+function muteKey(args)
+{
+	if(!args || args[0] !== "value" || args.length < 2)
+		return;
+	if(Number(args[1]) > 0)
+	{
+		muteHeld = true;
+		muteUsed = false;
+		return;
+	}
+	muteHeld = false;
+	if(!muteUsed)
+		muteLatched = !muteLatched;
+	repaint(false);
+}
+
+// A Track's pad pressed: muted or unmuted in the Mute mode, else shown
+function trackPad(t)
+{
+	if(muteHeld || muteLatched)
+	{
+		muteUsed = true;
+		if(!tracks)
+			return;
+		var on = tracks[t] === 2 ? 0 : 1;
+		outlet(0, "/lockstep/mute", t, on);
+		tracks[t] = on ? 2 : 1;		// until Lockstep tells whether it has trigs
+		repaint(false);
+		return;
+	}
+	outlet(0, "/lockstep/track", t);
 }
 
 // The matrix's value: velocity, column, row (row 0 at the top); velocity 0 when the pad comes up
@@ -263,6 +339,12 @@ function pad(args)
 	if(!args || args[0] !== "value" || args.length < 4 || !view || !lockstepPort)
 		return;
 	var velocity = Number(args[1]), col = Number(args[2]), row = Number(args[3]);
+	if(row === 2 || row === 3)
+	{
+		if(velocity > 0)
+			trackPad((row - 2) * 8 + col);
+		return;
+	}
 	if(row > 1)
 		return;
 	var s = row * 8 + col;
